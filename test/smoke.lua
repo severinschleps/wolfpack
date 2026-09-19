@@ -567,16 +567,32 @@ assert(#texDD._items == 5 and #fontDD._items == 6, "dropdown entries")
 -- Menu entries' regions refuse SetFont in the real client (Blizzard_Menu Compositor)
 local function menuButton()
     local b = new()
-    b.fontString = new()
+    b.fontString, b.leftTexture1 = new(), new()
     function b:AttachFontString()
         local fs = new()
         function fs:SetFont() error("Use of function 'SetFont' is disallowed") end
+        b._attached = fs
         return fs
     end
+    function b:AttachTexture() b._attached = new(); return b._attached end
     return b
 end
-for _, it in ipairs(texDD._items) do assert(type(it.init(menuButton())) == "number", "texture preview") end
-for _, it in ipairs(fontDD._items) do assert(type(it.init(menuButton())) == "number", "font preview") end
+-- previews go in a column after the radio tick; the name starts after that column
+local function checkColumn(b, slot)
+    local p, n = b._attached._point, b.fontString._point
+    assert(p[1] == "LEFT" and p[2] == b.leftTexture1 and p[3] == "RIGHT", "preview right after the tick")
+    assert(n[1] == "LEFT" and n[2] == b._attached and n[4] == slot + 10, "name after the preview column")
+end
+for _, it in ipairs(texDD._items) do
+    local b = menuButton()
+    assert(type(it.init(b)) == "number", "texture preview")
+    checkColumn(b, 90)
+end
+for _, it in ipairs(fontDD._items) do
+    local b = menuButton()
+    assert(it.init(b) >= 22 + 44 + 10 + #it.text * 7, "font entry wide enough for preview + name")
+    checkColumn(b, 44)
+end
 texDD._items[2].set(); fontDD._items[6].set()
 dds[5]:GenerateMenu()
 assert(#dds[5]._items == 7 and dds[5]._items[7].text == "Pill (50% of height)", "radius presets")
@@ -749,7 +765,11 @@ assert(iof.note._text:find("CPD1"), "error explained")
 assert(#ns.COMBAT_FONTS == 21, "20 fonts + WoW default")
 dds[11]:GenerateMenu()
 assert(#dds[11]._items == 21, "combat font dropdown")
-for _, it in ipairs(dds[11]._items) do assert(type(it.init(menuButton())) == "number", "combat font preview") end
+for _, it in ipairs(dds[11]._items) do
+    local b = menuButton()
+    assert(type(it.init(b)) == "number" and b._attached._text == "123", "combat font preview")
+    checkColumn(b, 56)
+end
 dds[11]._items[6].set()
 local picked = ns.COMBAT_FONTS[6][2]
 assert(ComboPointDisplayDB.combatFont == picked, "stored account-wide")

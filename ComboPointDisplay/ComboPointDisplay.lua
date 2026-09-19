@@ -1046,15 +1046,30 @@ local function dropdown(parent, text, x, y, list, get, set, preview)
     return dd
 end
 
-local function textPreview(button) return button.fontString:GetUnboundedStringWidth() + 40 end
+-- Menu entry previews sit in a fixed-width column right after the radio tick, and the name
+-- starts after that column, so a preview can never cover a name, however wide the menu ends up.
+-- Returns the entry width. (Name width falls back to an estimate if it can't be measured yet.)
+local function beforeName(button, item, region, slot)
+    if button.leftTexture1 then
+        region:SetPoint("LEFT", button.leftTexture1, "RIGHT", 4, 0)
+    else
+        region:SetPoint("LEFT", button, "LEFT", 22, 0)
+    end
+    button.fontString:SetPoint("LEFT", region, "LEFT", slot + 10, 0)
+    local nameW = math.max(button.fontString:GetUnboundedStringWidth(), #item[1] * 7)
+    return 22 + slot + 10 + nameW + 12
+end
+
+local function textPreview(button, item)
+    return 22 + math.max(button.fontString:GetUnboundedStringWidth(), #item[1] * 7) + 16
+end
 
 local function texturePreview(button, item)
     local t = button:AttachTexture()
     t:SetSize(90, 12)
-    t:SetPoint("RIGHT", -6, 0)
     t:SetTexture(item[2])
     t:SetVertexColor(unpack(cur().color))
-    return button.fontString:GetUnboundedStringWidth() + 130
+    return beforeName(button, item, t, 90)
 end
 
 -- Menu font strings refuse SetFont, so each font gets a Font object for SetFontObject.
@@ -1075,27 +1090,24 @@ local DAMAGE_YELLOW = { 1, 1, 0 } -- like the game's spell damage numbers
 
 local function combatFontPreview(button, item)
     local fs = button:AttachFontString()
-    fs:SetPoint("RIGHT", -6, 0)
     fs:SetFontObject(item.object)
     fs:SetTextColor(unpack(DAMAGE_YELLOW))
     fs:SetText("123")
-    return button.fontString:GetUnboundedStringWidth() + fs:GetUnboundedStringWidth() + 50
+    return beforeName(button, item, fs, 56) -- widest: Press Start 2P, 48 px at 16 px
 end
 
 local function fontPreview(button, item)
     local fs = button:AttachFontString()
-    fs:SetPoint("RIGHT", -6, 0)
     fs:SetFontObject(item.object)
-    fs:SetText("12345")
-    return button.fontString:GetUnboundedStringWidth() + fs:GetUnboundedStringWidth() + 50
+    fs:SetText("123")
+    return beforeName(button, item, fs, 44)
 end
 
 local function iconPreview(button, item)
     local t = button:AttachTexture()
     t:SetSize(20, 20)
-    t:SetPoint("RIGHT", -6, 0)
     t:SetTexture(item[2])
-    return button.fontString:GetUnboundedStringWidth() + 60
+    return beforeName(button, item, t, 20)
 end
 
 local function move(i, d)
@@ -1561,9 +1573,8 @@ local function buildConfig()
         function(v) CI().style = v end, function(button, item)
             local t = button:AttachTexture()
             t:SetSize(20, 20)
-            t:SetPoint("RIGHT", -6, 0)
             setCombatArt(t, item[2])
-            return button.fontString:GetUnboundedStringWidth() + 60
+            return beforeName(button, item, t, 20)
         end)
     dropdown(otherPage, "Attach to bar", 16, -344, function()
         local list = {}
