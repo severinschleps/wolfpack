@@ -151,8 +151,14 @@ C_ClassColor = { GetClassColor = function(token) return CLASS[token] end }
 UnitPowerType = function() return S.ptype, TOKENS[S.ptype] end
 UnitPower = function() return S.secret and SECRET or 3 end
 UnitPowerMax = function(_, t) return S.secret and SECRET or (S.max[t] or 100) end
-UnitHealth = function(unit) return unit == "target" and S.targetHP or SECRET end
-UnitExists = function(unit) return unit == "target" and S.targetHP ~= nil end
+UnitHealth = function(unit)
+    if unit == "target" then return S.targetHP elseif unit == "pet" then return S.petHP end
+    return SECRET
+end
+UnitExists = function(unit)
+    if unit == "pet" then return S.petHP ~= nil end
+    return unit == "target" and S.targetHP ~= nil
+end
 UnitHealthMax = function() return 1000 end
 
 local ns = {}
@@ -257,6 +263,17 @@ assert(cb:GetAlpha() == 1 and cb.text._text == "Cast Bar" and cb.icon._tex == 13
 prof().locked = true; fire("UNIT_MAXPOWER")
 assert(cb:GetAlpha() == 0, "locked again: hidden")
 prof().regular.bars.castbar.icon, prof().regular.bars.castbar.iconSide = true, "left"
+
+-- Pet health: only with a pet; own value; joins the stack at the end (64 + 2 + 10)
+local pb = fr.pethealth
+assert(not pb:IsShown() and ComboPointDisplayFrame._h == 64, "no pet: no bar")
+S.petHP = 300; fire("UNIT_PET", "player")
+assert(pb:IsShown() and pb.segs[1]._value == 300 and pb.segs[1]._max == 1000 and pb.text._text == "300", "pet bar")
+assert(ComboPointDisplayFrame._h == 76 and pb._point[5] == -66, "last in the stack")
+S.petHP = 120; fire("UNIT_HEALTH", "pet")
+assert(pb.segs[1]._value == 120 and fr.health.segs[1]._value == SECRET, "pet updates on its own")
+S.petHP = nil; fire("UNIT_PET", "player")
+assert(not pb:IsShown() and ComboPointDisplayFrame._h == 64, "pet gone")
 
 -- In-combat icon: in combat only (or previewing), centered on the chosen bar's left edge
 local ci, icon = prof().regular.combatIcon, ns.combatIcon
@@ -566,7 +583,7 @@ assert(prof().other.hideGryphons and caps.LeftEndCap.Texture._alpha == 0 and cap
 gcheck._checked = false; gcheck._scripts.OnClick(gcheck)
 assert(caps.LeftEndCap.Texture._alpha == 1, "shown again")
 dds[9]:GenerateMenu(); dds[10]:GenerateMenu() -- combat icon art, attach-to bar
-assert(#dds[9]._items == 4 and #dds[10]._items == 5, "combat icon choices, one entry per bar")
+assert(#dds[9]._items == 4 and #dds[10]._items == 6, "combat icon choices, one entry per bar")
 for _, it in ipairs(dds[9]._items) do assert(type(it.init(menuButton())) == "number", "combat icon preview") end
 dds[10]._items[2].set()
 assert(prof().regular.combatIcon.bar == prof().regular.order[2], "attached to the second bar")
@@ -635,7 +652,8 @@ end
 for _, m in ipairs({ "regular", "nameplate" }) do
     local seen = {}
     for _, k in ipairs(prof()[m].order) do seen[k] = true end
-    assert(seen.health and seen.power and seen.combo and seen.druidmana and seen.castbar and #prof()[m].order == 5, "order intact")
+    assert(seen.health and seen.power and seen.combo and seen.druidmana and seen.castbar and seen.pethealth
+        and #prof()[m].order == 6, "order intact")
 end
 
 SlashCmdList.COMBOPOINTDISPLAY("")

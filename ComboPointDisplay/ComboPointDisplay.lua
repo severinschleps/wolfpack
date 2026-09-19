@@ -45,16 +45,17 @@ end
 
 -- One layout per place the bars can show. x/y = the group's top-center: from the screen center
 -- (regular) or from the bottom of the target's nameplate (nameplate).
-local function layoutDefaults(show, x, y, gap, width, h1, h2, h3, h4, h5)
+local function layoutDefaults(show, x, y, gap, width, h1, h2, h3, h4, h5, h6)
     local l = {
         x = x, y = y, gap = gap,
-        order = { "health", "power", "combo", "druidmana", "castbar" },
+        order = { "health", "power", "combo", "druidmana", "castbar", "pethealth" }, -- new bars go last
         bars = {
             health = barDefaults(show, width, h1, 0.2, 0.8, 0.2, show),
             power = barDefaults(show, width, h2, 1, 0.85, 0.1, show),
             combo = barDefaults(show, width, h3, 1, 0.3, 0.1, false),
             druidmana = barDefaults(show, width, h4, 0.2, 0.45, 1, false),
             castbar = barDefaults(show, width, h5, 1, 0.7, 0, true), -- text = spell name
+            pethealth = barDefaults(show, width, h6, 0.3, 0.7, 0.3, show),
         },
     }
     l.bars.power.colorMode = "power"
@@ -66,8 +67,8 @@ end
 -- top-right corner plus x/y. Icons are file IDs.
 local DEFAULTS = {
     locked = true,
-    regular = layoutDefaults(true, 0, -120, 2, 220, 18, 14, 12, 6, 14),
-    nameplate = layoutDefaults(false, 0, -2, 1, 110, 8, 6, 6, 4, 8),
+    regular = layoutDefaults(true, 0, -120, 2, 220, 18, 14, 12, 6, 14, 10),
+    nameplate = layoutDefaults(false, 0, -2, 1, 110, 8, 6, 6, 4, 8, 5),
     quest = {
         x = 0, y = 0, spacing = 2,
         kill = { show = true, icon = 131013, size = 20 },
@@ -142,6 +143,11 @@ local BARS = {
             return max > 0, max
         end,
         value = function() return UnitPower("player", classPower()) end,
+    },
+    pethealth = {
+        label = "Pet Health",
+        state = function() return UnitExists("pet"), 1 end,
+        value = function() return UnitHealth("pet"), UnitHealthMax("pet") end,
     },
     castbar = {
         label = "Cast Bar",
@@ -979,7 +985,7 @@ StaticPopupDialogs.COMBOPOINTDISPLAY_DELETE = {
 
 local function buildConfig()
     cfg = CreateFrame("Frame", "ComboPointDisplayConfig", UIParent, "BasicFrameTemplateWithInset")
-    cfg:SetSize(820, 620)
+    cfg:SetSize(820, 650)
     cfg:SetPoint("CENTER")
     cfg:SetFrameStrata("DIALOG")
     cfg:SetMovable(true)
@@ -1047,7 +1053,7 @@ local function buildConfig()
     -- Pages to the right of the sidebar. The bars page edits the layout picked by `mode`.
     local barsPage = CreateFrame("Frame", nil, cfg)
     barsPage:SetPoint("TOPLEFT", 134, 0)
-    barsPage:SetSize(686, 620)
+    barsPage:SetSize(686, 650)
     local questPage = CreateFrame("Frame", nil, cfg)
     questPage:SetAllPoints(barsPage)
     local otherPage = CreateFrame("Frame", nil, cfg)
@@ -1090,35 +1096,35 @@ local function buildConfig()
             if key == selected then sel:LockHighlight() else sel:UnlockHighlight() end
         end)
     end
-    slider(barsPage, "Gap between bars", 16, -262, 0, 30, function() return L().gap end, function(v) L().gap = v end)
-    label(barsPage, "Group position", "GameFontNormal"):SetPoint("TOPLEFT", 16, -308)
+    slider(barsPage, "Gap between bars", 16, -288, 0, 30, function() return L().gap end, function(v) L().gap = v end)
+    label(barsPage, "Group position", "GameFontNormal"):SetPoint("TOPLEFT", 16, -334)
     local groupNote = label(barsPage, "", "GameFontDisableSmall")
-    groupNote:SetPoint("TOPLEFT", 16, -324)
+    groupNote:SetPoint("TOPLEFT", 16, -350)
     onRefresh(function()
         groupNote:SetText(mode == "regular" and "top-center, from the screen center" or "top-center, from under the nameplate")
     end)
     local function xr() return mode == "regular" and math.floor(UIParent:GetWidth() / 2) or 200 end
     local function yr() return mode == "regular" and math.floor(UIParent:GetHeight() / 2) or 200 end
-    slider(barsPage, "X (left / right)", 16, -342, function() return -xr() end, xr,
+    slider(barsPage, "X (left / right)", 16, -368, function() return -xr() end, xr,
         function() return L().x end, function(v) L().x = v; place() end)
-    slider(barsPage, "Y (down / up)", 16, -384, function() return -yr() end, yr,
+    slider(barsPage, "Y (down / up)", 16, -410, function() return -yr() end, yr,
         function() return L().y end, function(v) L().y = v; place() end)
-    local lock = button(barsPage, "", 96, 16, -430, function() db.locked = not db.locked; changed() end)
+    local lock = button(barsPage, "", 96, 16, -456, function() db.locked = not db.locked; changed() end)
     onRefresh(function()
         lock:SetShown(mode == "regular")
         lock:SetText(db.locked and "Unlock" or "Lock")
     end)
     local playerFrameOpts = {
-        check(barsPage, "Hide Blizzard player frame", 16, -462,
+        check(barsPage, "Hide Blizzard player frame", 16, -488,
             function() return db.regular.hidePlayerFrame end, function(v) db.regular.hidePlayerFrame = v end),
-        check(barsPage, "Right-click: player menu", 16, -486,
+        check(barsPage, "Right-click: player menu", 16, -512,
             function() return db.regular.playerMenu end, function(v) db.regular.playerMenu = v end),
-        check(barsPage, "Hide Blizzard cast bar", 16, -510,
+        check(barsPage, "Hide Blizzard cast bar", 16, -536,
             function() return db.regular.hideBlizzCastbar end, function(v) db.regular.hideBlizzCastbar = v end),
     }
     onRefresh(function() for _, w in ipairs(playerFrameOpts) do w:SetShown(mode == "regular") end end)
     label(barsPage, "Mouse wheel on a slider changes it by 1.\nBlizzard frame options apply out of combat.\n"
-        .. "Click options block clicks through the bars.", "GameFontDisableSmall"):SetPoint("TOPLEFT", 16, -544)
+        .. "Click options block clicks through the bars.", "GameFontDisableSmall"):SetPoint("TOPLEFT", 16, -570)
 
     -- Column 2: the selected bar's show, size, offset, look
     local X = 240
@@ -1370,6 +1376,8 @@ local function autoComplete(event)
     end
 end
 
+local petEv = CreateFrame("Frame") -- same handler as ev, for pet unit events
+
 local function fillShown(...)
     for i = 1, select("#", ...) do
         local key = select(i, ...)
@@ -1395,6 +1403,9 @@ ev:SetScript("OnEvent", function(_, event, unit)
         end
         listen("UNIT_HEALTH", "player", "target")
         listen("UNIT_MAXHEALTH", "player", "target")
+        listen("UNIT_PET", "player") -- pet summoned, dismissed or swapped
+        pcall(petEv.RegisterUnitEvent, petEv, "UNIT_HEALTH", "pet")
+        pcall(petEv.RegisterUnitEvent, petEv, "UNIT_MAXHEALTH", "pet")
         for _, e in ipairs({ "UNIT_POWER_FREQUENT", "UNIT_MAXPOWER", "UNIT_DISPLAYPOWER", "UNIT_QUEST_LOG_CHANGED" }) do
             listen(e, "player")
         end
@@ -1409,7 +1420,7 @@ ev:SetScript("OnEvent", function(_, event, unit)
         useProfile(store.profiles[mine or ""] and mine or classProfile)
         placeMini()
     elseif event == "UNIT_HEALTH" then
-        fillShown("health")
+        fillShown("health", "pethealth")
         if targetFrame:IsShown() then safe(fill, targetFrame) end
     elseif event == "UNIT_POWER_FREQUENT" then
         fillShown("power", "combo", "druidmana")
@@ -1435,4 +1446,5 @@ ev:SetScript("OnEvent", function(_, event, unit)
         safe(Refresh)
     end
 end)
+petEv:SetScript("OnEvent", ev:GetScript("OnEvent"))
 listen("PLAYER_LOGIN")
