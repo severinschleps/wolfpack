@@ -14,6 +14,10 @@ function M:Hide() self._shown = false end
 function M:SetShown(v) assert(v == nil or type(v) == "boolean", "SetShown got " .. type(v)); self._shown = not not v end
 function M:IsShown() return self._shown end
 function M:SetScript(k, fn) self._scripts[k] = fn end
+M.HookScript = M.SetScript
+function M:GetText() return self._text end
+function M:SetText(t) self._text = t end
+function M:HasFocus() return false end
 function M:SetMinMaxValues(a, b) self._min, self._max = a, b end
 function M:SetValue(v) self._value = v end
 function M:GetValue() return type(self._value) == "number" and self._value or 0 end
@@ -115,8 +119,18 @@ local mini = ComboPointDisplayMinimapButton
 mini._scripts.OnDragStart(mini); mini._scripts.OnUpdate(mini); mini._scripts.OnDragStop(mini)
 assert(ComboPointDisplayDB.minimapAngle ~= 220 and not mini._scripts.OnUpdate, "minimap drag")
 
--- Options window: poke every control
+-- Options window: typed numbers apply on Enter and clamp to the slider range (gap: 0-30)
 SlashCmdList.COMBOPOINTDISPLAY("")
+local gapBox
+for _, f in ipairs(created) do if f._kind == "EditBox" then gapBox = gapBox or f end end
+gapBox._text = "7"; gapBox._scripts.OnEnterPressed(gapBox)
+assert(ComboPointDisplayDB.gap == 7 and gapBox._text == "7", "typed gap")
+gapBox._text = "999"; gapBox._scripts.OnEditFocusLost(gapBox)
+assert(ComboPointDisplayDB.gap == 30 and gapBox._text == "30", "clamped gap")
+gapBox._text = "3"; gapBox._scripts.OnEscapePressed(gapBox)
+assert(gapBox._text == "30", "escape restores")
+
+-- Poke every control
 for _, f in ipairs(created) do
     local sc = f._scripts
     for _, btn in ipairs({ "LeftButton", "RightButton" }) do

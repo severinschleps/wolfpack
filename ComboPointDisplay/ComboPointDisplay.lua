@@ -300,7 +300,7 @@ local SLIDER_BACKDROP = {
 
 local function slider(parent, text, x, y, min, max, get, set)
     local s = CreateFrame("Slider", nil, parent, "BackdropTemplate")
-    s:SetSize(200, 16)
+    s:SetSize(150, 16)
     s:SetPoint("TOPLEFT", x, y - 16)
     s:SetBackdrop(SLIDER_BACKDROP)
     s:SetOrientation("HORIZONTAL")
@@ -310,20 +310,42 @@ local function slider(parent, text, x, y, min, max, get, set)
     s:SetValueStep(1)
     s:SetObeyStepOnDrag(true)
     s:EnableMouseWheel(true) -- wheel = +/-1 for exact values
-    local fs = label(s, "", "GameFontNormalSmall")
-    fs:SetPoint("BOTTOMLEFT", s, "TOPLEFT", 0, 2)
+    label(s, text, "GameFontNormalSmall"):SetPoint("BOTTOMLEFT", s, "TOPLEFT", 0, 2)
     local syncing
     s:SetScript("OnValueChanged", function(_, v)
         v = math.floor(v + 0.5)
-        fs:SetText(text .. ": " .. v)
         if not syncing and v ~= get() then set(v); changed() end
     end)
     s:SetScript("OnMouseWheel", function(_, d) s:SetValue(s:GetValue() + d) end)
+
+    -- Typed value: Enter or clicking away applies it (clamped to the slider range), Escape cancels.
+    local box = CreateFrame("EditBox", nil, parent, "InputBoxTemplate")
+    box:SetSize(40, 20)
+    box:SetPoint("LEFT", s, "RIGHT", 12, 0)
+    box:SetAutoFocus(false)
+    box:SetNumeric(true)
+    box:SetMaxLetters(3)
+    local function apply()
+        local v = tonumber(box:GetText())
+        if v then
+            set(math.max(min, math.min(max, math.floor(v))))
+            changed()
+        end
+        box:SetText(tostring(get()))
+        box:ClearFocus()
+    end
+    box:SetScript("OnEnterPressed", apply)
+    box:HookScript("OnEditFocusLost", apply)
+    box:SetScript("OnEscapePressed", function()
+        box:SetText(tostring(get()))
+        box:ClearFocus()
+    end)
+
     onRefresh(function()
         syncing = true
         s:SetValue(get())
-        fs:SetText(text .. ": " .. get())
         syncing = false
+        if not box:HasFocus() then box:SetText(tostring(get())) end
     end)
     return s
 end
