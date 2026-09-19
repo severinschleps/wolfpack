@@ -1,7 +1,7 @@
 -- Smoke test: runs the addon against a fake WoW API. Run from the repo root: luajit test/smoke.lua
 -- SECRET mimics Forever's secret values: any math, comparison or concat on it throws.
 local SECRET = setmetatable({}, { __tostring = function() error("tostring on secret") end })
-local S = { class = "ROGUE", ptype = 3, secret = true, max = {}, plate = nil }
+local S = { class = "ROGUE", name = "Tester", ptype = 3, secret = true, max = {}, plate = nil }
 local TOKENS = { [0] = "MANA", [1] = "RAGE", [3] = "ENERGY" }
 
 local created, evFrame = {}, nil
@@ -30,6 +30,14 @@ function M:GetCenter() return 100, 100 end
 function M:GetTop() return 150 end
 function M:GetFrameLevel() return 1 end
 function M:GetWidth() return 140 end
+function M:GetHeight() return 100 end
+function M:SetupMenu(gen) self._gen = gen end
+function M:GenerateMenu() -- records the dropdown's radio items
+    local root = { items = {} }
+    function root:CreateRadio(text, isSel, set) self.items[#self.items + 1] = { text = text, sel = isSel, set = set } end
+    self._gen(self, root)
+    self._items = root.items
+end
 function M:GetEffectiveScale() return 1 end
 function M:IsForbidden() return false end
 function M:RegisterEvent() evFrame = self end
@@ -47,6 +55,11 @@ PowerBarColor = { ENERGY = { r = 1, g = 1, b = 0 }, MANA = { r = 0, g = 0, b = 1
 local realPrint = print
 print = function(msg) error("addon reported: " .. tostring(msg), 0) end
 GetCursorPosition = function() return 10, 20 end
+strtrim = function(str) return (str:gsub("^%s+", ""):gsub("%s+$", "")) end
+StaticPopupDialogs = {}
+StaticPopup_Show = function(which, _, _, data) StaticPopupDialogs[which].OnAccept(nil, data) end -- clicks Yes
+UnitName = function() return S.name end
+GetRealmName = function() return "Realm" end
 CreateFrame = function(kind, name)
     local f = new(kind)
     f._name = name
@@ -60,7 +73,7 @@ ColorPickerFrame = {
     GetColorAlpha = function() return 0.5 end,
 }
 C_NamePlate = { GetNamePlateForUnit = function() return S.plate end }
-UnitClass = function() return "x", S.class end
+UnitClass = function() return S.class:sub(1, 1) .. S.class:sub(2):lower(), S.class end -- "Rogue", "ROGUE"
 UnitPowerType = function() return S.ptype, TOKENS[S.ptype] end
 UnitPower = function() return S.secret and SECRET or 3 end
 UnitPowerMax = function(_, t) return S.secret and SECRET or (S.max[t] or 100) end
@@ -70,7 +83,10 @@ UnitHealthMax = function() return 1000 end
 local ns = {}
 assert(loadfile("ComboPointDisplay/ComboPointDisplay.lua"))("ComboPointDisplay", ns)
 local function fire(e) evFrame._scripts.OnEvent(evFrame, e) end
-local function login(class, ptype) S.class, S.ptype = class, ptype; fire("PLAYER_LOGIN") end
+-- each class logs in as its own character
+local function login(class, ptype) S.class, S.name, S.ptype = class, class .. "Char", ptype; fire("PLAYER_LOGIN") end
+local function prof() return ComboPointDisplayDB.profiles[ComboPointDisplayDB.chars[S.name .. " - Realm"]] end
+local function byText(text) for _, f in ipairs(created) do if f._text == text then return f end end end
 local fr = ns.frames
 
 -- Rogue, secret values: 5 pips, each lit when points >= i; stack = 18 + 2 + 14 + 2 + 12
@@ -102,10 +118,15 @@ assert(not fr.combo:IsShown(), "no holy power on this client")
 login("WARRIOR", 1)
 assert(not fr.combo:IsShown() and fr.power:IsShown(), "warrior")
 
+-- Profiles: one per class, named after it, shared account-wide
+local store = ComboPointDisplayDB
+assert(store.profiles.Rogue and store.profiles.Druid and store.profiles.Paladin and store.profiles.Warrior, "class profiles")
+assert(store.chars["WARRIORChar - Realm"] == "Warrior", "character on its class profile")
+
 -- Nameplate: combo follows the target plate, hides without one
 S.secret = true
 login("ROGUE", 3)
-ComboPointDisplayDB.bars.combo.nameplate = true
+prof().bars.combo.nameplate = true
 fire("PLAYER_TARGET_CHANGED")
 assert(not fr.combo:IsShown(), "no plate, no bar")
 S.plate = new(); fire("NAME_PLATE_UNIT_ADDED")
@@ -121,14 +142,43 @@ assert(ComboPointDisplayDB.minimapAngle ~= 220 and not mini._scripts.OnUpdate, "
 
 -- Options window: typed numbers apply on Enter and clamp to the slider range (gap: 0-30)
 SlashCmdList.COMBOPOINTDISPLAY("")
-local gapBox
-for _, f in ipairs(created) do if f._kind == "EditBox" then gapBox = gapBox or f end end
+local boxes = {} -- profile name, gap, X, Y, width, height
+for _, f in ipairs(created) do if f._kind == "EditBox" then boxes[#boxes + 1] = f end end
+local nameBox, gapBox, xBox, yBox = boxes[1], boxes[2], boxes[3], boxes[4]
 gapBox._text = "7"; gapBox._scripts.OnEnterPressed(gapBox)
-assert(ComboPointDisplayDB.gap == 7 and gapBox._text == "7", "typed gap")
+assert(prof().gap == 7 and gapBox._text == "7", "typed gap")
 gapBox._text = "999"; gapBox._scripts.OnEditFocusLost(gapBox)
-assert(ComboPointDisplayDB.gap == 30 and gapBox._text == "30", "clamped gap")
+assert(prof().gap == 30 and gapBox._text == "30", "clamped gap")
 gapBox._text = "3"; gapBox._scripts.OnEscapePressed(gapBox)
 assert(gapBox._text == "30", "escape restores")
+
+-- Position: X/Y take negative numbers and clamp to half the screen (mock screen 140 x 100)
+xBox._text = "-50"; xBox._scripts.OnEnterPressed(xBox)
+yBox._text = "-999"; yBox._scripts.OnEnterPressed(yBox)
+assert(prof().x == -50 and prof().y == -50, "typed position")
+yBox._text = "abc"; yBox._scripts.OnEnterPressed(yBox)
+assert(prof().y == -50 and yBox._text == "-50", "junk input ignored")
+local mover -- the unnamed frame with drag + right-click handlers
+for _, f in ipairs(created) do if f._scripts.OnMouseUp and f._scripts.OnDragStart and not f._name then mover = f end end
+mover._scripts.OnDragStart(mover); mover._scripts.OnUpdate(mover); mover._scripts.OnDragStop(mover)
+assert(prof().x == 0 and prof().y == 50 and not mover._scripts.OnUpdate, "drag stores coordinates")
+
+-- Profiles: create copies the current one, dropdown switches, delete falls back to the class profile
+nameBox._text = "  PvP "; nameBox._scripts.OnEnterPressed(nameBox)
+assert(store.profiles.PvP and store.profiles.PvP.gap == 30 and prof() == store.profiles.PvP, "create copies + switches")
+prof().gap = 5
+assert(store.profiles.Rogue.gap == 30, "profiles are independent")
+local dd
+for _, f in ipairs(created) do if f._gen then dd = f end end
+dd:GenerateMenu()
+local names = {}
+for _, it in ipairs(dd._items) do names[#names + 1] = it.text .. (it.sel() and "*" or "") end
+assert(table.concat(names, ",") == "Druid,Paladin,PvP*,Rogue,Warrior", table.concat(names, ","))
+dd._items[4].set()
+assert(prof() == store.profiles.Rogue, "dropdown switches")
+dd._items[3].set()
+byText("Delete")._scripts.OnClick(byText("Delete"), "LeftButton")
+assert(not store.profiles.PvP and prof() == store.profiles.Rogue, "delete falls back to class profile")
 
 -- Poke every control
 for _, f in ipairs(created) do
@@ -147,8 +197,8 @@ for _, f in ipairs(created) do
     end
 end
 local seen = {}
-for _, k in ipairs(ComboPointDisplayDB.order) do seen[k] = true end
-assert(seen.health and seen.power and seen.combo and seen.druidmana and #ComboPointDisplayDB.order == 4, "order intact")
+for _, k in ipairs(prof().order) do seen[k] = true end
+assert(seen.health and seen.power and seen.combo and seen.druidmana and #prof().order == 4, "order intact")
 
 SlashCmdList.COMBOPOINTDISPLAY("")
 realPrint("smoke ok")

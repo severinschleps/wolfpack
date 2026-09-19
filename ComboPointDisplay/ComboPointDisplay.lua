@@ -26,7 +26,7 @@ local function barDefaults(height, r, g, b, text)
 end
 
 local DEFAULTS = {
-    locked = true, gap = 2, x = 0, y = -120, minimapAngle = 220,
+    locked = true, gap = 2, x = 0, y = -120,
     order = { "health", "power", "combo", "druidmana" },
     bars = {
         health = barDefaults(18, 0.2, 0.8, 0.2, true),
@@ -53,7 +53,10 @@ end
 ------------------------------------------------------------------------------------------
 -- Data sources
 ------------------------------------------------------------------------------------------
-local db, class
+-- store = ComboPointDisplayDB, account-wide: { profiles = { [name] = settings }, chars = { [char] = name } }
+-- db = the active profile's settings.
+local store, db, class, charKey, classProfile
+local changed, placeMini, useProfile -- defined further down
 local CLASS_POWER = {
     ROGUE = PT.ComboPoints, DRUID = PT.ComboPoints, PALADIN = PT.HolyPower, WARLOCK = PT.SoulShards,
     MONK = PT.Chi, MAGE = PT.ArcaneCharges, EVOKER = PT.Essence,
@@ -115,29 +118,39 @@ local function place()
     anchor:SetPoint("TOP", UIParent, "CENTER", db.x, db.y)
 end
 
+-- Position = top-center of the stack, in pixels from the screen center.
+local function coords()
+    local ux, uy = UIParent:GetCenter()
+    return math.floor(anchor:GetCenter() - ux + 0.5), math.floor(anchor:GetTop() - uy + 0.5)
+end
+
 -- Drag handle shown while unlocked; sits above the bars.
+local HINT = "X %d  Y %d  -  drag to move, right-click for options"
 local mover = CreateFrame("Frame", nil, anchor)
 mover:SetAllPoints()
 mover:SetFrameLevel(anchor:GetFrameLevel() + 20)
 mover:Hide()
 mover:EnableMouse(true)
 mover:RegisterForDrag("LeftButton")
-mover:SetScript("OnDragStart", function() anchor:StartMoving() end)
-mover:SetScript("OnDragStop", function()
-    anchor:StopMovingOrSizing()
-    local ux, uy = UIParent:GetCenter()
-    db.x, db.y = anchor:GetCenter() - ux, anchor:GetTop() - uy
-    place()
-end)
-mover:SetScript("OnMouseUp", function(_, button)
-    if button == "RightButton" then ns.ToggleConfig() end
-end)
 local moverTex = mover:CreateTexture(nil, "OVERLAY")
 moverTex:SetAllPoints()
 moverTex:SetColorTexture(0.2, 1, 0.2, 0.3)
 local moverHint = mover:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
 moverHint:SetPoint("BOTTOM", mover, "TOP", 0, 2)
-moverHint:SetText("Drag to move, right-click for options")
+mover:SetScript("OnDragStart", function()
+    anchor:StartMoving()
+    mover:SetScript("OnUpdate", function() moverHint:SetFormattedText(HINT, coords()) end) -- live coordinates
+end)
+mover:SetScript("OnDragStop", function()
+    anchor:StopMovingOrSizing()
+    mover:SetScript("OnUpdate", nil)
+    db.x, db.y = coords()
+    place()
+    changed()
+end)
+mover:SetScript("OnMouseUp", function(_, button)
+    if button == "RightButton" then ns.ToggleConfig() end
+end)
 
 for key in pairs(BARS) do
     frames[key] = CreateFrame("Frame", nil, anchor)
@@ -239,6 +252,7 @@ local function Refresh()
     end
     anchor:SetSize(w, math.max(h, 10))
     mover:SetShown(not db.locked)
+    moverHint:SetFormattedText(HINT, db.x, db.y)
 end
 
 -- One report per session, printed to chat: Lua errors are hidden by default and this client
@@ -257,7 +271,7 @@ end
 local cfg, selected = nil, "health"
 local refreshers = {}
 
-local function changed()
+changed = function()
     safe(Refresh)
     for _, fn in ipairs(refreshers) do fn() end
 end
@@ -323,8 +337,7 @@ local function slider(parent, text, x, y, min, max, get, set)
     box:SetSize(40, 20)
     box:SetPoint("LEFT", s, "RIGHT", 12, 0)
     box:SetAutoFocus(false)
-    box:SetNumeric(true)
-    box:SetMaxLetters(3)
+    box:SetMaxLetters(5) -- not SetNumeric: X/Y need a minus sign; tonumber() rejects the rest
     local function apply()
         local v = tonumber(box:GetText())
         if v then
@@ -394,9 +407,51 @@ local function move(i, d)
     end
 end
 
+------------------------------------------------------------------------------------------
+-- Profiles (account-wide). Each character starts on its class profile, e.g. "Rogue".
+------------------------------------------------------------------------------------------
+useProfile = function(name)
+    store.profiles[name] = merge(store.profiles[name] or {}, DEFAULTS)
+    store.chars[charKey] = name
+    db = store.profiles[name]
+    place()
+    changed()
+end
+
+local function profileNames()
+    local names = {}
+    for name in pairs(store.profiles) do names[#names + 1] = name end
+    table.sort(names)
+    return names
+end
+
+-- New profiles start as a copy of the current one; an existing name just switches to it.
+local function createProfile(name)
+    name = strtrim(name or "")
+    if name == "" then return end
+    if not store.profiles[name] then store.profiles[name] = merge({}, db) end
+    useProfile(name)
+end
+
+-- Characters on the deleted profile fall back to their class profile (recreated if needed).
+local function deleteProfile(name)
+    store.profiles[name] = nil
+    for char, p in pairs(store.chars) do
+        if p == name then store.chars[char] = nil end
+    end
+    useProfile(classProfile)
+end
+
+StaticPopupDialogs.COMBOPOINTDISPLAY_DELETE = {
+    text = "Delete ComboPointDisplay profile \"%s\"?",
+    button1 = YES, button2 = NO,
+    OnAccept = function(_, name) deleteProfile(name) end,
+    timeout = 0, whileDead = true, hideOnEscape = true,
+}
+
 local function buildConfig()
     cfg = CreateFrame("Frame", "ComboPointDisplayConfig", UIParent, "BasicFrameTemplateWithInset")
-    cfg:SetSize(460, 400)
+    cfg:SetSize(460, 540)
     cfg:SetPoint("CENTER")
     cfg:SetFrameStrata("DIALOG")
     cfg:SetMovable(true)
@@ -407,10 +462,46 @@ local function buildConfig()
     tinsert(UISpecialFrames, cfg:GetName()) -- Escape closes it
     label(cfg, "ComboPointDisplay"):SetPoint("TOP", 0, -5)
 
-    -- Left column: order, gap, lock
-    label(cfg, "Bars, top to bottom", "GameFontNormal"):SetPoint("TOPLEFT", 16, -34)
+    -- Left column: profile
+    label(cfg, "Profile (account-wide)", "GameFontNormal"):SetPoint("TOPLEFT", 16, -34)
+    local dd = CreateFrame("DropdownButton", nil, cfg, "WowStyle1DropdownTemplate")
+    dd:SetPoint("TOPLEFT", 16, -52)
+    dd:SetWidth(196)
+    dd:SetupMenu(function(_, root)
+        for _, name in ipairs(profileNames()) do
+            root:CreateRadio(name, function() return name == store.chars[charKey] end, function() useProfile(name) end)
+        end
+    end)
+    onRefresh(function() dd:GenerateMenu() end)
+    label(cfg, "New profile (copies current):", "GameFontNormalSmall"):SetPoint("TOPLEFT", 16, -82)
+    local nameBox = CreateFrame("EditBox", nil, cfg, "InputBoxTemplate")
+    nameBox:SetSize(124, 20)
+    nameBox:SetPoint("TOPLEFT", 22, -96)
+    nameBox:SetAutoFocus(false)
+    nameBox:SetMaxLetters(32)
+    local function create()
+        createProfile(nameBox:GetText())
+        nameBox:SetText("")
+        nameBox:ClearFocus()
+    end
+    nameBox:SetScript("OnEnterPressed", create)
+    nameBox:SetScript("OnEscapePressed", function() nameBox:ClearFocus() end)
+    button(cfg, "Create", 60, 152, -95, create)
+    button(cfg, "Delete", 96, 16, -124, function()
+        local name = store.chars[charKey]
+        StaticPopup_Show("COMBOPOINTDISPLAY_DELETE", name, nil, name)
+    end)
+    button(cfg, "Reset profile", 96, 116, -124, function()
+        wipe(db)
+        merge(db, DEFAULTS)
+        place()
+        changed()
+    end)
+
+    -- Left column: order, gap
+    label(cfg, "Bars, top to bottom", "GameFontNormal"):SetPoint("TOPLEFT", 16, -162)
     for i = 1, #db.order do
-        local y = -54 - (i - 1) * 26
+        local y = -182 - (i - 1) * 26
         local sel = button(cfg, "", 110, 16, y, function() selected = db.order[i]; changed() end)
         button(cfg, "Up", 36, 128, y, function() move(i, -1) end)
         button(cfg, "Down", 46, 166, y, function() move(i, 1) end)
@@ -420,17 +511,18 @@ local function buildConfig()
             if key == selected then sel:LockHighlight() else sel:UnlockHighlight() end
         end)
     end
-    slider(cfg, "Gap between bars", 16, -170, 0, 30, function() return db.gap end, function(v) db.gap = v end)
-    local lock = button(cfg, "", 96, 16, -220, function() db.locked = not db.locked; changed() end)
+    slider(cfg, "Gap between bars", 16, -294, 0, 30, function() return db.gap end, function(v) db.gap = v end)
+
+    -- Left column: position (top-center of the bars, from the screen center)
+    label(cfg, "Position", "GameFontNormal"):SetPoint("TOPLEFT", 16, -340)
+    local xr, yr = math.floor(UIParent:GetWidth() / 2), math.floor(UIParent:GetHeight() / 2)
+    slider(cfg, "X (left / right)", 16, -360, -xr, xr, function() return db.x end, function(v) db.x = v; place() end)
+    slider(cfg, "Y (down / up)", 16, -402, -yr, yr, function() return db.y end, function(v) db.y = v; place() end)
+    local lock = button(cfg, "", 96, 16, -448, function() db.locked = not db.locked; changed() end)
     onRefresh(function() lock:SetText(db.locked and "Unlock" or "Lock") end)
-    button(cfg, "Reset all", 96, 116, -220, function()
-        wipe(db)
-        merge(db, DEFAULTS)
-        place()
-        changed()
-    end)
-    local help = label(cfg, "Texture button: left-click next,\nright-click previous.\n\nMouse wheel on a slider\nchanges it by 1.", "GameFontDisableSmall")
-    help:SetPoint("TOPLEFT", 16, -260)
+    local help = label(cfg, "Texture button: left-click next, right-click previous.\nMouse wheel on a slider changes it by 1.",
+        "GameFontDisableSmall")
+    help:SetPoint("TOPLEFT", 16, -486)
     help:SetJustifyH("LEFT")
 
     -- Right column: selected bar
@@ -502,8 +594,8 @@ miniBorder:SetSize(53, 53)
 miniBorder:SetPoint("TOPLEFT")
 miniBorder:SetTexture("Interface\\Minimap\\MiniMap-TrackingBorder")
 
-local function placeMini()
-    local a, r = math.rad(db.minimapAngle), Minimap:GetWidth() / 2 + 10
+placeMini = function()
+    local a, r = math.rad(store.minimapAngle), Minimap:GetWidth() / 2 + 10
     mini:ClearAllPoints()
     mini:SetPoint("CENTER", Minimap, "CENTER", math.cos(a) * r, math.sin(a) * r)
 end
@@ -523,7 +615,7 @@ mini:SetScript("OnDragStart", function(self)
         local mx, my = Minimap:GetCenter()
         local cx, cy = GetCursorPosition()
         local s = Minimap:GetEffectiveScale()
-        db.minimapAngle = math.deg(math.atan2(cy / s - my, cx / s - mx))
+        store.minimapAngle = math.deg(math.atan2(cy / s - my, cx / s - mx))
         placeMini()
     end)
 end)
@@ -557,9 +649,13 @@ end
 
 ev:SetScript("OnEvent", function(_, event)
     if event == "PLAYER_LOGIN" then
-        ComboPointDisplayDB = merge(ComboPointDisplayDB or {}, DEFAULTS)
-        db = ComboPointDisplayDB
-        class = select(2, UnitClass("player"))
+        -- ponytail: settings saved before profiles existed are dropped (the beta never loaded them anyway)
+        store = type(ComboPointDisplayDB) == "table" and ComboPointDisplayDB.profiles and ComboPointDisplayDB
+            or { profiles = {}, chars = {} }
+        ComboPointDisplayDB = store
+        store.minimapAngle = store.minimapAngle or 220
+        classProfile, class = UnitClass("player")
+        charKey = UnitName("player") .. " - " .. GetRealmName()
         for _, e in ipairs({ "UNIT_HEALTH", "UNIT_MAXHEALTH", "UNIT_POWER_FREQUENT", "UNIT_MAXPOWER", "UNIT_DISPLAYPOWER" }) do
             listen(e, "player")
         end
@@ -567,9 +663,9 @@ ev:SetScript("OnEvent", function(_, event)
             "NAME_PLATE_UNIT_ADDED", "NAME_PLATE_UNIT_REMOVED" }) do
             listen(e)
         end
-        place()
+        local mine = store.chars[charKey]
+        useProfile(store.profiles[mine or ""] and mine or classProfile)
         placeMini()
-        safe(Refresh)
     elseif event == "UNIT_HEALTH" then
         fillShown("health")
     elseif event == "UNIT_POWER_FREQUENT" then
