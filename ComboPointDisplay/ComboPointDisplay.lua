@@ -113,8 +113,8 @@ local DEFAULTS = {
     nameplate = layoutDefaults(false, 0, -2, 1, 110, 8, 6, 6, 4, 8, 5, 5),
     quest = {
         x = 0, y = 0, spacing = 2,
-        kill = { show = true, icon = 131013, size = 20 },
-        loot = { show = true, icon = 131023, size = 20 },
+        kill = { show = true, icon = 131013, size = 20, count = false },
+        loot = { show = true, icon = 131023, size = 20, count = false },
     },
     other = {
         hideGryphons = false, autoAccept = false, autoComplete = false,
@@ -557,15 +557,17 @@ local function scanQuestLog()
     end
 end
 
--- kill, loot for a unit: "mine", "party" (only groupmates still need it) or nil. Open
+-- kill, loot for a unit: "mine", "party" (only groupmates still need it) or nil, plus how many
+-- are still needed (from the "3/10" in the tooltip line, so groupmates' numbers work too). Open
 -- objectives only. In a group the tooltip names whose objective follows (QuestPlayer lines); where
 -- it doesn't, the objective counts as yours. ponytail: objective types come from your own quest
 -- log, so a groupmate's item objective for a quest you don't have shows as a kill.
 local function questKinds(unit)
     local related = C_QuestLog.UnitIsRelatedToActiveQuest(unit)
-    if not related and not IsInGroup() then return nil, nil end -- solo: skip the tooltip
+    if not related and not IsInGroup() then return nil, nil, {} end -- solo: skip the tooltip
     local data = C_TooltipInfo.GetUnit(unit)
     local mine, party, anyObjective, own = {}, {}, false, true
+    local left = {}
     for _, line in ipairs(data and data.lines or {}) do
         if line.type == LINE.QuestTitle then
             own = true
@@ -574,14 +576,19 @@ local function questKinds(unit)
         elseif line.type == LINE.QuestObjective then
             anyObjective = true
             if not line.completed then
-                local kind = objectiveTypes[bareText(line.leftText or "")] == "item" and "loot" or "kill"
+                local text = line.leftText or ""
+                local kind = objectiveTypes[bareText(text)] == "item" and "loot" or "kill"
                 if own then mine[kind] = true else party[kind] = true end
+                local have, need = text:match("(%d+)%s*/%s*(%d+)")
+                if have then -- one mob can serve several quests: the biggest count is what's left
+                    left[kind] = math.max(left[kind] or 0, need - have)
+                end
             end
         end
     end
     if not anyObjective and related then mine.kill = true end -- quest mob, but no objective named
     return mine.kill and "mine" or party.kill and "party" or nil,
-        mine.loot and "mine" or party.loot and "party" or nil
+        mine.loot and "mine" or party.loot and "party" or nil, left
 end
 
 -- Nameplates are recycled, so each plate keeps one icon holder; plateUnits maps the units
@@ -613,6 +620,14 @@ local function styleQuest(h)
         t:ClearAllPoints()
         t:SetPoint("TOPLEFT", h.box, "TOPLEFT", x, 0)
         t:SetShown(on)
+        local badge, count = h.badge[kind], h.left[kind]
+        local showCount = (on and c.count and count and count > 0) and true or false
+        badge.text:SetShown(showCount)
+        badge.bg:SetShown(showCount)
+        if showCount then
+            badge.text:SetText(count)
+            badge.bg:SetSize(badge.text:GetStringWidth() + 4, badge.text:GetStringHeight() + 2)
+        end
         if on then x = x + c.size + q.spacing end
     end
 end
@@ -620,8 +635,11 @@ end
 local function evalQuest(unit)
     local h = plateUnits[unit]
     if not h then return end
-    local ok, kill, loot = pcall(questKinds, unit)
-    if ok then h.want.kill, h.want.loot = kill, loot end -- secret mid-combat: keep what we had
+    local ok, kill, loot, left = pcall(questKinds, unit)
+    if ok then -- secret mid-combat: keep what we had
+        h.want.kill, h.want.loot = kill, loot
+        h.left.kill, h.left.loot = left.kill, left.loot
+    end
     styleQuest(h)
 end
 
@@ -634,10 +652,21 @@ local function plateAdded(unit)
         h:SetAllPoints()
         h:SetFrameLevel(plate:GetFrameLevel() + 10)
         h.box = CreateFrame("Frame", nil, h)
-        h.kill, h.loot, h.want = h.box:CreateTexture(nil, "OVERLAY"), h.box:CreateTexture(nil, "OVERLAY"), {}
+        h.kill, h.loot, h.want, h.left = h.box:CreateTexture(nil, "OVERLAY"), h.box:CreateTexture(nil, "OVERLAY"), {}, {}
+        h.badge = {}
+        for _, kind in ipairs(QUEST_ORDER) do -- small "how many left" plate above the icon
+            local bg = h.box:CreateTexture(nil, "OVERLAY", nil, 1)
+            bg:SetColorTexture(0, 0, 0, 0.8)
+            local text = h.box:CreateFontString(nil, "OVERLAY", nil, 2)
+            text:SetFont(STANDARD_TEXT_FONT or "Fonts\\FRIZQT__.TTF", 10, "OUTLINE")
+            text:SetPoint("BOTTOM", h[kind], "TOP", 0, 2)
+            bg:SetPoint("CENTER", text)
+            h.badge[kind] = { bg = bg, text = text }
+        end
         questHolders[plate] = h
     end
     h.want.kill, h.want.loot = nil, nil
+    h.left.kill, h.left.loot = nil, nil
     plateUnits[unit] = h
     evalQuest(unit)
 end
@@ -1670,6 +1699,8 @@ local function buildConfig()
         dropdown(questPage, "Icon", X, -150, QUEST_ICONS[kind[1]], function() return q().icon end,
             function(v) q().icon = v end, iconPreview)
         slider(questPage, "Size", X, -198, 8, 64, function() return q().size end, function(v) q().size = v end)
+        check(questPage, "Show how many are left", X, -246, function() return q().count end,
+            function(v) q().count = v end)
     end
 
     -- Other page: general toggles, and the Combat Display group's mouse behaviour

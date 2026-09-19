@@ -51,6 +51,8 @@ function M:GetWidth() return self._w or 140 end
 function M:GetHeight() return self._h or 100 end
 function M:SetAttribute(k, v) self._attr = self._attr or {}; self._attr[k] = v end
 function M:GetUnboundedStringWidth() return 50 end
+function M:GetStringWidth() return 8 end
+function M:GetStringHeight() return 10 end
 function M:GetNumPoints() return self._point and 1 or 0 end
 function M:GetPoint() return unpack(self._point) end
 function M:SetupMenu(gen) self._gen = gen end
@@ -507,6 +509,21 @@ local bp, kp, lp = h.box._point, h.kill._point, h.loot._point
 assert(bp[1] == "TOPRIGHT" and bp[2] == h and bp[3] == "TOPRIGHT" and bp[4] == 0 and bp[5] == 0, "row at the top-right corner")
 assert(h.box._w == 42 and h.kill._tex == 131013, "room for both: 20 + 2 + 20")
 assert(kp[1] == "TOPLEFT" and kp[2] == h.box and kp[4] == 0 and lp[4] == 22, "sword left, bag right")
+-- how many are left, from the tooltip's "3/10" (kill) and "2/6" (item)
+local Q = prof().quest
+assert(not h.badge.kill.text:IsShown(), "no numbers unless asked")
+Q.kill.count, Q.loot.count = true, true
+fire("QUEST_LOG_UPDATE")
+assert(h.badge.kill.text:IsShown() and h.badge.kill.text._text == 7, "7 kills left")
+assert(h.badge.loot.text._text == 4 and h.badge.loot.bg._color[1] == 0, "4 items left, black plate")
+assert(h.badge.kill.text._point[1] == "BOTTOM" and h.badge.kill.text._point[2] == h.kill, "centered above the icon")
+assert(h.badge.kill.bg._w == 12 and h.badge.kill.bg._h == 12, "plate hugs the number")
+Q.kill.count, Q.loot.count = false, false
+fire("QUEST_LOG_UPDATE")
+assert(not h.badge.kill.text:IsShown(), "off again")
+Q.kill.count = true
+fire("QUEST_LOG_UPDATE")
+
 S.tips.nameplate1[2].completed = true
 fire("QUEST_LOG_UPDATE")
 assert(not h.kill:IsShown() and h.loot:IsShown(), "finished kill objective hidden")
