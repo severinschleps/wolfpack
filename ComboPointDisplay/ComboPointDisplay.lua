@@ -1,0 +1,504 @@
+-- ComboPointDisplay: stacked health / power / combo point / druid mana bars for WoW: Forever.
+--
+-- Forever runs the Retail (Midnight) API: UnitPower and friends return "secret" values that
+-- addon code may not compare or do math on. So values only ever go into StatusBar:SetValue and
+-- FontString:SetText; combo pips are StatusBars with range (i-1, i), which light up when
+-- value >= i without Lua ever comparing the number.
+local ADDON, ns = ...
+local PT = Enum.PowerType
+local isSecret = issecretvalue or function() return false end
+local PIP_GAP = 2 -- ponytail: fixed spacing between combo pips; make it a setting if wanted
+
+local TEXTURES = {
+    { "Blizzard", "Interface\\TargetingFrame\\UI-StatusBar" },
+    { "Flat", "Interface\\Buttons\\WHITE8X8" },
+    { "Raid", "Interface\\RaidFrame\\Raid-Bar-Hp-Fill" },
+    { "Raid Resource", "Interface\\RaidFrame\\Raid-Bar-Resource-Fill" },
+    { "Skills", "Interface\\PaperDollInfoFrame\\UI-Character-Skills-Bar" },
+}
+
+local function barDefaults(height, r, g, b, text)
+    return {
+        enabled = true, width = 220, height = height, texture = TEXTURES[1][2],
+        color = { r, g, b, 1 }, gradient = false, color2 = { r * 0.4, g * 0.4, b * 0.4, 1 },
+        vertical = false, text = text,
+    }
+end
+
+local DEFAULTS = {
+    locked = true, gap = 2, x = 0, y = -120,
+    order = { "health", "power", "combo", "druidmana" },
+    bars = {
+        health = barDefaults(18, 0.2, 0.8, 0.2, true),
+        power = barDefaults(14, 1, 0.85, 0.1, true),
+        combo = barDefaults(12, 1, 0.3, 0.1, false),
+        druidmana = barDefaults(6, 0.2, 0.45, 1, false),
+    },
+}
+DEFAULTS.bars.power.powerColor = true
+DEFAULTS.bars.combo.nameplate = false
+
+local function merge(dst, src)
+    for k, v in pairs(src) do
+        if type(v) == "table" then
+            if type(dst[k]) ~= "table" then dst[k] = {} end
+            merge(dst[k], v)
+        elseif dst[k] == nil then
+            dst[k] = v
+        end
+    end
+    return dst
+end
+
+------------------------------------------------------------------------------------------
+-- Data sources
+------------------------------------------------------------------------------------------
+local db, class
+local CLASS_POWER = {
+    ROGUE = PT.ComboPoints, DRUID = PT.ComboPoints, PALADIN = PT.HolyPower, WARLOCK = PT.SoulShards,
+    MONK = PT.Chi, MAGE = PT.ArcaneCharges, EVOKER = PT.Essence,
+}
+
+local function classPower()
+    if class == "DRUID" and UnitPowerType("player") ~= PT.Energy then return nil end -- cat form only
+    return CLASS_POWER[class]
+end
+
+-- state() -> shown, segment count. value() -> current, max (both possibly secret).
+local BARS = {
+    health = {
+        label = "Health",
+        state = function() return true, 1 end,
+        value = function() return UnitHealth("player"), UnitHealthMax("player") end,
+    },
+    power = {
+        label = "Power",
+        state = function() return true, 1 end,
+        value = function()
+            local t = UnitPowerType("player")
+            return UnitPower("player", t), UnitPowerMax("player", t)
+        end,
+    },
+    combo = {
+        label = "Combo Points",
+        state = function()
+            local t = classPower()
+            if not t then return false end
+            local max = UnitPowerMax("player", t)
+            -- ponytail: max is secret on the Forever beta, so assume 5 combo points and hide other
+            -- class resources; drop this line once Blizzard un-secrets class resources.
+            if isSecret(max) then max = t == PT.ComboPoints and 5 or 0 end
+            return max > 0, max
+        end,
+        value = function() return UnitPower("player", classPower()) end,
+    },
+    druidmana = {
+        label = "Druid Mana",
+        -- in caster form the power bar already is mana
+        state = function() return class == "DRUID" and UnitPowerType("player") ~= PT.Mana, 1 end,
+        value = function() return UnitPower("player", PT.Mana), UnitPowerMax("player", PT.Mana) end,
+    },
+}
+
+------------------------------------------------------------------------------------------
+-- Bars
+------------------------------------------------------------------------------------------
+local frames = {}
+ns.frames = frames
+
+local anchor = CreateFrame("Frame", "ComboPointDisplayFrame", UIParent)
+anchor:SetMovable(true)
+anchor:SetClampedToScreen(true)
+
+local function place()
+    anchor:ClearAllPoints()
+    anchor:SetPoint("TOP", UIParent, "CENTER", db.x, db.y)
+end
+
+-- Drag handle shown while unlocked; sits above the bars.
+local mover = CreateFrame("Frame", nil, anchor)
+mover:SetAllPoints()
+mover:SetFrameLevel(anchor:GetFrameLevel() + 20)
+mover:Hide()
+mover:EnableMouse(true)
+mover:RegisterForDrag("LeftButton")
+mover:SetScript("OnDragStart", function() anchor:StartMoving() end)
+mover:SetScript("OnDragStop", function()
+    anchor:StopMovingOrSizing()
+    local ux, uy = UIParent:GetCenter()
+    db.x, db.y = anchor:GetCenter() - ux, anchor:GetTop() - uy
+    place()
+end)
+mover:SetScript("OnMouseUp", function(_, button)
+    if button == "RightButton" then ns.ToggleConfig() end
+end)
+local moverTex = mover:CreateTexture(nil, "OVERLAY")
+moverTex:SetAllPoints()
+moverTex:SetColorTexture(0.2, 1, 0.2, 0.3)
+local moverHint = mover:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+moverHint:SetPoint("BOTTOM", mover, "TOP", 0, 2)
+moverHint:SetText("Drag to move, right-click for options")
+
+for key in pairs(BARS) do
+    frames[key] = CreateFrame("Frame", nil, anchor)
+    frames[key].key, frames[key].segs = key, {}
+end
+
+local function paint(s, c, r, g, b)
+    s:SetStatusBarTexture(c.texture) -- before colors: a new texture resets them
+    if c.gradient then
+        s:SetStatusBarColor(1, 1, 1, 1)
+        local c1, c2 = CreateColor(r, g, b, c.color[4]), CreateColor(unpack(c.color2))
+        if c.vertical then
+            s:GetStatusBarTexture():SetGradient("VERTICAL", c2, c1) -- min is the bottom edge
+        else
+            s:GetStatusBarTexture():SetGradient("HORIZONTAL", c1, c2)
+        end
+    else
+        s:SetStatusBarColor(r, g, b, c.color[4])
+    end
+end
+
+local function layoutBar(f, n)
+    local c = db.bars[f.key]
+    local r, g, b = unpack(c.color)
+    if f.key == "power" and c.powerColor then
+        local pc = PowerBarColor and PowerBarColor[select(2, UnitPowerType("player"))]
+        if pc then r, g, b = pc.r, pc.g, pc.b end
+    end
+    f:SetSize(c.width, c.height)
+    local w = (c.width - (n - 1) * PIP_GAP) / n
+    for i = 1, math.max(n, #f.segs) do
+        local s = f.segs[i]
+        if i > n then
+            s:Hide()
+        else
+            if not s then
+                s = CreateFrame("StatusBar", nil, f)
+                local bg = s:CreateTexture(nil, "BACKGROUND")
+                bg:SetAllPoints()
+                bg:SetColorTexture(0, 0, 0, 0.5)
+                f.segs[i] = s
+            end
+            s:SetSize(w, c.height)
+            s:SetPoint("LEFT", f, "LEFT", (i - 1) * (w + PIP_GAP), 0)
+            s:SetMinMaxValues(i - 1, i) -- pip range; single bars get their real max in fill()
+            paint(s, c, r, g, b)
+            s:Show()
+        end
+    end
+    if not f.text then
+        f.text = f.segs[1]:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+        f.text:SetPoint("CENTER", f)
+    end
+    f.text:SetShown(c.text and n == 1)
+    f.n = n
+end
+
+local function setText(fs, v) fs:SetText(AbbreviateNumbers(v)) end
+
+local function fill(f)
+    local v, max = BARS[f.key].value()
+    if f.n == 1 then
+        f.segs[1]:SetMinMaxValues(0, max)
+        f.segs[1]:SetValue(v)
+        if f.text:IsShown() and not pcall(setText, f.text, v) then f.text:SetText("") end
+    else
+        for i = 1, f.n do f.segs[i]:SetValue(v) end
+    end
+end
+
+local function targetPlate()
+    local ok, p = pcall(C_NamePlate.GetNamePlateForUnit, "target")
+    if ok and p and not (p.IsForbidden and p:IsForbidden()) then return p end
+end
+
+local function Refresh()
+    local prev, w, h = nil, 20, 0
+    for _, key in ipairs(db.order) do
+        local f, c = frames[key], db.bars[key]
+        local shown, n = BARS[key].state()
+        local plate = key == "combo" and c.nameplate and targetPlate()
+        shown = (shown and c.enabled and (plate or not c.nameplate)) and true or false
+        f:SetParent(plate or anchor)
+        f:SetShown(shown)
+        if shown then
+            layoutBar(f, n)
+            fill(f)
+            f:ClearAllPoints()
+            if plate then
+                -- ponytail: fixed spot under the nameplate; add x/y offsets if it collides with a plate addon
+                f:SetPoint("TOP", plate, "BOTTOM", 0, -2)
+            else
+                if prev then f:SetPoint("TOP", prev, "BOTTOM", 0, -db.gap) else f:SetPoint("TOP") end
+                h = h + c.height + (prev and db.gap or 0)
+                w = math.max(w, c.width)
+                prev = f
+            end
+        end
+    end
+    anchor:SetSize(w, math.max(h, 10))
+    mover:SetShown(not db.locked)
+end
+
+-- One report per session: this client stops showing errors after 100.
+local function safe(fn, ...)
+    local ok, err = pcall(fn, ...)
+    if not ok and not ns.errored then
+        ns.errored = true
+        geterrorhandler()(err)
+    end
+end
+
+------------------------------------------------------------------------------------------
+-- Options window (/cpd)
+------------------------------------------------------------------------------------------
+local cfg, selected = nil, "health"
+local refreshers = {}
+
+local function changed()
+    safe(Refresh)
+    for _, fn in ipairs(refreshers) do fn() end
+end
+
+local function cur() return db.bars[selected] end
+local function onRefresh(fn) refreshers[#refreshers + 1] = fn end
+
+local function label(parent, text, font)
+    local fs = parent:CreateFontString(nil, "OVERLAY", font or "GameFontHighlight")
+    fs:SetText(text)
+    return fs
+end
+
+local function button(parent, text, w, x, y, onClick)
+    local b = CreateFrame("Button", nil, parent, "UIPanelButtonTemplate")
+    b:SetSize(w, 22)
+    b:SetPoint("TOPLEFT", x, y)
+    b:SetText(text)
+    b:RegisterForClicks("LeftButtonUp", "RightButtonUp")
+    b:SetScript("OnClick", onClick)
+    return b
+end
+
+local function check(parent, text, x, y, get, set)
+    local cb = CreateFrame("CheckButton", nil, parent, "UICheckButtonTemplate")
+    cb:SetSize(24, 24)
+    cb:SetPoint("TOPLEFT", x, y)
+    label(cb, text):SetPoint("LEFT", cb, "RIGHT", 2, 1)
+    cb:SetScript("OnClick", function(self) set(self:GetChecked()); changed() end)
+    onRefresh(function() cb:SetChecked(get()) end)
+    return cb
+end
+
+local SLIDER_BACKDROP = {
+    bgFile = "Interface\\Buttons\\UI-SliderBar-Background",
+    edgeFile = "Interface\\Buttons\\UI-SliderBar-Border",
+    tile = true, tileSize = 8, edgeSize = 8,
+    insets = { left = 3, right = 3, top = 6, bottom = 6 },
+}
+
+local function slider(parent, text, x, y, min, max, get, set)
+    local s = CreateFrame("Slider", nil, parent, "BackdropTemplate")
+    s:SetSize(200, 16)
+    s:SetPoint("TOPLEFT", x, y - 16)
+    s:SetBackdrop(SLIDER_BACKDROP)
+    s:SetOrientation("HORIZONTAL")
+    s:SetThumbTexture("Interface\\Buttons\\UI-SliderBar-Button-Horizontal")
+    s:GetThumbTexture():SetSize(32, 32)
+    s:SetMinMaxValues(min, max)
+    s:SetValueStep(1)
+    s:SetObeyStepOnDrag(true)
+    s:EnableMouseWheel(true) -- wheel = +/-1 for exact values
+    local fs = label(s, "", "GameFontNormalSmall")
+    fs:SetPoint("BOTTOMLEFT", s, "TOPLEFT", 0, 2)
+    local syncing
+    s:SetScript("OnValueChanged", function(_, v)
+        v = math.floor(v + 0.5)
+        fs:SetText(text .. ": " .. v)
+        if not syncing and v ~= get() then set(v); changed() end
+    end)
+    s:SetScript("OnMouseWheel", function(_, d) s:SetValue(s:GetValue() + d) end)
+    onRefresh(function()
+        syncing = true
+        s:SetValue(get())
+        fs:SetText(text .. ": " .. get())
+        syncing = false
+    end)
+    return s
+end
+
+local function swatch(parent, text, x, y, get)
+    local b = CreateFrame("Button", nil, parent)
+    b:SetSize(20, 20)
+    b:SetPoint("TOPLEFT", x + 2, y)
+    local border = b:CreateTexture(nil, "BACKGROUND")
+    border:SetAllPoints()
+    border:SetColorTexture(1, 1, 1)
+    local fillTex = b:CreateTexture(nil, "ARTWORK")
+    fillTex:SetPoint("TOPLEFT", 2, -2)
+    fillTex:SetPoint("BOTTOMRIGHT", -2, 2)
+    label(b, text):SetPoint("LEFT", b, "RIGHT", 6, 0)
+    b:SetScript("OnClick", function()
+        local c = get()
+        local old = { c[1], c[2], c[3], c[4] }
+        local function apply(r, g, bl, a) c[1], c[2], c[3], c[4] = r, g, bl, a; changed() end
+        local function picked()
+            local r, g, bl = ColorPickerFrame:GetColorRGB()
+            apply(r, g, bl, ColorPickerFrame:GetColorAlpha())
+        end
+        ColorPickerFrame:SetupColorPickerAndShow({
+            r = c[1], g = c[2], b = c[3], opacity = c[4], hasOpacity = true,
+            swatchFunc = picked, opacityFunc = picked,
+            cancelFunc = function() apply(unpack(old)) end,
+        })
+    end)
+    onRefresh(function() fillTex:SetColorTexture(unpack(get())) end)
+    return b
+end
+
+local function texIndex()
+    for i, t in ipairs(TEXTURES) do
+        if t[2] == cur().texture then return i end
+    end
+    return 1
+end
+
+local function move(i, d)
+    local o, j = db.order, i + d
+    if o[j] then
+        o[i], o[j] = o[j], o[i]
+        changed()
+    end
+end
+
+local function buildConfig()
+    cfg = CreateFrame("Frame", "ComboPointDisplayConfig", UIParent, "BasicFrameTemplateWithInset")
+    cfg:SetSize(460, 400)
+    cfg:SetPoint("CENTER")
+    cfg:SetFrameStrata("DIALOG")
+    cfg:SetMovable(true)
+    cfg:EnableMouse(true)
+    cfg:RegisterForDrag("LeftButton")
+    cfg:SetScript("OnDragStart", cfg.StartMoving)
+    cfg:SetScript("OnDragStop", cfg.StopMovingOrSizing)
+    tinsert(UISpecialFrames, cfg:GetName()) -- Escape closes it
+    label(cfg, "ComboPointDisplay"):SetPoint("TOP", 0, -5)
+
+    -- Left column: order, gap, lock
+    label(cfg, "Bars, top to bottom", "GameFontNormal"):SetPoint("TOPLEFT", 16, -34)
+    for i = 1, #db.order do
+        local y = -54 - (i - 1) * 26
+        local sel = button(cfg, "", 110, 16, y, function() selected = db.order[i]; changed() end)
+        button(cfg, "Up", 36, 128, y, function() move(i, -1) end)
+        button(cfg, "Down", 46, 166, y, function() move(i, 1) end)
+        onRefresh(function()
+            local key = db.order[i]
+            sel:SetText(BARS[key].label)
+            if key == selected then sel:LockHighlight() else sel:UnlockHighlight() end
+        end)
+    end
+    slider(cfg, "Gap between bars", 16, -170, 0, 30, function() return db.gap end, function(v) db.gap = v end)
+    local lock = button(cfg, "", 96, 16, -220, function() db.locked = not db.locked; changed() end)
+    onRefresh(function() lock:SetText(db.locked and "Unlock" or "Lock") end)
+    button(cfg, "Reset all", 96, 116, -220, function()
+        wipe(db)
+        merge(db, DEFAULTS)
+        place()
+        changed()
+    end)
+    local help = label(cfg, "Texture button: left-click next,\nright-click previous.\n\nMouse wheel on a slider\nchanges it by 1.", "GameFontDisableSmall")
+    help:SetPoint("TOPLEFT", 16, -260)
+    help:SetJustifyH("LEFT")
+
+    -- Right column: selected bar
+    local X = 236
+    local header = label(cfg, "", "GameFontNormal")
+    header:SetPoint("TOPLEFT", X, -34)
+    onRefresh(function()
+        local hidden = frames[selected]:IsShown() and "" or " |cff888888(hidden now)|r"
+        header:SetText(BARS[selected].label .. hidden)
+    end)
+    check(cfg, "Enabled", X, -52, function() return cur().enabled end, function(v) cur().enabled = v end)
+    slider(cfg, "Width", X, -84, 10, 600, function() return cur().width end, function(v) cur().width = v end)
+    slider(cfg, "Height", X, -126, 2, 100, function() return cur().height end, function(v) cur().height = v end)
+    local tex = button(cfg, "", 200, X, -172, function(_, btn)
+        local d = btn == "RightButton" and -1 or 1
+        cur().texture = TEXTURES[(texIndex() - 1 + d) % #TEXTURES + 1][2]
+        changed()
+    end)
+    onRefresh(function() tex:SetText("Texture: " .. TEXTURES[texIndex()][1]) end)
+    swatch(cfg, "Bar color", X, -202, function() return cur().color end)
+
+    -- Bar-specific options share the row under the color swatch
+    local powerColor = check(cfg, "Use power type color", X, -226,
+        function() return cur().powerColor end, function(v) cur().powerColor = v end)
+    local plate = check(cfg, "Show on target nameplate", X, -226,
+        function() return cur().nameplate end, function(v) cur().nameplate = v end)
+    local text = check(cfg, "Show text", X, -250, function() return cur().text end, function(v) cur().text = v end)
+    onRefresh(function()
+        powerColor:SetShown(selected == "power")
+        plate:SetShown(selected == "combo")
+        text:SetShown(selected ~= "combo")
+    end)
+
+    check(cfg, "Gradient", X, -280, function() return cur().gradient end, function(v) cur().gradient = v end)
+    local c2 = swatch(cfg, "Gradient end color", X, -306, function() return cur().color2 end)
+    local dir = button(cfg, "", 200, X, -334, function() cur().vertical = not cur().vertical; changed() end)
+    onRefresh(function()
+        c2:SetShown(cur().gradient)
+        dir:SetShown(cur().gradient)
+        dir:SetText("Direction: " .. (cur().vertical and "Vertical" or "Horizontal"))
+    end)
+end
+
+function ns.ToggleConfig()
+    if not db then return end
+    if not cfg then buildConfig() end
+    cfg:SetShown(not cfg:IsShown())
+    if cfg:IsShown() then changed() end
+end
+ComboPointDisplay_Toggle = ns.ToggleConfig -- addon compartment (minimap addons button)
+
+SLASH_COMBOPOINTDISPLAY1 = "/cpd"
+SlashCmdList.COMBOPOINTDISPLAY = ns.ToggleConfig
+
+------------------------------------------------------------------------------------------
+-- Events
+------------------------------------------------------------------------------------------
+local ev = CreateFrame("Frame")
+
+-- Registering an event this client lacks throws, so each one is guarded.
+local function listen(event, unit)
+    if unit then pcall(ev.RegisterUnitEvent, ev, event, unit) else pcall(ev.RegisterEvent, ev, event) end
+end
+
+local function fillShown(...)
+    for i = 1, select("#", ...) do
+        local f = frames[select(i, ...)]
+        if f:IsShown() then safe(fill, f) end
+    end
+end
+
+ev:SetScript("OnEvent", function(_, event)
+    if event == "PLAYER_LOGIN" then
+        ComboPointDisplayDB = merge(ComboPointDisplayDB or {}, DEFAULTS)
+        db = ComboPointDisplayDB
+        class = select(2, UnitClass("player"))
+        for _, e in ipairs({ "UNIT_HEALTH", "UNIT_MAXHEALTH", "UNIT_POWER_FREQUENT", "UNIT_MAXPOWER", "UNIT_DISPLAYPOWER" }) do
+            listen(e, "player")
+        end
+        for _, e in ipairs({ "PLAYER_ENTERING_WORLD", "UPDATE_SHAPESHIFT_FORM", "PLAYER_TARGET_CHANGED",
+            "NAME_PLATE_UNIT_ADDED", "NAME_PLATE_UNIT_REMOVED" }) do
+            listen(e)
+        end
+        place()
+        safe(Refresh)
+    elseif event == "UNIT_HEALTH" then
+        fillShown("health")
+    elseif event == "UNIT_POWER_FREQUENT" then
+        fillShown("power", "combo", "druidmana")
+    else -- form, max, target or nameplate changes: re-layout (target change moves the nameplate bar)
+        safe(Refresh)
+    end
+end)
+listen("PLAYER_LOGIN")

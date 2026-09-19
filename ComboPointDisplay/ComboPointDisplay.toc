@@ -1,0 +1,9 @@
+## Interface: 16001
+## Title: ComboPointDisplay
+## Notes: Stacked health, power, combo point and druid mana bars. /cpd to configure.
+## Author: severin
+## Version: 1.0.0
+## SavedVariables: ComboPointDisplayDB
+## AddonCompartmentFunc: ComboPointDisplay_Toggle
+
+ComboPointDisplay.lua
