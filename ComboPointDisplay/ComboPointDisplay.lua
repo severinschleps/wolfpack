@@ -82,10 +82,13 @@ end
 
 -- One layout per place the bars can show. x/y = the group's top-center: from the screen center
 -- (regular) or from the bottom of the target's nameplate (nameplate).
-local function layoutDefaults(show, x, y, gap, width, h1, h2, h3, h4, h5, h6)
+-- One bar per weapon; the Swing Timer bar shows the ones ticked here.
+local SWING_TYPES = { { "main", "Main hand", 0 }, { "off", "Off hand", 1 }, { "ranged", "Ranged", 2 } }
+
+local function layoutDefaults(show, x, y, gap, width, h1, h2, h3, h4, h5, h6, h7)
     local l = {
         x = x, y = y, gap = gap,
-        order = { "health", "power", "combo", "druidmana", "castbar", "pethealth" }, -- new bars go last
+        order = { "health", "power", "combo", "druidmana", "castbar", "pethealth", "swing" }, -- new bars go last
         bars = {
             health = barDefaults(show, width, h1, 0.2, 0.8, 0.2, show),
             power = barDefaults(show, width, h2, 1, 0.85, 0.1, show),
@@ -93,10 +96,12 @@ local function layoutDefaults(show, x, y, gap, width, h1, h2, h3, h4, h5, h6)
             druidmana = barDefaults(show, width, h4, 0.2, 0.45, 1, false),
             castbar = barDefaults(show, width, h5, 1, 0.7, 0, true), -- text = spell name
             pethealth = barDefaults(show, width, h6, 0.3, 0.7, 0.3, show),
+            swing = barDefaults(show, width, h7, 0.8, 0.8, 0.85, show), -- text = seconds left
         },
     }
     l.bars.power.colorMode = "power"
     l.bars.castbar.icon, l.bars.castbar.iconSide = true, "left"
+    l.bars.swing.main, l.bars.swing.off, l.bars.swing.ranged = true, false, false
     return l
 end
 
@@ -104,8 +109,8 @@ end
 -- top-right corner plus x/y. Icons are file IDs.
 local DEFAULTS = {
     locked = true,
-    regular = layoutDefaults(true, 0, -120, 2, 220, 18, 14, 12, 6, 14, 10),
-    nameplate = layoutDefaults(false, 0, -2, 1, 110, 8, 6, 6, 4, 8, 5),
+    regular = layoutDefaults(true, 0, -120, 2, 220, 18, 14, 12, 6, 14, 10, 10),
+    nameplate = layoutDefaults(false, 0, -2, 1, 110, 8, 6, 6, 4, 8, 5, 5),
     quest = {
         x = 0, y = 0, spacing = 2,
         kill = { show = true, icon = 131013, size = 20 },
@@ -194,6 +199,10 @@ local BARS = {
         label = "Cast Bar",
         state = function() return true, 1 end, -- keeps its slot; invisible while not casting (fillCast)
     },
+    swing = {
+        label = "Swing Timer",
+        state = function() return true, 1 end, -- one row per ticked weapon, each invisible while idle
+    },
     druidmana = {
         label = "Druid Mana",
         -- in caster form the power bar already is mana
@@ -267,9 +276,18 @@ local targetFrame = newBar(anchor, "health", "regular")
 targetFrame.unit = "target"
 ns.targetFrame = targetFrame
 
+local swingFrames = { regular = {}, nameplate = {} }
+ns.swingFrames = swingFrames
+
 for key in pairs(BARS) do
     frames[key] = newBar(anchor, key, "regular")
     plateFrames[key] = newBar(plateAnchor, key, "nameplate")
+end
+for i in ipairs(SWING_TYPES) do
+    swingFrames.regular[i] = newBar(anchor, "swing", "regular")
+    swingFrames.regular[i].swing = i
+    swingFrames.nameplate[i] = newBar(plateAnchor, "swing", "nameplate")
+    swingFrames.nameplate[i].swing = i
 end
 
 local function paint(s, c, r, g, b)
@@ -439,8 +457,35 @@ local function fillCast(f)
     f.icon:SetTexture(icon)
 end
 
+-- Swing timers come from the game's own PLAYER_SWING event (no combat log needed).
+local swingState = {} -- [swing type] = { start, duration }
+
+local function swingActive()
+    local now = GetTime()
+    for _, st in pairs(swingState) do
+        if now < st.start + st.duration then return true end
+    end
+end
+
+local function fillSwing(f)
+    local kind = SWING_TYPES[f.swing]
+    local st, now = swingState[kind[3]], GetTime()
+    local active = st and now < st.start + st.duration
+    local preview = not active and (not db.locked or ns.configOpen)
+    f:SetAlpha((active or preview) and 1 or 0)
+    if not active then
+        if preview then f.text:SetText(kind[2]) end
+        return
+    end
+    local elapsed = now - st.start
+    f.segs[1]:SetMinMaxValues(0, st.duration)
+    f.segs[1]:SetValue(elapsed)
+    f.text:SetText(string.format("%.1f", st.duration - elapsed))
+end
+
 local function fill(f)
     if f.key == "castbar" then return fillCast(f) end
+    if f.key == "swing" then return fillSwing(f) end
     local v, max = BARS[f.key].value(f.unit or "player")
     if f.n == 1 then
         f.segs[1]:SetMinMaxValues(0, max)
@@ -597,12 +642,29 @@ end
 
 -- Lays out one stack: shown bars in order, touching with the gap. Each bar sits in its slot
 -- plus its own x/y offset; offsets don't push the other bars around.
-local function stack(container, set, L, on)
+local function stack(container, set, L, on, swings)
     local w, h = 0, 0
     for _, key in ipairs(L.order) do
         local f, c = set[key], L.bars[key]
         local shown, n = BARS[key].state()
         shown = (on and shown and c.show) and true or false
+        if key == "swing" then -- one row per ticked weapon, sharing this bar's settings
+            for i, kind in ipairs(SWING_TYPES) do
+                local sf = swings[i]
+                local rowShown = shown and c[kind[1]] and true or false
+                sf:SetShown(rowShown)
+                if rowShown then
+                    layoutBar(sf, 1)
+                    fill(sf)
+                    if h > 0 then h = h + L.gap end
+                    sf:ClearAllPoints()
+                    sf:SetPoint("TOP", container, "TOP", c.x, c.y - h)
+                    h = h + c.height
+                    w = math.max(w, c.width)
+                end
+            end
+            shown = false
+        end
         f:SetShown(shown)
         if shown then
             -- f.split: the player health bar shares its width with the target health bar
@@ -839,7 +901,7 @@ end
 local function Refresh()
     local health = frames.health
     health.split = (db.regular.bars.health.target and UnitExists("target")) and true or false
-    stack(anchor, frames, db.regular, true)
+    stack(anchor, frames, db.regular, true, swingFrames.regular)
     targetFrame:SetShown(health.split and health:IsShown())
     if targetFrame:IsShown() then
         layoutBar(targetFrame, 1, health.width) -- the other half
@@ -854,7 +916,7 @@ local function Refresh()
         plateAnchor:ClearAllPoints()
         plateAnchor:SetPoint("TOP", plate, "BOTTOM", db.nameplate.x, db.nameplate.y)
     end
-    stack(plateAnchor, plateFrames, db.nameplate, plate ~= nil)
+    stack(plateAnchor, plateFrames, db.nameplate, plate ~= nil, swingFrames.nameplate)
     for _, h in pairs(questHolders) do styleQuest(h) end
     mover:SetShown(not db.locked)
     moverHint:SetFormattedText(HINT, db.regular.x, db.regular.y)
@@ -1339,7 +1401,7 @@ end
 
 local function buildConfig()
     cfg = CreateFrame("Frame", "ComboPointDisplayConfig", UIParent, "BasicFrameTemplateWithInset")
-    cfg:SetSize(820, 660)
+    cfg:SetSize(820, 700)
     cfg:SetPoint("CENTER")
     cfg:SetFrameStrata("DIALOG")
     cfg:SetMovable(true)
@@ -1409,7 +1471,7 @@ local function buildConfig()
     -- Pages to the right of the sidebar. The bars page edits the layout picked by `mode`.
     local barsPage = CreateFrame("Frame", nil, cfg)
     barsPage:SetPoint("TOPLEFT", 134, 0)
-    barsPage:SetSize(686, 660)
+    barsPage:SetSize(686, 700)
     local questPage = CreateFrame("Frame", nil, cfg)
     questPage:SetAllPoints(barsPage)
     local otherPage = CreateFrame("Frame", nil, cfg)
@@ -1452,35 +1514,35 @@ local function buildConfig()
             if key == selected then sel:LockHighlight() else sel:UnlockHighlight() end
         end)
     end
-    slider(barsPage, "Gap between bars", 16, -288, 0, 30, function() return L().gap end, function(v) L().gap = v end)
-    label(barsPage, "Group position", "GameFontNormal"):SetPoint("TOPLEFT", 16, -334)
+    slider(barsPage, "Gap between bars", 16, -314, 0, 30, function() return L().gap end, function(v) L().gap = v end)
+    label(barsPage, "Group position", "GameFontNormal"):SetPoint("TOPLEFT", 16, -360)
     local groupNote = label(barsPage, "", "GameFontDisableSmall")
-    groupNote:SetPoint("TOPLEFT", 16, -350)
+    groupNote:SetPoint("TOPLEFT", 16, -376)
     onRefresh(function()
         groupNote:SetText(mode == "regular" and "top-center, from the screen center" or "top-center, from under the nameplate")
     end)
     local function xr() return mode == "regular" and math.floor(UIParent:GetWidth() / 2) or 200 end
     local function yr() return mode == "regular" and math.floor(UIParent:GetHeight() / 2) or 200 end
-    slider(barsPage, "X (left / right)", 16, -368, function() return -xr() end, xr,
+    slider(barsPage, "X (left / right)", 16, -394, function() return -xr() end, xr,
         function() return L().x end, function(v) L().x = v; place() end)
-    slider(barsPage, "Y (down / up)", 16, -410, function() return -yr() end, yr,
+    slider(barsPage, "Y (down / up)", 16, -436, function() return -yr() end, yr,
         function() return L().y end, function(v) L().y = v; place() end)
-    local lock = button(barsPage, "", 96, 16, -456, function() db.locked = not db.locked; changed() end)
+    local lock = button(barsPage, "", 96, 16, -482, function() db.locked = not db.locked; changed() end)
     onRefresh(function()
         lock:SetShown(mode == "regular")
         lock:SetText(db.locked and "Unlock" or "Lock")
     end)
     local playerFrameOpts = {
-        check(barsPage, "Hide Blizzard player frame", 16, -488,
+        check(barsPage, "Hide Blizzard player frame", 16, -514,
             function() return db.regular.hidePlayerFrame end, function(v) db.regular.hidePlayerFrame = v end),
-        check(barsPage, "Right-click: player menu", 16, -512,
+        check(barsPage, "Right-click: player menu", 16, -538,
             function() return db.regular.playerMenu end, function(v) db.regular.playerMenu = v end),
-        check(barsPage, "Hide Blizzard cast bar", 16, -536,
+        check(barsPage, "Hide Blizzard cast bar", 16, -562,
             function() return db.regular.hideBlizzCastbar end, function(v) db.regular.hideBlizzCastbar = v end),
     }
     onRefresh(function() for _, w in ipairs(playerFrameOpts) do w:SetShown(mode == "regular") end end)
     label(barsPage, "Mouse wheel on a slider changes it by 1.\nBlizzard frame options apply out of combat.\n"
-        .. "Click options block clicks through the bars.", "GameFontDisableSmall"):SetPoint("TOPLEFT", 16, -570)
+        .. "Click options block clicks through the bars.", "GameFontDisableSmall"):SetPoint("TOPLEFT", 16, -596)
 
     -- Column 2: the selected bar's show, size, offset, look
     local X = 240
@@ -1509,6 +1571,11 @@ local function buildConfig()
     })
     local target = check(barsPage, "Show target health next to it", X, -436,
         function() return cur().target end, function(v) cur().target = v end)
+    local swingChecks = {}
+    for i, kind in ipairs(SWING_TYPES) do
+        swingChecks[i] = check(barsPage, kind[2], X, -436 - (i - 1) * 24,
+            function() return cur()[kind[1]] end, function(v) cur()[kind[1]] = v end)
+    end
     local castIcon = check(barsPage, "Show spell icon", X, -436,
         function() return cur().icon end, function(v) cur().icon = v end)
     local castSide = button(barsPage, "", 200, X, -462, function()
@@ -1517,6 +1584,7 @@ local function buildConfig()
     end)
     onRefresh(function()
         target:SetShown(selected == "health" and mode == "regular")
+        for _, w in ipairs(swingChecks) do w:SetShown(selected == "swing") end
         castIcon:SetShown(selected == "castbar")
         castSide:SetShown(selected == "castbar" and cur().icon or false)
         castSide:SetText("Icon side: " .. (cur().iconSide == "right" and "Right" or "Left"))
@@ -1770,6 +1838,17 @@ local function autoComplete(event)
     end
 end
 
+local swingTicker = CreateFrame("Frame")
+ns.swingTicker = swingTicker
+local function swingTick()
+    for _, set in pairs(swingFrames) do
+        for _, f in ipairs(set) do
+            if f:IsShown() then safe(fill, f) end
+        end
+    end
+    if not swingActive() then swingTicker:SetScript("OnUpdate", nil) end
+end
+
 local petEv = CreateFrame("Frame") -- same handler as ev, for pet unit events
 
 local function fillShown(...)
@@ -1780,7 +1859,7 @@ local function fillShown(...)
     end
 end
 
-ev:SetScript("OnEvent", function(_, event, unit)
+ev:SetScript("OnEvent", function(_, event, unit, arg2)
     if event == "ADDON_LOADED" then
         if unit == ADDON then applyCombatFont() end
     elseif event == "PLAYER_LOGIN" then
@@ -1808,7 +1887,7 @@ ev:SetScript("OnEvent", function(_, event, unit)
         for _, e in ipairs({ "PLAYER_ENTERING_WORLD", "UPDATE_SHAPESHIFT_FORM", "PLAYER_TARGET_CHANGED",
             "NAME_PLATE_UNIT_ADDED", "NAME_PLATE_UNIT_REMOVED", "QUEST_LOG_UPDATE", "PLAYER_REGEN_ENABLED",
             "QUEST_DETAIL", "QUEST_ACCEPT_CONFIRM", "QUEST_PROGRESS", "QUEST_COMPLETE", "GOSSIP_SHOW", "QUEST_GREETING",
-            "PLAYER_REGEN_DISABLED" }) do
+            "PLAYER_REGEN_DISABLED", "PLAYER_SWING" }) do
             listen(e)
         end
         inCombat = InCombatLockdown() -- a /reload mid-fight
@@ -1822,6 +1901,10 @@ ev:SetScript("OnEvent", function(_, event, unit)
         fillShown("power", "combo", "druidmana")
     elseif event:find("^UNIT_SPELLCAST_") then
         fillShown("castbar")
+    elseif event == "PLAYER_SWING" then -- unit, arg2 = duration, swing type
+        swingState[arg2] = { start = GetTime(), duration = unit }
+        swingTicker:SetScript("OnUpdate", swingTick)
+        swingTick()
     elseif event == "QUEST_DETAIL" or event == "QUEST_ACCEPT_CONFIRM" then
         safe(autoAccept, event, unit) -- for QUEST_DETAIL the first arg is the quest-starting item
     elseif event == "QUEST_PROGRESS" or event == "QUEST_COMPLETE" or event == "GOSSIP_SHOW" or event == "QUEST_GREETING" then

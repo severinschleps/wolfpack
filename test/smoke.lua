@@ -101,6 +101,8 @@ AcceptQuest, ConfirmAcceptQuest = record("accept"), record("confirm")
 AcknowledgeAutoAcceptQuest, StaticPopup_Hide = record("ack"), record("hidepopup")
 IsShiftKeyDown = function() return S.shift end
 IsInGroup = function() return S.group end
+S.time = 1000
+GetTime = function() return S.time end
 UnitCastingInfo = function() if S.cast then return S.cast, "", 136116 end end
 UnitChannelInfo = function() if S.channel then return S.channel, "", 136197 end end
 UnitCastingDuration = function() return S.cast and "castDuration" end
@@ -199,7 +201,8 @@ local function prof() return ComboPointDisplayDB.profiles[ComboPointDisplayDB.ch
 local function byText(text) for _, f in ipairs(created) do if f._text == text then return f end end end
 local fr = ns.frames
 
--- Rogue, secret values: 5 pips, each lit when points >= i; stack = 18 + 2 + 14 + 2 + 12 + 2 + 14 (cast bar)
+-- Rogue, secret values: 5 pips, each lit when points >= i; stack = health 18, power 14, combo 12,
+-- cast bar 14, swing 10, 2 px gaps
 login("ROGUE", 3)
 fire("UNIT_POWER_FREQUENT"); fire("UNIT_HEALTH")
 assert(fr.combo:IsShown() and fr.combo.n == 5, "rogue combo pips")
@@ -208,7 +211,7 @@ for i = 1, 5 do
     assert(s._min == i - 1 and s._max == i and s._value == SECRET, "pip " .. i)
 end
 assert(not fr.druidmana:IsShown(), "rogue has no druid mana")
-assert(ComboPointDisplayFrame._h == 64, "stack height " .. tostring(ComboPointDisplayFrame._h))
+assert(ComboPointDisplayFrame._h == 76, "stack height " .. tostring(ComboPointDisplayFrame._h))
 
 -- Druid: caster = no combo, no extra mana; cat = both; bear = mana only
 login("DRUID", 0)
@@ -293,16 +296,37 @@ prof().locked = true; fire("UNIT_MAXPOWER")
 assert(cb:GetAlpha() == 0, "locked again: hidden")
 prof().regular.bars.castbar.icon, prof().regular.bars.castbar.iconSide = true, "left"
 
+-- Swing timer: one row per ticked weapon, each invisible until that weapon swings
+local sw, swf = prof().regular.bars.swing, ns.swingFrames.regular
+fire("UNIT_MAXPOWER")
+assert(swf[1]:IsShown() and swf[1]:GetAlpha() == 0 and not swf[2]:IsShown(), "main hand row kept, idle; off hand off")
+local stackH = ComboPointDisplayFrame._h
+sw.off, sw.ranged = true, true
+fire("UNIT_MAXPOWER")
+assert(swf[2]:IsShown() and swf[3]:IsShown() and ComboPointDisplayFrame._h == stackH + 24, "three rows: 2 x (10 + 2)")
+fire("PLAYER_SWING", 2.6, 0) -- main hand, 2.6 s
+assert(swf[1]:GetAlpha() == 1 and swf[1].segs[1]._max == 2.6 and swf[1].segs[1]._value == 0, "main hand swinging")
+assert(swf[1].text._text == "2.6" and swf[2]:GetAlpha() == 0, "seconds left; off hand still idle")
+S.time = 1001; ns.swingTicker._scripts.OnUpdate()
+assert(swf[1].segs[1]._value == 1 and swf[1].text._text == "1.6", "counts down")
+fire("PLAYER_SWING", 1.8, 2) -- ranged
+assert(swf[3]:GetAlpha() == 1 and swf[3].segs[1]._max == 1.8, "ranged swinging on its own row")
+S.time = 1010; ns.swingTicker._scripts.OnUpdate()
+assert(swf[1]:GetAlpha() == 0 and swf[3]:GetAlpha() == 0 and not ns.swingTicker._scripts.OnUpdate, "done: hidden, ticker stopped")
+sw.off, sw.ranged = false, false
+fire("UNIT_MAXPOWER")
+assert(not swf[2]:IsShown() and ComboPointDisplayFrame._h == stackH, "back to one row")
+
 -- Pet health: only with a pet; own value; joins the stack at the end (64 + 2 + 10)
 local pb = fr.pethealth
-assert(not pb:IsShown() and ComboPointDisplayFrame._h == 64, "no pet: no bar")
+assert(not pb:IsShown() and ComboPointDisplayFrame._h == 76, "no pet: no bar")
 S.petHP = 300; fire("UNIT_PET", "player")
 assert(pb:IsShown() and pb.segs[1]._value == 300 and pb.segs[1]._max == 1000 and pb.text._text == "300", "pet bar")
-assert(ComboPointDisplayFrame._h == 76 and pb._point[5] == -66, "last in the stack")
+assert(ComboPointDisplayFrame._h == 88 and pb._point[5] == -66, "above the swing bar")
 S.petHP = 120; fire("UNIT_HEALTH", "pet")
 assert(pb.segs[1]._value == 120 and fr.health.segs[1]._value == SECRET, "pet updates on its own")
 S.petHP = nil; fire("UNIT_PET", "player")
-assert(not pb:IsShown() and ComboPointDisplayFrame._h == 64, "pet gone")
+assert(not pb:IsShown() and ComboPointDisplayFrame._h == 76, "pet gone")
 
 -- In-combat icon: in combat only (or previewing), centered on the chosen bar's left edge
 local ci, icon = prof().regular.combatIcon, ns.combatIcon
@@ -406,7 +430,7 @@ R0.playerMenu = true; fire("UNIT_MAXPOWER")
 local ck = ComboPointDisplayClicker
 assert(ck._template == "SecureUnitButtonTemplate" and ck._attr.unit == "player" and ck._attr.type2 == "togglemenu", "menu button")
 assert(ck._point[1] == "TOP" and ck._point[2] == UIParent and ck._point[4] == R0.x and ck._point[5] == R0.y, "over the bars")
-assert(ck._w == 220 and ck._h == 64 and ck:IsShown(), "same size as the bars")
+assert(ck._w == 220 and ck._h == 76 and ck:IsShown(), "same size as the bars")
 prof().locked = false; fire("UNIT_MAXPOWER")
 assert(not ck:IsShown(), "unlocked: drag handle gets the mouse")
 assert(ck._attr.type1 == nil, "left click off by default")
@@ -431,12 +455,12 @@ assert(fr.combo:IsShown() and pf.combo:IsShown(), "both")
 assert(plateStack._parent == S.plate and plateStack:IsShown(), "plate stack on the plate")
 local ps = plateStack._point
 assert(ps[2] == S.plate and ps[3] == "BOTTOM" and ps[4] == 0 and ps[5] == -2, "plate group offset")
-assert(ComboPointDisplayFrame._h == 64 and plateStack._h == 6, "stacks sized independently")
+assert(ComboPointDisplayFrame._h == 76 and plateStack._h == 6, "stacks sized independently")
 R.combo.show = false
 N.health.show = true
 fire("PLAYER_TARGET_CHANGED")
 assert(not fr.combo:IsShown() and pf.combo:IsShown() and pf.health:IsShown(), "nameplate only")
-assert(ComboPointDisplayFrame._h == 50 and plateStack._h == 15, "plate stack: 8 + 1 + 6")
+assert(ComboPointDisplayFrame._h == 62 and plateStack._h == 15, "plate stack: 8 + 1 + 6")
 fire("UNIT_POWER_FREQUENT"); fire("UNIT_HEALTH")
 assert(pf.combo.segs[3]._value == SECRET, "plate bars get values")
 N.combo.show = false
@@ -628,7 +652,7 @@ assert(prof().other.hideGryphons and caps.LeftEndCap.Texture._alpha == 0 and cap
 gcheck._checked = false; gcheck._scripts.OnClick(gcheck)
 assert(caps.LeftEndCap.Texture._alpha == 1, "shown again")
 dds[9]:GenerateMenu(); dds[10]:GenerateMenu() -- combat icon art, attach-to bar
-assert(#dds[9]._items == 4 and #dds[10]._items == 6, "combat icon choices, one entry per bar")
+assert(#dds[9]._items == 4 and #dds[10]._items == 7, "combat icon choices, one entry per bar")
 for _, it in ipairs(dds[9]._items) do assert(type(it.init(menuButton())) == "number", "combat icon preview") end
 dds[10]._items[2].set()
 assert(prof().regular.combatIcon.bar == prof().regular.order[2], "attached to the second bar")
@@ -760,7 +784,7 @@ assert(#bad == 32 and bp.evil == nil and bp.locked == true, "unknown key dropped
 assert(bp.other.hover.bar1 and bp.other.hover.nope == nil and bp.other.hover.bar2 == nil, "hover: known and true only")
 assert(ComboPointDisplayDB.combatFont == ns.COMBAT_FONTS[4][2], "unknown combat font path refused")
 assert(bp.regular.gap == 2 and bp.regular.x == 0, "out-of-range numbers defaulted")
-assert(bp.regular.order[1] == "health" and bp.regular.order[2] == "castbar" and #bp.regular.order == 6, "order repaired")
+assert(bp.regular.order[1] == "health" and bp.regular.order[2] == "castbar" and #bp.regular.order == 7, "order repaired")
 local hb2 = bp.regular.bars.health
 assert(hb2.width == 220 and hb2.height == 18 and hb2.radius == "pill" and hb2.color[2] == 0.8, "bar values checked")
 ComboPointDisplayDB.combatFont = nil
@@ -828,7 +852,7 @@ for _, m in ipairs({ "regular", "nameplate" }) do
     local seen = {}
     for _, k in ipairs(prof()[m].order) do seen[k] = true end
     assert(seen.health and seen.power and seen.combo and seen.druidmana and seen.castbar and seen.pethealth
-        and #prof()[m].order == 6, "order intact")
+        and seen.swing and #prof()[m].order == 7, "order intact")
 end
 
 SlashCmdList.COMBOPOINTDISPLAY("")
