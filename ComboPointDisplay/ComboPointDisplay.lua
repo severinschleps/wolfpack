@@ -17,11 +17,25 @@ local TEXTURES = {
     { "Skills", "Interface\\PaperDollInfoFrame\\UI-Character-Skills-Bar" },
 }
 
+-- Bundled fonts are free (SIL Open Font License, see Fonts/OFL-*.txt). Static TTFs: WoW only
+-- renders the default instance of variable fonts.
+local FONT_DIR = "Interface\\AddOns\\" .. ADDON .. "\\Fonts\\"
+local FONTS = {
+    { "WoW default", STANDARD_TEXT_FONT or "Fonts\\FRIZQT__.TTF" },
+    { "Arvo (slab)", FONT_DIR .. "Arvo-Regular.ttf" },
+    { "Fira Sans (sans serif)", FONT_DIR .. "FiraSans-Medium.ttf" },
+    { "PT Serif (serif)", FONT_DIR .. "PT_Serif-Web-Regular.ttf" },
+    { "Lato Thin (thin)", FONT_DIR .. "Lato-Thin.ttf" },
+    { "Anton (bold)", FONT_DIR .. "Anton-Regular.ttf" },
+}
+ns.FONTS = FONTS
+
 local function barDefaults(height, r, g, b, text)
     return {
         regular = true, nameplate = false, width = 220, height = height, texture = TEXTURES[1][2],
         color = { r, g, b, 1 }, gradient = false, color2 = { r * 0.4, g * 0.4, b * 0.4, 1 },
         vertical = false, text = text,
+        font = FONTS[1][2], fontSize = 10, outline = false, textColor = { 1, 1, 1, 1 },
     }
 end
 
@@ -215,6 +229,9 @@ local function layoutBar(f, n)
         f.text:SetPoint("CENTER", f)
     end
     f.text:SetShown(c.text and n == 1)
+    local flags = c.outline and "OUTLINE" or ""
+    if not f.text:SetFont(c.font, c.fontSize, flags) then f.text:SetFont(FONTS[1][2], c.fontSize, flags) end
+    f.text:SetTextColor(unpack(c.textColor))
     f.n = n
 end
 
@@ -350,7 +367,7 @@ local function slider(parent, text, x, y, min, max, get, set)
     s:SetScript("OnMouseWheel", function(_, d) s:SetValue(s:GetValue() + d) end)
 
     -- Typed value: Enter or clicking away applies it (clamped to the slider range), Escape cancels.
-    local box = CreateFrame("EditBox", nil, parent, "InputBoxTemplate")
+    local box = CreateFrame("EditBox", nil, s, "InputBoxTemplate")
     box:SetSize(40, 20)
     box:SetPoint("LEFT", s, "RIGHT", 12, 0)
     box:SetAutoFocus(false)
@@ -409,11 +426,39 @@ local function swatch(parent, text, x, y, get)
     return b
 end
 
-local function texIndex()
-    for i, t in ipairs(TEXTURES) do
-        if t[2] == cur().texture then return i end
-    end
-    return 1
+-- Dropdown over a { {name, value}, ... } list; preview(button, value) decorates each entry and
+-- returns its width.
+local function dropdown(parent, text, x, y, list, get, set, preview)
+    local dd = CreateFrame("DropdownButton", nil, parent, "WowStyle1DropdownTemplate")
+    dd:SetPoint("TOPLEFT", x, y - 14)
+    dd:SetWidth(200)
+    label(dd, text, "GameFontNormalSmall"):SetPoint("BOTTOMLEFT", dd, "TOPLEFT", 0, 2)
+    dd:SetupMenu(function(_, root)
+        for _, item in ipairs(list) do
+            local radio = root:CreateRadio(item[1], function() return get() == item[2] end,
+                function() set(item[2]); changed() end)
+            radio:AddInitializer(function(button) return preview(button, item[2]), 20 end)
+        end
+    end)
+    onRefresh(function() dd:GenerateMenu() end)
+    return dd
+end
+
+local function texturePreview(button, path)
+    local t = button:AttachTexture()
+    t:SetSize(90, 12)
+    t:SetPoint("RIGHT", -6, 0)
+    t:SetTexture(path)
+    t:SetVertexColor(unpack(cur().color))
+    return button.fontString:GetUnboundedStringWidth() + 130
+end
+
+local function fontPreview(button, path)
+    local fs = button:AttachFontString()
+    fs:SetPoint("RIGHT", -6, 0)
+    if not fs:SetFont(path, 14, "") then fs:SetFontObject("GameFontHighlight") end
+    fs:SetText("12345")
+    return button.fontString:GetUnboundedStringWidth() + fs:GetUnboundedStringWidth() + 50
 end
 
 local function move(i, d)
@@ -468,7 +513,7 @@ StaticPopupDialogs.COMBOPOINTDISPLAY_DELETE = {
 
 local function buildConfig()
     cfg = CreateFrame("Frame", "ComboPointDisplayConfig", UIParent, "BasicFrameTemplateWithInset")
-    cfg:SetSize(460, 540)
+    cfg:SetSize(460, 590)
     cfg:SetPoint("CENTER")
     cfg:SetFrameStrata("DIALOG")
     cfg:SetMovable(true)
@@ -537,8 +582,7 @@ local function buildConfig()
     slider(cfg, "Y (down / up)", 16, -402, -yr, yr, function() return db.y end, function(v) db.y = v; place() end)
     local lock = button(cfg, "", 96, 16, -448, function() db.locked = not db.locked; changed() end)
     onRefresh(function() lock:SetText(db.locked and "Unlock" or "Lock") end)
-    local help = label(cfg, "Texture button: left-click next, right-click previous.\nMouse wheel on a slider changes it by 1.\n"
-        .. "Nameplate bars need enemy nameplates on (V key).",
+    local help = label(cfg, "Mouse wheel on a slider changes it by 1.\nNameplate bars need enemy nameplates on (V key).",
         "GameFontDisableSmall")
     help:SetPoint("TOPLEFT", 16, -486)
     help:SetJustifyH("LEFT")
@@ -556,29 +600,33 @@ local function buildConfig()
         function() return cur().nameplate end, function(v) cur().nameplate = v end)
     slider(cfg, "Width", X, -106, 10, 600, function() return cur().width end, function(v) cur().width = v end)
     slider(cfg, "Height", X, -148, 2, 100, function() return cur().height end, function(v) cur().height = v end)
-    local tex = button(cfg, "", 200, X, -194, function(_, btn)
-        local d = btn == "RightButton" and -1 or 1
-        cur().texture = TEXTURES[(texIndex() - 1 + d) % #TEXTURES + 1][2]
-        changed()
-    end)
-    onRefresh(function() tex:SetText("Texture: " .. TEXTURES[texIndex()][1]) end)
-    swatch(cfg, "Bar color", X, -224, function() return cur().color end)
-
-    local powerColor = check(cfg, "Use power type color", X, -248,
+    dropdown(cfg, "Texture", X, -190, TEXTURES, function() return cur().texture end,
+        function(v) cur().texture = v end, texturePreview)
+    swatch(cfg, "Bar color", X, -234, function() return cur().color end)
+    local powerColor = check(cfg, "Use power type color", X, -258,
         function() return cur().powerColor end, function(v) cur().powerColor = v end)
-    local text = check(cfg, "Show text", X, -272, function() return cur().text end, function(v) cur().text = v end)
-    onRefresh(function()
-        powerColor:SetShown(selected == "power")
-        text:SetShown(selected ~= "combo")
-    end)
+    onRefresh(function() powerColor:SetShown(selected == "power") end)
 
-    check(cfg, "Gradient", X, -302, function() return cur().gradient end, function(v) cur().gradient = v end)
-    local c2 = swatch(cfg, "Gradient end color", X, -328, function() return cur().color2 end)
-    local dir = button(cfg, "", 200, X, -356, function() cur().vertical = not cur().vertical; changed() end)
+    check(cfg, "Gradient", X, -286, function() return cur().gradient end, function(v) cur().gradient = v end)
+    local c2 = swatch(cfg, "Gradient end color", X, -312, function() return cur().color2 end)
+    local dir = button(cfg, "", 200, X, -338, function() cur().vertical = not cur().vertical; changed() end)
     onRefresh(function()
         c2:SetShown(cur().gradient)
         dir:SetShown(cur().gradient)
         dir:SetText("Direction: " .. (cur().vertical and "Vertical" or "Horizontal"))
+    end)
+
+    -- Text (combo pips have none)
+    local textWidgets = {
+        check(cfg, "Show text", X, -372, function() return cur().text end, function(v) cur().text = v end),
+        dropdown(cfg, "Font", X, -398, FONTS, function() return cur().font end,
+            function(v) cur().font = v end, fontPreview),
+        slider(cfg, "Font size", X, -444, 6, 32, function() return cur().fontSize end, function(v) cur().fontSize = v end),
+        check(cfg, "Outline", X, -490, function() return cur().outline end, function(v) cur().outline = v end),
+        swatch(cfg, "Text color", X, -516, function() return cur().textColor end),
+    }
+    onRefresh(function()
+        for _, w in ipairs(textWidgets) do w:SetShown(selected ~= "combo") end
     end)
 end
 

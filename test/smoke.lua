@@ -32,10 +32,16 @@ function M:GetTop() return 150 end
 function M:GetFrameLevel() return 1 end
 function M:GetWidth() return 140 end
 function M:GetHeight() return 100 end
+function M:GetUnboundedStringWidth() return 50 end
 function M:SetupMenu(gen) self._gen = gen end
 function M:GenerateMenu() -- records the dropdown's radio items
     local root = { items = {} }
-    function root:CreateRadio(text, isSel, set) self.items[#self.items + 1] = { text = text, sel = isSel, set = set } end
+    function root:CreateRadio(text, isSel, set)
+        local it = { text = text, sel = isSel, set = set }
+        function it:AddInitializer(fn) self.init = fn end
+        self.items[#self.items + 1] = it
+        return it
+    end
     self._gen(self, root)
     self._items = root.items
 end
@@ -183,8 +189,9 @@ nameBox._text = "  PvP "; nameBox._scripts.OnEnterPressed(nameBox)
 assert(store.profiles.PvP and store.profiles.PvP.gap == 30 and prof() == store.profiles.PvP, "create copies + switches")
 prof().gap = 5
 assert(store.profiles.Rogue.gap == 30, "profiles are independent")
-local dd
-for _, f in ipairs(created) do if f._gen then dd = f end end
+local dds = {} -- profile, texture, font
+for _, f in ipairs(created) do if f._gen then dds[#dds + 1] = f end end
+local dd = dds[1]
 dd:GenerateMenu()
 local names = {}
 for _, it in ipairs(dd._items) do names[#names + 1] = it.text .. (it.sel() and "*" or "") end
@@ -194,6 +201,23 @@ assert(prof() == store.profiles.Rogue, "dropdown switches")
 dd._items[3].set()
 byText("Delete")._scripts.OnClick(byText("Delete"), "LeftButton")
 assert(not store.profiles.PvP and prof() == store.profiles.Rogue, "delete falls back to class profile")
+
+-- Texture and font dropdowns: pick sets the selected bar (Health), previews render
+local texDD, fontDD = dds[2], dds[3]
+texDD:GenerateMenu(); fontDD:GenerateMenu()
+assert(#texDD._items == 5 and #fontDD._items == 6, "dropdown entries")
+local function menuButton() local b = new(); b.fontString = new(); return b end
+for _, it in ipairs(texDD._items) do assert(type(it.init(menuButton())) == "number", "texture preview") end
+for _, it in ipairs(fontDD._items) do assert(type(it.init(menuButton())) == "number", "font preview") end
+texDD._items[2].set(); fontDD._items[6].set()
+assert(prof().bars.health.texture == "Interface\\Buttons\\WHITE8X8", "texture picked")
+assert(prof().bars.health.font:match("Anton%-Regular%.ttf$") and fontDD._items[6].sel(), "font picked")
+
+-- Every bundled font path points at a real file in the addon folder
+for _, f in ipairs(ns.FONTS) do
+    local rel = f[2]:match("^Interface\\AddOns\\(.*)")
+    if rel then assert(io.open((rel:gsub("\\", "/"))), "missing font file " .. rel) end
+end
 
 -- Poke every control
 for _, f in ipairs(created) do
