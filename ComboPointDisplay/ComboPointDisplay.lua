@@ -72,8 +72,13 @@ end
 local function barDefaults(show, width, height, r, g, b, text)
     return {
         show = show, x = 0, y = 0, width = width, height = height, texture = TEXTURES[1][2],
-        color = { r, g, b, 1 }, gradient = false, color2 = { r * 0.4, g * 0.4, b * 0.4, 1 },
-        vertical = false, text = text,
+        color = { r, g, b, 1 }, bgColor = { 0, 0, 0, 0.5 },
+        gradient = false, direction = "right", -- "right", "left", "down", "up"
+        stops = { -- gradient points: percent across the bar, and a color
+            { pos = 0, color = { r, g, b, 1 } },
+            { pos = 100, color = { r * 0.4, g * 0.4, b * 0.4, 1 } },
+        },
+        text = text,
         font = FONTS[1][2], fontSize = 10, outline = false, textColor = { 1, 1, 1, 1 },
         colorMode = "custom", -- "custom", "class" or "power" (power bar only)
         borderSize = 0, borderColor = { 0, 0, 0, 1 }, borderMode = "custom", radius = 0, -- border: or "class", "bar"
@@ -306,17 +311,59 @@ for i in ipairs(SWING_TYPES) do
     swingFrames.nameplate[i].swing = i
 end
 
-local function paint(s, c, r, g, b)
-    s:SetStatusBarTexture(c.texture) -- before colors: a new texture resets them
-    if c.gradient then
-        s:SetStatusBarColor(1, 1, 1, 1)
-        local c1, c2 = CreateColor(r, g, b, c.color[4]), CreateColor(unpack(c.color2))
-        if c.vertical then
-            s:GetStatusBarTexture():SetGradient("VERTICAL", c2, c1) -- min is the bottom edge
+local MAX_STOPS = 8
+
+-- Gradient points in drawing order. "left" and "up" mirror the positions.
+local function sortedStops(c)
+    local out = {}
+    local flip = c.direction == "left" or c.direction == "up"
+    for _, stop in ipairs(c.stops) do
+        out[#out + 1] = { pos = flip and 100 - stop.pos or stop.pos, color = stop.color }
+    end
+    table.sort(out, function(a, b) return a.pos < b.pos end)
+    return out
+end
+
+-- WoW gradients take two colors, so more points are drawn as one slice per pair, masked by the
+-- bar's own fill so they only show over the filled part (no math on hidden health/power values).
+local function paintSlices(s, c, w, h)
+    local stops = sortedStops(c)
+    local vertical = c.direction == "down" or c.direction == "up"
+    s.fillMask:SetAllPoints(s:GetStatusBarTexture())
+    for i = 1, math.max(#stops - 1, #s.slices) do
+        local t = s.slices[i]
+        if i >= #stops then
+            if t then t:Hide() end
         else
-            s:GetStatusBarTexture():SetGradient("HORIZONTAL", c1, c2)
+            if not t then
+                t = s:CreateTexture(nil, "ARTWORK", nil, 1)
+                t:AddMaskTexture(s.fillMask)
+                s.slices[i] = t
+            end
+            local from, to = stops[i], stops[i + 1]
+            t:SetTexture(c.texture)
+            t:ClearAllPoints()
+            if vertical then
+                t:SetPoint("TOPLEFT", s, "TOPLEFT", 0, -h * from.pos / 100)
+                t:SetPoint("BOTTOMRIGHT", s, "TOPRIGHT", 0, -h * to.pos / 100)
+                t:SetGradient("VERTICAL", CreateColor(unpack(to.color)), CreateColor(unpack(from.color)))
+            else
+                t:SetPoint("TOPLEFT", s, "TOPLEFT", w * from.pos / 100, 0)
+                t:SetPoint("BOTTOMRIGHT", s, "BOTTOMLEFT", w * to.pos / 100, 0)
+                t:SetGradient("HORIZONTAL", CreateColor(unpack(from.color)), CreateColor(unpack(to.color)))
+            end
+            t:Show()
         end
+    end
+end
+
+local function paint(s, c, r, g, b, w, h)
+    s:SetStatusBarTexture(c.texture) -- before colors: a new texture resets them
+    if c.gradient and #c.stops > 1 then
+        s:SetStatusBarColor(1, 1, 1, 0) -- the slices do the drawing; the fill only shapes them
+        paintSlices(s, c, w, h)
     else
+        for _, t in ipairs(s.slices) do t:Hide() end
         s:SetStatusBarColor(r, g, b, c.color[4])
     end
 end
@@ -406,9 +453,12 @@ local function layoutBar(f, n, width)
                 s = CreateFrame("StatusBar", nil, f)
                 s.bg = s:CreateTexture(nil, "BACKGROUND")
                 s.bg:SetAllPoints()
-                s.bg:SetColorTexture(0, 0, 0, 0.5)
+                s.bg:SetColorTexture(0, 0, 0, 0.5) -- recolored per bar below
                 s.border = s:CreateTexture(nil, "BACKGROUND", nil, -8) -- behind the background
                 s.mask, s.borderMask = newMask(s), newMask(s)
+                s.slices = {}
+                s.fillMask = s:CreateMaskTexture() -- the filled part, for the gradient slices
+                s.fillMask:SetTexture("Interface\\Buttons\\WHITE8X8", "CLAMPTOBLACKADDITIVE", "CLAMPTOBLACKADDITIVE")
                 s.mask:SetAllPoints(s)
                 s.borderMask:SetAllPoints(s.border)
                 s.hl = s:CreateTexture(nil, "OVERLAY", nil, -8) -- hover highlight; text draws above it
@@ -421,7 +471,8 @@ local function layoutBar(f, n, width)
             s:SetSize(iw, ih)
             s:SetPoint("LEFT", f, "LEFT", lead + (i - 1) * (w + PIP_GAP) + t, 0)
             s:SetMinMaxValues(i - 1, i) -- pip range; single bars get their real max in fill()
-            paint(s, c, r, g, b)
+            s.bg:SetColorTexture(unpack(c.bgColor))
+            paint(s, c, r, g, b, w, c.height)
             s.border:SetShown(t > 0)
             s.border:SetPoint("TOPLEFT", s, "TOPLEFT", -t, t)
             s.border:SetPoint("BOTTOMRIGHT", s, "BOTTOMRIGHT", t, -t)
@@ -1289,7 +1340,17 @@ local function sanitize(src, template)
     src = type(src) == "table" and src or {}
     for k, def in pairs(template) do
         local v = src[k]
-        if k == "hover" then -- a map: only known elements, only true
+        if k == "stops" then -- 2 to MAX_STOPS points, each a percent and a color
+            out.stops = {}
+            for _, stop in ipairs(type(v) == "table" and v or {}) do
+                local pos, col = stop and stop.pos, stop and stop.color
+                if type(pos) == "number" and pos == pos and pos >= 0 and pos <= 100 and type(col) == "table"
+                    and #out.stops < MAX_STOPS then
+                    out.stops[#out.stops + 1] = { pos = pos, color = sanitize(col, def[1].color) }
+                end
+            end
+            if #out.stops < 2 then out.stops = sanitize(nil, def) end
+        elseif k == "hover" then -- a map: only known elements, only true
             out.hover = {}
             for _, e in ipairs(HOVER_FRAMES) do
                 if type(v) == "table" and v[e[1]] == true then out.hover[e[1]] = true end
@@ -1350,6 +1411,8 @@ StaticPopupDialogs.COMBOPOINTDISPLAY_DELETE = {
     OnAccept = function(_, name) deleteProfile(name) end,
     timeout = 0, whileDead = true, hideOnEscape = true,
 }
+
+local openStops -- the gradient points dialog, defined below
 
 local ioFrame
 
@@ -1442,6 +1505,81 @@ local function openIO(mode)
         f.area1.box:SetFocus()
     end
     f:Show()
+end
+
+-- Gradient points dialog: percent + color per point, for the bar picked in the options.
+local stopsFrame
+function openStops()
+    local f = stopsFrame
+    if not f then
+        f = CreateFrame("Frame", "ComboPointDisplayStops", UIParent, "BasicFrameTemplateWithInset")
+        f:SetSize(330, 330)
+        f:SetPoint("CENTER")
+        f:SetFrameStrata("FULLSCREEN_DIALOG")
+        f:SetMovable(true)
+        f:EnableMouse(true)
+        f:RegisterForDrag("LeftButton")
+        f:SetScript("OnDragStart", f.StartMoving)
+        f:SetScript("OnDragStop", f.StopMovingOrSizing)
+        tinsert(UISpecialFrames, f:GetName())
+        f.title = label(f, "Gradient points")
+        f.title:SetPoint("TOP", 0, -5)
+        label(f, "Percent across the bar, and the color there.", "GameFontDisableSmall")
+            :SetPoint("TOPLEFT", 16, -30)
+        f.rows = {}
+        for i = 1, MAX_STOPS do
+            local y = -50 - (i - 1) * 26
+            local row = CreateFrame("Frame", nil, f)
+            row:SetPoint("TOPLEFT", 16, y)
+            row:SetSize(300, 24)
+            local box = CreateFrame("EditBox", nil, row, "InputBoxTemplate")
+            box:SetSize(40, 20)
+            box:SetPoint("TOPLEFT", 6, 0)
+            box:SetAutoFocus(false)
+            box:SetMaxLetters(3)
+            local function applyPos()
+                local v = tonumber(box:GetText())
+                local stop = cur().stops[i]
+                if v and stop then stop.pos = math.max(0, math.min(100, math.floor(v))) end
+                box:SetText(stop and tostring(stop.pos) or "")
+                box:ClearFocus()
+                changed()
+            end
+            box:SetScript("OnEnterPressed", applyPos)
+            box:HookScript("OnEditFocusLost", applyPos)
+            label(row, "%", "GameFontHighlight"):SetPoint("LEFT", box, "RIGHT", 4, 0)
+            local spare = { 1, 1, 1, 1 } -- rows past the last point still refresh
+            swatch(row, "Point " .. i, 62, 0, function() return cur().stops[i] and cur().stops[i].color or spare end)
+            local del = button(row, "Delete", 64, 210, 0, function()
+                table.remove(cur().stops, i)
+                changed()
+            end)
+            row.box, row.del = box, del
+            f.rows[i] = row
+        end
+        f.add = button(f, "Add point", 100, 16, -50 - MAX_STOPS * 26, function()
+            local stops = cur().stops
+            local last = stops[#stops]
+            tinsert(stops, { pos = last and last.pos or 100, color = { 1, 1, 1, 1 } })
+            changed()
+        end)
+        onRefresh(function()
+            if not f:IsShown() then return end
+            local stops = cur().stops
+            for i, row in ipairs(f.rows) do
+                row:SetShown(stops[i] ~= nil)
+                if stops[i] then
+                    if not row.box:HasFocus() then row.box:SetText(tostring(stops[i].pos)) end
+                    row.del:SetShown(#stops > 2)
+                end
+            end
+            f.add:SetShown(#stops < MAX_STOPS)
+            f.title:SetText("Gradient points: " .. BARS[selected].label)
+        end)
+        stopsFrame = f
+    end
+    f:Show()
+    changed()
 end
 
 local function buildConfig()
@@ -1623,16 +1761,17 @@ local function buildConfig()
         get = function() return cur().colorMode end, set = function(v) cur().colorMode = v end,
         effective = function() return barColors(selFrame(), cur()) end,
     })
-    local target = check(barsPage, "Show target health next to it", X, -436,
+    swatch(barsPage, "Background color", X, -436, function() return cur().bgColor end)
+    local target = check(barsPage, "Show target health next to it", X, -462,
         function() return cur().target end, function(v) cur().target = v end)
     local swingChecks = {}
     for i, kind in ipairs(SWING_TYPES) do
-        swingChecks[i] = check(barsPage, kind[2], X, -436 - (i - 1) * 24,
+        swingChecks[i] = check(barsPage, kind[2], X, -462 - (i - 1) * 24,
             function() return cur()[kind[1]] end, function(v) cur()[kind[1]] = v end)
     end
-    local castIcon = check(barsPage, "Show spell icon", X, -436,
+    local castIcon = check(barsPage, "Show spell icon", X, -462,
         function() return cur().icon end, function(v) cur().icon = v end)
-    local castSide = button(barsPage, "", 200, X, -462, function()
+    local castSide = button(barsPage, "", 200, X, -488, function()
         cur().iconSide = cur().iconSide == "right" and "left" or "right"
         changed()
     end)
@@ -1658,12 +1797,23 @@ local function buildConfig()
         { "16 px", 16 }, { "32 px", 32 }, { "Pill (50% of height)", "pill" } }, function() return cur().radius end,
         function(v) cur().radius = v end, textPreview)
     check(barsPage, "Gradient", X3, -264, function() return cur().gradient end, function(v) cur().gradient = v end)
-    local c2 = swatch(barsPage, "Gradient end color", X3, -290, function() return cur().color2 end)
-    local dir = button(barsPage, "", 200, X3, -316, function() cur().vertical = not cur().vertical; changed() end)
+    local DIRECTIONS = { { "right", "Left to right" }, { "left", "Right to left" },
+        { "down", "Top to bottom" }, { "up", "Bottom to top" } }
+    local dir = button(barsPage, "", 200, X3, -290, function()
+        local i = 1
+        for n, d in ipairs(DIRECTIONS) do
+            if d[1] == cur().direction then i = n end
+        end
+        cur().direction = DIRECTIONS[i % #DIRECTIONS + 1][1]
+        changed()
+    end)
+    local points = button(barsPage, "Gradient points...", 200, X3, -316, function() openStops() end)
     onRefresh(function()
-        c2:SetShown(cur().gradient)
         dir:SetShown(cur().gradient)
-        dir:SetText("Direction: " .. (cur().vertical and "Vertical" or "Horizontal"))
+        points:SetShown(cur().gradient)
+        for _, d in ipairs(DIRECTIONS) do
+            if d[1] == cur().direction then dir:SetText("Direction: " .. d[2]) end
+        end
     end)
     local textWidgets = {
         check(barsPage, "Show text", X3, -350, function() return cur().text end, function(v) cur().text = v end),

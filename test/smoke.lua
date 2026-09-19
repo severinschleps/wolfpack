@@ -25,7 +25,13 @@ function M:SetChecked(v) self._checked = v end
 function M:GetChecked() return self._checked end
 function M:SetSize(w, h) self._w, self._h = w, h end
 function M:SetParent(p) self._parent = p end
-function M:SetPoint(...) self._point = { ... } end
+function M:SetPoint(...)
+    self._point = { ... }
+    self._points = self._points or {}
+    self._points[#self._points + 1] = { ... }
+end
+function M:ClearAllPoints() self._points = {} end
+function M:SetGradient(orient, c1, c2) self._grad = { orient, c1, c2 } end
 function M:SetTexture(t) self._tex = t end
 function M:SetScale(v) self._scale = v end
 function M:SetTextureSliceMargins(...) self._slice = { ... } end
@@ -302,6 +308,34 @@ assert(ComboPointDisplayFrame._w == 220, "stack width ignores the target bar")
 S.targetHP = nil; fire("PLAYER_TARGET_CHANGED")
 assert(not tf:IsShown() and fr.health._w == 220 and fr.health._point[1] == "TOP", "target gone: full width again")
 prof().regular.bars.health.target = false
+
+-- Background color and gradient points: one slice per pair of points, masked by the bar's fill
+local gb = prof().regular.bars.health
+gb.bgColor = { 0.1, 0.2, 0.3, 0.6 }
+fire("UNIT_MAXPOWER")
+local gs = fr.health.segs[1]
+assert(gs.bg._color[1] == 0.1 and gs.bg._color[4] == 0.6, "background color per bar")
+assert(#gs.slices == 0, "no slices without a gradient")
+gb.gradient = true
+fire("UNIT_MAXPOWER")
+assert(#gs.slices == 1 and gs.slices[1]:IsShown() and gs._sbc[4] == 0, "two points: one slice, fill hidden")
+assert(gs.slices[1]._masks[gs.fillMask], "slices show only over the filled part")
+tinsert(gb.stops, 2, { pos = 50, color = { 0, 1, 0, 1 } })
+fire("UNIT_MAXPOWER")
+assert(#gs.slices == 2 and gs.slices[2]:IsShown(), "three points: two slices")
+local p1, p2 = gs.slices[1]._points, gs.slices[2]._points
+assert(p1[1][4] == 0 and p1[2][4] == 110 and p2[1][4] == 110 and p2[2][4] == 220, "slices span 0-50-100% of 220")
+assert(gs.slices[1]._grad[1] == "HORIZONTAL" and gs.slices[1]._grad[3][2] == 1, "green at the middle point")
+gb.direction = "left"
+fire("UNIT_MAXPOWER")
+assert(gs.slices[1]._grad[3][2] == 1 and gs.slices[2]._grad[3][1] == 0.2, "reversed: colors mirror")
+gb.direction = "down"
+fire("UNIT_MAXPOWER")
+assert(gs.slices[1]._grad[1] == "VERTICAL" and gs.slices[1]._points[2][5] == -9, "top to bottom: 50% of 18")
+gb.gradient, gb.direction = false, "right"
+table.remove(gb.stops, 2)
+fire("UNIT_MAXPOWER")
+assert(not gs.slices[1]:IsShown() and gs._sbc[1] == 0.2, "gradient off: solid color again")
 
 -- Grow direction: pinning the bottom edge makes the stack grow upwards instead
 local R1 = prof().regular
@@ -829,6 +863,23 @@ fire("MERCHANT_CLOSED")
 assert(#S.sold == 1 and tick.obj.cancelled, "closing stops it")
 prof().other.sellJunk = false
 
+-- Gradient points dialog: add, edit percent, delete
+prof().regular.bars.health.gradient = true
+byText("Gradient points...")._scripts.OnClick()
+local sf = ComboPointDisplayStops
+local stops = prof().regular.bars.health.stops
+assert(sf:IsShown() and sf.rows[1]:IsShown() and not sf.rows[3]:IsShown(), "a row per point")
+assert(not sf.rows[1].del:IsShown(), "two points can't be deleted")
+sf.add._scripts.OnClick()
+assert(#stops == 3 and sf.rows[3]:IsShown() and sf.rows[1].del:IsShown(), "added a point")
+sf.rows[3].box._text = "250"; sf.rows[3].box._scripts.OnEnterPressed()
+assert(stops[3].pos == 100 and sf.rows[3].box._text == "100", "percent clamped to 0-100")
+sf.rows[2].box._text = "40"; sf.rows[2].box._scripts.OnEnterPressed()
+assert(stops[2].pos == 40, "typed percent")
+sf.rows[3].del._scripts.OnClick()
+assert(#stops == 2 and not sf.rows[3]:IsShown(), "deleted")
+prof().regular.bars.health.gradient = false
+
 -- Export / import: the profile string round-trips into a new profile (mouseover choices and
 -- the account-wide combat font included); the WoW UI layout is its own string for Edit Mode
 C_EditMode.ConvertStringToLayoutInfo = function(str) if str:match("^EDITMODE:") then return {} end end
@@ -858,6 +909,8 @@ assert(oldName == "Old" and oldEM == "EDITMODE:Old", "old combined string")
 -- untrusted content: bad types, silly numbers, broken order, unknown keys
 blobs[#blobs + 1] = { name = string.rep("x", 50), combatFont = "Interface\\evil.ttf", profile = { evil = "x", locked = "yes",
     other = { hover = { bar1 = true, nope = true, bar2 = "yes" } },
+    nameplate = { bars = { power = { stops = { { pos = 10, color = { 1, 0, 0, 1 } }, { pos = "x" },
+        { pos = 90, color = { 0, 0, 1, 1 } } } } } },
     regular = { gap = -5, x = 1e9, order = { "health", "health", "bogus", "castbar" },
         bars = { health = { width = "wide", height = 0, radius = "pill", color = { 1, "red", 0, 1 } } } } } }
 local bad = ns.importString("CPD1:Bzblob" .. #blobs)
@@ -867,6 +920,8 @@ assert(bp.other.hover.bar1 and bp.other.hover.nope == nil and bp.other.hover.bar
 assert(ComboPointDisplayDB.combatFont == ns.COMBAT_FONTS[4][2], "unknown combat font path refused")
 assert(bp.regular.gap == 2 and bp.regular.x == 0, "out-of-range numbers defaulted")
 assert(bp.regular.order[1] == "health" and bp.regular.order[2] == "castbar" and #bp.regular.order == 7, "order repaired")
+local ns2 = bp.nameplate.bars.power.stops
+assert(#ns2 == 2 and ns2[1].pos == 10 and ns2[2].pos == 90 and ns2[1].color[1] == 1, "gradient points checked")
 local hb2 = bp.regular.bars.health
 assert(hb2.width == 220 and hb2.height == 18 and hb2.radius == "pill" and hb2.color[2] == 0.8, "bar values checked")
 ComboPointDisplayDB.combatFont = nil
