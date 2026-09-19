@@ -437,26 +437,34 @@ local function dropdown(parent, text, x, y, list, get, set, preview)
         for _, item in ipairs(list) do
             local radio = root:CreateRadio(item[1], function() return get() == item[2] end,
                 function() set(item[2]); changed() end)
-            radio:AddInitializer(function(button) return preview(button, item[2]), 20 end)
+            radio:AddInitializer(function(button) return preview(button, item), 20 end)
         end
     end)
     onRefresh(function() dd:GenerateMenu() end)
     return dd
 end
 
-local function texturePreview(button, path)
+local function texturePreview(button, item)
     local t = button:AttachTexture()
     t:SetSize(90, 12)
     t:SetPoint("RIGHT", -6, 0)
-    t:SetTexture(path)
+    t:SetTexture(item[2])
     t:SetVertexColor(unpack(cur().color))
     return button.fontString:GetUnboundedStringWidth() + 130
 end
 
-local function fontPreview(button, path)
+-- Menu font strings refuse SetFont, so each font gets a Font object for SetFontObject.
+-- Copying the default first keeps a usable font if a file fails to load.
+for i, f in ipairs(FONTS) do
+    f.object = CreateFont("ComboPointDisplayFont" .. i)
+    f.object:CopyFontObject(GameFontHighlight)
+    f.object:SetFont(f[2], 14, "")
+end
+
+local function fontPreview(button, item)
     local fs = button:AttachFontString()
     fs:SetPoint("RIGHT", -6, 0)
-    if not fs:SetFont(path, 14, "") then fs:SetFontObject("GameFontHighlight") end
+    fs:SetFontObject(item.object)
     fs:SetText("12345")
     return button.fontString:GetUnboundedStringWidth() + fs:GetUnboundedStringWidth() + 50
 end

@@ -52,6 +52,8 @@ function M:RegisterUnitEvent() evFrame = self end
 
 Enum = { PowerType = { Mana = 0, Rage = 1, Energy = 3, ComboPoints = 4, SoulShards = 7, HolyPower = 9,
     Chi = 12, ArcaneCharges = 16, Essence = 19 } }
+CreateFont = function() return new() end
+GameFontHighlight = new()
 UIParent, Minimap, GameTooltip, UISpecialFrames, SlashCmdList = new(), new(), new(), {}, {}
 tinsert = table.insert
 wipe = function(t) for k in pairs(t) do t[k] = nil end return t end
@@ -206,7 +208,17 @@ assert(not store.profiles.PvP and prof() == store.profiles.Rogue, "delete falls 
 local texDD, fontDD = dds[2], dds[3]
 texDD:GenerateMenu(); fontDD:GenerateMenu()
 assert(#texDD._items == 5 and #fontDD._items == 6, "dropdown entries")
-local function menuButton() local b = new(); b.fontString = new(); return b end
+-- Menu entries' regions refuse SetFont in the real client (Blizzard_Menu Compositor)
+local function menuButton()
+    local b = new()
+    b.fontString = new()
+    function b:AttachFontString()
+        local fs = new()
+        function fs:SetFont() error("Use of function 'SetFont' is disallowed") end
+        return fs
+    end
+    return b
+end
 for _, it in ipairs(texDD._items) do assert(type(it.init(menuButton())) == "number", "texture preview") end
 for _, it in ipairs(fontDD._items) do assert(type(it.init(menuButton())) == "number", "font preview") end
 texDD._items[2].set(); fontDD._items[6].set()
