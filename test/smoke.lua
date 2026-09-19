@@ -85,6 +85,18 @@ AcknowledgeAutoAcceptQuest, StaticPopup_Hide = record("ack"), record("hidepopup"
 IsShiftKeyDown = function() return S.shift end
 QuestGetAutoAccept = function() return S.autoQuest end
 QuestIsFromAreaTrigger = function() return S.areaTrigger end
+CompleteQuest = record("complete")
+IsQuestCompletable = function() return S.completable end
+GetNumQuestChoices = function() return S.choices or 0 end
+GetQuestMoneyToGet = function() return S.cost or 0 end
+GetQuestReward = function(c) S.calls[#S.calls + 1] = "reward" .. c end
+C_GossipInfo = {
+    GetActiveQuests = function() return S.gossip or {} end,
+    SelectActiveQuest = function(id) S.calls[#S.calls + 1] = "gossip" .. id end,
+}
+GetNumActiveQuests = function() return #(S.greeting or {}) end
+GetActiveTitle = function(i) return "Quest " .. i, S.greeting[i] end
+SelectActiveQuest = function(i) S.calls[#S.calls + 1] = "greeting" .. i end
 PlayerFrame = new()
 PlayerFrame._parent = UIParent
 GetRealmName = function() return "Realm" end
@@ -423,6 +435,24 @@ S.autoQuest = true; fire("QUEST_DETAIL", 0); S.autoQuest = false
 fire("QUEST_ACCEPT_CONFIRM")
 assert(calls() == "ack,confirm,hidepopup", "auto-accept quests acknowledged, escorts confirmed")
 prof().other.autoAccept = false
+
+-- Auto-complete: finished quests picked at the NPC, handed in, reward taken unless it needs a choice
+S.gossip = { { questID = 11, isComplete = false }, { questID = 12, isComplete = true } }
+S.greeting = { false, true }
+S.completable = true
+fire("GOSSIP_SHOW"); fire("QUEST_PROGRESS"); fire("QUEST_COMPLETE")
+assert(calls() == "", "off by default")
+prof().other.autoComplete = true
+fire("GOSSIP_SHOW"); fire("QUEST_GREETING"); fire("QUEST_PROGRESS"); fire("QUEST_COMPLETE")
+assert(calls() == "gossip12,greeting2,complete,reward0", "turns in")
+S.choices = 1; fire("QUEST_COMPLETE")
+S.choices = 3; fire("QUEST_COMPLETE")
+S.choices, S.cost = 0, 500; fire("QUEST_COMPLETE")
+S.cost, S.completable = 0, false; fire("QUEST_PROGRESS")
+assert(calls() == "reward1", "single reward taken; choice, gold cost and unfinished left alone")
+S.shift = true; fire("GOSSIP_SHOW"); fire("QUEST_COMPLETE"); S.shift = false
+assert(calls() == "", "shift skips")
+prof().other.autoComplete = false
 
 -- Every bundled font path points at a real file in the addon folder
 for _, f in ipairs(ns.FONTS) do

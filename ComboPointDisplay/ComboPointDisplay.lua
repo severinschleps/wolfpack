@@ -68,7 +68,7 @@ local DEFAULTS = {
         kill = { show = true, icon = 131013, size = 20, x = -72, y = 0 },
         loot = { show = true, icon = 131023, size = 20, x = 72, y = 0 },
     },
-    other = { hideGryphons = false, autoAccept = false },
+    other = { hideGryphons = false, autoAccept = false, autoComplete = false },
 }
 
 DEFAULTS.regular.bars.health.target = false -- target health bar right of it (Combat Display only)
@@ -881,6 +881,10 @@ local function buildConfig()
         function() return db.other.hideGryphons end, function(v) db.other.hideGryphons = v end)
     check(otherPage, "Auto-accept quests (hold Shift to read one first)", 16, -128,
         function() return db.other.autoAccept end, function(v) db.other.autoAccept = v end)
+    check(otherPage, "Auto-complete quests (hold Shift to skip)", 16, -152,
+        function() return db.other.autoComplete end, function(v) db.other.autoComplete = v end)
+    label(otherPage, "Auto-complete leaves quests with a reward choice or a gold cost to you.",
+        "GameFontDisableSmall"):SetPoint("TOPLEFT", 42, -178)
 
     local tabNote = label(barsPage, "", "GameFontDisableSmall")
     tabNote:SetPoint("TOPLEFT", 252, -74)
@@ -1091,6 +1095,26 @@ local function autoAccept(event, startItem)
     end
 end
 
+-- Auto-complete: pick finished quests at the NPC (gossip or greeting window), hand in the items,
+-- take the reward. Several rewards to choose from, or a gold cost, stay with you.
+local function autoComplete(event)
+    if not db.other.autoComplete or IsShiftKeyDown() then return end
+    if event == "QUEST_PROGRESS" then
+        if IsQuestCompletable() then CompleteQuest() end
+    elseif event == "QUEST_COMPLETE" then
+        local choices = GetNumQuestChoices()
+        if choices <= 1 and (GetQuestMoneyToGet() or 0) == 0 then GetQuestReward(choices) end
+    elseif event == "GOSSIP_SHOW" then
+        for _, q in ipairs(C_GossipInfo.GetActiveQuests() or {}) do
+            if q.isComplete then return C_GossipInfo.SelectActiveQuest(q.questID) end
+        end
+    elseif event == "QUEST_GREETING" then
+        for i = 1, GetNumActiveQuests() do
+            if select(2, GetActiveTitle(i)) then return SelectActiveQuest(i) end
+        end
+    end
+end
+
 local function fillShown(...)
     for i = 1, select("#", ...) do
         local key = select(i, ...)
@@ -1116,7 +1140,7 @@ ev:SetScript("OnEvent", function(_, event, unit)
         end
         for _, e in ipairs({ "PLAYER_ENTERING_WORLD", "UPDATE_SHAPESHIFT_FORM", "PLAYER_TARGET_CHANGED",
             "NAME_PLATE_UNIT_ADDED", "NAME_PLATE_UNIT_REMOVED", "QUEST_LOG_UPDATE", "PLAYER_REGEN_ENABLED",
-            "QUEST_DETAIL", "QUEST_ACCEPT_CONFIRM" }) do
+            "QUEST_DETAIL", "QUEST_ACCEPT_CONFIRM", "QUEST_PROGRESS", "QUEST_COMPLETE", "GOSSIP_SHOW", "QUEST_GREETING" }) do
             listen(e)
         end
         local mine = store.chars[charKey]
@@ -1129,6 +1153,8 @@ ev:SetScript("OnEvent", function(_, event, unit)
         fillShown("power", "combo", "druidmana")
     elseif event == "QUEST_DETAIL" or event == "QUEST_ACCEPT_CONFIRM" then
         safe(autoAccept, event, unit) -- for QUEST_DETAIL the first arg is the quest-starting item
+    elseif event == "QUEST_PROGRESS" or event == "QUEST_COMPLETE" or event == "GOSSIP_SHOW" or event == "QUEST_GREETING" then
+        safe(autoComplete, event)
     elseif event == "QUEST_LOG_UPDATE" or event == "UNIT_QUEST_LOG_CHANGED" then
         safe(questLogChanged)
     elseif event == "PLAYER_REGEN_ENABLED" then
