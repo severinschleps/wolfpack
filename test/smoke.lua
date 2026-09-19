@@ -28,6 +28,7 @@ function M:SetParent(p) self._parent = p end
 function M:SetPoint(...) self._point = { ... } end
 function M:SetTexture(t) self._tex = t end
 function M:SetScale(v) self._scale = v end
+function M:SetTextureSliceMargins(...) self._slice = { ... } end
 function M:SetAlpha(v) self._alpha = v end
 function M:SetDesaturated(v) self._desat = v end
 function M:SetAtlas(a) self._atlas = a end
@@ -277,17 +278,22 @@ prof().locked = false; fire("UNIT_MAXPOWER")
 assert(icon:IsShown(), "unlocked: preview for placing it")
 prof().locked = true; fire("UNIT_MAXPOWER")
 
--- Border and radius: border inside the bar's size, bar inset by it; masks scaled to the radius
+-- Border and radius: border inside the bar's size, bar inset by it; one mask file per radius,
+-- sliced at native size (Media/Round/r<N>.tga)
 local hb = prof().regular.bars.health -- 220 x 18
-hb.borderSize, hb.radius = 2, 6
+local function maskR(m) return m._tex:match("r(%d+)%.tga$") + 0, m._slice[1] end
+hb.borderSize, hb.radius = 2, 8
 fire("UNIT_MAXPOWER")
 local seg = fr.health.segs[1]
 assert(seg._w == 216 and seg._h == 14 and seg._point[4] == 2, "inset by the border")
 assert(seg.border:IsShown() and seg.border._point[4] == 2 and seg.border._point[5] == -2, "border around it")
-assert(seg.borderMask._scale == 6 / 60 and seg.mask._scale == 4 / 60, "outer radius 6, inner 6 - 2")
+assert(maskR(seg.borderMask) == 8 and select(2, maskR(seg.borderMask)) == 8 and maskR(seg.mask) == 6, "outer 8, inner 8 - 2")
 assert(seg.border._masks[seg.borderMask] and seg.bg._masks[seg.mask] and seg:GetStatusBarTexture()._masks[seg.mask], "masked")
-hb.radius = 50; fire("UNIT_MAXPOWER")
-assert(seg.borderMask._scale == 9 / 60 and seg.mask._scale == 7 / 60, "radius capped at half the height")
+hb.radius = 32; fire("UNIT_MAXPOWER")
+assert(maskR(seg.borderMask) == 9 and maskR(seg.mask) == 7, "radius capped at half the height")
+hb.radius = "pill"; fire("UNIT_MAXPOWER")
+assert(maskR(seg.borderMask) == 9 and maskR(seg.mask) == 7, "pill: half of each height")
+for r = 1, 50 do assert(io.open("ComboPointDisplay/Media/Round/r" .. r .. ".tga"), "mask file r" .. r) end
 hb.borderSize, hb.radius = 0, 0; fire("UNIT_MAXPOWER")
 assert(not seg.border:IsShown() and seg._w == 220 and not seg.bg._masks[seg.mask], "off: square, no border")
 assert(not seg:GetStatusBarTexture()._masks[seg.mask], "fill unmasked")
@@ -458,7 +464,7 @@ assert(ComboPointDisplayDB.minimapAngle ~= 220 and not mini._scripts.OnUpdate, "
 
 -- Options window: typed numbers apply on Enter and clamp to the slider range (gap: 0-30)
 SlashCmdList.COMBOPOINTDISPLAY("")
-local boxes = {} -- profile name, gap, group X/Y, width, height, bar X/Y, border, radius, font size, quest row X/Y/spacing, kill size, loot size, ...
+local boxes = {} -- profile name, gap, group X/Y, width, height, bar X/Y, border, font size, quest row X/Y/spacing, kill size, loot size, ...
 for _, f in ipairs(created) do if f._kind == "EditBox" then boxes[#boxes + 1] = f end end
 local nameBox, gapBox, xBox, yBox = boxes[1], boxes[2], boxes[3], boxes[4]
 gapBox._text = "7"; gapBox._scripts.OnEnterPressed(gapBox)
@@ -495,7 +501,7 @@ nameBox._text = "  PvP "; nameBox._scripts.OnEnterPressed(nameBox)
 assert(store.profiles.PvP and store.profiles.PvP.regular.gap == 30 and prof() == store.profiles.PvP, "create copies + switches")
 prof().regular.gap = 5
 assert(store.profiles.Rogue.regular.gap == 30, "profiles are independent")
-local dds = {} -- profile, texture, bar color, border color, font, kill icon, loot icon
+local dds = {} -- profile, texture, bar color, border color, radius, font, kill icon, loot icon, combat icon, attach
 for _, f in ipairs(created) do if f._gen then dds[#dds + 1] = f end end
 local dd = dds[1]
 dd:GenerateMenu()
@@ -509,7 +515,7 @@ byText("Delete")._scripts.OnClick(byText("Delete"), "LeftButton")
 assert(not store.profiles.PvP and prof() == store.profiles.Rogue, "delete falls back to class profile")
 
 -- Texture and font dropdowns: pick sets the selected bar (Health), previews render
-local texDD, fontDD = dds[2], dds[5]
+local texDD, fontDD = dds[2], dds[6]
 texDD:GenerateMenu(); fontDD:GenerateMenu()
 assert(#texDD._items == 5 and #fontDD._items == 6, "dropdown entries")
 -- Menu entries' regions refuse SetFont in the real client (Blizzard_Menu Compositor)
@@ -526,18 +532,23 @@ end
 for _, it in ipairs(texDD._items) do assert(type(it.init(menuButton())) == "number", "texture preview") end
 for _, it in ipairs(fontDD._items) do assert(type(it.init(menuButton())) == "number", "font preview") end
 texDD._items[2].set(); fontDD._items[6].set()
+dds[5]:GenerateMenu()
+assert(#dds[5]._items == 7 and dds[5]._items[7].text == "Pill (50% of height)", "radius presets")
+dds[5]._items[7].set()
+assert(prof().regular.bars.health.radius == "pill", "pill picked")
+dds[5]._items[1].set()
 assert(prof().regular.bars.health.texture == "Interface\\Buttons\\WHITE8X8", "texture picked")
 assert(prof().regular.bars.health.font:match("Anton%-Regular%.ttf$") and fontDD._items[6].sel(), "font picked")
 
 -- Quest page: icon style, size and position per icon
 byText("Nameplates")._scripts.OnClick(byText("Nameplates"), "LeftButton")
 byText("Quest mobs")._scripts.OnClick(byText("Quest mobs"), "LeftButton")
-dds[6]:GenerateMenu(); dds[7]:GenerateMenu()
-assert(#dds[6]._items == 4 and #dds[7]._items == 4, "icon choices")
-for _, it in ipairs(dds[6]._items) do assert(type(it.init(menuButton())) == "number", "icon preview") end
-dds[6]._items[3].set()
-boxes[15]._text = "32"; boxes[15]._scripts.OnEnterPressed(boxes[15]) -- kill size
-boxes[12]._text = "-5"; boxes[12]._scripts.OnEnterPressed(boxes[12]) -- row X
+dds[7]:GenerateMenu(); dds[8]:GenerateMenu()
+assert(#dds[7]._items == 4 and #dds[8]._items == 4, "icon choices")
+for _, it in ipairs(dds[7]._items) do assert(type(it.init(menuButton())) == "number", "icon preview") end
+dds[7]._items[3].set()
+boxes[14]._text = "32"; boxes[14]._scripts.OnEnterPressed(boxes[14]) -- kill size
+boxes[11]._text = "-5"; boxes[11]._scripts.OnEnterPressed(boxes[11]) -- row X
 local Q = prof().quest
 assert(Q.kill.icon == 135274 and Q.kill.size == 32 and Q.loot.size == 20 and Q.x == -5, "quest page edits")
 assert(h.kill._tex == 135274 and h.kill._w == 32 and h.box._w == 54 and h.box._point[4] == -5, "live plate row restyled")
@@ -554,10 +565,10 @@ gcheck._checked = true; gcheck._scripts.OnClick(gcheck)
 assert(prof().other.hideGryphons and caps.LeftEndCap.Texture._alpha == 0 and caps.RightEndCap.Texture._alpha == 0, "hidden")
 gcheck._checked = false; gcheck._scripts.OnClick(gcheck)
 assert(caps.LeftEndCap.Texture._alpha == 1, "shown again")
-dds[8]:GenerateMenu(); dds[9]:GenerateMenu() -- combat icon art, attach-to bar
-assert(#dds[8]._items == 4 and #dds[9]._items == 5, "combat icon choices, one entry per bar")
-for _, it in ipairs(dds[8]._items) do assert(type(it.init(menuButton())) == "number", "combat icon preview") end
-dds[9]._items[2].set()
+dds[9]:GenerateMenu(); dds[10]:GenerateMenu() -- combat icon art, attach-to bar
+assert(#dds[9]._items == 4 and #dds[10]._items == 5, "combat icon choices, one entry per bar")
+for _, it in ipairs(dds[9]._items) do assert(type(it.init(menuButton())) == "number", "combat icon preview") end
+dds[10]._items[2].set()
 assert(prof().regular.combatIcon.bar == prof().regular.order[2], "attached to the second bar")
 local opBox = boxes[#boxes] -- the last slider made: highlight opacity (%)
 opBox._text = "60"; opBox._scripts.OnEnterPressed(opBox)

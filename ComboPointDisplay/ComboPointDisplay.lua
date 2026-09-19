@@ -241,24 +241,24 @@ local function paint(s, c, r, g, b)
 end
 
 -- Rounded corners: WoW has no border-radius, so textures get a mask cut from a rounded
--- rectangle image. The image is nine-sliced so its corners keep their size at any bar size, and
--- the mask is scaled so a corner (MASK_MARGIN px in the file) comes out `radius` px on screen.
--- ponytail: assumes slice corners follow region scale; if in-game corners ignore the radius,
--- the fallback is one mask file per radius.
-local MASK = "Interface\\AddOns\\" .. ADDON .. "\\Media\\RoundedMask.tga"
-local MASK_MARGIN = 60
+-- rectangle. Media/Round/r<N>.tga has corners of exactly N px (1-50); nine-sliced with N px
+-- margins, the corners draw at that size on any bar size.
+local MASK_DIR = "Interface\\AddOns\\" .. ADDON .. "\\Media\\Round\\r"
+local MAX_RADIUS = 50
 
 local function newMask(owner)
-    local m = owner:CreateMaskTexture()
-    m:SetTexture(MASK, "CLAMPTOBLACKADDITIVE", "CLAMPTOBLACKADDITIVE")
-    m:SetTextureSliceMargins(MASK_MARGIN, MASK_MARGIN, MASK_MARGIN, MASK_MARGIN) -- default mode: stretched
-    return m
+    return owner:CreateMaskTexture()
 end
 
--- Corner radius r on a w x h area; 0 = square (mask removed). Capped at half the short side.
+-- Corner radius r on a w x h area; 0 = square (mask removed). Capped at half the short side,
+-- which is also what "pill" asks for (r = huge).
 local function round(tex, m, r, w, h)
-    r = math.min(r, w / 2, h / 2)
-    if r > 0 then m:SetScale(r / MASK_MARGIN) end
+    r = math.floor(math.min(r, w / 2, h / 2, MAX_RADIUS))
+    if r > 0 and m.r ~= r then
+        m:SetTexture(MASK_DIR .. r .. ".tga", "CLAMPTOBLACKADDITIVE", "CLAMPTOBLACKADDITIVE")
+        m:SetTextureSliceMargins(r, r, r, r)
+        m.r = r
+    end
     if (r > 0) ~= (tex.cpdMask == m) then
         if r > 0 then tex:AddMaskTexture(m) else tex:RemoveMaskTexture(m) end
         tex.cpdMask = r > 0 and m or nil
@@ -345,11 +345,12 @@ local function layoutBar(f, n, width)
             s.border:SetPoint("TOPLEFT", s, "TOPLEFT", -t, t)
             s.border:SetPoint("BOTTOMRIGHT", s, "BOTTOMRIGHT", t, -t)
             s.border:SetColorTexture(br, bg, bb, ba)
-            round(s.border, s.borderMask, c.radius, w, c.height)
+            local radius = c.radius == "pill" and math.huge or c.radius
+            round(s.border, s.borderMask, radius, w, c.height)
             s.hl:SetColorTexture(unpack(db.regular.highlight.color))
             s.hl:SetShown((f.mode == "regular" and hovered) or false)
-            round(s.hl, s.borderMask, c.radius, w, c.height)
-            local inner = math.max(c.radius - t, 0) -- inner corners follow the outer ones
+            round(s.hl, s.borderMask, radius, w, c.height)
+            local inner = math.max(radius - t, 0) -- inner corners follow the outer ones
             round(s.bg, s.mask, inner, iw, ih)
             round(s:GetStatusBarTexture(), s.mask, inner, iw, ih)
             s:Show()
@@ -1162,7 +1163,9 @@ local function buildConfig()
         { "Same as bar color", "bar" } }, function() return cur().borderMode end, function(v) cur().borderMode = v end,
         textPreview)
     swatch(barsPage, "Custom border color (and opacity)", X3, -194, function() return cur().borderColor end)
-    slider(barsPage, "Corner radius", X3, -218, 0, 30, function() return cur().radius end, function(v) cur().radius = v end)
+    dropdown(barsPage, "Corner radius", X3, -214, { { "None", 0 }, { "2 px", 2 }, { "4 px", 4 }, { "8 px", 8 },
+        { "16 px", 16 }, { "32 px", 32 }, { "Pill (50% of height)", "pill" } }, function() return cur().radius end,
+        function(v) cur().radius = v end, textPreview)
     check(barsPage, "Gradient", X3, -264, function() return cur().gradient end, function(v) cur().gradient = v end)
     local c2 = swatch(barsPage, "Gradient end color", X3, -290, function() return cur().color2 end)
     local dir = button(barsPage, "", 200, X3, -316, function() cur().vertical = not cur().vertical; changed() end)
