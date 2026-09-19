@@ -377,25 +377,31 @@ local function scanQuestLog()
     end
 end
 
--- kill, loot for a unit. Finished objectives and other party members' objectives don't count.
+-- kill, loot for a unit: "mine", "party" (only groupmates still need it) or nil. Open
+-- objectives only. In a group the tooltip names whose objective follows (QuestPlayer lines); where
+-- it doesn't, the objective counts as yours. ponytail: objective types come from your own quest
+-- log, so a groupmate's item objective for a quest you don't have shows as a kill.
 local function questKinds(unit)
-    if not C_QuestLog.UnitIsRelatedToActiveQuest(unit) then return false, false end
+    local related = C_QuestLog.UnitIsRelatedToActiveQuest(unit)
+    if not related and not IsInGroup() then return nil, nil end -- solo: skip the tooltip
     local data = C_TooltipInfo.GetUnit(unit)
-    local kill, loot, anyObjective, mine = false, false, false, true
+    local mine, party, anyObjective, own = {}, {}, false, true
     for _, line in ipairs(data and data.lines or {}) do
         if line.type == LINE.QuestTitle then
-            mine = true
+            own = true
         elseif line.type == LINE.QuestPlayer then
-            mine = line.leftText == playerName
+            own = line.leftText == playerName
         elseif line.type == LINE.QuestObjective then
             anyObjective = true
-            if mine and not line.completed then
-                if objectiveTypes[bareText(line.leftText or "")] == "item" then loot = true else kill = true end
+            if not line.completed then
+                local kind = objectiveTypes[bareText(line.leftText or "")] == "item" and "loot" or "kill"
+                if own then mine[kind] = true else party[kind] = true end
             end
         end
     end
-    if not anyObjective then kill = true end -- quest-related, but the tooltip names no objective
-    return kill, loot
+    if not anyObjective and related then mine.kill = true end -- quest mob, but no objective named
+    return mine.kill and "mine" or party.kill and "party" or nil,
+        mine.loot and "mine" or party.loot and "party" or nil
 end
 
 -- Nameplates are recycled, so each plate keeps one icon holder; plateUnits maps the units
@@ -422,6 +428,7 @@ local function styleQuest(h)
         local c, t = q[kind], h[kind]
         local on = (h.want[kind] and c.show) and true or false
         t:SetTexture(c.icon)
+        t:SetDesaturated(h.want[kind] == "party") -- groupmates need it, you don't: grayscale
         t:SetSize(c.size, c.size)
         t:ClearAllPoints()
         t:SetPoint("TOPLEFT", h.box, "TOPLEFT", x, 0)
@@ -450,7 +457,7 @@ local function plateAdded(unit)
         h.kill, h.loot, h.want = h.box:CreateTexture(nil, "OVERLAY"), h.box:CreateTexture(nil, "OVERLAY"), {}
         questHolders[plate] = h
     end
-    h.want.kill, h.want.loot = false, false
+    h.want.kill, h.want.loot = nil, nil
     plateUnits[unit] = h
     evalQuest(unit)
 end
@@ -458,7 +465,7 @@ end
 local function plateRemoved(unit)
     local h = plateUnits[unit]
     if not h then return end
-    h.want.kill, h.want.loot = false, false
+    h.want.kill, h.want.loot = nil, nil
     styleQuest(h)
     plateUnits[unit] = nil
 end
@@ -1021,7 +1028,7 @@ local function buildConfig()
     -- Quest mobs page
     label(questPage, "Quest mobs", "GameFontNormal"):SetPoint("TOPLEFT", 16, -104)
     local desc = label(questPage, "Marks enemies you still need for a quest.\n\nSword: you need to kill it.\n"
-        .. "Bag: it drops an item you need.\n\nThe icons sit in a row at the nameplate's top-right corner; "
+        .. "Bag: it drops an item you need.\nGray: only groupmates still need it.\n\nThe icons sit in a row at the nameplate's top-right corner; "
         .. "a lone icon keeps to the row's left. Finished objectives show nothing. Needs enemy nameplates "
         .. "on (V key).", "GameFontHighlightSmall")
     desc:SetPoint("TOPLEFT", 16, -126)

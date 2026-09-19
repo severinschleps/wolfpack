@@ -29,6 +29,7 @@ function M:SetPoint(...) self._point = { ... } end
 function M:SetTexture(t) self._tex = t end
 function M:SetScale(v) self._scale = v end
 function M:SetAlpha(v) self._alpha = v end
+function M:SetDesaturated(v) self._desat = v end
 function M:SetColorTexture(...) self._color = { ... } end
 function M:IsMouseOver() return S.mouseOver end
 function M:GetStatusBarTexture() self._sbt = self._sbt or new(); return self._sbt end
@@ -85,6 +86,7 @@ local function record(name) return function() S.calls[#S.calls + 1] = name end e
 AcceptQuest, ConfirmAcceptQuest = record("accept"), record("confirm")
 AcknowledgeAutoAcceptQuest, StaticPopup_Hide = record("ack"), record("hidepopup")
 IsShiftKeyDown = function() return S.shift end
+IsInGroup = function() return S.group end
 QuestGetAutoAccept = function() return S.autoQuest end
 QuestIsFromAreaTrigger = function() return S.areaTrigger end
 CompleteQuest = record("complete")
@@ -311,6 +313,7 @@ S.tips.nameplate1 = { { type = L.QuestTitle, leftText = "Boars", id = 7 },
 fire("NAME_PLATE_UNIT_ADDED", "nameplate1")
 local h = ns.plateUnits.nameplate1
 assert(h and h._parent == plate and h.kill:IsShown() and h.loot:IsShown(), "kill + loot")
+assert(not h.kill._desat and not h.loot._desat, "yours: full color")
 local bp, kp, lp = h.box._point, h.kill._point, h.loot._point
 assert(bp[1] == "TOPRIGHT" and bp[2] == h and bp[3] == "TOPRIGHT" and bp[4] == 0 and bp[5] == 0, "row at the top-right corner")
 assert(h.box._w == 42 and h.kill._tex == 131013, "room for both: 20 + 2 + 20")
@@ -319,10 +322,25 @@ S.tips.nameplate1[2].completed = true
 fire("QUEST_LOG_UPDATE")
 assert(not h.kill:IsShown() and h.loot:IsShown(), "finished kill objective hidden")
 assert(h.loot._point[4] == 0 and h.box._w == 42, "lone bag slides to the row's left edge, row keeps its size")
+-- Groups: QuestPlayer lines say whose objective follows; groupmates-only shows gray
+S.tips.nameplate1 = { { type = L.QuestTitle, leftText = "Boars", id = 7 },
+    { type = L.QuestPlayer, leftText = "ROGUEChar" }, { type = L.QuestObjective, leftText = "3/10 Boar slain" },
+    { type = L.QuestPlayer, leftText = "Bob" }, { type = L.QuestObjective, leftText = "Boar Flank: 2/6" },
+    { type = L.QuestObjective, leftText = "3/10 Boar slain" } }
+S.group = true; fire("QUEST_LOG_UPDATE")
+assert(h.kill:IsShown() and not h.kill._desat and h.loot:IsShown() and h.loot._desat, "kill mine, loot only Bob's")
+S.related.nameplate1 = false
 S.tips.nameplate1 = { { type = L.QuestTitle, leftText = "Boars", id = 7 }, { type = L.QuestPlayer, leftText = "Bob" },
     { type = L.QuestObjective, leftText = "Boar Flank: 2/6", completed = false } }
 fire("QUEST_LOG_UPDATE")
-assert(not h.kill:IsShown() and not h.loot:IsShown(), "party member's objective ignored")
+assert(not h.kill:IsShown() and h.loot:IsShown() and h.loot._desat and h.loot._point[4] == 0, "not my quest mob: gray bag")
+S.tips.nameplate1 = { { type = L.QuestTitle, leftText = "Boars", id = 7 },
+    { type = L.QuestObjective, leftText = "Boar Flank: 2/6", completed = false } }
+fire("QUEST_LOG_UPDATE")
+assert(h.loot:IsShown() and not h.loot._desat, "can't tell whose: full color")
+S.group = false; fire("QUEST_LOG_UPDATE")
+assert(not h.loot:IsShown(), "solo: only your quest mobs")
+S.related.nameplate1 = true
 S.tips.nameplate1 = {}
 fire("QUEST_LOG_UPDATE")
 assert(h.kill:IsShown() and not h.loot:IsShown(), "related without objective lines: sword")
