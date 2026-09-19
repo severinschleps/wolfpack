@@ -29,6 +29,8 @@ function M:SetPoint(...) self._point = { ... } end
 function M:SetTexture(t) self._tex = t end
 function M:SetScale(v) self._scale = v end
 function M:SetAlpha(v) self._alpha = v end
+function M:SetColorTexture(...) self._color = { ... } end
+function M:IsMouseOver() return S.mouseOver end
 function M:GetStatusBarTexture() self._sbt = self._sbt or new(); return self._sbt end
 function M:AddMaskTexture(m) self._masks = self._masks or {}; self._masks[m] = true end
 function M:RemoveMaskTexture(m) if self._masks then self._masks[m] = nil end end
@@ -218,6 +220,24 @@ assert(seg.borderMask._scale == 9 / 60 and seg.mask._scale == 7 / 60, "radius ca
 hb.borderSize, hb.radius = 0, 0; fire("UNIT_MAXPOWER")
 assert(not seg.border:IsShown() and seg._w == 220 and not seg.bg._masks[seg.mask], "off: square, no border")
 assert(not seg:GetStatusBarTexture()._masks[seg.mask], "fill unmasked")
+
+-- Highlight: overlay on every bar of the group while hovered; no polling unless it's on
+local hl, anchorF = prof().regular.highlight, ComboPointDisplayFrame
+fire("UNIT_MAXPOWER")
+assert(not anchorF._scripts.OnUpdate, "no polling by default")
+hl.show = true; fire("UNIT_MAXPOWER")
+local poll = anchorF._scripts.OnUpdate
+S.mouseOver = true; poll(anchorF)
+assert(fr.health.segs[1].hl:IsShown() and fr.combo.segs[5].hl:IsShown(), "hovered: highlighted")
+assert(fr.health.segs[1].hl._color[4] == 0.25, "default opacity 25%")
+fire("UNIT_MAXPOWER")
+assert(fr.power.segs[1].hl:IsShown(), "stays lit through a re-layout")
+S.mouseOver = false; poll(anchorF)
+assert(not fr.health.segs[1].hl:IsShown() and not fr.combo.segs[5].hl:IsShown(), "left: off")
+S.mouseOver = true; poll(anchorF)
+hl.show = false; fire("UNIT_MAXPOWER")
+assert(not anchorF._scripts.OnUpdate and not fr.health.segs[1].hl:IsShown(), "option off clears it")
+S.mouseOver = false
 
 -- Player frame: hide by reparenting (out of combat only), restore to the original parent
 local R0 = prof().regular
@@ -417,6 +437,9 @@ gcheck._checked = true; gcheck._scripts.OnClick(gcheck)
 assert(prof().other.hideGryphons and caps.LeftEndCap.Texture._alpha == 0 and caps.RightEndCap.Texture._alpha == 0, "hidden")
 gcheck._checked = false; gcheck._scripts.OnClick(gcheck)
 assert(caps.LeftEndCap.Texture._alpha == 1, "shown again")
+local opBox = boxes[#boxes] -- the last slider made: highlight opacity (%)
+opBox._text = "60"; opBox._scripts.OnEnterPressed(opBox)
+assert(math.abs(prof().regular.highlight.color[4] - 0.6) < 1e-9 and opBox._text == "60", "opacity typed")
 byText("Combat Display")._scripts.OnClick(byText("Combat Display"), "LeftButton")
 
 -- Auto-accept: off by default; Shift skips; item/area-trigger quests left to Blizzard

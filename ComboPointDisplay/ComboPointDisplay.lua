@@ -76,6 +76,7 @@ DEFAULTS.regular.hidePlayerFrame = false -- hide Blizzard's player unit frame
 DEFAULTS.regular.playerMenu = false      -- right-click on the bars opens the player menu
 DEFAULTS.regular.playerTarget = false    -- left-click on the bars targets yourself
 DEFAULTS.regular.playerMouseover = false -- hovering the bars makes you @mouseover
+DEFAULTS.regular.highlight = { show = false, color = { 1, 1, 1, 0.25 } } -- overlay while hovered
 
 local function merge(dst, src)
     for k, v in pairs(src) do
@@ -252,6 +253,8 @@ local function round(tex, m, r, w, h)
     end
 end
 
+local hovered -- cursor over the Combat Display group (highlight option)
+
 local function layoutBar(f, n, width)
     local c = db[f.mode].bars[f.key]
     width = width or c.width
@@ -277,6 +280,8 @@ local function layoutBar(f, n, width)
                 s.mask, s.borderMask = newMask(s), newMask(s)
                 s.mask:SetAllPoints(s)
                 s.borderMask:SetAllPoints(s.border)
+                s.hl = s:CreateTexture(nil, "OVERLAY", nil, -8) -- hover highlight; text draws above it
+                s.hl:SetAllPoints(s.border)
                 f.segs[i] = s
             end
             -- The border sits inside the bar's size (like CSS border-box); the bar is inset by it.
@@ -291,6 +296,9 @@ local function layoutBar(f, n, width)
             s.border:SetPoint("BOTTOMRIGHT", s, "BOTTOMRIGHT", t, -t)
             s.border:SetColorTexture(unpack(c.borderColor))
             round(s.border, s.borderMask, c.radius, w, c.height)
+            s.hl:SetColorTexture(unpack(db.regular.highlight.color))
+            s.hl:SetShown((f.mode == "regular" and hovered) or false)
+            round(s.hl, s.borderMask, c.radius, w, c.height)
             local inner = math.max(c.radius - t, 0) -- inner corners follow the outer ones
             round(s.bg, s.mask, inner, iw, ih)
             round(s:GetStatusBarTexture(), s.mask, inner, iw, ih)
@@ -516,6 +524,18 @@ local function syncGryphons()
     gryphonsHidden = hide
 end
 
+local function setHover(on)
+    if on == (hovered or false) then return end
+    hovered = on
+    for _, f in pairs(frames) do
+        for _, s in ipairs(f.segs) do s.hl:SetShown(on) end
+    end
+    for _, s in ipairs(targetFrame.segs) do s.hl:SetShown(on) end
+end
+
+-- IsMouseOver works without EnableMouse, so the highlight never blocks clicks.
+local function checkHover() setHover(anchor:IsMouseOver()) end
+
 local function Refresh()
     local health = frames.health
     health.split = (db.regular.bars.health.target and UnitExists("target")) and true or false
@@ -540,6 +560,8 @@ local function Refresh()
     moverHint:SetFormattedText(HINT, db.regular.x, db.regular.y)
     syncProtected()
     syncGryphons()
+    anchor:SetScript("OnUpdate", db.regular.highlight.show and checkHover or nil)
+    if not db.regular.highlight.show then setHover(false) end
 end
 
 -- One report per session, printed to chat: Lua errors are hidden by default and this client
@@ -877,15 +899,6 @@ local function buildConfig()
         otherPage:SetShown(section == "other")
     end)
 
-    check(otherPage, "Hide action bar gryphons", 16, -104,
-        function() return db.other.hideGryphons end, function(v) db.other.hideGryphons = v end)
-    check(otherPage, "Auto-accept quests (hold Shift to read one first)", 16, -128,
-        function() return db.other.autoAccept end, function(v) db.other.autoAccept = v end)
-    check(otherPage, "Auto-complete quests (hold Shift to skip)", 16, -152,
-        function() return db.other.autoComplete end, function(v) db.other.autoComplete = v end)
-    label(otherPage, "Auto-complete leaves quests with a reward choice or a gold cost to you.",
-        "GameFontDisableSmall"):SetPoint("TOPLEFT", 42, -178)
-
     local tabNote = label(barsPage, "", "GameFontDisableSmall")
     tabNote:SetPoint("TOPLEFT", 252, -74)
     onRefresh(function()
@@ -929,14 +942,10 @@ local function buildConfig()
             function() return db.regular.hidePlayerFrame end, function(v) db.regular.hidePlayerFrame = v end),
         check(barsPage, "Right-click: player menu", 16, -460,
             function() return db.regular.playerMenu end, function(v) db.regular.playerMenu = v end),
-        check(barsPage, "Left-click: target yourself", 16, -484,
-            function() return db.regular.playerTarget end, function(v) db.regular.playerTarget = v end),
-        check(barsPage, "Mouseover macros (@mouseover)", 16, -508,
-            function() return db.regular.playerMouseover end, function(v) db.regular.playerMouseover = v end),
     }
     onRefresh(function() for _, w in ipairs(playerFrameOpts) do w:SetShown(mode == "regular") end end)
     label(barsPage, "Mouse wheel on a slider changes it by 1.\nPlayer frame options apply out of combat.\n"
-        .. "Click and mouseover options block clicks through the bars.", "GameFontDisableSmall"):SetPoint("TOPLEFT", 16, -540)
+        .. "Click options block clicks through the bars.", "GameFontDisableSmall"):SetPoint("TOPLEFT", 16, -494)
 
     -- Column 2: the selected bar's show, size, offset, look
     local X = 240
@@ -1007,6 +1016,39 @@ local function buildConfig()
         slider(questPage, "X (left / right)", X, -240, -200, 200, function() return q().x end, function(v) q().x = v end)
         slider(questPage, "Y (down / up)", X, -282, -200, 200, function() return q().y end, function(v) q().y = v end)
     end
+
+    -- Other page: general toggles, and the Combat Display group's mouse behaviour
+    label(otherPage, "General", "GameFontNormal"):SetPoint("TOPLEFT", 16, -104)
+    check(otherPage, "Hide action bar gryphons", 16, -122,
+        function() return db.other.hideGryphons end, function(v) db.other.hideGryphons = v end)
+    check(otherPage, "Auto-accept quests (hold Shift to skip)", 16, -146,
+        function() return db.other.autoAccept end, function(v) db.other.autoAccept = v end)
+    check(otherPage, "Auto-complete quests (hold Shift to skip)", 16, -170,
+        function() return db.other.autoComplete end, function(v) db.other.autoComplete = v end)
+    local note = label(otherPage, "Auto-complete leaves quests with a reward choice or a gold cost to you.",
+        "GameFontDisableSmall")
+    note:SetPoint("TOPLEFT", 42, -196)
+    note:SetWidth(260)
+    note:SetJustifyH("LEFT")
+
+    local X2 = 340
+    local R = function() return db.regular end
+    label(otherPage, "Bar group (Combat Display)", "GameFontNormal"):SetPoint("TOPLEFT", X2, -104)
+    check(otherPage, "Left-click: target yourself", X2, -122,
+        function() return R().playerTarget end, function(v) R().playerTarget = v end)
+    check(otherPage, "Mouseover macros (@mouseover)", X2, -146,
+        function() return R().playerMouseover end, function(v) R().playerMouseover = v end)
+    check(otherPage, "Highlight on mouseover", X2, -178,
+        function() return R().highlight.show end, function(v) R().highlight.show = v end)
+    swatch(otherPage, "Highlight color", X2, -204, function() return R().highlight.color end)
+    slider(otherPage, "Highlight opacity (%)", X2, -228, 0, 100,
+        function() return math.floor(R().highlight.color[4] * 100 + 0.5) end,
+        function(v) R().highlight.color[4] = v / 100 end)
+    local hint = label(otherPage, "Click options apply out of combat and block clicks through the bars. "
+        .. "The highlight doesn't.", "GameFontDisableSmall")
+    hint:SetPoint("TOPLEFT", X2, -274)
+    hint:SetWidth(300)
+    hint:SetJustifyH("LEFT")
 end
 
 function ns.ToggleConfig()
