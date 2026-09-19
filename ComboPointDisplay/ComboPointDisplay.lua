@@ -1,4 +1,5 @@
--- ComboPointDisplay: stacked health / power / combo point / druid mana bars for WoW: Forever.
+-- ComboPointDisplay: stacked health / power / combo point / druid mana bars for WoW: Forever,
+-- plus quest mob icons (sword = kill, bag = drops an item) on nameplates.
 --
 -- Forever runs the Retail (Midnight) API: UnitPower and friends return "secret" values that
 -- addon code may not compare or do math on. So values only ever go into StatusBar:SetValue and
@@ -57,10 +58,15 @@ local function layoutDefaults(show, x, y, gap, width, h1, h2, h3, h4)
     return l
 end
 
+-- Quest mob icons on nameplates; x/y from the nameplate's center. Icons are file IDs.
 local DEFAULTS = {
     locked = true,
     regular = layoutDefaults(true, 0, -120, 2, 220, 18, 14, 12, 6),
     nameplate = layoutDefaults(false, 0, -2, 1, 110, 8, 6, 6, 4),
+    quest = {
+        kill = { show = true, icon = 131013, size = 20, x = -72, y = 0 },
+        loot = { show = true, icon = 131023, size = 20, x = 72, y = 0 },
+    },
 }
 
 local function merge(dst, src)
@@ -265,6 +271,119 @@ local function targetPlate()
     if ok and p and not (p.IsForbidden and p:IsForbidden()) then return p end
 end
 
+------------------------------------------------------------------------------------------
+-- Quest mobs: a sword on nameplates of mobs you still need to kill, a bag on mobs that drop
+-- an item you still need. Read from the unit tooltip's quest lines; the quest log says which
+-- objective is an item.
+------------------------------------------------------------------------------------------
+local QUEST_ICONS = {
+    kill = {
+        { "Sword cursor", 131013 },     -- Interface/CURSOR/Attack
+        { "Crosshair sword", 4675619 }, -- Interface/CURSOR/Crosshair/Attack
+        { "Sword", 135274 },            -- Interface/ICONS/INV_Sword_04
+        { "Crossed swords", 132147 },   -- Interface/ICONS/Ability_DualWield
+    },
+    loot = {
+        { "Loot cursor", 131023 },      -- Interface/CURSOR/LootAll
+        { "Crosshair loot", 4675637 },  -- Interface/CURSOR/Crosshair/LootAll
+        { "Bag", 133633 },              -- Interface/ICONS/INV_Misc_Bag_08
+        { "Coin bag", 901746 },         -- Interface/ICONS/INV_Misc_CoinBag_Special
+    },
+}
+
+local LINE = Enum.TooltipDataLineType
+local objectiveTypes = {} -- objective text without numbers -> "monster", "item", ...
+local playerName
+
+-- "Boar Flank: 2/6" and "2/6 Boar Flank" both become "BoarFlank".
+local function bareText(text) return (text:gsub("[%d%p%s]", "")) end
+
+local function scanQuestLog()
+    wipe(objectiveTypes)
+    for i = 1, C_QuestLog.GetNumQuestLogEntries() do
+        local info = C_QuestLog.GetInfo(i)
+        if info and not info.isHeader then
+            for _, o in ipairs(C_QuestLog.GetQuestObjectives(info.questID) or {}) do
+                if o.text then objectiveTypes[bareText(o.text)] = o.type end
+            end
+        end
+    end
+end
+
+-- kill, loot for a unit. Finished objectives and other party members' objectives don't count.
+local function questKinds(unit)
+    if not C_QuestLog.UnitIsRelatedToActiveQuest(unit) then return false, false end
+    local data = C_TooltipInfo.GetUnit(unit)
+    local kill, loot, anyObjective, mine = false, false, false, true
+    for _, line in ipairs(data and data.lines or {}) do
+        if line.type == LINE.QuestTitle then
+            mine = true
+        elseif line.type == LINE.QuestPlayer then
+            mine = line.leftText == playerName
+        elseif line.type == LINE.QuestObjective then
+            anyObjective = true
+            if mine and not line.completed then
+                if objectiveTypes[bareText(line.leftText or "")] == "item" then loot = true else kill = true end
+            end
+        end
+    end
+    if not anyObjective then kill = true end -- quest-related, but the tooltip names no objective
+    return kill, loot
+end
+
+-- Nameplates are recycled, so each plate keeps one icon holder; plateUnits maps the units
+-- currently on screen to their holder.
+local questHolders, plateUnits = {}, {}
+ns.plateUnits = plateUnits
+
+local function styleQuest(h)
+    for kind in pairs(QUEST_ICONS) do
+        local c, t = db.quest[kind], h[kind]
+        t:SetTexture(c.icon)
+        t:SetSize(c.size, c.size)
+        t:ClearAllPoints()
+        t:SetPoint("CENTER", h, "CENTER", c.x, c.y)
+        t:SetShown((h.want[kind] and c.show) and true or false)
+    end
+end
+
+local function evalQuest(unit)
+    local h = plateUnits[unit]
+    if not h then return end
+    local ok, kill, loot = pcall(questKinds, unit)
+    if ok then h.want.kill, h.want.loot = kill, loot end -- secret mid-combat: keep what we had
+    styleQuest(h)
+end
+
+local function plateAdded(unit)
+    local ok, plate = pcall(C_NamePlate.GetNamePlateForUnit, unit)
+    if not ok or not plate or plate:IsForbidden() then return end
+    local h = questHolders[plate]
+    if not h then
+        h = CreateFrame("Frame", nil, plate)
+        h:SetAllPoints()
+        h:SetFrameLevel(plate:GetFrameLevel() + 10)
+        h.kill, h.loot, h.want = h:CreateTexture(nil, "OVERLAY"), h:CreateTexture(nil, "OVERLAY"), {}
+        questHolders[plate] = h
+    end
+    h.want.kill, h.want.loot = false, false
+    plateUnits[unit] = h
+    evalQuest(unit)
+end
+
+local function plateRemoved(unit)
+    local h = plateUnits[unit]
+    if not h then return end
+    h.want.kill, h.want.loot = false, false
+    styleQuest(h)
+    plateUnits[unit] = nil
+end
+
+local function questLogChanged()
+    scanQuestLog()
+    for unit in pairs(plateUnits) do evalQuest(unit) end
+end
+
 -- Lays out one stack: shown bars in order, touching with the gap. Each bar sits in its slot
 -- plus its own x/y offset; offsets don't push the other bars around.
 local function stack(container, set, L, on)
@@ -297,6 +416,7 @@ local function Refresh()
         plateAnchor:SetPoint("TOP", plate, "BOTTOM", db.nameplate.x, db.nameplate.y)
     end
     stack(plateAnchor, plateFrames, db.nameplate, plate ~= nil)
+    for _, h in pairs(questHolders) do styleQuest(h) end
     mover:SetShown(not db.locked)
     moverHint:SetFormattedText(HINT, db.regular.x, db.regular.y)
 end
@@ -314,7 +434,8 @@ end
 ------------------------------------------------------------------------------------------
 -- Options window (/cpd)
 ------------------------------------------------------------------------------------------
-local cfg, selected, mode = nil, "health", "regular" -- mode = the open tab
+-- section = sidebar entry, sub = tab inside Nameplates, mode = which bar layout is being edited
+local cfg, selected, mode, section, sub = nil, "health", "regular", "combat", "bars"
 local refreshers = {}
 
 changed = function()
@@ -486,6 +607,14 @@ local function fontPreview(button, item)
     return button.fontString:GetUnboundedStringWidth() + fs:GetUnboundedStringWidth() + 50
 end
 
+local function iconPreview(button, item)
+    local t = button:AttachTexture()
+    t:SetSize(20, 20)
+    t:SetPoint("RIGHT", -6, 0)
+    t:SetTexture(item[2])
+    return button.fontString:GetUnboundedStringWidth() + 60
+end
+
 local function move(i, d)
     local o, j = L().order, i + d
     if o[j] then
@@ -538,7 +667,7 @@ StaticPopupDialogs.COMBOPOINTDISPLAY_DELETE = {
 
 local function buildConfig()
     cfg = CreateFrame("Frame", "ComboPointDisplayConfig", UIParent, "BasicFrameTemplateWithInset")
-    cfg:SetSize(680, 480)
+    cfg:SetSize(820, 480)
     cfg:SetPoint("CENTER")
     cfg:SetFrameStrata("DIALOG")
     cfg:SetMovable(true)
@@ -585,92 +714,144 @@ local function buildConfig()
         changed()
     end)
 
-    -- Tabs: everything below is per tab
-    for i, tab in ipairs({ { "regular", "Regular" }, { "nameplate", "Nameplate" } }) do
-        local b = button(cfg, tab[2], 110, 16 + (i - 1) * 116, -68, function() mode = tab[1]; changed() end)
-        onRefresh(function() if mode == tab[1] then b:LockHighlight() else b:UnlockHighlight() end end)
+    -- Sidebar: one entry per module
+    local SIDEBAR = { { "combat", "Combat Display", "regular" }, { "nameplates", "Nameplates", "nameplate" } }
+    for i, e in ipairs(SIDEBAR) do
+        local b = button(cfg, e[2], 118, 12, -104 - (i - 1) * 26, function()
+            section, mode = e[1], e[3]
+            changed()
+        end)
+        onRefresh(function() if section == e[1] then b:LockHighlight() else b:UnlockHighlight() end end)
     end
-    local tabNote = label(cfg, "", "GameFontDisableSmall")
+    local divider = cfg:CreateTexture(nil, "ARTWORK")
+    divider:SetColorTexture(1, 1, 1, 0.15)
+    divider:SetPoint("TOPLEFT", 138, -64)
+    divider:SetPoint("BOTTOMLEFT", 138, 10)
+    divider:SetWidth(1)
+
+    -- Pages to the right of the sidebar. The bars page edits the layout picked by `mode`.
+    local barsPage = CreateFrame("Frame", nil, cfg)
+    barsPage:SetPoint("TOPLEFT", 134, 0)
+    barsPage:SetSize(686, 480)
+    local questPage = CreateFrame("Frame", nil, cfg)
+    questPage:SetAllPoints(barsPage)
+
+    local title = label(cfg, "Combat Display", "GameFontNormalLarge")
+    title:SetPoint("TOPLEFT", 150, -72)
+    local tabs = {}
+    for i, t in ipairs({ { "bars", "Bars" }, { "quest", "Quest mobs" } }) do
+        tabs[i] = button(cfg, t[2], 110, 150 + (i - 1) * 116, -68, function() sub = t[1]; changed() end)
+        onRefresh(function() if sub == t[1] then tabs[i]:LockHighlight() else tabs[i]:UnlockHighlight() end end)
+    end
+    onRefresh(function()
+        local np = section == "nameplates"
+        title:SetShown(not np)
+        for _, t in ipairs(tabs) do t:SetShown(np) end
+        barsPage:SetShown(not np or sub == "bars")
+        questPage:SetShown(np and sub == "quest")
+    end)
+
+    local tabNote = label(barsPage, "", "GameFontDisableSmall")
     tabNote:SetPoint("TOPLEFT", 252, -74)
     onRefresh(function()
-        tabNote:SetText(mode == "regular" and "Bars on your screen."
+        tabNote:SetText(mode == "regular" and "Health, power and combo bars on your screen."
             or "Bars under your target's nameplate. Needs enemy nameplates on (V key).")
     end)
 
     -- Column 1: order, gap, group position, lock
-    label(cfg, "Bars, top to bottom", "GameFontNormal"):SetPoint("TOPLEFT", 16, -104)
+    label(barsPage, "Bars, top to bottom", "GameFontNormal"):SetPoint("TOPLEFT", 16, -104)
     for i = 1, #db.regular.order do
         local y = -124 - (i - 1) * 26
-        local sel = button(cfg, "", 110, 16, y, function() selected = L().order[i]; changed() end)
-        button(cfg, "Up", 36, 128, y, function() move(i, -1) end)
-        button(cfg, "Down", 46, 166, y, function() move(i, 1) end)
+        local sel = button(barsPage, "", 110, 16, y, function() selected = L().order[i]; changed() end)
+        button(barsPage, "Up", 36, 128, y, function() move(i, -1) end)
+        button(barsPage, "Down", 46, 166, y, function() move(i, 1) end)
         onRefresh(function()
             local key = L().order[i]
             sel:SetText(BARS[key].label)
             if key == selected then sel:LockHighlight() else sel:UnlockHighlight() end
         end)
     end
-    slider(cfg, "Gap between bars", 16, -236, 0, 30, function() return L().gap end, function(v) L().gap = v end)
-    label(cfg, "Group position", "GameFontNormal"):SetPoint("TOPLEFT", 16, -282)
-    local groupNote = label(cfg, "", "GameFontDisableSmall")
+    slider(barsPage, "Gap between bars", 16, -236, 0, 30, function() return L().gap end, function(v) L().gap = v end)
+    label(barsPage, "Group position", "GameFontNormal"):SetPoint("TOPLEFT", 16, -282)
+    local groupNote = label(barsPage, "", "GameFontDisableSmall")
     groupNote:SetPoint("TOPLEFT", 16, -298)
     onRefresh(function()
         groupNote:SetText(mode == "regular" and "top-center, from the screen center" or "top-center, from under the nameplate")
     end)
     local function xr() return mode == "regular" and math.floor(UIParent:GetWidth() / 2) or 200 end
     local function yr() return mode == "regular" and math.floor(UIParent:GetHeight() / 2) or 200 end
-    slider(cfg, "X (left / right)", 16, -316, function() return -xr() end, xr,
+    slider(barsPage, "X (left / right)", 16, -316, function() return -xr() end, xr,
         function() return L().x end, function(v) L().x = v; place() end)
-    slider(cfg, "Y (down / up)", 16, -358, function() return -yr() end, yr,
+    slider(barsPage, "Y (down / up)", 16, -358, function() return -yr() end, yr,
         function() return L().y end, function(v) L().y = v; place() end)
-    local lock = button(cfg, "", 96, 16, -404, function() db.locked = not db.locked; changed() end)
+    local lock = button(barsPage, "", 96, 16, -404, function() db.locked = not db.locked; changed() end)
     onRefresh(function()
         lock:SetShown(mode == "regular")
         lock:SetText(db.locked and "Unlock" or "Lock")
     end)
-    label(cfg, "Mouse wheel on a slider changes it by 1.", "GameFontDisableSmall"):SetPoint("TOPLEFT", 16, -440)
+    label(barsPage, "Mouse wheel on a slider changes it by 1.", "GameFontDisableSmall"):SetPoint("TOPLEFT", 16, -440)
 
     -- Column 2: the selected bar's show, size, offset, look
     local X = 240
-    local header = label(cfg, "", "GameFontNormal")
+    local header = label(barsPage, "", "GameFontNormal")
     header:SetPoint("TOPLEFT", X, -104)
     onRefresh(function()
         local shown = (mode == "regular" and frames or plateFrames)[selected]:IsShown()
         header:SetText(BARS[selected].label .. (shown and "" or " |cff888888(hidden now)|r"))
     end)
-    check(cfg, "Show", X, -122, function() return cur().show end, function(v) cur().show = v end)
-    slider(cfg, "Width", X, -150, 10, 600, function() return cur().width end, function(v) cur().width = v end)
-    slider(cfg, "Height", X, -192, 2, 100, function() return cur().height end, function(v) cur().height = v end)
-    slider(cfg, "Bar offset X", X, -234, -300, 300, function() return cur().x end, function(v) cur().x = v end)
-    slider(cfg, "Bar offset Y", X, -276, -300, 300, function() return cur().y end, function(v) cur().y = v end)
-    dropdown(cfg, "Texture", X, -318, TEXTURES, function() return cur().texture end,
+    check(barsPage, "Show", X, -122, function() return cur().show end, function(v) cur().show = v end)
+    slider(barsPage, "Width", X, -150, 10, 600, function() return cur().width end, function(v) cur().width = v end)
+    slider(barsPage, "Height", X, -192, 2, 100, function() return cur().height end, function(v) cur().height = v end)
+    slider(barsPage, "Bar offset X", X, -234, -300, 300, function() return cur().x end, function(v) cur().x = v end)
+    slider(barsPage, "Bar offset Y", X, -276, -300, 300, function() return cur().y end, function(v) cur().y = v end)
+    dropdown(barsPage, "Texture", X, -318, TEXTURES, function() return cur().texture end,
         function(v) cur().texture = v end, texturePreview)
-    swatch(cfg, "Bar color", X, -366, function() return cur().color end)
-    local powerColor = check(cfg, "Use power type color", X, -390,
+    swatch(barsPage, "Bar color", X, -366, function() return cur().color end)
+    local powerColor = check(barsPage, "Use power type color", X, -390,
         function() return cur().powerColor end, function(v) cur().powerColor = v end)
     onRefresh(function() powerColor:SetShown(selected == "power") end)
 
     -- Column 3: gradient and text (combo pips have no text)
     local X3 = 464
-    check(cfg, "Gradient", X3, -122, function() return cur().gradient end, function(v) cur().gradient = v end)
-    local c2 = swatch(cfg, "Gradient end color", X3, -148, function() return cur().color2 end)
-    local dir = button(cfg, "", 200, X3, -174, function() cur().vertical = not cur().vertical; changed() end)
+    check(barsPage, "Gradient", X3, -122, function() return cur().gradient end, function(v) cur().gradient = v end)
+    local c2 = swatch(barsPage, "Gradient end color", X3, -148, function() return cur().color2 end)
+    local dir = button(barsPage, "", 200, X3, -174, function() cur().vertical = not cur().vertical; changed() end)
     onRefresh(function()
         c2:SetShown(cur().gradient)
         dir:SetShown(cur().gradient)
         dir:SetText("Direction: " .. (cur().vertical and "Vertical" or "Horizontal"))
     end)
     local textWidgets = {
-        check(cfg, "Show text", X3, -210, function() return cur().text end, function(v) cur().text = v end),
-        dropdown(cfg, "Font", X3, -236, FONTS, function() return cur().font end,
+        check(barsPage, "Show text", X3, -210, function() return cur().text end, function(v) cur().text = v end),
+        dropdown(barsPage, "Font", X3, -236, FONTS, function() return cur().font end,
             function(v) cur().font = v end, fontPreview),
-        slider(cfg, "Font size", X3, -284, 6, 32, function() return cur().fontSize end, function(v) cur().fontSize = v end),
-        check(cfg, "Outline", X3, -330, function() return cur().outline end, function(v) cur().outline = v end),
-        swatch(cfg, "Text color", X3, -356, function() return cur().textColor end),
+        slider(barsPage, "Font size", X3, -284, 6, 32, function() return cur().fontSize end, function(v) cur().fontSize = v end),
+        check(barsPage, "Outline", X3, -330, function() return cur().outline end, function(v) cur().outline = v end),
+        swatch(barsPage, "Text color", X3, -356, function() return cur().textColor end),
     }
     onRefresh(function()
         for _, w in ipairs(textWidgets) do w:SetShown(selected ~= "combo") end
     end)
+
+    -- Quest mobs page
+    label(questPage, "Quest mobs", "GameFontNormal"):SetPoint("TOPLEFT", 16, -104)
+    local desc = label(questPage, "Marks enemies you still need for a quest.\n\nSword: you need to kill it.\n"
+        .. "Bag: it drops an item you need.\n\nFinished objectives show nothing. X/Y are from the "
+        .. "nameplate's center. Needs enemy nameplates on (V key).", "GameFontHighlightSmall")
+    desc:SetPoint("TOPLEFT", 16, -126)
+    desc:SetWidth(200)
+    desc:SetJustifyH("LEFT")
+    for i, kind in ipairs({ { "kill", "Kill it (sword)" }, { "loot", "Drops a quest item (bag)" } }) do
+        local X = 16 + i * 224
+        local function q() return db.quest[kind[1]] end
+        label(questPage, kind[2], "GameFontNormal"):SetPoint("TOPLEFT", X, -104)
+        check(questPage, "Show", X, -122, function() return q().show end, function(v) q().show = v end)
+        dropdown(questPage, "Icon", X, -150, QUEST_ICONS[kind[1]], function() return q().icon end,
+            function(v) q().icon = v end, iconPreview)
+        slider(questPage, "Size", X, -198, 8, 64, function() return q().size end, function(v) q().size = v end)
+        slider(questPage, "X (left / right)", X, -240, -200, 200, function() return q().x end, function(v) q().x = v end)
+        slider(questPage, "Y (down / up)", X, -282, -200, 200, function() return q().y end, function(v) q().y = v end)
+    end
 end
 
 function ns.ToggleConfig()
@@ -755,7 +936,7 @@ local function fillShown(...)
     end
 end
 
-ev:SetScript("OnEvent", function(_, event)
+ev:SetScript("OnEvent", function(_, event, unit)
     if event == "PLAYER_LOGIN" then
         -- ponytail: settings saved before profiles existed are dropped (the beta never loaded them anyway)
         store = type(ComboPointDisplayDB) == "table" and ComboPointDisplayDB.profiles and ComboPointDisplayDB
@@ -763,12 +944,14 @@ ev:SetScript("OnEvent", function(_, event)
         ComboPointDisplayDB = store
         store.minimapAngle = store.minimapAngle or 220
         classProfile, class = UnitClass("player")
-        charKey = UnitName("player") .. " - " .. GetRealmName()
-        for _, e in ipairs({ "UNIT_HEALTH", "UNIT_MAXHEALTH", "UNIT_POWER_FREQUENT", "UNIT_MAXPOWER", "UNIT_DISPLAYPOWER" }) do
+        playerName = UnitName("player")
+        charKey = playerName .. " - " .. GetRealmName()
+        for _, e in ipairs({ "UNIT_HEALTH", "UNIT_MAXHEALTH", "UNIT_POWER_FREQUENT", "UNIT_MAXPOWER", "UNIT_DISPLAYPOWER",
+            "UNIT_QUEST_LOG_CHANGED" }) do
             listen(e, "player")
         end
         for _, e in ipairs({ "PLAYER_ENTERING_WORLD", "UPDATE_SHAPESHIFT_FORM", "PLAYER_TARGET_CHANGED",
-            "NAME_PLATE_UNIT_ADDED", "NAME_PLATE_UNIT_REMOVED" }) do
+            "NAME_PLATE_UNIT_ADDED", "NAME_PLATE_UNIT_REMOVED", "QUEST_LOG_UPDATE", "PLAYER_REGEN_ENABLED" }) do
             listen(e)
         end
         local mine = store.chars[charKey]
@@ -778,7 +961,12 @@ ev:SetScript("OnEvent", function(_, event)
         fillShown("health")
     elseif event == "UNIT_POWER_FREQUENT" then
         fillShown("power", "combo", "druidmana")
-    else -- form, max, target or nameplate changes: re-layout (target change moves the nameplate bar)
+    elseif event == "QUEST_LOG_UPDATE" or event == "UNIT_QUEST_LOG_CHANGED" or event == "PLAYER_REGEN_ENABLED" then
+        safe(questLogChanged) -- after combat too: tooltips may have been secret during it
+    else
+        if event == "NAME_PLATE_UNIT_ADDED" then safe(plateAdded, unit) end
+        if event == "NAME_PLATE_UNIT_REMOVED" then safe(plateRemoved, unit) end
+        -- form, max, target or nameplate changes: re-layout (target change moves the nameplate bars)
         safe(Refresh)
     end
 end)

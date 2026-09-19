@@ -1,6 +1,6 @@
 ## Interface: 16001
 ## Title: ComboPointDisplay
-## Notes: Stacked health, power, combo point and druid mana bars. /cpd to configure.
+## Notes: Health, power, combo point and druid mana bars, on screen and on nameplates, plus quest mob icons. /cpd to configure.
 ## Author: severin
 ## Version: 1.0.0
 ## SavedVariables: ComboPointDisplayDB

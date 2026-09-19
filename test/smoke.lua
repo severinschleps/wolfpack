@@ -26,6 +26,7 @@ function M:GetChecked() return self._checked end
 function M:SetSize(w, h) self._w, self._h = w, h end
 function M:SetParent(p) self._parent = p end
 function M:SetPoint(...) self._point = { ... } end
+function M:SetTexture(t) self._tex = t end
 function M:GetParent() return self._parent end
 function M:GetName() return self._name end
 function M:GetCenter() return 100, 100 end
@@ -51,7 +52,7 @@ function M:IsForbidden() return false end
 function M:RegisterEvent() evFrame = self end
 function M:RegisterUnitEvent() evFrame = self end
 
-Enum = { PowerType = { Mana = 0, Rage = 1, Energy = 3, ComboPoints = 4, SoulShards = 7, HolyPower = 9,
+Enum = { TooltipDataLineType = { QuestObjective = 8, QuestTitle = 17, QuestPlayer = 18 }, PowerType = { Mana = 0, Rage = 1, Energy = 3, ComboPoints = 4, SoulShards = 7, HolyPower = 9,
     Chi = 12, ArcaneCharges = 16, Essence = 19 } }
 CreateFont = function() return new() end
 GameFontHighlight = new()
@@ -82,7 +83,15 @@ ColorPickerFrame = {
     GetColorRGB = function() return 0.1, 0.2, 0.3 end,
     GetColorAlpha = function() return 0.5 end,
 }
-C_NamePlate = { GetNamePlateForUnit = function() return S.plate end }
+S.plates, S.tips, S.related, S.quests = {}, {}, {}, {}
+C_NamePlate = { GetNamePlateForUnit = function(unit) return unit == "target" and S.plate or S.plates[unit] end }
+C_TooltipInfo = { GetUnit = function(unit) return { lines = S.tips[unit] or {} } end }
+C_QuestLog = {
+    UnitIsRelatedToActiveQuest = function(unit) return S.related[unit] or false end,
+    GetNumQuestLogEntries = function() return #S.quests end,
+    GetInfo = function(i) return S.quests[i].info end,
+    GetQuestObjectives = function(id) for _, q in ipairs(S.quests) do if q.info.questID == id then return q.objectives end end end,
+}
 UnitClass = function() return S.class:sub(1, 1) .. S.class:sub(2):lower(), S.class end -- "Rogue", "ROGUE"
 UnitPowerType = function() return S.ptype, TOKENS[S.ptype] end
 UnitPower = function() return S.secret and SECRET or 3 end
@@ -92,7 +101,7 @@ UnitHealthMax = function() return 1000 end
 
 local ns = {}
 assert(loadfile("ComboPointDisplay/ComboPointDisplay.lua"))("ComboPointDisplay", ns)
-local function fire(e) evFrame._scripts.OnEvent(evFrame, e) end
+local function fire(e, ...) evFrame._scripts.OnEvent(evFrame, e, ...) end
 -- each class logs in as its own character
 local function login(class, ptype) S.class, S.name, S.ptype = class, class .. "Char", ptype; fire("PLAYER_LOGIN") end
 local function prof() return ComboPointDisplayDB.profiles[ComboPointDisplayDB.chars[S.name .. " - Realm"]] end
@@ -170,6 +179,43 @@ S.plate = nil; fire("NAME_PLATE_UNIT_REMOVED")
 assert(not plateStack:IsShown() and not pf.health:IsShown() and plateStack._parent == ComboPointDisplayFrame, "plate gone")
 R.combo.show, N.health.show = true, false
 
+-- Quest mobs: sword for open kill objectives, bag for open item objectives, from the tooltip
+local L = Enum.TooltipDataLineType
+S.quests = { { info = { questID = 7, isHeader = false }, objectives = {
+    { text = "Boar Flank: 2/6", type = "item" }, { text = "Boar slain: 3/10", type = "monster" } } } }
+fire("QUEST_LOG_UPDATE")
+local plate = new()
+S.plates.nameplate1, S.related.nameplate1 = plate, true
+S.tips.nameplate1 = { { type = L.QuestTitle, leftText = "Boars", id = 7 },
+    { type = L.QuestObjective, leftText = "3/10 Boar slain", completed = false },
+    { type = L.QuestObjective, leftText = "Boar Flank: 2/6", completed = false } }
+fire("NAME_PLATE_UNIT_ADDED", "nameplate1")
+local h = ns.plateUnits.nameplate1
+assert(h and h._parent == plate and h.kill:IsShown() and h.loot:IsShown(), "kill + loot")
+assert(h.kill._tex == 131013 and h.kill._point[4] == -72 and h.loot._point[4] == 72, "default icon style")
+S.tips.nameplate1[2].completed = true
+fire("QUEST_LOG_UPDATE")
+assert(not h.kill:IsShown() and h.loot:IsShown(), "finished kill objective hidden")
+S.tips.nameplate1 = { { type = L.QuestTitle, leftText = "Boars", id = 7 }, { type = L.QuestPlayer, leftText = "Bob" },
+    { type = L.QuestObjective, leftText = "Boar Flank: 2/6", completed = false } }
+fire("QUEST_LOG_UPDATE")
+assert(not h.kill:IsShown() and not h.loot:IsShown(), "party member's objective ignored")
+S.tips.nameplate1 = {}
+fire("QUEST_LOG_UPDATE")
+assert(h.kill:IsShown() and not h.loot:IsShown(), "related without objective lines: sword")
+S.tips.nameplate1 = { { type = L.QuestObjective, leftText = SECRET } }
+fire("QUEST_LOG_UPDATE")
+assert(h.kill:IsShown(), "secret tooltip keeps the last answer")
+S.related.nameplate1 = false
+fire("QUEST_LOG_UPDATE")
+assert(not h.kill:IsShown() and not h.loot:IsShown(), "not a quest mob")
+S.related.nameplate1 = true; S.tips.nameplate1 = {}
+fire("QUEST_LOG_UPDATE")
+fire("NAME_PLATE_UNIT_REMOVED", "nameplate1")
+assert(not h.kill:IsShown() and not ns.plateUnits.nameplate1, "removed plate cleared")
+fire("NAME_PLATE_UNIT_ADDED", "nameplate1")
+assert(ns.plateUnits.nameplate1 == h, "recycled plate reuses its holder")
+
 -- Minimap icon: dragging moves it around the minimap
 local mini = ComboPointDisplayMinimapButton
 mini._scripts.OnDragStart(mini); mini._scripts.OnUpdate(mini); mini._scripts.OnDragStop(mini)
@@ -198,23 +244,23 @@ for _, f in ipairs(created) do if f._scripts.OnMouseUp and f._scripts.OnDragStar
 mover._scripts.OnDragStart(mover); mover._scripts.OnUpdate(mover); mover._scripts.OnDragStop(mover)
 assert(prof().regular.x == 0 and prof().regular.y == 50 and not mover._scripts.OnUpdate, "drag stores coordinates")
 
--- Tabs: the Nameplate tab edits the nameplate layout only; its group range is +-200
-byText("Nameplate")._scripts.OnClick(byText("Nameplate"), "LeftButton")
+-- Sidebar: Nameplates (Bars tab) edits the nameplate layout only; its group range is +-200
+byText("Nameplates")._scripts.OnClick(byText("Nameplates"), "LeftButton")
 assert(gapBox._text == "1" and xBox._text == "0" and yBox._text == "-2", "tab shows nameplate values")
 gapBox._text = "4"; gapBox._scripts.OnEnterPressed(gapBox)
 xBox._text = "-150"; xBox._scripts.OnEnterPressed(xBox)
 boxes[5]._text = "90"; boxes[5]._scripts.OnEnterPressed(boxes[5])
 assert(prof().nameplate.gap == 4 and prof().nameplate.x == -150 and prof().nameplate.bars.health.width == 90, "nameplate edits")
 assert(prof().regular.gap == 30 and prof().regular.x == 0 and prof().regular.bars.health.width == 220, "regular untouched")
-byText("Regular")._scripts.OnClick(byText("Regular"), "LeftButton")
-assert(gapBox._text == "30", "back on the regular tab")
+byText("Combat Display")._scripts.OnClick(byText("Combat Display"), "LeftButton")
+assert(gapBox._text == "30", "back on Combat Display")
 
 -- Profiles: create copies the current one, dropdown switches, delete falls back to the class profile
 nameBox._text = "  PvP "; nameBox._scripts.OnEnterPressed(nameBox)
 assert(store.profiles.PvP and store.profiles.PvP.regular.gap == 30 and prof() == store.profiles.PvP, "create copies + switches")
 prof().regular.gap = 5
 assert(store.profiles.Rogue.regular.gap == 30, "profiles are independent")
-local dds = {} -- profile, texture, font
+local dds = {} -- profile, texture, font, kill icon, loot icon
 for _, f in ipairs(created) do if f._gen then dds[#dds + 1] = f end end
 local dd = dds[1]
 dd:GenerateMenu()
@@ -247,6 +293,19 @@ for _, it in ipairs(fontDD._items) do assert(type(it.init(menuButton())) == "num
 texDD._items[2].set(); fontDD._items[6].set()
 assert(prof().regular.bars.health.texture == "Interface\\Buttons\\WHITE8X8", "texture picked")
 assert(prof().regular.bars.health.font:match("Anton%-Regular%.ttf$") and fontDD._items[6].sel(), "font picked")
+
+-- Quest page: icon style, size and position per icon (boxes: ..., font size, kill size/x/y, loot size/x/y)
+byText("Nameplates")._scripts.OnClick(byText("Nameplates"), "LeftButton")
+byText("Quest mobs")._scripts.OnClick(byText("Quest mobs"), "LeftButton")
+dds[4]:GenerateMenu(); dds[5]:GenerateMenu()
+assert(#dds[4]._items == 4 and #dds[5]._items == 4, "icon choices")
+for _, it in ipairs(dds[4]._items) do assert(type(it.init(menuButton())) == "number", "icon preview") end
+dds[4]._items[3].set()
+boxes[10]._text = "32"; boxes[10]._scripts.OnEnterPressed(boxes[10])
+boxes[14]._text = "-5"; boxes[14]._scripts.OnEnterPressed(boxes[14])
+assert(prof().quest.kill.icon == 135274 and prof().quest.kill.size == 32 and prof().quest.loot.size == 20, "kill icon edits")
+assert(h.kill._tex == 135274 and h.kill._w == 32, "live plate icon restyled")
+byText("Combat Display")._scripts.OnClick(byText("Combat Display"), "LeftButton")
 
 -- Every bundled font path points at a real file in the addon folder
 for _, f in ipairs(ns.FONTS) do
