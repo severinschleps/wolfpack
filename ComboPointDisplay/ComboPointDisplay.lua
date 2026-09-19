@@ -87,7 +87,7 @@ local SWING_TYPES = { { "main", "Main hand", 0 }, { "off", "Off hand", 1 }, { "r
 
 local function layoutDefaults(show, x, y, gap, width, h1, h2, h3, h4, h5, h6, h7)
     local l = {
-        x = x, y = y, gap = gap,
+        x = x, y = y, gap = gap, grow = "down", -- "up": the group's bottom edge stays put instead
         order = { "health", "power", "combo", "druidmana", "castbar", "pethealth", "swing" }, -- new bars go last
         bars = {
             health = barDefaults(show, width, h1, 0.2, 0.8, 0.2, show),
@@ -229,15 +229,20 @@ local anchor = CreateFrame("Frame", "ComboPointDisplayFrame", UIParent)
 anchor:SetMovable(true)
 anchor:SetClampedToScreen(true)
 
+-- The pinned edge decides which way the stack grows when a bar joins or leaves: pin the top and
+-- it grows down, pin the bottom and it grows up.
+local function growEdge(L) return L.grow == "up" and "BOTTOM" or "TOP" end
+
 local function place()
     anchor:ClearAllPoints()
-    anchor:SetPoint("TOP", UIParent, "CENTER", db.regular.x, db.regular.y)
+    anchor:SetPoint(growEdge(db.regular), UIParent, "CENTER", db.regular.x, db.regular.y)
 end
 
--- Position = top-center of the stack, in pixels from the screen center.
+-- Position = the pinned edge's center, in pixels from the screen center.
 local function coords()
     local ux, uy = UIParent:GetCenter()
-    return math.floor(anchor:GetCenter() - ux + 0.5), math.floor(anchor:GetTop() - uy + 0.5)
+    local edge = db.regular.grow == "up" and anchor:GetBottom() or anchor:GetTop()
+    return math.floor(anchor:GetCenter() - ux + 0.5), math.floor(edge - uy + 0.5)
 end
 
 -- Drag handle shown while unlocked; sits above the bars.
@@ -253,12 +258,15 @@ moverTex:SetAllPoints()
 moverTex:SetColorTexture(0.2, 1, 0.2, 0.3)
 local moverHint = mover:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
 moverHint:SetPoint("BOTTOM", mover, "TOP", 0, 2)
+local moving -- true while the group is being dragged: Refresh must not re-place it then
 mover:SetScript("OnDragStart", function()
+    moving = true
     anchor:StartMoving()
     mover:SetScript("OnUpdate", function() moverHint:SetFormattedText(HINT, coords()) end) -- live coordinates
 end)
 mover:SetScript("OnDragStop", function()
     anchor:StopMovingOrSizing()
+    moving = nil
     mover:SetScript("OnUpdate", nil)
     db.regular.x, db.regular.y = coords()
     place()
@@ -906,6 +914,7 @@ local function syncBags()
 end
 
 local function Refresh()
+    if not moving then place() end -- keeps the pinned edge right after any settings change
     local health = frames.health
     health.split = (db.regular.bars.health.target and UnitExists("target")) and true or false
     stack(anchor, frames, db.regular, true, swingFrames.regular)
@@ -921,7 +930,7 @@ local function Refresh()
     plateAnchor:SetShown(plate ~= nil)
     if plate then
         plateAnchor:ClearAllPoints()
-        plateAnchor:SetPoint("TOP", plate, "BOTTOM", db.nameplate.x, db.nameplate.y)
+        plateAnchor:SetPoint(growEdge(db.nameplate), plate, "BOTTOM", db.nameplate.x, db.nameplate.y)
     end
     stack(plateAnchor, plateFrames, db.nameplate, plate ~= nil, swingFrames.nameplate)
     for _, h in pairs(questHolders) do styleQuest(h) end
@@ -1526,30 +1535,39 @@ local function buildConfig()
     local groupNote = label(barsPage, "", "GameFontDisableSmall")
     groupNote:SetPoint("TOPLEFT", 16, -376)
     onRefresh(function()
-        groupNote:SetText(mode == "regular" and "top-center, from the screen center" or "top-center, from under the nameplate")
+        groupNote:SetText((L().grow == "up" and "bottom-center" or "top-center")
+            .. (mode == "regular" and ", from the screen center" or ", from under the nameplate"))
+    end)
+    local grow = button(barsPage, "", 200, 16, -394, function()
+        L().grow = L().grow == "up" and "down" or "up"
+        place()
+        changed()
+    end)
+    onRefresh(function()
+        grow:SetText("Grows: " .. (L().grow == "up" and "Upwards" or "Downwards"))
     end)
     local function xr() return mode == "regular" and math.floor(UIParent:GetWidth() / 2) or 200 end
     local function yr() return mode == "regular" and math.floor(UIParent:GetHeight() / 2) or 200 end
-    slider(barsPage, "X (left / right)", 16, -394, function() return -xr() end, xr,
+    slider(barsPage, "X (left / right)", 16, -428, function() return -xr() end, xr,
         function() return L().x end, function(v) L().x = v; place() end)
-    slider(barsPage, "Y (down / up)", 16, -436, function() return -yr() end, yr,
+    slider(barsPage, "Y (down / up)", 16, -470, function() return -yr() end, yr,
         function() return L().y end, function(v) L().y = v; place() end)
-    local lock = button(barsPage, "", 96, 16, -482, function() db.locked = not db.locked; changed() end)
+    local lock = button(barsPage, "", 96, 16, -516, function() db.locked = not db.locked; changed() end)
     onRefresh(function()
         lock:SetShown(mode == "regular")
         lock:SetText(db.locked and "Unlock" or "Lock")
     end)
     local playerFrameOpts = {
-        check(barsPage, "Hide Blizzard player frame", 16, -514,
+        check(barsPage, "Hide Blizzard player frame", 16, -548,
             function() return db.regular.hidePlayerFrame end, function(v) db.regular.hidePlayerFrame = v end),
-        check(barsPage, "Right-click: player menu", 16, -538,
+        check(barsPage, "Right-click: player menu", 16, -572,
             function() return db.regular.playerMenu end, function(v) db.regular.playerMenu = v end),
-        check(barsPage, "Hide Blizzard cast bar", 16, -562,
+        check(barsPage, "Hide Blizzard cast bar", 16, -596,
             function() return db.regular.hideBlizzCastbar end, function(v) db.regular.hideBlizzCastbar = v end),
     }
     onRefresh(function() for _, w in ipairs(playerFrameOpts) do w:SetShown(mode == "regular") end end)
     label(barsPage, "Mouse wheel on a slider changes it by 1.\nBlizzard frame options apply out of combat.\n"
-        .. "Click options block clicks through the bars.", "GameFontDisableSmall"):SetPoint("TOPLEFT", 16, -596)
+        .. "Click options block clicks through the bars.", "GameFontDisableSmall"):SetPoint("TOPLEFT", 16, -630)
 
     -- Column 2: the selected bar's show, size, offset, look
     local X = 240

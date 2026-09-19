@@ -45,6 +45,7 @@ function M:GetParent() return self._parent end
 function M:GetName() return self._name end
 function M:GetCenter() return 100, 100 end
 function M:GetTop() return 150 end
+function M:GetBottom() return 60 end
 function M:GetFrameLevel() return 1 end
 function M:GetWidth() return self._w or 140 end
 function M:GetHeight() return self._h or 100 end
@@ -273,6 +274,22 @@ assert(ComboPointDisplayFrame._w == 220, "stack width ignores the target bar")
 S.targetHP = nil; fire("PLAYER_TARGET_CHANGED")
 assert(not tf:IsShown() and fr.health._w == 220 and fr.health._point[1] == "TOP", "target gone: full width again")
 prof().regular.bars.health.target = false
+
+-- Grow direction: pinning the bottom edge makes the stack grow upwards instead
+local R1 = prof().regular
+assert(ComboPointDisplayFrame._point[1] == "TOP", "grows down by default")
+R1.grow = "up"
+fire("PLAYER_ENTERING_WORLD")
+assert(ComboPointDisplayFrame._point[1] == "BOTTOM" and ComboPointDisplayFrame._point[4] == R1.x, "pinned by its bottom")
+S.plate = new(); prof().nameplate.grow = "up"; fire("NAME_PLATE_UNIT_ADDED", "nameplate9")
+assert(ns.plateFrames.combo._parent._point[1] == "BOTTOM", "nameplate stack too")
+S.plate = nil; prof().nameplate.grow = "down"; fire("NAME_PLATE_UNIT_REMOVED", "nameplate9")
+local mover2
+for _, f in ipairs(created) do if f._scripts.OnMouseUp and f._scripts.OnDragStart and not f._name then mover2 = f end end
+mover2._scripts.OnDragStart(mover2); mover2._scripts.OnDragStop(mover2)
+assert(R1.y == -40, "drag stores the bottom edge (60 - 100)")
+R1.grow, R1.x, R1.y = "down", 0, -120
+fire("PLAYER_ENTERING_WORLD")
 
 -- Cast bar: out of the stack while idle, joins it while casting; channels drain; icon side
 local cb = fr.castbar
