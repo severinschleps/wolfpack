@@ -152,6 +152,10 @@ end
 -- db = the active profile's settings.
 local store, db, class, charKey, classProfile
 local changed, placeMini, useProfile -- defined further down
+
+-- Bars that only show while they are doing something (cast, swing) stay visible while the bars
+-- are unlocked or the options are open, so they can be placed.
+function ns.previewing() return not db.locked or ns.configOpen end
 local CLASS_POWER = {
     ROGUE = PT.ComboPoints, DRUID = PT.ComboPoints, PALADIN = PT.HolyPower, WARLOCK = PT.SoulShards,
     MONK = PT.Chi, MAGE = PT.ArcaneCharges, EVOKER = PT.Essence,
@@ -197,11 +201,15 @@ local BARS = {
     },
     castbar = {
         label = "Cast Bar",
-        state = function() return true, 1 end, -- keeps its slot; invisible while not casting (fillCast)
+        -- only while casting: the bars below close the gap. ns.previewing keeps it visible while
+        -- the bars are unlocked or the options are open, for placing it.
+        state = function()
+            return (ns.previewing() or UnitCastingInfo("player") or UnitChannelInfo("player")) and true or false, 1
+        end,
     },
     swing = {
         label = "Swing Timer",
-        state = function() return true, 1 end, -- one row per ticked weapon, each invisible while idle
+        state = function() return true, 1 end, -- a row per ticked weapon, each only while that one swings
     },
     druidmana = {
         label = "Druid Mana",
@@ -444,14 +452,11 @@ local function fillCast(f)
         name, _, icon = UnitChannelInfo("player")
         duration, direction = name and UnitChannelDuration("player"), TIMER_REMAINING
     end
-    -- Preview while unlocked or in the options, so it can be placed and styled without casting.
-    local preview = not name and (not db.locked or ns.configOpen)
-    f:SetAlpha((name or preview) and 1 or 0)
-    if preview then
+    if not name then -- previewing (the bar only shows at all while casting)
         f.text:SetText(BARS.castbar.label)
         f.icon:SetTexture(134400) -- Interface/ICONS/INV_Misc_QuestionMark
+        return
     end
-    if not name then return end
     if duration then f.segs[1]:SetTimerDuration(duration, 0, direction) end
     f.text:SetText(name)
     f.icon:SetTexture(icon)
@@ -460,24 +465,26 @@ end
 -- Swing timers come from the game's own PLAYER_SWING event (no combat log needed).
 local swingState = {} -- [swing type] = { start, duration }
 
-local function swingActive()
+local function swingActive(kind)
     local now = GetTime()
+    if kind then
+        local st = swingState[kind]
+        return (st and now < st.start + st.duration) and true or false
+    end
     for _, st in pairs(swingState) do
         if now < st.start + st.duration then return true end
     end
+    return false
 end
 
 local function fillSwing(f)
     local kind = SWING_TYPES[f.swing]
-    local st, now = swingState[kind[3]], GetTime()
-    local active = st and now < st.start + st.duration
-    local preview = not active and (not db.locked or ns.configOpen)
-    f:SetAlpha((active or preview) and 1 or 0)
-    if not active then
-        if preview then f.text:SetText(kind[2]) end
+    local st = swingState[kind[3]]
+    if not swingActive(kind[3]) then
+        f.text:SetText(kind[2]) -- preview
         return
     end
-    local elapsed = now - st.start
+    local elapsed = GetTime() - st.start
     f.segs[1]:SetMinMaxValues(0, st.duration)
     f.segs[1]:SetValue(elapsed)
     f.text:SetText(string.format("%.1f", st.duration - elapsed))
@@ -651,7 +658,7 @@ local function stack(container, set, L, on, swings)
         if key == "swing" then -- one row per ticked weapon, sharing this bar's settings
             for i, kind in ipairs(SWING_TYPES) do
                 local sf = swings[i]
-                local rowShown = shown and c[kind[1]] and true or false
+                local rowShown = (shown and c[kind[1]] and (swingActive(kind[3]) or ns.previewing())) and true or false
                 sf:SetShown(rowShown)
                 if rowShown then
                     layoutBar(sf, 1)
@@ -1840,10 +1847,20 @@ end
 
 local swingTicker = CreateFrame("Frame")
 ns.swingTicker = swingTicker
+local swingShown = 0 -- which rows were up last tick; a change means the stack must re-flow
 local function swingTick()
-    for _, set in pairs(swingFrames) do
-        for _, f in ipairs(set) do
-            if f:IsShown() then safe(fill, f) end
+    local mask = 0
+    for i, kind in ipairs(SWING_TYPES) do
+        if swingActive(kind[3]) then mask = mask + 2 ^ (i - 1) end
+    end
+    if mask ~= swingShown then
+        swingShown = mask
+        safe(Refresh)
+    else
+        for _, set in pairs(swingFrames) do
+            for _, f in ipairs(set) do
+                if f:IsShown() then safe(fill, f) end
+            end
         end
     end
     if not swingActive() then swingTicker:SetScript("OnUpdate", nil) end
@@ -1900,7 +1917,7 @@ ev:SetScript("OnEvent", function(_, event, unit, arg2)
     elseif event == "UNIT_POWER_FREQUENT" then
         fillShown("power", "combo", "druidmana")
     elseif event:find("^UNIT_SPELLCAST_") then
-        fillShown("castbar")
+        safe(Refresh) -- the cast bar joins or leaves the stack
     elseif event == "PLAYER_SWING" then -- unit, arg2 = duration, swing type
         swingState[arg2] = { start = GetTime(), duration = unit }
         swingTicker:SetScript("OnUpdate", swingTick)

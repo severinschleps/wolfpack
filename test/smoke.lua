@@ -202,7 +202,7 @@ local function byText(text) for _, f in ipairs(created) do if f._text == text th
 local fr = ns.frames
 
 -- Rogue, secret values: 5 pips, each lit when points >= i; stack = health 18, power 14, combo 12,
--- cast bar 14, swing 10, 2 px gaps
+-- cast bar and swing rows only join the stack while they run
 login("ROGUE", 3)
 fire("UNIT_POWER_FREQUENT"); fire("UNIT_HEALTH")
 assert(fr.combo:IsShown() and fr.combo.n == 5, "rogue combo pips")
@@ -211,7 +211,7 @@ for i = 1, 5 do
     assert(s._min == i - 1 and s._max == i and s._value == SECRET, "pip " .. i)
 end
 assert(not fr.druidmana:IsShown(), "rogue has no druid mana")
-assert(ComboPointDisplayFrame._h == 76, "stack height " .. tostring(ComboPointDisplayFrame._h))
+assert(ComboPointDisplayFrame._h == 48, "stack height " .. tostring(ComboPointDisplayFrame._h))
 
 -- Druid: caster = no combo, no extra mana; cat = both; bear = mana only
 login("DRUID", 0)
@@ -274,12 +274,13 @@ S.targetHP = nil; fire("PLAYER_TARGET_CHANGED")
 assert(not tf:IsShown() and fr.health._w == 220 and fr.health._point[1] == "TOP", "target gone: full width again")
 prof().regular.bars.health.target = false
 
--- Cast bar: keeps its slot, invisible idle; casts fill up, channels drain; name centered, icon side
+-- Cast bar: out of the stack while idle, joins it while casting; channels drain; icon side
 local cb = fr.castbar
-assert(cb:IsShown() and cb:GetAlpha() == 0 and cb._point[5] == -50, "idle: slot kept, invisible")
+assert(not cb:IsShown() and ComboPointDisplayFrame._h == 48, "idle: out of the stack")
 S.cast = "Fireball"; fire("UNIT_SPELLCAST_START", "player")
 local cs = cb.segs[1]
-assert(cb:GetAlpha() == 1 and cs._timer == "castDuration" and cs._dir == 0, "cast fills up")
+assert(cb:IsShown() and ComboPointDisplayFrame._h == 64 and cb._point[5] == -50, "casting: joins the stack")
+assert(cs._timer == "castDuration" and cs._dir == 0, "cast fills up")
 assert(cb.text._text == "Fireball" and cb.text:IsShown() and cb.icon._tex == 136116 and cb.icon:IsShown(), "name + icon")
 assert(cs._w == 204 and cs._point[4] == 16 and cb.icon._point[1] == "LEFT", "icon left: bar starts after 14 + 2")
 S.cast = nil; S.channel = "Drain Life"; fire("UNIT_SPELLCAST_CHANNEL_START", "player")
@@ -289,44 +290,45 @@ assert(cs._w == 204 and cs._point[4] == 0 and cb.icon._point[1] == "RIGHT", "ico
 prof().regular.bars.castbar.icon = false; fire("UNIT_MAXPOWER")
 assert(cs._w == 220 and not cb.icon:IsShown(), "no icon: full width")
 S.channel = nil; fire("UNIT_SPELLCAST_CHANNEL_STOP", "player")
-assert(cb:GetAlpha() == 0, "done: invisible")
+assert(not cb:IsShown() and ComboPointDisplayFrame._h == 48, "done: out of the stack again")
 prof().locked = false; fire("UNIT_MAXPOWER")
-assert(cb:GetAlpha() == 1 and cb.text._text == "Cast Bar" and cb.icon._tex == 134400, "unlocked: preview")
+assert(cb:IsShown() and cb.text._text == "Cast Bar" and cb.icon._tex == 134400, "unlocked: preview")
 prof().locked = true; fire("UNIT_MAXPOWER")
-assert(cb:GetAlpha() == 0, "locked again: hidden")
+assert(not cb:IsShown(), "locked again: gone")
 prof().regular.bars.castbar.icon, prof().regular.bars.castbar.iconSide = true, "left"
 
--- Swing timer: one row per ticked weapon, each invisible until that weapon swings
+-- Swing timer: a row joins the stack only while that weapon swings
 local sw, swf = prof().regular.bars.swing, ns.swingFrames.regular
-fire("UNIT_MAXPOWER")
-assert(swf[1]:IsShown() and swf[1]:GetAlpha() == 0 and not swf[2]:IsShown(), "main hand row kept, idle; off hand off")
-local stackH = ComboPointDisplayFrame._h
 sw.off, sw.ranged = true, true
 fire("UNIT_MAXPOWER")
-assert(swf[2]:IsShown() and swf[3]:IsShown() and ComboPointDisplayFrame._h == stackH + 24, "three rows: 2 x (10 + 2)")
+assert(not swf[1]:IsShown() and not swf[3]:IsShown() and ComboPointDisplayFrame._h == 48, "idle: no rows")
 fire("PLAYER_SWING", 2.6, 0) -- main hand, 2.6 s
-assert(swf[1]:GetAlpha() == 1 and swf[1].segs[1]._max == 2.6 and swf[1].segs[1]._value == 0, "main hand swinging")
-assert(swf[1].text._text == "2.6" and swf[2]:GetAlpha() == 0, "seconds left; off hand still idle")
+assert(swf[1]:IsShown() and ComboPointDisplayFrame._h == 60 and swf[1]._point[5] == -50, "main hand joins")
+assert(swf[1].segs[1]._max == 2.6 and swf[1].segs[1]._value == 0 and swf[1].text._text == "2.6", "seconds left")
+assert(not swf[2]:IsShown(), "off hand still idle")
 S.time = 1001; ns.swingTicker._scripts.OnUpdate()
 assert(swf[1].segs[1]._value == 1 and swf[1].text._text == "1.6", "counts down")
 fire("PLAYER_SWING", 1.8, 2) -- ranged
-assert(swf[3]:GetAlpha() == 1 and swf[3].segs[1]._max == 1.8, "ranged swinging on its own row")
+assert(swf[3]:IsShown() and ComboPointDisplayFrame._h == 72 and swf[3]._point[5] == -62, "ranged joins below it")
 S.time = 1010; ns.swingTicker._scripts.OnUpdate()
-assert(swf[1]:GetAlpha() == 0 and swf[3]:GetAlpha() == 0 and not ns.swingTicker._scripts.OnUpdate, "done: hidden, ticker stopped")
+assert(not swf[1]:IsShown() and not swf[3]:IsShown(), "done: rows leave")
+assert(ComboPointDisplayFrame._h == 48 and not ns.swingTicker._scripts.OnUpdate, "stack closed up, ticker stopped")
+prof().locked = false; fire("UNIT_MAXPOWER")
+assert(swf[1]:IsShown() and swf[3]:IsShown() and swf[1].text._text == "Main hand", "unlocked: preview rows")
+prof().locked = true
 sw.off, sw.ranged = false, false
 fire("UNIT_MAXPOWER")
-assert(not swf[2]:IsShown() and ComboPointDisplayFrame._h == stackH, "back to one row")
 
--- Pet health: only with a pet; own value; joins the stack at the end (64 + 2 + 10)
+-- Pet health: only with a pet; own value; joins the stack (48 + 2 + 10)
 local pb = fr.pethealth
-assert(not pb:IsShown() and ComboPointDisplayFrame._h == 76, "no pet: no bar")
+assert(not pb:IsShown() and ComboPointDisplayFrame._h == 48, "no pet: no bar")
 S.petHP = 300; fire("UNIT_PET", "player")
 assert(pb:IsShown() and pb.segs[1]._value == 300 and pb.segs[1]._max == 1000 and pb.text._text == "300", "pet bar")
-assert(ComboPointDisplayFrame._h == 88 and pb._point[5] == -66, "above the swing bar")
+assert(ComboPointDisplayFrame._h == 60 and pb._point[5] == -50, "joins the stack")
 S.petHP = 120; fire("UNIT_HEALTH", "pet")
 assert(pb.segs[1]._value == 120 and fr.health.segs[1]._value == SECRET, "pet updates on its own")
 S.petHP = nil; fire("UNIT_PET", "player")
-assert(not pb:IsShown() and ComboPointDisplayFrame._h == 76, "pet gone")
+assert(not pb:IsShown() and ComboPointDisplayFrame._h == 48, "pet gone")
 
 -- In-combat icon: in combat only (or previewing), centered on the chosen bar's left edge
 local ci, icon = prof().regular.combatIcon, ns.combatIcon
@@ -430,7 +432,7 @@ R0.playerMenu = true; fire("UNIT_MAXPOWER")
 local ck = ComboPointDisplayClicker
 assert(ck._template == "SecureUnitButtonTemplate" and ck._attr.unit == "player" and ck._attr.type2 == "togglemenu", "menu button")
 assert(ck._point[1] == "TOP" and ck._point[2] == UIParent and ck._point[4] == R0.x and ck._point[5] == R0.y, "over the bars")
-assert(ck._w == 220 and ck._h == 76 and ck:IsShown(), "same size as the bars")
+assert(ck._w == 220 and ck._h == 48 and ck:IsShown(), "same size as the bars")
 prof().locked = false; fire("UNIT_MAXPOWER")
 assert(not ck:IsShown(), "unlocked: drag handle gets the mouse")
 assert(ck._attr.type1 == nil, "left click off by default")
@@ -455,12 +457,12 @@ assert(fr.combo:IsShown() and pf.combo:IsShown(), "both")
 assert(plateStack._parent == S.plate and plateStack:IsShown(), "plate stack on the plate")
 local ps = plateStack._point
 assert(ps[2] == S.plate and ps[3] == "BOTTOM" and ps[4] == 0 and ps[5] == -2, "plate group offset")
-assert(ComboPointDisplayFrame._h == 76 and plateStack._h == 6, "stacks sized independently")
+assert(ComboPointDisplayFrame._h == 48 and plateStack._h == 6, "stacks sized independently")
 R.combo.show = false
 N.health.show = true
 fire("PLAYER_TARGET_CHANGED")
 assert(not fr.combo:IsShown() and pf.combo:IsShown() and pf.health:IsShown(), "nameplate only")
-assert(ComboPointDisplayFrame._h == 62 and plateStack._h == 15, "plate stack: 8 + 1 + 6")
+assert(ComboPointDisplayFrame._h == 34 and plateStack._h == 15, "plate stack: 8 + 1 + 6")
 fire("UNIT_POWER_FREQUENT"); fire("UNIT_HEALTH")
 assert(pf.combo.segs[3]._value == SECRET, "plate bars get values")
 N.combo.show = false
