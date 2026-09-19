@@ -27,6 +27,10 @@ function M:SetSize(w, h) self._w, self._h = w, h end
 function M:SetParent(p) self._parent = p end
 function M:SetPoint(...) self._point = { ... } end
 function M:SetTexture(t) self._tex = t end
+function M:SetScale(v) self._scale = v end
+function M:GetStatusBarTexture() self._sbt = self._sbt or new(); return self._sbt end
+function M:AddMaskTexture(m) self._masks = self._masks or {}; self._masks[m] = true end
+function M:RemoveMaskTexture(m) if self._masks then self._masks[m] = nil end end
 function M:GetParent() return self._parent end
 function M:GetName() return self._name end
 function M:GetCenter() return 100, 100 end
@@ -179,6 +183,21 @@ S.targetHP = nil; fire("PLAYER_TARGET_CHANGED")
 assert(not tf:IsShown() and fr.health._w == 220 and fr.health._point[1] == "TOP", "target gone: full width again")
 prof().regular.bars.health.target = false
 
+-- Border and radius: border inside the bar's size, bar inset by it; masks scaled to the radius
+local hb = prof().regular.bars.health -- 220 x 18
+hb.borderSize, hb.radius = 2, 6
+fire("UNIT_MAXPOWER")
+local seg = fr.health.segs[1]
+assert(seg._w == 216 and seg._h == 14 and seg._point[4] == 2, "inset by the border")
+assert(seg.border:IsShown() and seg.border._point[4] == 2 and seg.border._point[5] == -2, "border around it")
+assert(seg.borderMask._scale == 6 / 60 and seg.mask._scale == 4 / 60, "outer radius 6, inner 6 - 2")
+assert(seg.border._masks[seg.borderMask] and seg.bg._masks[seg.mask] and seg:GetStatusBarTexture()._masks[seg.mask], "masked")
+hb.radius = 50; fire("UNIT_MAXPOWER")
+assert(seg.borderMask._scale == 9 / 60 and seg.mask._scale == 7 / 60, "radius capped at half the height")
+hb.borderSize, hb.radius = 0, 0; fire("UNIT_MAXPOWER")
+assert(not seg.border:IsShown() and seg._w == 220 and not seg.bg._masks[seg.mask], "off: square, no border")
+assert(not seg:GetStatusBarTexture()._masks[seg.mask], "fill unmasked")
+
 -- Player frame: hide by reparenting (out of combat only), restore to the original parent
 local R0 = prof().regular
 fire("UNIT_MAXPOWER")
@@ -274,7 +293,7 @@ assert(ComboPointDisplayDB.minimapAngle ~= 220 and not mini._scripts.OnUpdate, "
 
 -- Options window: typed numbers apply on Enter and clamp to the slider range (gap: 0-30)
 SlashCmdList.COMBOPOINTDISPLAY("")
-local boxes = {} -- profile name, gap, group X, group Y, width, height, bar X, bar Y, font size
+local boxes = {} -- profile name, gap, group X/Y, width, height, bar X/Y, border, radius, font size, kill size/X/Y, loot size/X/Y
 for _, f in ipairs(created) do if f._kind == "EditBox" then boxes[#boxes + 1] = f end end
 local nameBox, gapBox, xBox, yBox = boxes[1], boxes[2], boxes[3], boxes[4]
 gapBox._text = "7"; gapBox._scripts.OnEnterPressed(gapBox)
@@ -345,15 +364,15 @@ texDD._items[2].set(); fontDD._items[6].set()
 assert(prof().regular.bars.health.texture == "Interface\\Buttons\\WHITE8X8", "texture picked")
 assert(prof().regular.bars.health.font:match("Anton%-Regular%.ttf$") and fontDD._items[6].sel(), "font picked")
 
--- Quest page: icon style, size and position per icon (boxes: ..., font size, kill size/x/y, loot size/x/y)
+-- Quest page: icon style, size and position per icon
 byText("Nameplates")._scripts.OnClick(byText("Nameplates"), "LeftButton")
 byText("Quest mobs")._scripts.OnClick(byText("Quest mobs"), "LeftButton")
 dds[4]:GenerateMenu(); dds[5]:GenerateMenu()
 assert(#dds[4]._items == 4 and #dds[5]._items == 4, "icon choices")
 for _, it in ipairs(dds[4]._items) do assert(type(it.init(menuButton())) == "number", "icon preview") end
 dds[4]._items[3].set()
-boxes[10]._text = "32"; boxes[10]._scripts.OnEnterPressed(boxes[10])
-boxes[14]._text = "-5"; boxes[14]._scripts.OnEnterPressed(boxes[14])
+boxes[12]._text = "32"; boxes[12]._scripts.OnEnterPressed(boxes[12])
+boxes[16]._text = "-5"; boxes[16]._scripts.OnEnterPressed(boxes[16])
 assert(prof().quest.kill.icon == 135274 and prof().quest.kill.size == 32 and prof().quest.loot.size == 20, "kill icon edits")
 assert(h.kill._tex == 135274 and h.kill._w == 32, "live plate icon restyled")
 byText("Combat Display")._scripts.OnClick(byText("Combat Display"), "LeftButton")

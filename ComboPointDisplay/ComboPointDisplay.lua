@@ -38,6 +38,7 @@ local function barDefaults(show, width, height, r, g, b, text)
         color = { r, g, b, 1 }, gradient = false, color2 = { r * 0.4, g * 0.4, b * 0.4, 1 },
         vertical = false, text = text,
         font = FONTS[1][2], fontSize = 10, outline = false, textColor = { 1, 1, 1, 1 },
+        borderSize = 0, borderColor = { 0, 0, 0, 1 }, radius = 0,
     }
 end
 
@@ -223,6 +224,31 @@ local function paint(s, c, r, g, b)
     end
 end
 
+-- Rounded corners: WoW has no border-radius, so textures get a mask cut from a rounded
+-- rectangle image. The image is nine-sliced so its corners keep their size at any bar size, and
+-- the mask is scaled so a corner (MASK_MARGIN px in the file) comes out `radius` px on screen.
+-- ponytail: assumes slice corners follow region scale; if in-game corners ignore the radius,
+-- the fallback is one mask file per radius.
+local MASK = "Interface\\AddOns\\" .. ADDON .. "\\Media\\RoundedMask.tga"
+local MASK_MARGIN = 60
+
+local function newMask(owner)
+    local m = owner:CreateMaskTexture()
+    m:SetTexture(MASK, "CLAMPTOBLACKADDITIVE", "CLAMPTOBLACKADDITIVE")
+    m:SetTextureSliceMargins(MASK_MARGIN, MASK_MARGIN, MASK_MARGIN, MASK_MARGIN) -- default mode: stretched
+    return m
+end
+
+-- Corner radius r on a w x h area; 0 = square (mask removed). Capped at half the short side.
+local function round(tex, m, r, w, h)
+    r = math.min(r, w / 2, h / 2)
+    if r > 0 then m:SetScale(r / MASK_MARGIN) end
+    if (r > 0) ~= (tex.cpdMask == m) then
+        if r > 0 then tex:AddMaskTexture(m) else tex:RemoveMaskTexture(m) end
+        tex.cpdMask = r > 0 and m or nil
+    end
+end
+
 local function layoutBar(f, n, width)
     local c = db[f.mode].bars[f.key]
     width = width or c.width
@@ -241,15 +267,30 @@ local function layoutBar(f, n, width)
         else
             if not s then
                 s = CreateFrame("StatusBar", nil, f)
-                local bg = s:CreateTexture(nil, "BACKGROUND")
-                bg:SetAllPoints()
-                bg:SetColorTexture(0, 0, 0, 0.5)
+                s.bg = s:CreateTexture(nil, "BACKGROUND")
+                s.bg:SetAllPoints()
+                s.bg:SetColorTexture(0, 0, 0, 0.5)
+                s.border = s:CreateTexture(nil, "BACKGROUND", nil, -8) -- behind the background
+                s.mask, s.borderMask = newMask(s), newMask(s)
+                s.mask:SetAllPoints(s)
+                s.borderMask:SetAllPoints(s.border)
                 f.segs[i] = s
             end
-            s:SetSize(w, c.height)
-            s:SetPoint("LEFT", f, "LEFT", (i - 1) * (w + PIP_GAP), 0)
+            -- The border sits inside the bar's size (like CSS border-box); the bar is inset by it.
+            local t = math.min(c.borderSize, (c.height - 1) / 2, (w - 1) / 2)
+            local iw, ih = w - 2 * t, c.height - 2 * t
+            s:SetSize(iw, ih)
+            s:SetPoint("LEFT", f, "LEFT", (i - 1) * (w + PIP_GAP) + t, 0)
             s:SetMinMaxValues(i - 1, i) -- pip range; single bars get their real max in fill()
             paint(s, c, r, g, b)
+            s.border:SetShown(t > 0)
+            s.border:SetPoint("TOPLEFT", s, "TOPLEFT", -t, t)
+            s.border:SetPoint("BOTTOMRIGHT", s, "BOTTOMRIGHT", t, -t)
+            s.border:SetColorTexture(unpack(c.borderColor))
+            round(s.border, s.borderMask, c.radius, w, c.height)
+            local inner = math.max(c.radius - t, 0) -- inner corners follow the outer ones
+            round(s.bg, s.mask, inner, iw, ih)
+            round(s:GetStatusBarTexture(), s.mask, inner, iw, ih)
             s:Show()
         end
     end
@@ -883,23 +924,26 @@ local function buildConfig()
         target:SetShown(selected == "health" and mode == "regular")
     end)
 
-    -- Column 3: gradient and text (combo pips have no text)
+    -- Column 3: border, gradient and text (combo pips have no text)
     local X3 = 464
-    check(barsPage, "Gradient", X3, -122, function() return cur().gradient end, function(v) cur().gradient = v end)
-    local c2 = swatch(barsPage, "Gradient end color", X3, -148, function() return cur().color2 end)
-    local dir = button(barsPage, "", 200, X3, -174, function() cur().vertical = not cur().vertical; changed() end)
+    slider(barsPage, "Border", X3, -104, 0, 10, function() return cur().borderSize end, function(v) cur().borderSize = v end)
+    swatch(barsPage, "Border color", X3, -148, function() return cur().borderColor end)
+    slider(barsPage, "Corner radius", X3, -174, 0, 30, function() return cur().radius end, function(v) cur().radius = v end)
+    check(barsPage, "Gradient", X3, -220, function() return cur().gradient end, function(v) cur().gradient = v end)
+    local c2 = swatch(barsPage, "Gradient end color", X3, -246, function() return cur().color2 end)
+    local dir = button(barsPage, "", 200, X3, -272, function() cur().vertical = not cur().vertical; changed() end)
     onRefresh(function()
         c2:SetShown(cur().gradient)
         dir:SetShown(cur().gradient)
         dir:SetText("Direction: " .. (cur().vertical and "Vertical" or "Horizontal"))
     end)
     local textWidgets = {
-        check(barsPage, "Show text", X3, -210, function() return cur().text end, function(v) cur().text = v end),
-        dropdown(barsPage, "Font", X3, -236, FONTS, function() return cur().font end,
+        check(barsPage, "Show text", X3, -306, function() return cur().text end, function(v) cur().text = v end),
+        dropdown(barsPage, "Font", X3, -332, FONTS, function() return cur().font end,
             function(v) cur().font = v end, fontPreview),
-        slider(barsPage, "Font size", X3, -284, 6, 32, function() return cur().fontSize end, function(v) cur().fontSize = v end),
-        check(barsPage, "Outline", X3, -330, function() return cur().outline end, function(v) cur().outline = v end),
-        swatch(barsPage, "Text color", X3, -356, function() return cur().textColor end),
+        slider(barsPage, "Font size", X3, -380, 6, 32, function() return cur().fontSize end, function(v) cur().fontSize = v end),
+        check(barsPage, "Outline", X3, -426, function() return cur().outline end, function(v) cur().outline = v end),
+        swatch(barsPage, "Text color", X3, -452, function() return cur().textColor end),
     }
     onRefresh(function()
         for _, w in ipairs(textWidgets) do w:SetShown(selected ~= "combo") end
