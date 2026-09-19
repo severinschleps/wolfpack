@@ -84,7 +84,12 @@ AbbreviateNumbers = function(v) return tostring(v) end
 CreateColor = function(...) return { ... } end
 PowerBarColor = { ENERGY = { r = 1, g = 1, b = 0 }, MANA = { r = 0, g = 0, b = 1 }, RAGE = { r = 1, g = 0, b = 0 } }
 local realPrint = print
-print = function(msg) error("addon reported: " .. tostring(msg), 0) end
+S.printed = {}
+print = function(msg) -- addon errors fail the test; ordinary chat output is kept
+    msg = tostring(msg)
+    if msg:find("error:") then error("addon reported: " .. msg, 0) end
+    S.printed[#S.printed + 1] = msg
+end
 GetCursorPosition = function() return 10, 20 end
 strtrim = function(str) return (str:gsub("^%s+", ""):gsub("%s+$", "")) end
 StaticPopupDialogs = {}
@@ -128,6 +133,27 @@ hooksecurefunc = function(t, name, fn)
     local orig = t[name]
     t[name] = function(...) orig(...); fn(...) end
 end
+-- bags: 0 = backpack (a gray with value, a gray worth nothing, a green), 1 = empty
+S.bags = { [0] = {
+    { quality = 0, hasNoValue = false }, { quality = 0, hasNoValue = true },
+    { quality = 2, hasNoValue = false }, { quality = 0, hasNoValue = false, isLocked = true },
+}, [1] = {} }
+S.sold = {}
+S.money = 100
+NUM_BAG_SLOTS = 1
+GetMoney = function() return S.money end
+GetMoneyString = function(m) return m .. "c" end
+MerchantFrame = new()
+C_Container = {
+    GetContainerNumSlots = function(bag) return #(S.bags[bag] or {}) end,
+    GetContainerItemInfo = function(bag, slot) return S.bags[bag] and S.bags[bag][slot] end,
+    UseContainerItem = function(bag, slot) S.sold[#S.sold + 1] = bag .. ":" .. slot; S.money = S.money + 5 end,
+}
+C_Timer = {
+    After = function(_, fn) fn() end,
+    NewTicker = function(_, fn) local t = { cancelled = false }; function t:Cancel() self.cancelled = true end
+        S.ticker = { fn = fn, obj = t }; return t end,
+}
 PlayerCastingBarFrame = new()
 PlayerCastingBarFrame._parent = UIParent
 -- Serialization stand-in: deep copies, so nothing is shared between export and import
@@ -782,6 +808,26 @@ assert(S.picker.r == 1 and S.picker.g == 0.96, "bar picker opens on the class co
 S.picker.swatchFunc()
 assert(hcol.colorMode == "custom" and hcol.color[3] == 0.3, "bar picked: custom")
 hcol.colorMode, hcol.borderMode, hcol.color = "custom", "custom", { 0.2, 0.8, 0.2, 1 }
+
+-- Auto-sell junk: only gray items that are worth something and unlocked, one per tick
+fire("MERCHANT_SHOW")
+assert(not S.ticker, "off by default")
+prof().other.sellJunk = true
+fire("MERCHANT_SHOW")
+local tick = S.ticker
+tick.fn(tick.obj); tick.fn(tick.obj)
+assert(table.concat(S.sold, ",") == "0:1", "only the gray item with a sell price")
+assert(tick.obj.cancelled and S.money == 105, "finished")
+assert(S.printed[#S.printed]:find("sold junk for 5c"), "reported what it earned")
+-- stops when the merchant window closes
+S.sold, S.money = {}, 100
+S.bags[0] = { { quality = 0, hasNoValue = false }, { quality = 0, hasNoValue = false } }
+fire("MERCHANT_SHOW")
+tick = S.ticker
+tick.fn(tick.obj)
+fire("MERCHANT_CLOSED")
+assert(#S.sold == 1 and tick.obj.cancelled, "closing stops it")
+prof().other.sellJunk = false
 
 -- Export / import: the profile string round-trips into a new profile (mouseover choices and
 -- the account-wide combat font included); the WoW UI layout is its own string for Edit Mode

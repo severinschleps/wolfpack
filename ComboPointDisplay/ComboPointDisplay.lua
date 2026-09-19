@@ -117,7 +117,7 @@ local DEFAULTS = {
         loot = { show = true, icon = 131023, size = 20, count = false },
     },
     other = {
-        hideGryphons = false, autoAccept = false, autoComplete = false,
+        hideGryphons = false, autoAccept = false, autoComplete = false, sellJunk = false,
         hover = {},         -- [key from HOVER_FRAMES] = true: that Blizzard element shows only on mouseover
         bagsOnOpen = false, -- bag bar only while bags are open, attached to them
     },
@@ -1711,36 +1711,38 @@ local function buildConfig()
         function() return db.other.autoAccept end, function(v) db.other.autoAccept = v end)
     check(otherPage, "Auto-complete quests (hold Shift to skip)", 16, -170,
         function() return db.other.autoComplete end, function(v) db.other.autoComplete = v end)
+    check(otherPage, "Auto-sell junk (gray items) at merchants", 16, -194,
+        function() return db.other.sellJunk end, function(v) db.other.sellJunk = v end)
     local note = label(otherPage, "Auto-complete leaves quests with a reward choice or a gold cost to you.",
         "GameFontDisableSmall")
-    note:SetPoint("TOPLEFT", 42, -196)
+    note:SetPoint("TOPLEFT", 42, -220)
     note:SetWidth(260)
     note:SetJustifyH("LEFT")
 
     local CI = function() return db.regular.combatIcon end
-    label(otherPage, "In-combat icon (Combat Display)", "GameFontNormal"):SetPoint("TOPLEFT", 16, -250)
-    check(otherPage, "Show", 16, -268, function() return CI().show end, function(v) CI().show = v end)
-    dropdown(otherPage, "Icon", 16, -296, COMBAT_ICONS, function() return CI().style end,
+    label(otherPage, "In-combat icon (Combat Display)", "GameFontNormal"):SetPoint("TOPLEFT", 16, -262)
+    check(otherPage, "Show", 16, -280, function() return CI().show end, function(v) CI().show = v end)
+    dropdown(otherPage, "Icon", 16, -308, COMBAT_ICONS, function() return CI().style end,
         function(v) CI().style = v end, function(button, item)
             local t = button:AttachTexture()
             t:SetSize(20, 20)
             setCombatArt(t, item[2])
             return beforeName(button, item, t, 20)
         end)
-    dropdown(otherPage, "Attach to bar", 16, -344, function()
+    dropdown(otherPage, "Attach to bar", 16, -356, function()
         local list = {}
         for _, key in ipairs(db.regular.order) do list[#list + 1] = { BARS[key].label, key } end
         return list
     end, function() return CI().bar end, function(v) CI().bar = v end, textPreview)
-    slider(otherPage, "Size", 16, -392, 8, 64, function() return CI().size end, function(v) CI().size = v end)
-    slider(otherPage, "X (from the bar's left edge)", 16, -434, -200, 200, function() return CI().x end, function(v) CI().x = v end)
-    slider(otherPage, "Y (down / up)", 16, -476, -200, 200, function() return CI().y end, function(v) CI().y = v end)
+    slider(otherPage, "Size", 16, -404, 8, 64, function() return CI().size end, function(v) CI().size = v end)
+    slider(otherPage, "X (from the bar's left edge)", 16, -446, -200, 200, function() return CI().x end, function(v) CI().x = v end)
+    slider(otherPage, "Y (down / up)", 16, -488, -200, 200, function() return CI().y end, function(v) CI().y = v end)
 
-    label(otherPage, "Combat text font (damage numbers)", "GameFontNormal"):SetPoint("TOPLEFT", 16, -522)
-    dropdown(otherPage, "Font", 16, -540, COMBAT_FONTS, function() return store.combatFont or "" end,
+    label(otherPage, "Combat text font (damage numbers)", "GameFontNormal"):SetPoint("TOPLEFT", 16, -534)
+    dropdown(otherPage, "Font", 16, -552, COMBAT_FONTS, function() return store.combatFont or "" end,
         function(v) store.combatFont = v ~= "" and v or nil end, combatFontPreview)
     local big = otherPage:CreateFontString(nil, "OVERLAY")
-    big:SetPoint("LEFT", otherPage, "TOPLEFT", 236, -568)
+    big:SetPoint("LEFT", otherPage, "TOPLEFT", 236, -580)
     onRefresh(function()
         if not big:SetFont(store.combatFont or DEFAULT_DAMAGE_FONT, 30, "OUTLINE") then
             big:SetFont(DEFAULT_DAMAGE_FONT, 30, "OUTLINE")
@@ -1750,7 +1752,7 @@ local function buildConfig()
     end)
     local restart = label(otherPage, "Needs a full game restart (not /reload). On this beta build addon settings "
         .. "don't survive a restart yet, so it applies once Blizzard fixes that.", "GameFontDisableSmall")
-    restart:SetPoint("TOPLEFT", 16, -590)
+    restart:SetPoint("TOPLEFT", 16, -602)
     restart:SetWidth(310)
     restart:SetJustifyH("LEFT")
 
@@ -1917,6 +1919,46 @@ end
 
 local petEv = CreateFrame("Frame") -- same handler as ev, for pet unit events
 
+-- Auto-sell junk: gray items that have a sell price, one every 0.2 s while the merchant window
+-- is open. Nothing else is ever sold, and closing the window stops it.
+local sellTicker
+local function sellJunk()
+    if sellTicker or not db.other.sellJunk then return end
+    local poor = (Enum.ItemQuality and Enum.ItemQuality.Poor) or 0
+    local queue, before = {}, GetMoney()
+    for bag = 0, (NUM_BAG_SLOTS or 4) do
+        for slot = 1, (C_Container.GetContainerNumSlots(bag) or 0) do
+            local info = C_Container.GetContainerItemInfo(bag, slot)
+            if info and info.quality == poor and not info.hasNoValue and not info.isLocked then
+                queue[#queue + 1] = { bag, slot }
+            end
+        end
+    end
+    if #queue == 0 then return end
+    local i = 0
+    sellTicker = C_Timer.NewTicker(0.2, function(ticker)
+        i = i + 1
+        local item = queue[i]
+        if item and MerchantFrame and MerchantFrame:IsShown() then
+            C_Container.UseContainerItem(item[1], item[2])
+            return
+        end
+        ticker:Cancel()
+        sellTicker = nil
+        C_Timer.After(0.5, function() -- the money arrives a moment after the last sale
+            local earned = GetMoney() - before
+            if earned > 0 then print("|cff33ff99ComboPointDisplay|r sold junk for " .. GetMoneyString(earned)) end
+        end)
+    end, #queue + 1)
+end
+
+local function stopSelling()
+    if sellTicker then
+        sellTicker:Cancel()
+        sellTicker = nil
+    end
+end
+
 local function fillShown(...)
     for i = 1, select("#", ...) do
         local key = select(i, ...)
@@ -1953,7 +1995,7 @@ ev:SetScript("OnEvent", function(_, event, unit, arg2)
         for _, e in ipairs({ "PLAYER_ENTERING_WORLD", "UPDATE_SHAPESHIFT_FORM", "PLAYER_TARGET_CHANGED",
             "NAME_PLATE_UNIT_ADDED", "NAME_PLATE_UNIT_REMOVED", "QUEST_LOG_UPDATE", "PLAYER_REGEN_ENABLED",
             "QUEST_DETAIL", "QUEST_ACCEPT_CONFIRM", "QUEST_PROGRESS", "QUEST_COMPLETE", "GOSSIP_SHOW", "QUEST_GREETING",
-            "PLAYER_REGEN_DISABLED", "PLAYER_SWING" }) do
+            "PLAYER_REGEN_DISABLED", "PLAYER_SWING", "MERCHANT_SHOW", "MERCHANT_CLOSED" }) do
             listen(e)
         end
         inCombat = InCombatLockdown() -- a /reload mid-fight
@@ -1971,6 +2013,10 @@ ev:SetScript("OnEvent", function(_, event, unit, arg2)
         swingState[arg2] = { start = GetTime(), duration = unit }
         swingTicker:SetScript("OnUpdate", swingTick)
         swingTick()
+    elseif event == "MERCHANT_SHOW" then
+        safe(sellJunk)
+    elseif event == "MERCHANT_CLOSED" then
+        stopSelling()
     elseif event == "QUEST_DETAIL" or event == "QUEST_ACCEPT_CONFIRM" then
         safe(autoAccept, event, unit) -- for QUEST_DETAIL the first arg is the quest-starting item
     elseif event == "QUEST_PROGRESS" or event == "QUEST_COMPLETE" or event == "GOSSIP_SHOW" or event == "QUEST_GREETING" then
