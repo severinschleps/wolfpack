@@ -83,6 +83,8 @@ DEFAULTS.regular.playerMenu = false      -- right-click on the bars opens the pl
 DEFAULTS.regular.playerTarget = false    -- left-click on the bars targets yourself
 DEFAULTS.regular.playerMouseover = false -- hovering the bars makes you @mouseover
 DEFAULTS.regular.highlight = { show = false, color = { 1, 1, 1, 0.25 } } -- overlay while hovered
+-- In-combat icon, centered on the left edge of a bar (or the group, if that bar is hidden) + x/y.
+DEFAULTS.regular.combatIcon = { show = true, style = "atlas", bar = "health", size = 20, x = -12, y = 0 }
 
 local function merge(dst, src)
     for k, v in pairs(src) do
@@ -645,6 +647,48 @@ local function syncGryphons()
     gryphonsHidden = hide
 end
 
+-- In-combat icon art: an atlas or a file (with a crop).
+local COMBAT_ICONS = {
+    { "Player frame swords", "atlas" },
+    { "Classic swords", "classic" },
+    { "Dual Wield icon", "dualwield" },
+    { "Battle Stance icon", "battle" },
+}
+local COMBAT_ART = {
+    atlas = { atlas = "UI-HUD-UnitFrame-Player-CombatIcon" },
+    classic = { file = 130936, coords = { 0.5, 1, 0, 0.49 } },     -- Interface/CHARACTERFRAME/UI-StateIcon
+    dualwield = { file = 132147, coords = { 0.08, 0.92, 0.08, 0.92 } }, -- Interface/ICONS/Ability_DualWield
+    battle = { file = 132349, coords = { 0.08, 0.92, 0.08, 0.92 } }, -- Interface/ICONS/Ability_Warrior_OffensiveStance
+}
+local function setCombatArt(t, style)
+    local a = COMBAT_ART[style] or COMBAT_ART.atlas
+    if a.atlas then
+        t:SetAtlas(a.atlas)
+    else
+        t:SetTexture(a.file)
+        t:SetTexCoord(unpack(a.coords))
+    end
+end
+
+local inCombat -- from PLAYER_REGEN_DISABLED / _ENABLED
+local combatIcon = CreateFrame("Frame", nil, anchor)
+combatIcon:SetFrameLevel(anchor:GetFrameLevel() + 15) -- above the bars
+combatIcon.tex = combatIcon:CreateTexture(nil, "OVERLAY")
+combatIcon.tex:SetAllPoints()
+ns.combatIcon = combatIcon
+
+local function syncCombatIcon()
+    local ci = db.regular.combatIcon
+    local bar = frames[ci.bar]
+    local host = (bar and bar:IsShown()) and bar or anchor
+    combatIcon:ClearAllPoints()
+    combatIcon:SetPoint("CENTER", host, "LEFT", ci.x, ci.y)
+    combatIcon:SetSize(ci.size, ci.size)
+    setCombatArt(combatIcon.tex, ci.style)
+    -- also shown as a preview while unlocked or in the options, for placing it
+    combatIcon:SetShown((ci.show and (inCombat or not db.locked or ns.configOpen)) and true or false)
+end
+
 local function setHover(on)
     if on == (hovered or false) then return end
     hovered = on
@@ -681,6 +725,7 @@ local function Refresh()
     moverHint:SetFormattedText(HINT, db.regular.x, db.regular.y)
     syncProtected()
     syncGryphons()
+    syncCombatIcon()
     anchor:SetScript("OnUpdate", db.regular.highlight.show and checkHover or nil)
     if not db.regular.highlight.show then setHover(false) end
 end
@@ -1176,6 +1221,26 @@ local function buildConfig()
     note:SetWidth(260)
     note:SetJustifyH("LEFT")
 
+    local CI = function() return db.regular.combatIcon end
+    label(otherPage, "In-combat icon (Combat Display)", "GameFontNormal"):SetPoint("TOPLEFT", 16, -250)
+    check(otherPage, "Show", 16, -268, function() return CI().show end, function(v) CI().show = v end)
+    dropdown(otherPage, "Icon", 16, -296, COMBAT_ICONS, function() return CI().style end,
+        function(v) CI().style = v end, function(button, item)
+            local t = button:AttachTexture()
+            t:SetSize(20, 20)
+            t:SetPoint("RIGHT", -6, 0)
+            setCombatArt(t, item[2])
+            return button.fontString:GetUnboundedStringWidth() + 60
+        end)
+    dropdown(otherPage, "Attach to bar", 16, -344, function()
+        local list = {}
+        for _, key in ipairs(db.regular.order) do list[#list + 1] = { BARS[key].label, key } end
+        return list
+    end, function() return CI().bar end, function(v) CI().bar = v end, textPreview)
+    slider(otherPage, "Size", 16, -392, 8, 64, function() return CI().size end, function(v) CI().size = v end)
+    slider(otherPage, "X (from the bar's left edge)", 16, -434, -200, 200, function() return CI().x end, function(v) CI().x = v end)
+    slider(otherPage, "Y (down / up)", 16, -476, -200, 200, function() return CI().y end, function(v) CI().y = v end)
+
     local X2 = 340
     local R = function() return db.regular end
     label(otherPage, "Bar group (Combat Display)", "GameFontNormal"):SetPoint("TOPLEFT", X2, -104)
@@ -1332,9 +1397,11 @@ ev:SetScript("OnEvent", function(_, event, unit)
         end
         for _, e in ipairs({ "PLAYER_ENTERING_WORLD", "UPDATE_SHAPESHIFT_FORM", "PLAYER_TARGET_CHANGED",
             "NAME_PLATE_UNIT_ADDED", "NAME_PLATE_UNIT_REMOVED", "QUEST_LOG_UPDATE", "PLAYER_REGEN_ENABLED",
-            "QUEST_DETAIL", "QUEST_ACCEPT_CONFIRM", "QUEST_PROGRESS", "QUEST_COMPLETE", "GOSSIP_SHOW", "QUEST_GREETING" }) do
+            "QUEST_DETAIL", "QUEST_ACCEPT_CONFIRM", "QUEST_PROGRESS", "QUEST_COMPLETE", "GOSSIP_SHOW", "QUEST_GREETING",
+            "PLAYER_REGEN_DISABLED" }) do
             listen(e)
         end
+        inCombat = InCombatLockdown() -- a /reload mid-fight
         local mine = store.chars[charKey]
         useProfile(store.profiles[mine or ""] and mine or classProfile)
         placeMini()
@@ -1351,7 +1418,11 @@ ev:SetScript("OnEvent", function(_, event, unit)
         safe(autoComplete, event)
     elseif event == "QUEST_LOG_UPDATE" or event == "UNIT_QUEST_LOG_CHANGED" then
         safe(questLogChanged)
+    elseif event == "PLAYER_REGEN_DISABLED" then
+        inCombat = true
+        safe(Refresh)
     elseif event == "PLAYER_REGEN_ENABLED" then
+        inCombat = false
         safe(questLogChanged) -- tooltips may have been secret during combat
         safe(Refresh)         -- and protected frames couldn't change
     else

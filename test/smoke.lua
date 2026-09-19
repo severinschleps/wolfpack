@@ -30,6 +30,8 @@ function M:SetTexture(t) self._tex = t end
 function M:SetScale(v) self._scale = v end
 function M:SetAlpha(v) self._alpha = v end
 function M:SetDesaturated(v) self._desat = v end
+function M:SetAtlas(a) self._atlas = a end
+function M:SetTexCoord(...) self._coords = { ... } end
 function M:SetStatusBarColor(...) self._sbc = { ... } end
 function M:SetTimerDuration(d, interp, dir) self._timer, self._dir = d, dir end
 function M:GetAlpha() return self._alpha or 1 end
@@ -254,6 +256,26 @@ assert(cb:GetAlpha() == 1 and cb.text._text == "Cast Bar" and cb.icon._tex == 13
 prof().locked = true; fire("UNIT_MAXPOWER")
 assert(cb:GetAlpha() == 0, "locked again: hidden")
 prof().regular.bars.castbar.icon, prof().regular.bars.castbar.iconSide = true, "left"
+
+-- In-combat icon: in combat only (or previewing), centered on the chosen bar's left edge
+local ci, icon = prof().regular.combatIcon, ns.combatIcon
+fire("UNIT_MAXPOWER")
+assert(not icon:IsShown(), "out of combat: hidden")
+fire("PLAYER_REGEN_DISABLED")
+local ip = icon._point
+assert(icon:IsShown() and ip[1] == "CENTER" and ip[2] == fr.health and ip[3] == "LEFT" and ip[4] == -12, "health bar's left edge")
+assert(icon.tex._atlas == "UI-HUD-UnitFrame-Player-CombatIcon" and icon._w == 20, "default art and size")
+ci.bar, ci.style = "druidmana", "classic"; fire("UNIT_MAXPOWER")
+assert(icon._point[2] == ComboPointDisplayFrame, "attached bar hidden: falls back to the group")
+assert(icon.tex._tex == 130936 and icon.tex._coords[1] == 0.5, "classic swords cropped from the state icon")
+ci.show = false; fire("UNIT_MAXPOWER")
+assert(not icon:IsShown(), "show off")
+ci.show, ci.bar, ci.style = true, "health", "atlas"
+fire("PLAYER_REGEN_ENABLED")
+assert(not icon:IsShown(), "combat over")
+prof().locked = false; fire("UNIT_MAXPOWER")
+assert(icon:IsShown(), "unlocked: preview for placing it")
+prof().locked = true; fire("UNIT_MAXPOWER")
 
 -- Border and radius: border inside the bar's size, bar inset by it; masks scaled to the radius
 local hb = prof().regular.bars.health -- 220 x 18
@@ -532,6 +554,11 @@ gcheck._checked = true; gcheck._scripts.OnClick(gcheck)
 assert(prof().other.hideGryphons and caps.LeftEndCap.Texture._alpha == 0 and caps.RightEndCap.Texture._alpha == 0, "hidden")
 gcheck._checked = false; gcheck._scripts.OnClick(gcheck)
 assert(caps.LeftEndCap.Texture._alpha == 1, "shown again")
+dds[8]:GenerateMenu(); dds[9]:GenerateMenu() -- combat icon art, attach-to bar
+assert(#dds[8]._items == 4 and #dds[9]._items == 5, "combat icon choices, one entry per bar")
+for _, it in ipairs(dds[8]._items) do assert(type(it.init(menuButton())) == "number", "combat icon preview") end
+dds[9]._items[2].set()
+assert(prof().regular.combatIcon.bar == prof().regular.order[2], "attached to the second bar")
 local opBox = boxes[#boxes] -- the last slider made: highlight opacity (%)
 opBox._text = "60"; opBox._scripts.OnEnterPressed(opBox)
 assert(math.abs(prof().regular.highlight.color[4] - 0.6) < 1e-9 and opBox._text == "60", "opacity typed")
