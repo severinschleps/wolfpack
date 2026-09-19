@@ -117,6 +117,25 @@ hooksecurefunc = function(t, name, fn)
 end
 PlayerCastingBarFrame = new()
 PlayerCastingBarFrame._parent = UIParent
+-- Serialization stand-in: deep copies, so nothing is shared between export and import
+local blobs = {}
+local function deepcopy(t)
+    if type(t) ~= "table" then return t end
+    local c = {}
+    for k, v in pairs(t) do c[k] = deepcopy(v) end
+    return c
+end
+C_EncodingUtil = {
+    SerializeCBOR = function(t) blobs[#blobs + 1] = deepcopy(t); return "blob" .. #blobs end,
+    DeserializeCBOR = function(str) local i = tonumber(str:match("^blob(%d+)$")); return deepcopy(blobs[i]) end,
+    CompressString = function(str) return "z" .. str end,
+    DecompressString = function(str) assert(str:sub(1, 1) == "z", "bad deflate"); return str:sub(2) end,
+    EncodeBase64 = function(str) return "B" .. str end,
+    DecodeBase64 = function(str) return str:sub(2) end,
+}
+C_EditMode = { ConvertLayoutInfoToString = function(info) return "EDITMODE:" .. info.layoutName end }
+EditModeManagerFrame = { GetActiveLayoutInfo = function() return { layoutName = "MyLayout" } end }
+ChatFontNormal = new()
 PlayerFrame = new()
 PlayerFrame._parent = UIParent
 GetRealmName = function() return "Realm" end
@@ -626,6 +645,44 @@ assert(calls() == "reward1", "single reward taken; choice, gold cost and unfinis
 S.shift = true; fire("GOSSIP_SHOW"); fire("QUEST_COMPLETE"); S.shift = false
 assert(calls() == "", "shift skips")
 prof().other.autoComplete = false
+
+-- Export / import: round trip into a new profile; Edit Mode layout only when asked for
+local exp = ns.exportString(false)
+assert(exp:match("^CPD1:") and not blobs[#blobs].editMode, "export without Edit Mode")
+prof().regular.gap = 9
+local expEM = ns.exportString(true)
+assert(blobs[#blobs].editMode == "EDITMODE:MyLayout", "export with Edit Mode layout")
+local before = store.chars[S.name .. " - Realm"]
+local name, em = ns.importString("  " .. expEM .. "\n")
+assert(name == before .. " 2" and em == "EDITMODE:MyLayout", "imported as a new profile, Edit Mode string handed back")
+assert(prof() == store.profiles[name] and prof().regular.gap == 9 and prof() ~= store.profiles[before], "switched to the copy")
+prof().regular.gap = 3
+assert(store.profiles[before].regular.gap == 9, "copy is independent")
+assert(not ns.importString("hello"), "not ours")
+assert(not ns.importString("CPD1:Bnope"), "damaged")
+-- untrusted content: bad types, silly numbers, broken order, unknown keys
+blobs[#blobs + 1] = { name = string.rep("x", 50), profile = { evil = "x", locked = "yes",
+    regular = { gap = -5, x = 1e9, order = { "health", "health", "bogus", "castbar" },
+        bars = { health = { width = "wide", height = 0, radius = "pill", color = { 1, "red", 0, 1 } } } } } }
+local bad = ns.importString("CPD1:Bzblob" .. #blobs)
+local bp = store.profiles[bad]
+assert(#bad == 32 and bp.evil == nil and bp.locked == true, "unknown key dropped, bad type defaulted")
+assert(bp.regular.gap == 2 and bp.regular.x == 0, "out-of-range numbers defaulted")
+assert(bp.regular.order[1] == "health" and bp.regular.order[2] == "castbar" and #bp.regular.order == 6, "order repaired")
+local hb2 = bp.regular.bars.health
+assert(hb2.width == 220 and hb2.height == 18 and hb2.radius == "pill" and hb2.color[2] == 0.8, "bar values checked")
+-- the dialog
+byText("Export")._scripts.OnClick(byText("Export"), "LeftButton")
+local iof = ComboPointDisplayIO
+assert(iof:IsShown() and iof.box._text:match("^CPD1:") and iof.include:IsShown() and not iof.import:IsShown(), "export dialog")
+iof.include._checked = true; iof.include._scripts.OnClick(iof.include)
+assert(blobs[#blobs].editMode, "checkbox adds the Edit Mode layout")
+byText("Import")._scripts.OnClick(byText("Import"), "LeftButton")
+assert(iof.import:IsShown() and not iof.include:IsShown() and iof.box._text == "", "import dialog")
+iof.box._text = expEM; iof.import._scripts.OnClick(iof.import)
+assert(iof.box._text == "EDITMODE:MyLayout", "Edit Mode string shown to copy")
+iof.box._text = "junk"; iof.import._scripts.OnClick(iof.import)
+assert(iof.note._text:find("CPD1"), "error explained")
 
 -- Every bundled font path points at a real file in the addon folder
 for _, f in ipairs(ns.FONTS) do

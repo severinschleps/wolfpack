@@ -976,12 +976,162 @@ local function deleteProfile(name)
     useProfile(classProfile)
 end
 
+------------------------------------------------------------------------------------------
+-- Export / import: "CPD1:" + base64(deflate(CBOR{ name, profile, editMode? })). The Edit Mode
+-- part is Blizzard's own layout string; importing hands it back for Edit Mode's Import dialog,
+-- because writing Edit Mode layouts from an addon would get overwritten or taint Edit Mode.
+------------------------------------------------------------------------------------------
+local E = C_EncodingUtil
+
+local function exportString(withEditMode)
+    local data = { name = store.chars[charKey], profile = db }
+    if withEditMode and EditModeManagerFrame then
+        local ok, layout = pcall(function()
+            return C_EditMode.ConvertLayoutInfoToString(EditModeManagerFrame:GetActiveLayoutInfo())
+        end)
+        if ok then data.editMode = layout end
+    end
+    return "CPD1:" .. E.EncodeBase64(E.CompressString(E.SerializeCBOR(data)))
+end
+
+-- An imported profile is untrusted: keep only settings DEFAULTS knows, with the same type and
+-- sane numbers; the bar order keeps known bars once each and gets missing ones appended.
+local MIN_NUMBER = { width = 1, height = 1, size = 1, fontSize = 1, borderSize = 0, gap = 0, spacing = 0 }
+
+local function sanitize(src, template)
+    local out = {}
+    src = type(src) == "table" and src or {}
+    for k, def in pairs(template) do
+        local v = src[k]
+        if k == "order" then
+            local seen = {}
+            out.order = {}
+            for _, key in ipairs(type(v) == "table" and v or {}) do
+                if BARS[key] and not seen[key] then seen[key] = true; out.order[#out.order + 1] = key end
+            end
+            for _, key in ipairs(def) do
+                if not seen[key] then out.order[#out.order + 1] = key end
+            end
+        elseif type(def) == "table" then
+            out[k] = sanitize(v, def)
+        elseif type(v) == "number" then
+            if v == v and v >= (MIN_NUMBER[k] or -2000) and v <= 2000 then out[k] = v end
+        elseif type(v) == type(def) or (k == "radius" and v == "pill") then
+            out[k] = v
+        end
+    end
+    return out
+end
+
+-- Returns the new profile's name and the Edit Mode string (if any), or nil and an error.
+local function importString(text)
+    local b64 = (text or ""):gsub("%s", ""):match("^CPD1:(.+)$")
+    if not b64 then return nil, "That's not a ComboPointDisplay string (it starts with CPD1:)." end
+    local ok, data = pcall(function() return E.DeserializeCBOR(E.DecompressString(E.DecodeBase64(b64))) end)
+    if not ok or type(data) ~= "table" or type(data.profile) ~= "table" then
+        return nil, "The string is damaged or incomplete. Copy it again in full."
+    end
+    local base = type(data.name) == "string" and strtrim(data.name):sub(1, 32) or ""
+    if base == "" then base = "Imported" end
+    local name, n = base, 2
+    while store.profiles[name] do name, n = base .. " " .. n, n + 1 end
+    store.profiles[name] = sanitize(data.profile, DEFAULTS)
+    useProfile(name)
+    return name, type(data.editMode) == "string" and data.editMode or nil
+end
+ns.exportString, ns.importString = exportString, importString
+
 StaticPopupDialogs.COMBOPOINTDISPLAY_DELETE = {
     text = "Delete ComboPointDisplay profile \"%s\"?",
     button1 = YES, button2 = NO,
     OnAccept = function(_, name) deleteProfile(name) end,
     timeout = 0, whileDead = true, hideOnEscape = true,
 }
+
+local ioFrame, withEditMode
+
+local function openIO(mode)
+    local f = ioFrame
+    if not f then
+        f = CreateFrame("Frame", "ComboPointDisplayIO", UIParent, "BasicFrameTemplateWithInset")
+        f:SetSize(540, 320)
+        f:SetPoint("CENTER")
+        f:SetFrameStrata("FULLSCREEN_DIALOG")
+        f:SetMovable(true)
+        f:EnableMouse(true)
+        f:RegisterForDrag("LeftButton")
+        f:SetScript("OnDragStart", f.StartMoving)
+        f:SetScript("OnDragStop", f.StopMovingOrSizing)
+        tinsert(UISpecialFrames, f:GetName())
+        f.title = label(f, "")
+        f.title:SetPoint("TOP", 0, -5)
+        f.note = label(f, "", "GameFontHighlightSmall")
+        f.note:SetPoint("TOPLEFT", 16, -32)
+        f.note:SetWidth(505)
+        f.note:SetJustifyH("LEFT")
+        f.include = CreateFrame("CheckButton", nil, f, "UICheckButtonTemplate")
+        f.include:SetSize(24, 24)
+        f.include:SetPoint("TOPLEFT", 12, -56)
+        label(f.include, "Include Blizzard UI layout (Edit Mode)"):SetPoint("LEFT", f.include, "RIGHT", 2, 1)
+        local bg = f:CreateTexture(nil, "BACKGROUND", nil, 1)
+        bg:SetColorTexture(0, 0, 0, 0.5)
+        bg:SetPoint("TOPLEFT", 14, -86)
+        bg:SetPoint("BOTTOMRIGHT", -14, 44)
+        local sf = CreateFrame("ScrollFrame", nil, f, "UIPanelScrollFrameTemplate")
+        sf:SetPoint("TOPLEFT", 18, -90)
+        sf:SetPoint("BOTTOMRIGHT", -36, 48)
+        f.box = CreateFrame("EditBox", nil, sf)
+        f.box:SetMultiLine(true)
+        f.box:SetAutoFocus(false)
+        f.box:SetMaxLetters(0)
+        f.box:SetFontObject(ChatFontNormal)
+        f.box:SetWidth(480)
+        f.box:SetScript("OnEscapePressed", function() f.box:ClearFocus() end)
+        sf:SetScrollChild(f.box)
+        local function showExport()
+            f.box:SetText(exportString(withEditMode))
+            f.box:HighlightText()
+            f.box:SetFocus()
+        end
+        f.include:SetScript("OnClick", function(self) withEditMode = self:GetChecked(); showExport() end)
+        f.showExport = showExport
+        f.import = CreateFrame("Button", nil, f, "UIPanelButtonTemplate")
+        f.import:SetSize(100, 22)
+        f.import:SetPoint("BOTTOMRIGHT", -16, 14)
+        f.import:SetText("Import")
+        f.import:SetScript("OnClick", function()
+            local name, extra = importString(f.box:GetText())
+            if not name then
+                f.note:SetText("|cffff5555" .. extra .. "|r")
+            elseif extra then
+                f.note:SetText("Imported as profile \"" .. name .. "\". Below is its Blizzard UI layout: press "
+                    .. "Ctrl+C, then open Edit Mode, pick Import in the Layout dropdown and paste it there.")
+                f.box:SetText(extra)
+                f.box:HighlightText()
+                f.box:SetFocus()
+            else
+                f.note:SetText("Imported as profile \"" .. name .. "\" and switched to it.")
+                f.box:SetText("")
+            end
+        end)
+        ioFrame = f
+    end
+    local export = mode == "export"
+    f.title:SetText(export and "Export profile" or "Import profile")
+    f.include:SetShown(export)
+    f.include:SetChecked(withEditMode)
+    f.import:SetShown(not export)
+    if export then
+        f.note:SetText("Ctrl+A, then Ctrl+C to copy. Keep it somewhere safe: the beta forgets addon settings "
+            .. "when the game restarts, and this string brings them back.")
+        f.showExport()
+    else
+        f.note:SetText("Paste a ComboPointDisplay string with Ctrl+V, then click Import. It becomes a new profile.")
+        f.box:SetText("")
+        f.box:SetFocus()
+    end
+    f:Show()
+end
 
 local function buildConfig()
     cfg = CreateFrame("Frame", "ComboPointDisplayConfig", UIParent, "BasicFrameTemplateWithInset")
@@ -1033,6 +1183,8 @@ local function buildConfig()
         place()
         changed()
     end)
+    button(cfg, "Export", 64, 668, -33, function() openIO("export") end)
+    button(cfg, "Import", 64, 738, -33, function() openIO("import") end)
 
     -- Sidebar: one entry per module
     local SIDEBAR = { { "combat", "Combat Display", "regular" }, { "nameplates", "Nameplates", "nameplate" },
