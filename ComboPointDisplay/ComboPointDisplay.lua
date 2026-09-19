@@ -2026,8 +2026,8 @@ local function autoAccept(event, startItem)
     end
 end
 
--- Auto-complete: pick finished quests at the NPC (gossip or greeting window), hand in the items,
--- take the reward. Several rewards to choose from, or a gold cost, stay with you.
+-- Auto-complete: hand in the items and take the reward. Several rewards to choose from, or a
+-- gold cost, stay with you.
 local function autoComplete(event)
     if not db.other.autoComplete or IsShiftKeyDown() then return end
     if event == "QUEST_PROGRESS" then
@@ -2035,13 +2035,42 @@ local function autoComplete(event)
     elseif event == "QUEST_COMPLETE" then
         local choices = GetNumQuestChoices()
         if choices <= 1 and (GetQuestMoneyToGet() or 0) == 0 then GetQuestReward(choices) end
-    elseif event == "GOSSIP_SHOW" then
+    end
+end
+
+-- An NPC's quest list (gossip window, or the old multi-quest greeting): turn in what's finished,
+-- then take the next quest, one per opening. Trainer, vendor and other gossip options are never
+-- touched. `picked` stops a window that reopens from looping on the same quest; it is dropped
+-- when another NPC is used, or once the quest windows have been closed for a moment.
+local picked, pickedFrom = {}, nil
+
+local function npcQuests()
+    if IsShiftKeyDown() then return end
+    local guid = UnitGUID("npc")
+    if guid ~= pickedFrom then
+        wipe(picked)
+        pickedFrom = guid
+    end
+    local function take(key, fn, ...)
+        if picked[key] then return false end
+        picked[key] = true
+        fn(...)
+        return true
+    end
+    if db.other.autoComplete then
         for _, q in ipairs(C_GossipInfo.GetActiveQuests() or {}) do
-            if q.isComplete then return C_GossipInfo.SelectActiveQuest(q.questID) end
+            if q.isComplete and take("done" .. q.questID, C_GossipInfo.SelectActiveQuest, q.questID) then return end
         end
-    elseif event == "QUEST_GREETING" then
         for i = 1, GetNumActiveQuests() do
-            if select(2, GetActiveTitle(i)) then return SelectActiveQuest(i) end
+            if select(2, GetActiveTitle(i)) and take("greetDone" .. i, SelectActiveQuest, i) then return end
+        end
+    end
+    if db.other.autoAccept then
+        for _, q in ipairs(C_GossipInfo.GetAvailableQuests() or {}) do
+            if take("new" .. q.questID, C_GossipInfo.SelectAvailableQuest, q.questID) then return end
+        end
+        for i = 1, GetNumAvailableQuests() do
+            if take("greetNew" .. i, SelectAvailableQuest, i) then return end
         end
     end
 end
@@ -2145,7 +2174,7 @@ ev:SetScript("OnEvent", function(_, event, unit, arg2)
         for _, e in ipairs({ "PLAYER_ENTERING_WORLD", "UPDATE_SHAPESHIFT_FORM", "PLAYER_TARGET_CHANGED",
             "NAME_PLATE_UNIT_ADDED", "NAME_PLATE_UNIT_REMOVED", "QUEST_LOG_UPDATE", "PLAYER_REGEN_ENABLED",
             "QUEST_DETAIL", "QUEST_ACCEPT_CONFIRM", "QUEST_PROGRESS", "QUEST_COMPLETE", "GOSSIP_SHOW", "QUEST_GREETING",
-            "PLAYER_REGEN_DISABLED", "PLAYER_SWING", "MERCHANT_SHOW", "MERCHANT_CLOSED" }) do
+            "PLAYER_REGEN_DISABLED", "PLAYER_SWING", "MERCHANT_SHOW", "MERCHANT_CLOSED", "GOSSIP_CLOSED" }) do
             listen(e)
         end
         inCombat = InCombatLockdown() -- a /reload mid-fight
@@ -2169,8 +2198,15 @@ ev:SetScript("OnEvent", function(_, event, unit, arg2)
         stopSelling()
     elseif event == "QUEST_DETAIL" or event == "QUEST_ACCEPT_CONFIRM" then
         safe(autoAccept, event, unit) -- for QUEST_DETAIL the first arg is the quest-starting item
-    elseif event == "QUEST_PROGRESS" or event == "QUEST_COMPLETE" or event == "GOSSIP_SHOW" or event == "QUEST_GREETING" then
+    elseif event == "QUEST_PROGRESS" or event == "QUEST_COMPLETE" then
         safe(autoComplete, event)
+    elseif event == "GOSSIP_SHOW" or event == "QUEST_GREETING" then
+        safe(npcQuests)
+    elseif event == "GOSSIP_CLOSED" then -- walked away: let the same quests be offered again
+        C_Timer.After(1, function()
+            local busy = (GossipFrame and GossipFrame:IsShown()) or (QuestFrame and QuestFrame:IsShown())
+            if not busy then pickedFrom = nil end
+        end)
     elseif event == "QUEST_LOG_UPDATE" or event == "UNIT_QUEST_LOG_CHANGED" then
         safe(questLogChanged)
     elseif event == "PLAYER_REGEN_DISABLED" then

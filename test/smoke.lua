@@ -130,11 +130,18 @@ GetQuestMoneyToGet = function() return S.cost or 0 end
 GetQuestReward = function(c) S.calls[#S.calls + 1] = "reward" .. c end
 C_GossipInfo = {
     GetActiveQuests = function() return S.gossip or {} end,
-    SelectActiveQuest = function(id) S.calls[#S.calls + 1] = "gossip" .. id end,
+    SelectActiveQuest = function(id) S.calls[#S.calls + 1] = "turnin" .. id end,
+    GetAvailableQuests = function() return S.available or {} end,
+    SelectAvailableQuest = function(id) S.calls[#S.calls + 1] = "take" .. id end,
 }
 GetNumActiveQuests = function() return #(S.greeting or {}) end
 GetActiveTitle = function(i) return "Quest " .. i, S.greeting[i] end
-SelectActiveQuest = function(i) S.calls[#S.calls + 1] = "greeting" .. i end
+SelectActiveQuest = function(i) S.calls[#S.calls + 1] = "greetTurnin" .. i end
+GetNumAvailableQuests = function() return S.greetNew or 0 end
+SelectAvailableQuest = function(i) S.calls[#S.calls + 1] = "greetTake" .. i end
+UnitGUID = function() return S.npc end
+GossipFrame, QuestFrame = new(), new()
+GossipFrame._shown, QuestFrame._shown = false, false
 hooksecurefunc = function(t, name, fn)
     local orig = t[name]
     t[name] = function(...) orig(...); fn(...) end
@@ -781,8 +788,9 @@ S.completable = true
 fire("GOSSIP_SHOW"); fire("QUEST_PROGRESS"); fire("QUEST_COMPLETE")
 assert(calls() == "", "off by default")
 prof().other.autoComplete = true
+S.npc = "npc-1"
 fire("GOSSIP_SHOW"); fire("QUEST_GREETING"); fire("QUEST_PROGRESS"); fire("QUEST_COMPLETE")
-assert(calls() == "gossip12,greeting2,complete,reward0", "turns in")
+assert(calls() == "turnin12,greetTurnin2,complete,reward0", "turns in")
 S.choices = 1; fire("QUEST_COMPLETE")
 S.choices = 3; fire("QUEST_COMPLETE")
 S.choices, S.cost = 0, 500; fire("QUEST_COMPLETE")
@@ -790,7 +798,26 @@ S.cost, S.completable = 0, false; fire("QUEST_PROGRESS")
 assert(calls() == "reward1", "single reward taken; choice, gold cost and unfinished left alone")
 S.shift = true; fire("GOSSIP_SHOW"); fire("QUEST_COMPLETE"); S.shift = false
 assert(calls() == "", "shift skips")
+-- Several quests at one NPC: turn-ins first, then one new quest per opening, never looping
+S.available = { { questID = 21 }, { questID = 22 } }
+S.gossip = { { questID = 12, isComplete = true } }
+S.greetNew, S.greeting = 1, { false }
+S.npc = "npc-2"
+prof().other.autoAccept = true
+fire("GOSSIP_SHOW"); fire("GOSSIP_SHOW"); fire("GOSSIP_SHOW"); fire("GOSSIP_SHOW")
+assert(calls() == "turnin12,take21,take22,greetTake1", "each quest once, no loop")
+fire("GOSSIP_SHOW")
+assert(calls() == "", "nothing left to pick at this NPC")
+S.npc = "npc-3" -- another quest giver: its own list again
+fire("GOSSIP_SHOW")
+assert(calls() == "turnin12", "new NPC starts over")
+prof().other.autoAccept = false
+fire("GOSSIP_SHOW"); fire("GOSSIP_SHOW")
+assert(calls() == "", "auto-accept off: no quests taken")
+S.shift = true; S.npc = "npc-4"; fire("GOSSIP_SHOW"); S.shift = false
+assert(calls() == "", "shift skips the whole list")
 prof().other.autoComplete = false
+S.available, S.greetNew = {}, 0
 
 -- Show on mouseover: alpha fades toward 1 while hovered (0.2 s), 0 otherwise; Edit Mode shows all
 local oth = prof().other
