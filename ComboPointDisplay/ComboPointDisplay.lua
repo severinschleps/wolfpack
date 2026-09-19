@@ -68,6 +68,7 @@ local DEFAULTS = {
         kill = { show = true, icon = 131013, size = 20, x = -72, y = 0 },
         loot = { show = true, icon = 131023, size = 20, x = 72, y = 0 },
     },
+    other = { hideGryphons = false },
 }
 
 DEFAULTS.regular.bars.health.target = false -- target health bar right of it (Combat Display only)
@@ -502,6 +503,19 @@ local function syncProtected()
     end
 end
 
+-- Action bar gryphons (Forever: MainActionBar.EndCaps). Only their textures' alpha changes, so
+-- Blizzard's Edit Mode code on those frames stays untouched. Left alone unless the option was on.
+local gryphonsHidden
+local function syncGryphons()
+    local hide = db.other.hideGryphons and true or false
+    local caps = MainActionBar and MainActionBar.EndCaps
+    if not caps or hide == (gryphonsHidden or false) then return end
+    for _, cap in ipairs({ caps.LeftEndCap, caps.RightEndCap }) do
+        if cap and cap.Texture then cap.Texture:SetAlpha(hide and 0 or 1) end
+    end
+    gryphonsHidden = hide
+end
+
 local function Refresh()
     local health = frames.health
     health.split = (db.regular.bars.health.target and UnitExists("target")) and true or false
@@ -525,6 +539,7 @@ local function Refresh()
     mover:SetShown(not db.locked)
     moverHint:SetFormattedText(HINT, db.regular.x, db.regular.y)
     syncProtected()
+    syncGryphons()
 end
 
 -- One report per session, printed to chat: Lua errors are hidden by default and this client
@@ -821,7 +836,8 @@ local function buildConfig()
     end)
 
     -- Sidebar: one entry per module
-    local SIDEBAR = { { "combat", "Combat Display", "regular" }, { "nameplates", "Nameplates", "nameplate" } }
+    local SIDEBAR = { { "combat", "Combat Display", "regular" }, { "nameplates", "Nameplates", "nameplate" },
+        { "other", "Other", "regular" } }
     for i, e in ipairs(SIDEBAR) do
         local b = button(cfg, e[2], 118, 12, -104 - (i - 1) * 26, function()
             section, mode = e[1], e[3]
@@ -841,6 +857,8 @@ local function buildConfig()
     barsPage:SetSize(686, 600)
     local questPage = CreateFrame("Frame", nil, cfg)
     questPage:SetAllPoints(barsPage)
+    local otherPage = CreateFrame("Frame", nil, cfg)
+    otherPage:SetAllPoints(barsPage)
 
     local title = label(cfg, "Combat Display", "GameFontNormalLarge")
     title:SetPoint("TOPLEFT", 150, -72)
@@ -852,10 +870,15 @@ local function buildConfig()
     onRefresh(function()
         local np = section == "nameplates"
         title:SetShown(not np)
+        title:SetText(section == "other" and "Other" or "Combat Display")
         for _, t in ipairs(tabs) do t:SetShown(np) end
-        barsPage:SetShown(not np or sub == "bars")
+        barsPage:SetShown(section == "combat" or (np and sub == "bars"))
         questPage:SetShown(np and sub == "quest")
+        otherPage:SetShown(section == "other")
     end)
+
+    check(otherPage, "Hide action bar gryphons", 16, -104,
+        function() return db.other.hideGryphons end, function(v) db.other.hideGryphons = v end)
 
     local tabNote = label(barsPage, "", "GameFontDisableSmall")
     tabNote:SetPoint("TOPLEFT", 252, -74)

@@ -28,6 +28,7 @@ function M:SetParent(p) self._parent = p end
 function M:SetPoint(...) self._point = { ... } end
 function M:SetTexture(t) self._tex = t end
 function M:SetScale(v) self._scale = v end
+function M:SetAlpha(v) self._alpha = v end
 function M:GetStatusBarTexture() self._sbt = self._sbt or new(); return self._sbt end
 function M:AddMaskTexture(m) self._masks = self._masks or {}; self._masks[m] = true end
 function M:RemoveMaskTexture(m) if self._masks then self._masks[m] = nil end end
@@ -76,6 +77,7 @@ StaticPopupDialogs = {}
 StaticPopup_Show = function(which, _, _, data) StaticPopupDialogs[which].OnAccept(nil, data) end -- clicks Yes
 UnitName = function() return S.name end
 InCombatLockdown = function() return S.combat end
+MainActionBar = { EndCaps = { LeftEndCap = { Texture = new() }, RightEndCap = { Texture = new() } } }
 PlayerFrame = new()
 PlayerFrame._parent = UIParent
 GetRealmName = function() return "Realm" end
@@ -383,6 +385,19 @@ boxes[12]._text = "32"; boxes[12]._scripts.OnEnterPressed(boxes[12])
 boxes[16]._text = "-5"; boxes[16]._scripts.OnEnterPressed(boxes[16])
 assert(prof().quest.kill.icon == 135274 and prof().quest.kill.size == 32 and prof().quest.loot.size == 20, "kill icon edits")
 assert(h.kill._tex == 135274 and h.kill._w == 32, "live plate icon restyled")
+byText("Combat Display")._scripts.OnClick(byText("Combat Display"), "LeftButton")
+
+-- Other: gryphons hidden via texture alpha only, untouched until the option is used
+local caps = MainActionBar.EndCaps
+assert(caps.LeftEndCap.Texture._alpha == nil, "gryphons untouched by default")
+byText("Other")._scripts.OnClick(byText("Other"), "LeftButton")
+local pages, gcheck = {} -- bars, quest, other: frames directly on the options window
+for _, f in ipairs(created) do if f._kind == "Frame" and f._parent == ComboPointDisplayConfig then pages[#pages + 1] = f end end
+for _, f in ipairs(created) do if f._kind == "CheckButton" and f._parent == pages[3] then gcheck = f end end
+gcheck._checked = true; gcheck._scripts.OnClick(gcheck)
+assert(prof().other.hideGryphons and caps.LeftEndCap.Texture._alpha == 0 and caps.RightEndCap.Texture._alpha == 0, "hidden")
+gcheck._checked = false; gcheck._scripts.OnClick(gcheck)
+assert(caps.LeftEndCap.Texture._alpha == 1, "shown again")
 byText("Combat Display")._scripts.OnClick(byText("Combat Display"), "LeftButton")
 
 -- Every bundled font path points at a real file in the addon folder
