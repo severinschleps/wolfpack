@@ -723,43 +723,58 @@ S.picker.swatchFunc()
 assert(hcol.colorMode == "custom" and hcol.color[3] == 0.3, "bar picked: custom")
 hcol.colorMode, hcol.borderMode, hcol.color = "custom", "custom", { 0.2, 0.8, 0.2, 1 }
 
--- Export / import: round trip into a new profile; Edit Mode layout only when asked for
-local exp = ns.exportString(false)
-assert(exp:match("^CPD1:") and not blobs[#blobs].editMode, "export without Edit Mode")
+-- Export / import: the profile string round-trips into a new profile (mouseover choices and
+-- the account-wide combat font included); the WoW UI layout is its own string for Edit Mode
+C_EditMode.ConvertStringToLayoutInfo = function(str) if str:match("^EDITMODE:") then return {} end end
 prof().regular.gap = 9
-local expEM = ns.exportString(true)
-assert(blobs[#blobs].editMode == "EDITMODE:MyLayout", "export with Edit Mode layout")
+prof().other.hover.bar3 = true
+ComboPointDisplayDB.combatFont = ns.COMBAT_FONTS[4][2]
+local exp = ns.exportString()
+assert(exp:match("^CPD1:") and blobs[#blobs].editMode == nil, "profile string only")
+assert(ns.editModeString() == "EDITMODE:MyLayout", "WoW UI layout string on its own")
+ComboPointDisplayDB.combatFont = nil
 local before = store.chars[S.name .. " - Realm"]
-local name, em = ns.importString("  " .. expEM .. "\n")
-assert(name == before .. " 2" and em == "EDITMODE:MyLayout", "imported as a new profile, Edit Mode string handed back")
+local name, em = ns.importString("  " .. exp .. "\n")
+assert(name == before .. " 2" and em == nil, "imported as a new profile")
 assert(prof() == store.profiles[name] and prof().regular.gap == 9 and prof() ~= store.profiles[before], "switched to the copy")
+assert(prof().other.hover.bar3 == true, "mouseover choices survive")
+assert(ComboPointDisplayDB.combatFont == ns.COMBAT_FONTS[4][2], "combat font carried along")
 prof().regular.gap = 3
 assert(store.profiles[before].regular.gap == 9, "copy is independent")
+local _, why = ns.importString("EDITMODE:MyLayout")
+assert(why:find("Edit Mode"), "WoW UI string recognized and redirected")
 assert(not ns.importString("hello"), "not ours")
 assert(not ns.importString("CPD1:Bnope"), "damaged")
+-- older combined strings still import; their layout is handed back
+blobs[#blobs + 1] = { name = "Old", profile = {}, editMode = "EDITMODE:Old" }
+local oldName, oldEM = ns.importString("CPD1:Bzblob" .. #blobs)
+assert(oldName == "Old" and oldEM == "EDITMODE:Old", "old combined string")
 -- untrusted content: bad types, silly numbers, broken order, unknown keys
-blobs[#blobs + 1] = { name = string.rep("x", 50), profile = { evil = "x", locked = "yes",
+blobs[#blobs + 1] = { name = string.rep("x", 50), combatFont = "Interface\\evil.ttf", profile = { evil = "x", locked = "yes",
+    other = { hover = { bar1 = true, nope = true, bar2 = "yes" } },
     regular = { gap = -5, x = 1e9, order = { "health", "health", "bogus", "castbar" },
         bars = { health = { width = "wide", height = 0, radius = "pill", color = { 1, "red", 0, 1 } } } } } }
 local bad = ns.importString("CPD1:Bzblob" .. #blobs)
 local bp = store.profiles[bad]
 assert(#bad == 32 and bp.evil == nil and bp.locked == true, "unknown key dropped, bad type defaulted")
+assert(bp.other.hover.bar1 and bp.other.hover.nope == nil and bp.other.hover.bar2 == nil, "hover: known and true only")
+assert(ComboPointDisplayDB.combatFont == ns.COMBAT_FONTS[4][2], "unknown combat font path refused")
 assert(bp.regular.gap == 2 and bp.regular.x == 0, "out-of-range numbers defaulted")
 assert(bp.regular.order[1] == "health" and bp.regular.order[2] == "castbar" and #bp.regular.order == 6, "order repaired")
 local hb2 = bp.regular.bars.health
 assert(hb2.width == 220 and hb2.height == 18 and hb2.radius == "pill" and hb2.color[2] == 0.8, "bar values checked")
--- the dialog
+ComboPointDisplayDB.combatFont = nil
+-- the dialog: export shows both strings; import takes the profile string only
 byText("Export")._scripts.OnClick(byText("Export"), "LeftButton")
 local iof = ComboPointDisplayIO
-assert(iof:IsShown() and iof.box._text:match("^CPD1:") and iof.include:IsShown() and not iof.import:IsShown(), "export dialog")
-iof.include._checked = true; iof.include._scripts.OnClick(iof.include)
-assert(blobs[#blobs].editMode, "checkbox adds the Edit Mode layout")
+assert(iof:IsShown() and iof.area1.box._text:match("^CPD1:") and iof.area2:IsShown(), "export: profile box")
+assert(iof.area2.box._text == "EDITMODE:MyLayout" and not iof.import:IsShown(), "export: WoW UI box")
 byText("Import")._scripts.OnClick(byText("Import"), "LeftButton")
-assert(iof.import:IsShown() and not iof.include:IsShown() and iof.box._text == "", "import dialog")
-iof.box._text = expEM; iof.import._scripts.OnClick(iof.import)
-assert(iof.box._text == "EDITMODE:MyLayout", "Edit Mode string shown to copy")
-iof.box._text = "junk"; iof.import._scripts.OnClick(iof.import)
-assert(iof.note._text:find("CPD1"), "error explained")
+assert(iof.import:IsShown() and not iof.area2:IsShown() and iof.area1.box._text == "", "import dialog")
+iof.area1.box._text = "EDITMODE:MyLayout"; iof.import._scripts.OnClick(iof.import)
+assert(iof.note._text:find("Edit Mode"), "pasting the WoW UI string explains where it goes")
+iof.area1.box._text = exp; iof.import._scripts.OnClick(iof.import)
+assert(iof.note._text:find("Imported as profile") and not iof.area2:IsShown(), "imported")
 
 -- Combat text font: 20 fonts + default; applied on ADDON_LOADED only for known paths
 assert(#ns.COMBAT_FONTS == 21, "20 fonts + WoW default")
