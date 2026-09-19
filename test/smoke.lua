@@ -78,6 +78,13 @@ StaticPopup_Show = function(which, _, _, data) StaticPopupDialogs[which].OnAccep
 UnitName = function() return S.name end
 InCombatLockdown = function() return S.combat end
 MainActionBar = { EndCaps = { LeftEndCap = { Texture = new() }, RightEndCap = { Texture = new() } } }
+S.calls = {}
+local function record(name) return function() S.calls[#S.calls + 1] = name end end
+AcceptQuest, ConfirmAcceptQuest = record("accept"), record("confirm")
+AcknowledgeAutoAcceptQuest, StaticPopup_Hide = record("ack"), record("hidepopup")
+IsShiftKeyDown = function() return S.shift end
+QuestGetAutoAccept = function() return S.autoQuest end
+QuestIsFromAreaTrigger = function() return S.areaTrigger end
 PlayerFrame = new()
 PlayerFrame._parent = UIParent
 GetRealmName = function() return "Realm" end
@@ -393,12 +400,29 @@ assert(caps.LeftEndCap.Texture._alpha == nil, "gryphons untouched by default")
 byText("Other")._scripts.OnClick(byText("Other"), "LeftButton")
 local pages, gcheck = {} -- bars, quest, other: frames directly on the options window
 for _, f in ipairs(created) do if f._kind == "Frame" and f._parent == ComboPointDisplayConfig then pages[#pages + 1] = f end end
-for _, f in ipairs(created) do if f._kind == "CheckButton" and f._parent == pages[3] then gcheck = f end end
+for _, f in ipairs(created) do if f._kind == "CheckButton" and f._parent == pages[3] then gcheck = gcheck or f end end
 gcheck._checked = true; gcheck._scripts.OnClick(gcheck)
 assert(prof().other.hideGryphons and caps.LeftEndCap.Texture._alpha == 0 and caps.RightEndCap.Texture._alpha == 0, "hidden")
 gcheck._checked = false; gcheck._scripts.OnClick(gcheck)
 assert(caps.LeftEndCap.Texture._alpha == 1, "shown again")
 byText("Combat Display")._scripts.OnClick(byText("Combat Display"), "LeftButton")
+
+-- Auto-accept: off by default; Shift skips; item/area-trigger quests left to Blizzard
+local function calls() local c = table.concat(S.calls, ","); S.calls = {}; return c end
+fire("QUEST_DETAIL", 0)
+assert(calls() == "", "off by default")
+prof().other.autoAccept = true
+fire("QUEST_DETAIL", 0); fire("QUEST_DETAIL", nil)
+assert(calls() == "accept,accept", "accepts")
+S.shift = true; fire("QUEST_DETAIL", 0); fire("QUEST_ACCEPT_CONFIRM"); S.shift = false
+assert(calls() == "", "shift skips")
+fire("QUEST_DETAIL", 12345)
+S.areaTrigger = true; fire("QUEST_DETAIL", 0); S.areaTrigger = false
+assert(calls() == "", "item and area trigger quests left alone")
+S.autoQuest = true; fire("QUEST_DETAIL", 0); S.autoQuest = false
+fire("QUEST_ACCEPT_CONFIRM")
+assert(calls() == "ack,confirm,hidepopup", "auto-accept quests acknowledged, escorts confirmed")
+prof().other.autoAccept = false
 
 -- Every bundled font path points at a real file in the addon folder
 for _, f in ipairs(ns.FONTS) do

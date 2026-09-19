@@ -68,7 +68,7 @@ local DEFAULTS = {
         kill = { show = true, icon = 131013, size = 20, x = -72, y = 0 },
         loot = { show = true, icon = 131023, size = 20, x = 72, y = 0 },
     },
-    other = { hideGryphons = false },
+    other = { hideGryphons = false, autoAccept = false },
 }
 
 DEFAULTS.regular.bars.health.target = false -- target health bar right of it (Combat Display only)
@@ -879,6 +879,8 @@ local function buildConfig()
 
     check(otherPage, "Hide action bar gryphons", 16, -104,
         function() return db.other.hideGryphons end, function(v) db.other.hideGryphons = v end)
+    check(otherPage, "Auto-accept quests (hold Shift to read one first)", 16, -128,
+        function() return db.other.autoAccept end, function(v) db.other.autoAccept = v end)
 
     local tabNote = label(barsPage, "", "GameFontDisableSmall")
     tabNote:SetPoint("TOPLEFT", 252, -74)
@@ -1077,6 +1079,18 @@ local function listen(event, ...)
     if ... then pcall(ev.RegisterUnitEvent, ev, event, ...) else pcall(ev.RegisterEvent, ev, event) end
 end
 
+-- Auto-accept: quest windows and party members' escort quests. Quests started from items or
+-- area triggers are left to Blizzard, which already turns those into popups.
+local function autoAccept(event, startItem)
+    if not db.other.autoAccept or IsShiftKeyDown() then return end
+    if event == "QUEST_ACCEPT_CONFIRM" then
+        ConfirmAcceptQuest()
+        StaticPopup_Hide("QUEST_ACCEPT")
+    elseif (startItem or 0) == 0 and not QuestIsFromAreaTrigger() then
+        if QuestGetAutoAccept() then AcknowledgeAutoAcceptQuest() else AcceptQuest() end
+    end
+end
+
 local function fillShown(...)
     for i = 1, select("#", ...) do
         local key = select(i, ...)
@@ -1101,7 +1115,8 @@ ev:SetScript("OnEvent", function(_, event, unit)
             listen(e, "player")
         end
         for _, e in ipairs({ "PLAYER_ENTERING_WORLD", "UPDATE_SHAPESHIFT_FORM", "PLAYER_TARGET_CHANGED",
-            "NAME_PLATE_UNIT_ADDED", "NAME_PLATE_UNIT_REMOVED", "QUEST_LOG_UPDATE", "PLAYER_REGEN_ENABLED" }) do
+            "NAME_PLATE_UNIT_ADDED", "NAME_PLATE_UNIT_REMOVED", "QUEST_LOG_UPDATE", "PLAYER_REGEN_ENABLED",
+            "QUEST_DETAIL", "QUEST_ACCEPT_CONFIRM" }) do
             listen(e)
         end
         local mine = store.chars[charKey]
@@ -1112,6 +1127,8 @@ ev:SetScript("OnEvent", function(_, event, unit)
         if targetFrame:IsShown() then safe(fill, targetFrame) end
     elseif event == "UNIT_POWER_FREQUENT" then
         fillShown("power", "combo", "druidmana")
+    elseif event == "QUEST_DETAIL" or event == "QUEST_ACCEPT_CONFIRM" then
+        safe(autoAccept, event, unit) -- for QUEST_DETAIL the first arg is the quest-starting item
     elseif event == "QUEST_LOG_UPDATE" or event == "UNIT_QUEST_LOG_CHANGED" then
         safe(questLogChanged)
     elseif event == "PLAYER_REGEN_ENABLED" then
