@@ -70,6 +70,8 @@ local DEFAULTS = {
 }
 
 DEFAULTS.regular.bars.health.target = false -- target health bar right of it (Combat Display only)
+DEFAULTS.regular.hidePlayerFrame = false -- hide Blizzard's player unit frame
+DEFAULTS.regular.playerMenu = false      -- right-click on the bars opens the player menu
 
 local function merge(dst, src)
     for k, v in pairs(src) do
@@ -420,6 +422,39 @@ local function stack(container, set, L, on)
     container:SetSize(h > 0 and w or 20, h > 0 and h or 10) -- keeps an empty stack grabbable while unlocked
 end
 
+------------------------------------------------------------------------------------------
+-- Blizzard player frame: hide it, and/or give the bars its right-click menu. Both touch
+-- protected frames, which can only change out of combat; PLAYER_REGEN_ENABLED catches up.
+------------------------------------------------------------------------------------------
+local hider = CreateFrame("Frame")
+hider:Hide()
+local playerFrameHidden, playerFrameParent, clicker
+
+local function syncProtected()
+    if InCombatLockdown() then return end
+    local hide = db.regular.hidePlayerFrame and true or false
+    if PlayerFrame and hide ~= (playerFrameHidden or false) then -- never touch it unless asked
+        if hide then playerFrameParent = PlayerFrame:GetParent() end
+        PlayerFrame:SetParent(hide and hider or playerFrameParent)
+        playerFrameHidden = hide
+    end
+    -- A secure unit button over the bars, the way Blizzard's player frame opens its menu.
+    -- ponytail: not a child of the bars (it would lock their layout in combat), so its size and
+    -- spot follow them out of combat only.
+    if db.regular.playerMenu and not clicker then
+        clicker = CreateFrame("Button", "ComboPointDisplayClicker", UIParent, "SecureUnitButtonTemplate")
+        clicker:SetAttribute("unit", "player")
+        clicker:SetAttribute("type2", "togglemenu")
+        clicker:RegisterForClicks("RightButtonUp")
+    end
+    if clicker then
+        clicker:ClearAllPoints()
+        clicker:SetPoint("TOP", UIParent, "CENTER", db.regular.x, db.regular.y)
+        clicker:SetSize(anchor:GetWidth(), anchor:GetHeight())
+        clicker:SetShown(db.regular.playerMenu and db.locked) -- unlocked: dragging wins
+    end
+end
+
 local function Refresh()
     local health = frames.health
     health.split = (db.regular.bars.health.target and UnitExists("target")) and true or false
@@ -442,6 +477,7 @@ local function Refresh()
     for _, h in pairs(questHolders) do styleQuest(h) end
     mover:SetShown(not db.locked)
     moverHint:SetFormattedText(HINT, db.regular.x, db.regular.y)
+    syncProtected()
 end
 
 -- One report per session, printed to chat: Lua errors are hidden by default and this client
@@ -690,7 +726,7 @@ StaticPopupDialogs.COMBOPOINTDISPLAY_DELETE = {
 
 local function buildConfig()
     cfg = CreateFrame("Frame", "ComboPointDisplayConfig", UIParent, "BasicFrameTemplateWithInset")
-    cfg:SetSize(820, 480)
+    cfg:SetSize(820, 540)
     cfg:SetPoint("CENTER")
     cfg:SetFrameStrata("DIALOG")
     cfg:SetMovable(true)
@@ -755,7 +791,7 @@ local function buildConfig()
     -- Pages to the right of the sidebar. The bars page edits the layout picked by `mode`.
     local barsPage = CreateFrame("Frame", nil, cfg)
     barsPage:SetPoint("TOPLEFT", 134, 0)
-    barsPage:SetSize(686, 480)
+    barsPage:SetSize(686, 540)
     local questPage = CreateFrame("Frame", nil, cfg)
     questPage:SetAllPoints(barsPage)
 
@@ -812,7 +848,15 @@ local function buildConfig()
         lock:SetShown(mode == "regular")
         lock:SetText(db.locked and "Unlock" or "Lock")
     end)
-    label(barsPage, "Mouse wheel on a slider changes it by 1.", "GameFontDisableSmall"):SetPoint("TOPLEFT", 16, -440)
+    local playerFrameOpts = {
+        check(barsPage, "Hide Blizzard player frame", 16, -436,
+            function() return db.regular.hidePlayerFrame end, function(v) db.regular.hidePlayerFrame = v end),
+        check(barsPage, "Right-click: player menu", 16, -460,
+            function() return db.regular.playerMenu end, function(v) db.regular.playerMenu = v end),
+    }
+    onRefresh(function() for _, w in ipairs(playerFrameOpts) do w:SetShown(mode == "regular") end end)
+    label(barsPage, "Mouse wheel on a slider changes it by 1.\nPlayer frame options apply out of combat.",
+        "GameFontDisableSmall"):SetPoint("TOPLEFT", 16, -494)
 
     -- Column 2: the selected bar's show, size, offset, look
     local X = 240
@@ -991,8 +1035,11 @@ ev:SetScript("OnEvent", function(_, event, unit)
         if targetFrame:IsShown() then safe(fill, targetFrame) end
     elseif event == "UNIT_POWER_FREQUENT" then
         fillShown("power", "combo", "druidmana")
-    elseif event == "QUEST_LOG_UPDATE" or event == "UNIT_QUEST_LOG_CHANGED" or event == "PLAYER_REGEN_ENABLED" then
-        safe(questLogChanged) -- after combat too: tooltips may have been secret during it
+    elseif event == "QUEST_LOG_UPDATE" or event == "UNIT_QUEST_LOG_CHANGED" then
+        safe(questLogChanged)
+    elseif event == "PLAYER_REGEN_ENABLED" then
+        safe(questLogChanged) -- tooltips may have been secret during combat
+        safe(Refresh)         -- and protected frames couldn't change
     else
         if event == "NAME_PLATE_UNIT_ADDED" then safe(plateAdded, unit) end
         if event == "NAME_PLATE_UNIT_REMOVED" then safe(plateRemoved, unit) end

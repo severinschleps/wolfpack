@@ -32,8 +32,9 @@ function M:GetName() return self._name end
 function M:GetCenter() return 100, 100 end
 function M:GetTop() return 150 end
 function M:GetFrameLevel() return 1 end
-function M:GetWidth() return 140 end
-function M:GetHeight() return 100 end
+function M:GetWidth() return self._w or 140 end
+function M:GetHeight() return self._h or 100 end
+function M:SetAttribute(k, v) self._attr = self._attr or {}; self._attr[k] = v end
 function M:GetUnboundedStringWidth() return 50 end
 function M:SetupMenu(gen) self._gen = gen end
 function M:GenerateMenu() -- records the dropdown's radio items
@@ -70,10 +71,13 @@ strtrim = function(str) return (str:gsub("^%s+", ""):gsub("%s+$", "")) end
 StaticPopupDialogs = {}
 StaticPopup_Show = function(which, _, _, data) StaticPopupDialogs[which].OnAccept(nil, data) end -- clicks Yes
 UnitName = function() return S.name end
+InCombatLockdown = function() return S.combat end
+PlayerFrame = new()
+PlayerFrame._parent = UIParent
 GetRealmName = function() return "Realm" end
-CreateFrame = function(kind, name, parent)
+CreateFrame = function(kind, name, parent, template)
     local f = new(kind)
-    f._name, f._parent = name, parent
+    f._name, f._parent, f._template = name, parent, template
     if name then _G[name] = f end
     created[#created + 1] = f
     return f
@@ -174,6 +178,31 @@ assert(ComboPointDisplayFrame._w == 220, "stack width ignores the target bar")
 S.targetHP = nil; fire("PLAYER_TARGET_CHANGED")
 assert(not tf:IsShown() and fr.health._w == 220 and fr.health._point[1] == "TOP", "target gone: full width again")
 prof().regular.bars.health.target = false
+
+-- Player frame: hide by reparenting (out of combat only), restore to the original parent
+local R0 = prof().regular
+fire("UNIT_MAXPOWER")
+assert(PlayerFrame._parent == UIParent, "untouched by default")
+S.combat = true
+R0.hidePlayerFrame = true; fire("UNIT_MAXPOWER")
+assert(PlayerFrame._parent == UIParent, "not in combat")
+S.combat = false; fire("PLAYER_REGEN_ENABLED")
+local hider = PlayerFrame._parent
+assert(hider ~= UIParent and not hider:IsShown(), "hidden after combat")
+R0.hidePlayerFrame = false; fire("UNIT_MAXPOWER")
+assert(PlayerFrame._parent == UIParent, "restored")
+
+-- Right-click menu: a secure unit button over the bars, synced out of combat, off while unlocked
+assert(not ComboPointDisplayClicker, "no secure button unless asked")
+R0.playerMenu = true; fire("UNIT_MAXPOWER")
+local ck = ComboPointDisplayClicker
+assert(ck._template == "SecureUnitButtonTemplate" and ck._attr.unit == "player" and ck._attr.type2 == "togglemenu", "menu button")
+assert(ck._point[1] == "TOP" and ck._point[2] == UIParent and ck._point[4] == R0.x and ck._point[5] == R0.y, "over the bars")
+assert(ck._w == 220 and ck._h == 48 and ck:IsShown(), "same size as the bars")
+prof().locked = false; fire("UNIT_MAXPOWER")
+assert(not ck:IsShown(), "unlocked: drag handle gets the mouse")
+prof().locked, R0.playerMenu = true, false; fire("UNIT_MAXPOWER")
+assert(not ck:IsShown(), "option off")
 
 -- Nameplate layout is separate: own show flags, sizes, gap and group offset
 local pf, plateStack = ns.plateFrames, ns.plateFrames.combo._parent
