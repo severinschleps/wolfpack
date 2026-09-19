@@ -69,6 +69,8 @@ local DEFAULTS = {
     },
 }
 
+DEFAULTS.regular.bars.health.target = false -- target health bar right of it (Combat Display only)
+
 local function merge(dst, src)
     for k, v in pairs(src) do
         if type(v) == "table" then
@@ -98,12 +100,12 @@ local function classPower()
     return CLASS_POWER[class]
 end
 
--- state() -> shown, segment count. value() -> current, max (both possibly secret).
+-- state() -> shown, segment count. value(unit) -> current, max (both possibly secret).
 local BARS = {
     health = {
         label = "Health",
         state = function() return true, 1 end,
-        value = function() return UnitHealth("player"), UnitHealthMax("player") end,
+        value = function(unit) return UnitHealth(unit), UnitHealthMax(unit) end,
     },
     power = {
         label = "Power",
@@ -194,6 +196,11 @@ local function newBar(parent, key, mode)
     return f
 end
 
+-- Target health: styled like the player's health bar, sits right of it.
+local targetFrame = newBar(anchor, "health", "regular")
+targetFrame.unit = "target"
+ns.targetFrame = targetFrame
+
 for key in pairs(BARS) do
     frames[key] = newBar(anchor, key, "regular")
     plateFrames[key] = newBar(plateAnchor, key, "nameplate")
@@ -256,7 +263,7 @@ end
 local function setText(fs, v) fs:SetText(AbbreviateNumbers(v)) end
 
 local function fill(f)
-    local v, max = BARS[f.key].value()
+    local v, max = BARS[f.key].value(f.unit or "player")
     if f.n == 1 then
         f.segs[1]:SetMinMaxValues(0, max)
         f.segs[1]:SetValue(v)
@@ -408,6 +415,15 @@ end
 
 local function Refresh()
     stack(anchor, frames, db.regular, true)
+    local health = frames.health
+    local showTarget = (db.regular.bars.health.target and health:IsShown() and UnitExists("target")) and true or false
+    targetFrame:SetShown(showTarget)
+    if showTarget then
+        layoutBar(targetFrame, 1)
+        fill(targetFrame)
+        targetFrame:ClearAllPoints()
+        targetFrame:SetPoint("LEFT", health, "RIGHT", db.regular.gap, 0)
+    end
     local plate = targetPlate()
     plateAnchor:SetParent(plate or anchor)
     plateAnchor:SetShown(plate ~= nil)
@@ -809,7 +825,12 @@ local function buildConfig()
     swatch(barsPage, "Bar color", X, -366, function() return cur().color end)
     local powerColor = check(barsPage, "Use power type color", X, -390,
         function() return cur().powerColor end, function(v) cur().powerColor = v end)
-    onRefresh(function() powerColor:SetShown(selected == "power") end)
+    local target = check(barsPage, "Show target health next to it", X, -390,
+        function() return cur().target end, function(v) cur().target = v end)
+    onRefresh(function()
+        powerColor:SetShown(selected == "power")
+        target:SetShown(selected == "health" and mode == "regular")
+    end)
 
     -- Column 3: gradient and text (combo pips have no text)
     local X3 = 464
@@ -924,8 +945,8 @@ mini:SetScript("OnLeave", function() GameTooltip:Hide() end)
 local ev = CreateFrame("Frame")
 
 -- Registering an event this client lacks throws, so each one is guarded.
-local function listen(event, unit)
-    if unit then pcall(ev.RegisterUnitEvent, ev, event, unit) else pcall(ev.RegisterEvent, ev, event) end
+local function listen(event, ...)
+    if ... then pcall(ev.RegisterUnitEvent, ev, event, ...) else pcall(ev.RegisterEvent, ev, event) end
 end
 
 local function fillShown(...)
@@ -946,8 +967,9 @@ ev:SetScript("OnEvent", function(_, event, unit)
         classProfile, class = UnitClass("player")
         playerName = UnitName("player")
         charKey = playerName .. " - " .. GetRealmName()
-        for _, e in ipairs({ "UNIT_HEALTH", "UNIT_MAXHEALTH", "UNIT_POWER_FREQUENT", "UNIT_MAXPOWER", "UNIT_DISPLAYPOWER",
-            "UNIT_QUEST_LOG_CHANGED" }) do
+        listen("UNIT_HEALTH", "player", "target")
+        listen("UNIT_MAXHEALTH", "player", "target")
+        for _, e in ipairs({ "UNIT_POWER_FREQUENT", "UNIT_MAXPOWER", "UNIT_DISPLAYPOWER", "UNIT_QUEST_LOG_CHANGED" }) do
             listen(e, "player")
         end
         for _, e in ipairs({ "PLAYER_ENTERING_WORLD", "UPDATE_SHAPESHIFT_FORM", "PLAYER_TARGET_CHANGED",
@@ -959,6 +981,7 @@ ev:SetScript("OnEvent", function(_, event, unit)
         placeMini()
     elseif event == "UNIT_HEALTH" then
         fillShown("health")
+        if targetFrame:IsShown() then safe(fill, targetFrame) end
     elseif event == "UNIT_POWER_FREQUENT" then
         fillShown("power", "combo", "druidmana")
     elseif event == "QUEST_LOG_UPDATE" or event == "UNIT_QUEST_LOG_CHANGED" or event == "PLAYER_REGEN_ENABLED" then

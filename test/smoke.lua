@@ -96,7 +96,8 @@ UnitClass = function() return S.class:sub(1, 1) .. S.class:sub(2):lower(), S.cla
 UnitPowerType = function() return S.ptype, TOKENS[S.ptype] end
 UnitPower = function() return S.secret and SECRET or 3 end
 UnitPowerMax = function(_, t) return S.secret and SECRET or (S.max[t] or 100) end
-UnitHealth = function() return SECRET end
+UnitHealth = function(unit) return unit == "target" and S.targetHP or SECRET end
+UnitExists = function(unit) return unit == "target" and S.targetHP ~= nil end
 UnitHealthMax = function() return 1000 end
 
 local ns = {}
@@ -152,6 +153,25 @@ local pp, cp = fr.power._point, fr.combo._point
 assert(pp[1] == "TOP" and pp[2] == ComboPointDisplayFrame and pp[4] == 5 and pp[5] == -23, "power offset")
 assert(cp[4] == 0 and cp[5] == -36, "combo keeps its slot")
 R.power.x, R.power.y = 0, 0
+
+-- Target health: only with the option on and a target; right of the player's health bar
+local tf = ns.targetFrame
+fire("PLAYER_TARGET_CHANGED")
+assert(not tf:IsShown(), "option off")
+prof().regular.bars.health.target = true
+fire("PLAYER_TARGET_CHANGED")
+assert(not tf:IsShown(), "no target")
+S.targetHP = 500
+fire("PLAYER_TARGET_CHANGED")
+local tp = tf._point
+assert(tf:IsShown() and tp[1] == "LEFT" and tp[2] == fr.health and tp[3] == "RIGHT" and tp[4] == 2, "beside health")
+assert(tf.segs[1]._value == 500 and tf.segs[1]._max == 1000 and tf.text._text == "500", "target values")
+S.targetHP = 250; fire("UNIT_HEALTH", "target")
+assert(tf.segs[1]._value == 250 and fr.health.segs[1]._value == SECRET, "target updates, player keeps its own")
+assert(ComboPointDisplayFrame._w == 220, "stack width ignores the target bar")
+S.targetHP = nil; fire("PLAYER_TARGET_CHANGED")
+assert(not tf:IsShown(), "target gone")
+prof().regular.bars.health.target = false
 
 -- Nameplate layout is separate: own show flags, sizes, gap and group offset
 local pf, plateStack = ns.plateFrames, ns.plateFrames.combo._parent
