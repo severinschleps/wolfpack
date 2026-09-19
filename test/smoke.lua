@@ -156,7 +156,7 @@ CreateFrame = function(kind, name, parent, template)
     return f
 end
 ColorPickerFrame = {
-    SetupColorPickerAndShow = function(_, info) info.swatchFunc(); info.cancelFunc() end,
+    SetupColorPickerAndShow = function(_, info) S.picker = info end,
     GetColorRGB = function() return 0.1, 0.2, 0.3 end,
     GetColorAlpha = function() return 0.5 end,
 }
@@ -688,6 +688,24 @@ assert(BagsBar._point[2] == ContainerFrame1 and BagsBar._point[3] == "BOTTOMLEFT
 ContainerFrame1._shown = false; ContainerFrame1._scripts.OnHide()
 oth.bagsOnOpen = false; fire("UNIT_MAXPOWER")
 assert(BagsBar._parent == UIParent and BagsBar._point[2] == "MicroButtonAndBagsBar", "restored")
+
+-- Color pickers start from the color in use: class / same-as-bar borders, class bars; picking
+-- a color makes it custom, opacity alone doesn't, cancel restores both
+local sw, hcol = ns.swatches, prof().regular.bars.health
+hcol.colorMode, hcol.borderMode = "class", "bar"
+sw["Custom border color (and opacity)"]._scripts.OnClick()
+assert(S.picker.r == 1 and S.picker.b == 0.41, "border picker opens on the (class) bar color")
+S.picker.opacityFunc()
+assert(hcol.borderMode == "bar" and hcol.borderColor[4] == 0.5, "opacity only: mode kept")
+S.picker.swatchFunc()
+assert(hcol.borderMode == "custom" and hcol.borderColor[1] == 0.1, "picked: custom")
+S.picker.cancelFunc()
+assert(hcol.borderMode == "bar" and hcol.borderColor[1] == 0 and hcol.borderColor[4] == 1, "cancel restores")
+sw["Custom color (and opacity)"]._scripts.OnClick()
+assert(S.picker.r == 1 and S.picker.g == 0.96, "bar picker opens on the class color")
+S.picker.swatchFunc()
+assert(hcol.colorMode == "custom" and hcol.color[3] == 0.3, "bar picked: custom")
+hcol.colorMode, hcol.borderMode, hcol.color = "custom", "custom", { 0.2, 0.8, 0.2, 1 }
 
 -- Export / import: round trip into a new profile; Edit Mode layout only when asked for
 local exp = ns.exportString(false)

@@ -981,8 +981,13 @@ local function slider(parent, text, x, y, min, max, get, set)
     return s
 end
 
-local function swatch(parent, text, x, y, get)
+-- Color swatch + picker. Optional `mode`: { get = fn, set = fn, effective = fn -> r, g, b } for
+-- colors that can come from elsewhere (class, bar, power): the swatch and the picker show that
+-- color, and picking a new one switches the mode to "custom". Opacity changes keep the mode.
+ns.swatches = {}
+local function swatch(parent, text, x, y, get, mode)
     local b = CreateFrame("Button", nil, parent)
+    ns.swatches[text] = b
     b:SetSize(20, 20)
     b:SetPoint("TOPLEFT", x + 2, y)
     local border = b:CreateTexture(nil, "BACKGROUND")
@@ -992,21 +997,34 @@ local function swatch(parent, text, x, y, get)
     fillTex:SetPoint("TOPLEFT", 2, -2)
     fillTex:SetPoint("BOTTOMRIGHT", -2, 2)
     label(b, text):SetPoint("LEFT", b, "RIGHT", 6, 0)
+    local function shown()
+        local c = get()
+        if mode then
+            local r, g, bl = mode.effective()
+            return r, g, bl, c[4]
+        end
+        return unpack(c)
+    end
     b:SetScript("OnClick", function()
         local c = get()
-        local old = { c[1], c[2], c[3], c[4] }
+        local old, oldMode = { c[1], c[2], c[3], c[4] }, mode and mode.get()
+        local r0, g0, b0 = shown()
         local function apply(r, g, bl, a) c[1], c[2], c[3], c[4] = r, g, bl, a; changed() end
-        local function picked()
-            local r, g, bl = ColorPickerFrame:GetColorRGB()
-            apply(r, g, bl, ColorPickerFrame:GetColorAlpha())
-        end
         ColorPickerFrame:SetupColorPickerAndShow({
-            r = c[1], g = c[2], b = c[3], opacity = c[4], hasOpacity = true,
-            swatchFunc = picked, opacityFunc = picked,
-            cancelFunc = function() apply(unpack(old)) end,
+            r = r0, g = g0, b = b0, opacity = c[4], hasOpacity = true,
+            swatchFunc = function()
+                local r, g, bl = ColorPickerFrame:GetColorRGB()
+                if mode then mode.set("custom") end
+                apply(r, g, bl, ColorPickerFrame:GetColorAlpha())
+            end,
+            opacityFunc = function() apply(c[1], c[2], c[3], ColorPickerFrame:GetColorAlpha()) end,
+            cancelFunc = function()
+                if mode then mode.set(oldMode) end
+                apply(unpack(old))
+            end,
         })
     end)
-    onRefresh(function() fillTex:SetColorTexture(unpack(get())) end)
+    onRefresh(function() fillTex:SetColorTexture(shown()) end)
     return b
 end
 
@@ -1445,7 +1463,11 @@ local function buildConfig()
         if selected == "power" then list[3] = { "Power type color", "power" } end
         return list
     end, function() return cur().colorMode end, function(v) cur().colorMode = v end, textPreview)
-    swatch(barsPage, "Custom color (and opacity)", X, -410, function() return cur().color end)
+    local function selFrame() return (mode == "regular" and frames or plateFrames)[selected] end
+    swatch(barsPage, "Custom color (and opacity)", X, -410, function() return cur().color end, {
+        get = function() return cur().colorMode end, set = function(v) cur().colorMode = v end,
+        effective = function() return barColors(selFrame(), cur()) end,
+    })
     local target = check(barsPage, "Show target health next to it", X, -436,
         function() return cur().target end, function(v) cur().target = v end)
     local castIcon = check(barsPage, "Show spell icon", X, -436,
@@ -1467,7 +1489,10 @@ local function buildConfig()
     dropdown(barsPage, "Border color", X3, -146, { { "Custom", "custom" }, { "Class color", "class" },
         { "Same as bar color", "bar" } }, function() return cur().borderMode end, function(v) cur().borderMode = v end,
         textPreview)
-    swatch(barsPage, "Custom border color (and opacity)", X3, -194, function() return cur().borderColor end)
+    swatch(barsPage, "Custom border color (and opacity)", X3, -194, function() return cur().borderColor end, {
+        get = function() return cur().borderMode end, set = function(v) cur().borderMode = v end,
+        effective = function() return select(4, barColors(selFrame(), cur())) end,
+    })
     dropdown(barsPage, "Corner radius", X3, -214, { { "None", 0 }, { "2 px", 2 }, { "4 px", 4 }, { "8 px", 8 },
         { "16 px", 16 }, { "32 px", 32 }, { "Pill (50% of height)", "pill" } }, function() return cur().radius end,
         function(v) cur().radius = v end, textPreview)
