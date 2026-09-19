@@ -59,14 +59,16 @@ local function layoutDefaults(show, x, y, gap, width, h1, h2, h3, h4)
     return l
 end
 
--- Quest mob icons on nameplates; x/y from the nameplate's center. Icons are file IDs.
+-- Quest mob icons on nameplates: a row (kill, then loot) whose top-right sits at the nameplate's
+-- top-right corner plus x/y. Icons are file IDs.
 local DEFAULTS = {
     locked = true,
     regular = layoutDefaults(true, 0, -120, 2, 220, 18, 14, 12, 6),
     nameplate = layoutDefaults(false, 0, -2, 1, 110, 8, 6, 6, 4),
     quest = {
-        kill = { show = true, icon = 131013, size = 20, x = -72, y = 0 },
-        loot = { show = true, icon = 131023, size = 20, x = 72, y = 0 },
+        x = 0, y = 0, spacing = 2,
+        kill = { show = true, icon = 131013, size = 20 },
+        loot = { show = true, icon = 131023, size = 20 },
     },
     other = { hideGryphons = false, autoAccept = false, autoComplete = false },
 }
@@ -354,6 +356,8 @@ local QUEST_ICONS = {
     },
 }
 
+local QUEST_ORDER = { "kill", "loot" } -- left to right
+
 local LINE = Enum.TooltipDataLineType
 local objectiveTypes = {} -- objective text without numbers -> "monster", "item", ...
 local playerName
@@ -399,14 +403,30 @@ end
 local questHolders, plateUnits = {}, {}
 ns.plateUnits = plateUnits
 
+-- The row's box always has room for every enabled icon type; the icons a mob needs fill it from
+-- the left, so a lone icon sits at the box's left edge.
 local function styleQuest(h)
-    for kind in pairs(QUEST_ICONS) do
-        local c, t = db.quest[kind], h[kind]
+    local q, w, ht = db.quest, 0, 0
+    for _, kind in ipairs(QUEST_ORDER) do
+        local c = q[kind]
+        if c.show then
+            w = w + (w > 0 and q.spacing or 0) + c.size
+            ht = math.max(ht, c.size)
+        end
+    end
+    h.box:SetSize(math.max(w, 1), math.max(ht, 1))
+    h.box:ClearAllPoints()
+    h.box:SetPoint("TOPRIGHT", h, "TOPRIGHT", q.x, q.y)
+    local x = 0
+    for _, kind in ipairs(QUEST_ORDER) do
+        local c, t = q[kind], h[kind]
+        local on = (h.want[kind] and c.show) and true or false
         t:SetTexture(c.icon)
         t:SetSize(c.size, c.size)
         t:ClearAllPoints()
-        t:SetPoint("CENTER", h, "CENTER", c.x, c.y)
-        t:SetShown((h.want[kind] and c.show) and true or false)
+        t:SetPoint("TOPLEFT", h.box, "TOPLEFT", x, 0)
+        t:SetShown(on)
+        if on then x = x + c.size + q.spacing end
     end
 end
 
@@ -426,7 +446,8 @@ local function plateAdded(unit)
         h = CreateFrame("Frame", nil, plate)
         h:SetAllPoints()
         h:SetFrameLevel(plate:GetFrameLevel() + 10)
-        h.kill, h.loot, h.want = h:CreateTexture(nil, "OVERLAY"), h:CreateTexture(nil, "OVERLAY"), {}
+        h.box = CreateFrame("Frame", nil, h)
+        h.kill, h.loot, h.want = h.box:CreateTexture(nil, "OVERLAY"), h.box:CreateTexture(nil, "OVERLAY"), {}
         questHolders[plate] = h
     end
     h.want.kill, h.want.loot = false, false
@@ -1000,11 +1021,17 @@ local function buildConfig()
     -- Quest mobs page
     label(questPage, "Quest mobs", "GameFontNormal"):SetPoint("TOPLEFT", 16, -104)
     local desc = label(questPage, "Marks enemies you still need for a quest.\n\nSword: you need to kill it.\n"
-        .. "Bag: it drops an item you need.\n\nFinished objectives show nothing. X/Y are from the "
-        .. "nameplate's center. Needs enemy nameplates on (V key).", "GameFontHighlightSmall")
+        .. "Bag: it drops an item you need.\n\nThe icons sit in a row at the nameplate's top-right corner; "
+        .. "a lone icon keeps to the row's left. Finished objectives show nothing. Needs enemy nameplates "
+        .. "on (V key).", "GameFontHighlightSmall")
     desc:SetPoint("TOPLEFT", 16, -126)
     desc:SetWidth(200)
     desc:SetJustifyH("LEFT")
+    local Q = function() return db.quest end
+    label(questPage, "Icon row", "GameFontNormal"):SetPoint("TOPLEFT", 16, -262)
+    slider(questPage, "X (left / right)", 16, -280, -200, 200, function() return Q().x end, function(v) Q().x = v end)
+    slider(questPage, "Y (down / up)", 16, -322, -200, 200, function() return Q().y end, function(v) Q().y = v end)
+    slider(questPage, "Spacing", 16, -364, 0, 20, function() return Q().spacing end, function(v) Q().spacing = v end)
     for i, kind in ipairs({ { "kill", "Kill it (sword)" }, { "loot", "Drops a quest item (bag)" } }) do
         local X = 16 + i * 224
         local function q() return db.quest[kind[1]] end
@@ -1013,8 +1040,6 @@ local function buildConfig()
         dropdown(questPage, "Icon", X, -150, QUEST_ICONS[kind[1]], function() return q().icon end,
             function(v) q().icon = v end, iconPreview)
         slider(questPage, "Size", X, -198, 8, 64, function() return q().size end, function(v) q().size = v end)
-        slider(questPage, "X (left / right)", X, -240, -200, 200, function() return q().x end, function(v) q().x = v end)
-        slider(questPage, "Y (down / up)", X, -282, -200, 200, function() return q().y end, function(v) q().y = v end)
     end
 
     -- Other page: general toggles, and the Combat Display group's mouse behaviour

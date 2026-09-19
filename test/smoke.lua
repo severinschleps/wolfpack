@@ -311,10 +311,14 @@ S.tips.nameplate1 = { { type = L.QuestTitle, leftText = "Boars", id = 7 },
 fire("NAME_PLATE_UNIT_ADDED", "nameplate1")
 local h = ns.plateUnits.nameplate1
 assert(h and h._parent == plate and h.kill:IsShown() and h.loot:IsShown(), "kill + loot")
-assert(h.kill._tex == 131013 and h.kill._point[4] == -72 and h.loot._point[4] == 72, "default icon style")
+local bp, kp, lp = h.box._point, h.kill._point, h.loot._point
+assert(bp[1] == "TOPRIGHT" and bp[2] == h and bp[3] == "TOPRIGHT" and bp[4] == 0 and bp[5] == 0, "row at the top-right corner")
+assert(h.box._w == 42 and h.kill._tex == 131013, "room for both: 20 + 2 + 20")
+assert(kp[1] == "TOPLEFT" and kp[2] == h.box and kp[4] == 0 and lp[4] == 22, "sword left, bag right")
 S.tips.nameplate1[2].completed = true
 fire("QUEST_LOG_UPDATE")
 assert(not h.kill:IsShown() and h.loot:IsShown(), "finished kill objective hidden")
+assert(h.loot._point[4] == 0 and h.box._w == 42, "lone bag slides to the row's left edge, row keeps its size")
 S.tips.nameplate1 = { { type = L.QuestTitle, leftText = "Boars", id = 7 }, { type = L.QuestPlayer, leftText = "Bob" },
     { type = L.QuestObjective, leftText = "Boar Flank: 2/6", completed = false } }
 fire("QUEST_LOG_UPDATE")
@@ -342,7 +346,7 @@ assert(ComboPointDisplayDB.minimapAngle ~= 220 and not mini._scripts.OnUpdate, "
 
 -- Options window: typed numbers apply on Enter and clamp to the slider range (gap: 0-30)
 SlashCmdList.COMBOPOINTDISPLAY("")
-local boxes = {} -- profile name, gap, group X/Y, width, height, bar X/Y, border, radius, font size, kill size/X/Y, loot size/X/Y
+local boxes = {} -- profile name, gap, group X/Y, width, height, bar X/Y, border, radius, font size, quest row X/Y/spacing, kill size, loot size, ...
 for _, f in ipairs(created) do if f._kind == "EditBox" then boxes[#boxes + 1] = f end end
 local nameBox, gapBox, xBox, yBox = boxes[1], boxes[2], boxes[3], boxes[4]
 gapBox._text = "7"; gapBox._scripts.OnEnterPressed(gapBox)
@@ -420,10 +424,11 @@ dds[4]:GenerateMenu(); dds[5]:GenerateMenu()
 assert(#dds[4]._items == 4 and #dds[5]._items == 4, "icon choices")
 for _, it in ipairs(dds[4]._items) do assert(type(it.init(menuButton())) == "number", "icon preview") end
 dds[4]._items[3].set()
-boxes[12]._text = "32"; boxes[12]._scripts.OnEnterPressed(boxes[12])
-boxes[16]._text = "-5"; boxes[16]._scripts.OnEnterPressed(boxes[16])
-assert(prof().quest.kill.icon == 135274 and prof().quest.kill.size == 32 and prof().quest.loot.size == 20, "kill icon edits")
-assert(h.kill._tex == 135274 and h.kill._w == 32, "live plate icon restyled")
+boxes[15]._text = "32"; boxes[15]._scripts.OnEnterPressed(boxes[15]) -- kill size
+boxes[12]._text = "-5"; boxes[12]._scripts.OnEnterPressed(boxes[12]) -- row X
+local Q = prof().quest
+assert(Q.kill.icon == 135274 and Q.kill.size == 32 and Q.loot.size == 20 and Q.x == -5, "quest page edits")
+assert(h.kill._tex == 135274 and h.kill._w == 32 and h.box._w == 54 and h.box._point[4] == -5, "live plate row restyled")
 byText("Combat Display")._scripts.OnClick(byText("Combat Display"), "LeftButton")
 
 -- Other: gryphons hidden via texture alpha only, untouched until the option is used
