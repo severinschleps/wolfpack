@@ -196,7 +196,7 @@ local function newBar(parent, key, mode)
     return f
 end
 
--- Target health: styled like the player's health bar, sits right of it.
+-- Target health: styled like the player's health bar; the two split its width while you have a target.
 local targetFrame = newBar(anchor, "health", "regular")
 targetFrame.unit = "target"
 ns.targetFrame = targetFrame
@@ -221,15 +221,17 @@ local function paint(s, c, r, g, b)
     end
 end
 
-local function layoutBar(f, n)
+local function layoutBar(f, n, width)
     local c = db[f.mode].bars[f.key]
+    width = width or c.width
+    f.width = width
     local r, g, b = unpack(c.color)
     if f.key == "power" and c.powerColor then
         local pc = PowerBarColor and PowerBarColor[select(2, UnitPowerType("player"))]
         if pc then r, g, b = pc.r, pc.g, pc.b end
     end
-    f:SetSize(c.width, c.height)
-    local w = (c.width - (n - 1) * PIP_GAP) / n
+    f:SetSize(width, c.height)
+    local w = (width - (n - 1) * PIP_GAP) / n
     for i = 1, math.max(n, #f.segs) do
         local s = f.segs[i]
         if i > n then
@@ -401,11 +403,16 @@ local function stack(container, set, L, on)
         shown = (on and shown and c.show) and true or false
         f:SetShown(shown)
         if shown then
-            layoutBar(f, n)
+            -- f.split: the player health bar shares its width with the target health bar
+            layoutBar(f, n, f.split and (c.width - L.gap) / 2 or nil)
             fill(f)
             if h > 0 then h = h + L.gap end
             f:ClearAllPoints()
-            f:SetPoint("TOP", container, "TOP", c.x, c.y - h)
+            if f.split then
+                f:SetPoint("TOPLEFT", container, "TOP", c.x - c.width / 2, c.y - h)
+            else
+                f:SetPoint("TOP", container, "TOP", c.x, c.y - h)
+            end
             h = h + c.height
             w = math.max(w, c.width)
         end
@@ -414,12 +421,12 @@ local function stack(container, set, L, on)
 end
 
 local function Refresh()
-    stack(anchor, frames, db.regular, true)
     local health = frames.health
-    local showTarget = (db.regular.bars.health.target and health:IsShown() and UnitExists("target")) and true or false
-    targetFrame:SetShown(showTarget)
-    if showTarget then
-        layoutBar(targetFrame, 1)
+    health.split = (db.regular.bars.health.target and UnitExists("target")) and true or false
+    stack(anchor, frames, db.regular, true)
+    targetFrame:SetShown(health.split and health:IsShown())
+    if targetFrame:IsShown() then
+        layoutBar(targetFrame, 1, health.width) -- the other half
         fill(targetFrame)
         targetFrame:ClearAllPoints()
         targetFrame:SetPoint("LEFT", health, "RIGHT", db.regular.gap, 0)

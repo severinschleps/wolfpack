@@ -163,14 +163,16 @@ fire("PLAYER_TARGET_CHANGED")
 assert(not tf:IsShown(), "no target")
 S.targetHP = 500
 fire("PLAYER_TARGET_CHANGED")
-local tp = tf._point
+local tp, hp = tf._point, fr.health._point
 assert(tf:IsShown() and tp[1] == "LEFT" and tp[2] == fr.health and tp[3] == "RIGHT" and tp[4] == 2, "beside health")
+assert(fr.health._w == 109 and tf._w == 109, "220 wide, 2 gap: two halves of 109")
+assert(hp[1] == "TOPLEFT" and hp[3] == "TOP" and hp[4] == -110, "player half starts at the bar's left edge")
 assert(tf.segs[1]._value == 500 and tf.segs[1]._max == 1000 and tf.text._text == "500", "target values")
 S.targetHP = 250; fire("UNIT_HEALTH", "target")
 assert(tf.segs[1]._value == 250 and fr.health.segs[1]._value == SECRET, "target updates, player keeps its own")
 assert(ComboPointDisplayFrame._w == 220, "stack width ignores the target bar")
 S.targetHP = nil; fire("PLAYER_TARGET_CHANGED")
-assert(not tf:IsShown(), "target gone")
+assert(not tf:IsShown() and fr.health._w == 220 and fr.health._point[1] == "TOP", "target gone: full width again")
 prof().regular.bars.health.target = false
 
 -- Nameplate layout is separate: own show flags, sizes, gap and group offset
