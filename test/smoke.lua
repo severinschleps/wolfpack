@@ -30,6 +30,7 @@ function M:SetTexture(t) self._tex = t end
 function M:SetScale(v) self._scale = v end
 function M:SetAlpha(v) self._alpha = v end
 function M:SetDesaturated(v) self._desat = v end
+function M:SetStatusBarColor(...) self._sbc = { ... } end
 function M:SetTimerDuration(d, interp, dir) self._timer, self._dir = d, dir end
 function M:GetAlpha() return self._alpha or 1 end
 function M:SetColorTexture(...) self._color = { ... } end
@@ -137,7 +138,13 @@ C_QuestLog = {
     GetInfo = function(i) return S.quests[i].info end,
     GetQuestObjectives = function(id) for _, q in ipairs(S.quests) do if q.info.questID == id then return q.objectives end end end,
 }
-UnitClass = function() return S.class:sub(1, 1) .. S.class:sub(2):lower(), S.class end -- "Rogue", "ROGUE"
+UnitClass = function(unit) -- "Rogue", "ROGUE"
+    local token = unit == "target" and S.targetClass or S.class
+    return token:sub(1, 1) .. token:sub(2):lower(), token
+end
+UnitIsPlayer = function(unit) return unit == "player" or (unit == "target" and S.targetIsPlayer) end
+local CLASS = { ROGUE = { r = 1, g = 0.96, b = 0.41 }, MAGE = { r = 0.25, g = 0.78, b = 0.92 } }
+C_ClassColor = { GetClassColor = function(token) return CLASS[token] end }
 UnitPowerType = function() return S.ptype, TOKENS[S.ptype] end
 UnitPower = function() return S.secret and SECRET or 3 end
 UnitPowerMax = function(_, t) return S.secret and SECRET or (S.max[t] or 100) end
@@ -213,6 +220,12 @@ assert(tf:IsShown() and tp[1] == "LEFT" and tp[2] == fr.health and tp[3] == "RIG
 assert(fr.health._w == 109 and tf._w == 109, "220 wide, 2 gap: two halves of 109")
 assert(hp[1] == "TOPLEFT" and hp[3] == "TOP" and hp[4] == -110, "player half starts at the bar's left edge")
 assert(tf.segs[1]._value == 500 and tf.segs[1]._max == 1000 and tf.text._text == "500", "target values")
+prof().regular.bars.health.colorMode = "class"
+S.targetClass = "MAGE"; fire("PLAYER_TARGET_CHANGED")
+assert(tf.segs[1]._sbc[1] == 0.2 and fr.health.segs[1]._sbc[1] == 1, "NPC target: custom color, you: class")
+S.targetIsPlayer = true; fire("PLAYER_TARGET_CHANGED")
+assert(tf.segs[1]._sbc[1] == 0.25, "player target: their class color")
+S.targetIsPlayer, prof().regular.bars.health.colorMode = nil, "custom"
 S.targetHP = 250; fire("UNIT_HEALTH", "target")
 assert(tf.segs[1]._value == 250 and fr.health.segs[1]._value == SECRET, "target updates, player keeps its own")
 assert(ComboPointDisplayFrame._w == 220, "stack width ignores the target bar")
@@ -274,6 +287,17 @@ S.mouseOver = true; poll(anchorF)
 hl.show = false; fire("UNIT_MAXPOWER")
 assert(not anchorF._scripts.OnUpdate and not fr.health.segs[1].hl:IsShown(), "option off clears it")
 S.mouseOver = false
+
+-- Color modes: power bar defaults to its power type color; class color for bar and/or border;
+-- border can follow the bar's color. Alpha stays from the swatches.
+assert(fr.power.segs[1]._sbc[1] == 1 and fr.power.segs[1]._sbc[3] == 0, "power type color (energy)")
+local hc = prof().regular.bars.health
+local hs = fr.health.segs[1]
+hc.colorMode, hc.borderSize, hc.borderMode = "class", 1, "bar"; fire("UNIT_MAXPOWER")
+assert(hs._sbc[1] == 1 and hs._sbc[3] == 0.41 and hs.border._color[3] == 0.41, "class bar, border = bar")
+hc.colorMode, hc.borderMode = "custom", "class"; fire("UNIT_MAXPOWER")
+assert(hs._sbc[1] == 0.2 and hs.border._color[3] == 0.41 and hs.border._color[4] == 1, "custom bar, class border")
+hc.borderSize, hc.borderMode = 0, "custom"
 
 -- Player frame: hide by reparenting (out of combat only), restore to the original parent
 local R0 = prof().regular
@@ -449,7 +473,7 @@ nameBox._text = "  PvP "; nameBox._scripts.OnEnterPressed(nameBox)
 assert(store.profiles.PvP and store.profiles.PvP.regular.gap == 30 and prof() == store.profiles.PvP, "create copies + switches")
 prof().regular.gap = 5
 assert(store.profiles.Rogue.regular.gap == 30, "profiles are independent")
-local dds = {} -- profile, texture, font, kill icon, loot icon
+local dds = {} -- profile, texture, bar color, border color, font, kill icon, loot icon
 for _, f in ipairs(created) do if f._gen then dds[#dds + 1] = f end end
 local dd = dds[1]
 dd:GenerateMenu()
@@ -463,7 +487,7 @@ byText("Delete")._scripts.OnClick(byText("Delete"), "LeftButton")
 assert(not store.profiles.PvP and prof() == store.profiles.Rogue, "delete falls back to class profile")
 
 -- Texture and font dropdowns: pick sets the selected bar (Health), previews render
-local texDD, fontDD = dds[2], dds[3]
+local texDD, fontDD = dds[2], dds[5]
 texDD:GenerateMenu(); fontDD:GenerateMenu()
 assert(#texDD._items == 5 and #fontDD._items == 6, "dropdown entries")
 -- Menu entries' regions refuse SetFont in the real client (Blizzard_Menu Compositor)
@@ -486,10 +510,10 @@ assert(prof().regular.bars.health.font:match("Anton%-Regular%.ttf$") and fontDD.
 -- Quest page: icon style, size and position per icon
 byText("Nameplates")._scripts.OnClick(byText("Nameplates"), "LeftButton")
 byText("Quest mobs")._scripts.OnClick(byText("Quest mobs"), "LeftButton")
-dds[4]:GenerateMenu(); dds[5]:GenerateMenu()
-assert(#dds[4]._items == 4 and #dds[5]._items == 4, "icon choices")
-for _, it in ipairs(dds[4]._items) do assert(type(it.init(menuButton())) == "number", "icon preview") end
-dds[4]._items[3].set()
+dds[6]:GenerateMenu(); dds[7]:GenerateMenu()
+assert(#dds[6]._items == 4 and #dds[7]._items == 4, "icon choices")
+for _, it in ipairs(dds[6]._items) do assert(type(it.init(menuButton())) == "number", "icon preview") end
+dds[6]._items[3].set()
 boxes[15]._text = "32"; boxes[15]._scripts.OnEnterPressed(boxes[15]) -- kill size
 boxes[12]._text = "-5"; boxes[12]._scripts.OnEnterPressed(boxes[12]) -- row X
 local Q = prof().quest

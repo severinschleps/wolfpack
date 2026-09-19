@@ -38,7 +38,8 @@ local function barDefaults(show, width, height, r, g, b, text)
         color = { r, g, b, 1 }, gradient = false, color2 = { r * 0.4, g * 0.4, b * 0.4, 1 },
         vertical = false, text = text,
         font = FONTS[1][2], fontSize = 10, outline = false, textColor = { 1, 1, 1, 1 },
-        borderSize = 0, borderColor = { 0, 0, 0, 1 }, radius = 0,
+        colorMode = "custom", -- "custom", "class" or "power" (power bar only)
+        borderSize = 0, borderColor = { 0, 0, 0, 1 }, borderMode = "custom", radius = 0, -- border: or "class", "bar"
     }
 end
 
@@ -56,7 +57,7 @@ local function layoutDefaults(show, x, y, gap, width, h1, h2, h3, h4, h5)
             castbar = barDefaults(show, width, h5, 1, 0.7, 0, true), -- text = spell name
         },
     }
-    l.bars.power.powerColor = true
+    l.bars.power.colorMode = "power"
     l.bars.castbar.icon, l.bars.castbar.iconSide = true, "left"
     return l
 end
@@ -264,15 +265,39 @@ end
 
 local hovered -- cursor over the Combat Display group (highlight option)
 
+-- Class color of a unit; nil for NPCs other than you (they have classes too, which would look random).
+local function classRGB(unit)
+    if unit ~= "player" and not UnitIsPlayer(unit) then return end
+    local _, token = UnitClass(unit)
+    local cc = token and (C_ClassColor and C_ClassColor.GetClassColor(token) or RAID_CLASS_COLORS[token])
+    if cc then return cc.r, cc.g, cc.b end
+end
+
+-- A bar's fill and border colors after the color modes. Alpha always comes from the swatch.
+local function barColors(f, c)
+    local r, g, b = unpack(c.color)
+    if c.colorMode == "power" and f.key == "power" then
+        local pc = PowerBarColor and PowerBarColor[select(2, UnitPowerType("player"))]
+        if pc then r, g, b = pc.r, pc.g, pc.b end
+    elseif c.colorMode == "class" then
+        local cr, cg, cb = classRGB(f.unit or "player")
+        if cr then r, g, b = cr, cg, cb end
+    end
+    local br, bg, bb, ba = unpack(c.borderColor)
+    if c.borderMode == "bar" then
+        br, bg, bb = r, g, b
+    elseif c.borderMode == "class" then
+        local cr, cg, cb = classRGB(f.unit or "player")
+        if cr then br, bg, bb = cr, cg, cb end
+    end
+    return r, g, b, br, bg, bb, ba
+end
+
 local function layoutBar(f, n, width)
     local c = db[f.mode].bars[f.key]
     width = width or c.width
     f.width = width
-    local r, g, b = unpack(c.color)
-    if f.key == "power" and c.powerColor then
-        local pc = PowerBarColor and PowerBarColor[select(2, UnitPowerType("player"))]
-        if pc then r, g, b = pc.r, pc.g, pc.b end
-    end
+    local r, g, b, br, bg, bb, ba = barColors(f, c)
     -- Cast bar spell icon: a square at one end, inside the bar's width.
     local lead, iconSpace = 0, 0
     if f.key == "castbar" then
@@ -317,7 +342,7 @@ local function layoutBar(f, n, width)
             s.border:SetShown(t > 0)
             s.border:SetPoint("TOPLEFT", s, "TOPLEFT", -t, t)
             s.border:SetPoint("BOTTOMRIGHT", s, "BOTTOMRIGHT", t, -t)
-            s.border:SetColorTexture(unpack(c.borderColor))
+            s.border:SetColorTexture(br, bg, bb, ba)
             round(s.border, s.borderMask, c.radius, w, c.height)
             s.hl:SetColorTexture(unpack(db.regular.highlight.color))
             s.hl:SetShown((f.mode == "regular" and hovered) or false)
@@ -811,7 +836,7 @@ local function dropdown(parent, text, x, y, list, get, set, preview)
     dd:SetWidth(200)
     label(dd, text, "GameFontNormalSmall"):SetPoint("BOTTOMLEFT", dd, "TOPLEFT", 0, 2)
     dd:SetupMenu(function(_, root)
-        for _, item in ipairs(list) do
+        for _, item in ipairs(type(list) == "function" and list() or list) do
             local radio = root:CreateRadio(item[1], function() return get() == item[2] end,
                 function() set(item[2]); changed() end)
             radio:AddInitializer(function(button) return preview(button, item), 20 end)
@@ -820,6 +845,8 @@ local function dropdown(parent, text, x, y, list, get, set, preview)
     onRefresh(function() dd:GenerateMenu() end)
     return dd
 end
+
+local function textPreview(button) return button.fontString:GetUnboundedStringWidth() + 40 end
 
 local function texturePreview(button, item)
     local t = button:AttachTexture()
@@ -1062,19 +1089,21 @@ local function buildConfig()
     slider(barsPage, "Bar offset Y", X, -276, -300, 300, function() return cur().y end, function(v) cur().y = v end)
     dropdown(barsPage, "Texture", X, -318, TEXTURES, function() return cur().texture end,
         function(v) cur().texture = v end, texturePreview)
-    swatch(barsPage, "Bar color", X, -366, function() return cur().color end)
-    local powerColor = check(barsPage, "Use power type color", X, -390,
-        function() return cur().powerColor end, function(v) cur().powerColor = v end)
-    local target = check(barsPage, "Show target health next to it", X, -390,
+    dropdown(barsPage, "Bar color", X, -362, function()
+        local list = { { "Custom", "custom" }, { "Class color", "class" } }
+        if selected == "power" then list[3] = { "Power type color", "power" } end
+        return list
+    end, function() return cur().colorMode end, function(v) cur().colorMode = v end, textPreview)
+    swatch(barsPage, "Custom color (and opacity)", X, -410, function() return cur().color end)
+    local target = check(barsPage, "Show target health next to it", X, -436,
         function() return cur().target end, function(v) cur().target = v end)
-    local castIcon = check(barsPage, "Show spell icon", X, -390,
+    local castIcon = check(barsPage, "Show spell icon", X, -436,
         function() return cur().icon end, function(v) cur().icon = v end)
-    local castSide = button(barsPage, "", 200, X, -416, function()
+    local castSide = button(barsPage, "", 200, X, -462, function()
         cur().iconSide = cur().iconSide == "right" and "left" or "right"
         changed()
     end)
     onRefresh(function()
-        powerColor:SetShown(selected == "power")
         target:SetShown(selected == "health" and mode == "regular")
         castIcon:SetShown(selected == "castbar")
         castSide:SetShown(selected == "castbar" and cur().icon or false)
@@ -1084,23 +1113,26 @@ local function buildConfig()
     -- Column 3: border, gradient and text (combo pips have no text)
     local X3 = 464
     slider(barsPage, "Border", X3, -104, 0, 10, function() return cur().borderSize end, function(v) cur().borderSize = v end)
-    swatch(barsPage, "Border color", X3, -148, function() return cur().borderColor end)
-    slider(barsPage, "Corner radius", X3, -174, 0, 30, function() return cur().radius end, function(v) cur().radius = v end)
-    check(barsPage, "Gradient", X3, -220, function() return cur().gradient end, function(v) cur().gradient = v end)
-    local c2 = swatch(barsPage, "Gradient end color", X3, -246, function() return cur().color2 end)
-    local dir = button(barsPage, "", 200, X3, -272, function() cur().vertical = not cur().vertical; changed() end)
+    dropdown(barsPage, "Border color", X3, -146, { { "Custom", "custom" }, { "Class color", "class" },
+        { "Same as bar color", "bar" } }, function() return cur().borderMode end, function(v) cur().borderMode = v end,
+        textPreview)
+    swatch(barsPage, "Custom border color (and opacity)", X3, -194, function() return cur().borderColor end)
+    slider(barsPage, "Corner radius", X3, -218, 0, 30, function() return cur().radius end, function(v) cur().radius = v end)
+    check(barsPage, "Gradient", X3, -264, function() return cur().gradient end, function(v) cur().gradient = v end)
+    local c2 = swatch(barsPage, "Gradient end color", X3, -290, function() return cur().color2 end)
+    local dir = button(barsPage, "", 200, X3, -316, function() cur().vertical = not cur().vertical; changed() end)
     onRefresh(function()
         c2:SetShown(cur().gradient)
         dir:SetShown(cur().gradient)
         dir:SetText("Direction: " .. (cur().vertical and "Vertical" or "Horizontal"))
     end)
     local textWidgets = {
-        check(barsPage, "Show text", X3, -306, function() return cur().text end, function(v) cur().text = v end),
-        dropdown(barsPage, "Font", X3, -332, FONTS, function() return cur().font end,
+        check(barsPage, "Show text", X3, -350, function() return cur().text end, function(v) cur().text = v end),
+        dropdown(barsPage, "Font", X3, -376, FONTS, function() return cur().font end,
             function(v) cur().font = v end, fontPreview),
-        slider(barsPage, "Font size", X3, -380, 6, 32, function() return cur().fontSize end, function(v) cur().fontSize = v end),
-        check(barsPage, "Outline", X3, -426, function() return cur().outline end, function(v) cur().outline = v end),
-        swatch(barsPage, "Text color", X3, -452, function() return cur().textColor end),
+        slider(barsPage, "Font size", X3, -424, 6, 32, function() return cur().fontSize end, function(v) cur().fontSize = v end),
+        check(barsPage, "Outline", X3, -470, function() return cur().outline end, function(v) cur().outline = v end),
+        swatch(barsPage, "Text color", X3, -496, function() return cur().textColor end),
     }
     onRefresh(function()
         for _, w in ipairs(textWidgets) do w:SetShown(selected ~= "combo") end
