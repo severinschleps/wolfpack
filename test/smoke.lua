@@ -220,8 +220,16 @@ assert(ck._point[1] == "TOP" and ck._point[2] == UIParent and ck._point[4] == R0
 assert(ck._w == 220 and ck._h == 48 and ck:IsShown(), "same size as the bars")
 prof().locked = false; fire("UNIT_MAXPOWER")
 assert(not ck:IsShown(), "unlocked: drag handle gets the mouse")
-prof().locked, R0.playerMenu = true, false; fire("UNIT_MAXPOWER")
-assert(not ck:IsShown(), "option off")
+assert(ck._attr.type1 == nil, "left click off by default")
+prof().locked, R0.playerTarget = true, true; fire("UNIT_MAXPOWER")
+assert(ck:IsShown() and ck._attr.type1 == "target" and ck._attr.type2 == "togglemenu", "left targets, right menu")
+R0.playerMenu = false; fire("UNIT_MAXPOWER")
+assert(ck:IsShown() and ck._attr.type1 == "target" and ck._attr.type2 == nil, "left click alone")
+R0.playerTarget = false; fire("UNIT_MAXPOWER")
+assert(not ck:IsShown(), "both off")
+R0.playerMouseover = true; fire("UNIT_MAXPOWER")
+assert(ck:IsShown() and ck._attr.unit == "player" and not ck._attr.type1 and not ck._attr.type2, "mouseover only: no clicks")
+R0.playerMouseover = false; fire("UNIT_MAXPOWER")
 
 -- Nameplate layout is separate: own show flags, sizes, gap and group offset
 local pf, plateStack = ns.plateFrames, ns.plateFrames.combo._parent

@@ -73,6 +73,8 @@ local DEFAULTS = {
 DEFAULTS.regular.bars.health.target = false -- target health bar right of it (Combat Display only)
 DEFAULTS.regular.hidePlayerFrame = false -- hide Blizzard's player unit frame
 DEFAULTS.regular.playerMenu = false      -- right-click on the bars opens the player menu
+DEFAULTS.regular.playerTarget = false    -- left-click on the bars targets yourself
+DEFAULTS.regular.playerMouseover = false -- hovering the bars makes you @mouseover
 
 local function merge(dst, src)
     for k, v in pairs(src) do
@@ -479,20 +481,24 @@ local function syncProtected()
         PlayerFrame:SetParent(hide and hider or playerFrameParent)
         playerFrameHidden = hide
     end
-    -- A secure unit button over the bars, the way Blizzard's player frame opens its menu.
-    -- ponytail: not a child of the bars (it would lock their layout in combat), so its size and
-    -- spot follow them out of combat only.
-    if db.regular.playerMenu and not clicker then
+    -- A secure unit button over the bars, clicking like Blizzard's player frame: left targets
+    -- you, right opens the menu. Its "unit" attribute is also what makes the game treat you as
+    -- @mouseover while the cursor is on it. ponytail: not a child of the bars (it would lock
+    -- their layout in combat), so its size and spot follow them out of combat only.
+    local R = db.regular
+    local wanted = (R.playerMenu or R.playerTarget or R.playerMouseover) and true or false
+    if wanted and not clicker then
         clicker = CreateFrame("Button", "ComboPointDisplayClicker", UIParent, "SecureUnitButtonTemplate")
         clicker:SetAttribute("unit", "player")
-        clicker:SetAttribute("type2", "togglemenu")
-        clicker:RegisterForClicks("RightButtonUp")
+        clicker:RegisterForClicks("LeftButtonUp", "RightButtonUp")
     end
     if clicker then
+        clicker:SetAttribute("type1", R.playerTarget and "target" or nil)
+        clicker:SetAttribute("type2", R.playerMenu and "togglemenu" or nil)
         clicker:ClearAllPoints()
-        clicker:SetPoint("TOP", UIParent, "CENTER", db.regular.x, db.regular.y)
+        clicker:SetPoint("TOP", UIParent, "CENTER", R.x, R.y)
         clicker:SetSize(anchor:GetWidth(), anchor:GetHeight())
-        clicker:SetShown(db.regular.playerMenu and db.locked) -- unlocked: dragging wins
+        clicker:SetShown(wanted and db.locked or false) -- unlocked: dragging wins
     end
 end
 
@@ -767,7 +773,7 @@ StaticPopupDialogs.COMBOPOINTDISPLAY_DELETE = {
 
 local function buildConfig()
     cfg = CreateFrame("Frame", "ComboPointDisplayConfig", UIParent, "BasicFrameTemplateWithInset")
-    cfg:SetSize(820, 540)
+    cfg:SetSize(820, 600)
     cfg:SetPoint("CENTER")
     cfg:SetFrameStrata("DIALOG")
     cfg:SetMovable(true)
@@ -832,7 +838,7 @@ local function buildConfig()
     -- Pages to the right of the sidebar. The bars page edits the layout picked by `mode`.
     local barsPage = CreateFrame("Frame", nil, cfg)
     barsPage:SetPoint("TOPLEFT", 134, 0)
-    barsPage:SetSize(686, 540)
+    barsPage:SetSize(686, 600)
     local questPage = CreateFrame("Frame", nil, cfg)
     questPage:SetAllPoints(barsPage)
 
@@ -894,10 +900,14 @@ local function buildConfig()
             function() return db.regular.hidePlayerFrame end, function(v) db.regular.hidePlayerFrame = v end),
         check(barsPage, "Right-click: player menu", 16, -460,
             function() return db.regular.playerMenu end, function(v) db.regular.playerMenu = v end),
+        check(barsPage, "Left-click: target yourself", 16, -484,
+            function() return db.regular.playerTarget end, function(v) db.regular.playerTarget = v end),
+        check(barsPage, "Mouseover macros (@mouseover)", 16, -508,
+            function() return db.regular.playerMouseover end, function(v) db.regular.playerMouseover = v end),
     }
     onRefresh(function() for _, w in ipairs(playerFrameOpts) do w:SetShown(mode == "regular") end end)
-    label(barsPage, "Mouse wheel on a slider changes it by 1.\nPlayer frame options apply out of combat.",
-        "GameFontDisableSmall"):SetPoint("TOPLEFT", 16, -494)
+    label(barsPage, "Mouse wheel on a slider changes it by 1.\nPlayer frame options apply out of combat.\n"
+        .. "Click and mouseover options block clicks through the bars.", "GameFontDisableSmall"):SetPoint("TOPLEFT", 16, -540)
 
     -- Column 2: the selected bar's show, size, offset, look
     local X = 240
