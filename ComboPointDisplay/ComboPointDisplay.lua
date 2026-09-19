@@ -31,6 +31,43 @@ local FONTS = {
 }
 ns.FONTS = FONTS
 
+-- Combat text (damage numbers) fonts, all free (SIL OFL or Apache 2.0, license files next to
+-- them). The game reads DAMAGE_TEXT_FONT once at startup, so a pick needs a full restart.
+local CF = FONT_DIR .. "Combat\\"
+local DEFAULT_DAMAGE_FONT = DAMAGE_TEXT_FONT
+local COMBAT_FONTS = {
+    { "WoW default", "" },
+    { "Anton", FONT_DIR .. "Anton-Regular.ttf" },
+    { "Fira Sans", FONT_DIR .. "FiraSans-Medium.ttf" },
+    { "Bebas Neue", CF .. "BebasNeue-Regular.ttf" },
+    { "Bangers", CF .. "Bangers-Regular.ttf" },
+    { "Luckiest Guy", CF .. "LuckiestGuy-Regular.ttf" },
+    { "Permanent Marker", CF .. "PermanentMarker-Regular.ttf" },
+    { "Russo One", CF .. "RussoOne-Regular.ttf" },
+    { "Black Ops One", CF .. "BlackOpsOne-Regular.ttf" },
+    { "Press Start 2P", CF .. "PressStart2P-Regular.ttf" },
+    { "Bungee", CF .. "Bungee-Regular.ttf" },
+    { "Righteous", CF .. "Righteous-Regular.ttf" },
+    { "Titan One", CF .. "TitanOne-Regular.ttf" },
+    { "Lilita One", CF .. "LilitaOne-Regular.ttf" },
+    { "Alfa Slab One", CF .. "AlfaSlabOne-Regular.ttf" },
+    { "Archivo Black", CF .. "ArchivoBlack-Regular.ttf" },
+    { "Passion One", CF .. "PassionOne-Bold.ttf" },
+    { "Cinzel Decorative", CF .. "CinzelDecorative-Bold.ttf" },
+    { "MedievalSharp", CF .. "MedievalSharp.ttf" },
+    { "Pirata One", CF .. "PirataOne-Regular.ttf" },
+    { "Creepster", CF .. "Creepster-Regular.ttf" },
+}
+ns.COMBAT_FONTS = COMBAT_FONTS
+
+-- Called on ADDON_LOADED, before the world loads. Only known paths are accepted.
+local function applyCombatFont()
+    local pick = type(ComboPointDisplayDB) == "table" and ComboPointDisplayDB.combatFont
+    for _, f in ipairs(COMBAT_FONTS) do
+        if pick and pick ~= "" and f[2] == pick then DAMAGE_TEXT_FONT = pick end
+    end
+end
+
 -- x/y = offset from the bar's slot in the stack.
 local function barDefaults(show, width, height, r, g, b, text)
     return {
@@ -1010,6 +1047,23 @@ for i, f in ipairs(FONTS) do
     f.object:SetFont(f[2], 14, "")
 end
 
+for i, f in ipairs(COMBAT_FONTS) do
+    f.object = CreateFont("ComboPointDisplayCombatFont" .. i)
+    f.object:CopyFontObject(GameFontHighlight)
+    f.object:SetFont(f[2] ~= "" and f[2] or DEFAULT_DAMAGE_FONT, 16, "OUTLINE")
+end
+
+local DAMAGE_YELLOW = { 1, 1, 0 } -- like the game's spell damage numbers
+
+local function combatFontPreview(button, item)
+    local fs = button:AttachFontString()
+    fs:SetPoint("RIGHT", -6, 0)
+    fs:SetFontObject(item.object)
+    fs:SetTextColor(unpack(DAMAGE_YELLOW))
+    fs:SetText("123")
+    return button.fontString:GetUnboundedStringWidth() + fs:GetUnboundedStringWidth() + 50
+end
+
 local function fontPreview(button, item)
     local fs = button:AttachFontString()
     fs:SetPoint("RIGHT", -6, 0)
@@ -1228,7 +1282,7 @@ end
 
 local function buildConfig()
     cfg = CreateFrame("Frame", "ComboPointDisplayConfig", UIParent, "BasicFrameTemplateWithInset")
-    cfg:SetSize(820, 650)
+    cfg:SetSize(820, 660)
     cfg:SetPoint("CENTER")
     cfg:SetFrameStrata("DIALOG")
     cfg:SetMovable(true)
@@ -1298,7 +1352,7 @@ local function buildConfig()
     -- Pages to the right of the sidebar. The bars page edits the layout picked by `mode`.
     local barsPage = CreateFrame("Frame", nil, cfg)
     barsPage:SetPoint("TOPLEFT", 134, 0)
-    barsPage:SetSize(686, 650)
+    barsPage:SetSize(686, 660)
     local questPage = CreateFrame("Frame", nil, cfg)
     questPage:SetAllPoints(barsPage)
     local otherPage = CreateFrame("Frame", nil, cfg)
@@ -1495,6 +1549,24 @@ local function buildConfig()
     slider(otherPage, "X (from the bar's left edge)", 16, -434, -200, 200, function() return CI().x end, function(v) CI().x = v end)
     slider(otherPage, "Y (down / up)", 16, -476, -200, 200, function() return CI().y end, function(v) CI().y = v end)
 
+    label(otherPage, "Combat text font (damage numbers)", "GameFontNormal"):SetPoint("TOPLEFT", 16, -522)
+    dropdown(otherPage, "Font", 16, -540, COMBAT_FONTS, function() return store.combatFont or "" end,
+        function(v) store.combatFont = v ~= "" and v or nil end, combatFontPreview)
+    local big = otherPage:CreateFontString(nil, "OVERLAY")
+    big:SetPoint("LEFT", otherPage, "TOPLEFT", 236, -568)
+    onRefresh(function()
+        if not big:SetFont(store.combatFont or DEFAULT_DAMAGE_FONT, 30, "OUTLINE") then
+            big:SetFont(DEFAULT_DAMAGE_FONT, 30, "OUTLINE")
+        end
+        big:SetTextColor(unpack(DAMAGE_YELLOW))
+        big:SetText("123")
+    end)
+    local restart = label(otherPage, "Needs a full game restart (not /reload). On this beta build addon settings "
+        .. "don't survive a restart yet, so it applies once Blizzard fixes that.", "GameFontDisableSmall")
+    restart:SetPoint("TOPLEFT", 16, -590)
+    restart:SetWidth(310)
+    restart:SetJustifyH("LEFT")
+
     local X2 = 340
     local R = function() return db.regular end
     label(otherPage, "Bar group (Combat Display)", "GameFontNormal"):SetPoint("TOPLEFT", X2, -104)
@@ -1646,7 +1718,9 @@ local function fillShown(...)
 end
 
 ev:SetScript("OnEvent", function(_, event, unit)
-    if event == "PLAYER_LOGIN" then
+    if event == "ADDON_LOADED" then
+        if unit == ADDON then applyCombatFont() end
+    elseif event == "PLAYER_LOGIN" then
         -- ponytail: settings saved before profiles existed are dropped (the beta never loaded them anyway)
         store = type(ComboPointDisplayDB) == "table" and ComboPointDisplayDB.profiles and ComboPointDisplayDB
             or { profiles = {}, chars = {} }
@@ -1706,4 +1780,5 @@ ev:SetScript("OnEvent", function(_, event, unit)
     end
 end)
 petEv:SetScript("OnEvent", ev:GetScript("OnEvent"))
+listen("ADDON_LOADED")
 listen("PLAYER_LOGIN")

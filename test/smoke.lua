@@ -189,6 +189,7 @@ UnitExists = function(unit)
 end
 UnitHealthMax = function() return 1000 end
 
+DAMAGE_TEXT_FONT = "Fonts\\FRIZQT__.TTF"
 local ns = {}
 assert(loadfile("ComboPointDisplay/ComboPointDisplay.lua"))("ComboPointDisplay", ns)
 local function fire(e, ...) evFrame._scripts.OnEvent(evFrame, e, ...) end
@@ -726,7 +727,29 @@ assert(iof.box._text == "EDITMODE:MyLayout", "Edit Mode string shown to copy")
 iof.box._text = "junk"; iof.import._scripts.OnClick(iof.import)
 assert(iof.note._text:find("CPD1"), "error explained")
 
+-- Combat text font: 20 fonts + default; applied on ADDON_LOADED only for known paths
+assert(#ns.COMBAT_FONTS == 21, "20 fonts + WoW default")
+dds[11]:GenerateMenu()
+assert(#dds[11]._items == 21, "combat font dropdown")
+for _, it in ipairs(dds[11]._items) do assert(type(it.init(menuButton())) == "number", "combat font preview") end
+dds[11]._items[6].set()
+local picked = ns.COMBAT_FONTS[6][2]
+assert(ComboPointDisplayDB.combatFont == picked, "stored account-wide")
+fire("ADDON_LOADED", "SomeOtherAddon")
+assert(DAMAGE_TEXT_FONT == "Fonts\\FRIZQT__.TTF", "other addons' loads ignored")
+fire("ADDON_LOADED", "ComboPointDisplay")
+assert(DAMAGE_TEXT_FONT == picked, "applied at load")
+DAMAGE_TEXT_FONT = "Fonts\\FRIZQT__.TTF"
+ComboPointDisplayDB.combatFont = "Interface\\evil.ttf"; fire("ADDON_LOADED", "ComboPointDisplay")
+assert(DAMAGE_TEXT_FONT == "Fonts\\FRIZQT__.TTF", "unknown path refused")
+dds[11]._items[1].set()
+assert(ComboPointDisplayDB.combatFont == nil, "WoW default clears it")
+
 -- Every bundled font path points at a real file in the addon folder
+for _, f in ipairs(ns.COMBAT_FONTS) do
+    local rel = f[2]:match("^Interface\\AddOns\\(.*)")
+    if rel then assert(io.open((rel:gsub("\\", "/"))), "missing combat font " .. rel) end
+end
 for _, f in ipairs(ns.FONTS) do
     local rel = f[2]:match("^Interface\\AddOns\\(.*)")
     if rel then assert(io.open((rel:gsub("\\", "/"))), "missing font file " .. rel) end
