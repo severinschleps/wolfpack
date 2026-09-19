@@ -77,6 +77,7 @@ local DEFAULTS = {
 
 DEFAULTS.regular.bars.health.target = false -- target health bar right of it (Combat Display only)
 DEFAULTS.regular.hidePlayerFrame = false -- hide Blizzard's player unit frame
+DEFAULTS.regular.hideBlizzCastbar = false -- hide Blizzard's player cast bar
 DEFAULTS.regular.playerMenu = false      -- right-click on the bars opens the player menu
 DEFAULTS.regular.playerTarget = false    -- left-click on the bars targets yourself
 DEFAULTS.regular.playerMouseover = false -- hovering the bars makes you @mouseover
@@ -553,9 +554,32 @@ end
 local hider = CreateFrame("Frame")
 hider:Hide()
 local playerFrameHidden, playerFrameParent, clicker
+local castHidden, castParent, castHooked
+
+-- Blizzard's player cast bar: parked under the hidden frame. Blizzard re-parents it itself when
+-- the "lock to player frame" setting applies, so a secure hook parks it again and remembers where
+-- Blizzard wanted it, for when the option goes off. No Blizzard fields or methods are touched.
+local function syncCastbar()
+    local bar = PlayerCastingBarFrame
+    local hide = db.regular.hideBlizzCastbar and true or false
+    if not bar or not (hide or castHidden) then return end
+    if not castHooked then
+        hooksecurefunc(bar, "SetParent", function(self, parent)
+            if parent == hider then return end
+            castParent = parent
+            if castHidden and not InCombatLockdown() then self:SetParent(hider) end
+        end)
+        castHooked = true
+    end
+    if hide and not castHidden then castParent = bar:GetParent() end
+    castHidden = hide
+    local want = hide and hider or castParent
+    if bar:GetParent() ~= want then bar:SetParent(want) end
+end
 
 local function syncProtected()
     if InCombatLockdown() then return end
+    syncCastbar() -- may be attached to the (protected) player frame, so also out of combat only
     local hide = db.regular.hidePlayerFrame and true or false
     if PlayerFrame and hide ~= (playerFrameHidden or false) then -- never touch it unless asked
         if hide then playerFrameParent = PlayerFrame:GetParent() end
@@ -1016,10 +1040,12 @@ local function buildConfig()
             function() return db.regular.hidePlayerFrame end, function(v) db.regular.hidePlayerFrame = v end),
         check(barsPage, "Right-click: player menu", 16, -486,
             function() return db.regular.playerMenu end, function(v) db.regular.playerMenu = v end),
+        check(barsPage, "Hide Blizzard cast bar", 16, -510,
+            function() return db.regular.hideBlizzCastbar end, function(v) db.regular.hideBlizzCastbar = v end),
     }
     onRefresh(function() for _, w in ipairs(playerFrameOpts) do w:SetShown(mode == "regular") end end)
-    label(barsPage, "Mouse wheel on a slider changes it by 1.\nPlayer frame options apply out of combat.\n"
-        .. "Click options block clicks through the bars.", "GameFontDisableSmall"):SetPoint("TOPLEFT", 16, -520)
+    label(barsPage, "Mouse wheel on a slider changes it by 1.\nBlizzard frame options apply out of combat.\n"
+        .. "Click options block clicks through the bars.", "GameFontDisableSmall"):SetPoint("TOPLEFT", 16, -544)
 
     -- Column 2: the selected bar's show, size, offset, look
     local X = 240

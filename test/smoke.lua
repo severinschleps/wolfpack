@@ -107,6 +107,12 @@ C_GossipInfo = {
 GetNumActiveQuests = function() return #(S.greeting or {}) end
 GetActiveTitle = function(i) return "Quest " .. i, S.greeting[i] end
 SelectActiveQuest = function(i) S.calls[#S.calls + 1] = "greeting" .. i end
+hooksecurefunc = function(t, name, fn)
+    local orig = t[name]
+    t[name] = function(...) orig(...); fn(...) end
+end
+PlayerCastingBarFrame = new()
+PlayerCastingBarFrame._parent = UIParent
 PlayerFrame = new()
 PlayerFrame._parent = UIParent
 GetRealmName = function() return "Realm" end
@@ -281,6 +287,20 @@ local hider = PlayerFrame._parent
 assert(hider ~= UIParent and not hider:IsShown(), "hidden after combat")
 R0.hidePlayerFrame = false; fire("UNIT_MAXPOWER")
 assert(PlayerFrame._parent == UIParent, "restored")
+
+-- Blizzard cast bar: parked under the hidden frame, stays there when Blizzard re-parents it
+local pcb = PlayerCastingBarFrame
+assert(pcb._parent == UIParent and rawget(pcb, "SetParent") == nil, "untouched and unhooked by default")
+R0.hideBlizzCastbar = true; fire("UNIT_MAXPOWER")
+assert(pcb._parent == hider, "hidden")
+pcb:SetParent(PlayerFrame) -- Blizzard attaching it to the player frame
+assert(pcb._parent == hider, "re-parked after Blizzard moved it")
+S.combat = true; R0.hideBlizzCastbar = false; fire("UNIT_MAXPOWER")
+assert(pcb._parent == hider, "waits for combat to end")
+S.combat = false; fire("PLAYER_REGEN_ENABLED")
+assert(pcb._parent == PlayerFrame, "restored where Blizzard last wanted it")
+pcb:SetParent(UIParent)
+assert(pcb._parent == UIParent, "option off: Blizzard moves it freely")
 
 -- Right-click menu: a secure unit button over the bars, synced out of combat, off while unlocked
 assert(not ComboPointDisplayClicker, "no secure button unless asked")
