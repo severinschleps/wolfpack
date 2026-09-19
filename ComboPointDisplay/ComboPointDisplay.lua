@@ -30,26 +30,38 @@ local FONTS = {
 }
 ns.FONTS = FONTS
 
-local function barDefaults(height, r, g, b, text)
+-- x/y = offset from the bar's slot in the stack.
+local function barDefaults(show, width, height, r, g, b, text)
     return {
-        regular = true, nameplate = false, width = 220, height = height, texture = TEXTURES[1][2],
+        show = show, x = 0, y = 0, width = width, height = height, texture = TEXTURES[1][2],
         color = { r, g, b, 1 }, gradient = false, color2 = { r * 0.4, g * 0.4, b * 0.4, 1 },
         vertical = false, text = text,
         font = FONTS[1][2], fontSize = 10, outline = false, textColor = { 1, 1, 1, 1 },
     }
 end
 
+-- One layout per place the bars can show. x/y = the group's top-center: from the screen center
+-- (regular) or from the bottom of the target's nameplate (nameplate).
+local function layoutDefaults(show, x, y, gap, width, h1, h2, h3, h4)
+    local l = {
+        x = x, y = y, gap = gap,
+        order = { "health", "power", "combo", "druidmana" },
+        bars = {
+            health = barDefaults(show, width, h1, 0.2, 0.8, 0.2, show),
+            power = barDefaults(show, width, h2, 1, 0.85, 0.1, show),
+            combo = barDefaults(show, width, h3, 1, 0.3, 0.1, false),
+            druidmana = barDefaults(show, width, h4, 0.2, 0.45, 1, false),
+        },
+    }
+    l.bars.power.powerColor = true
+    return l
+end
+
 local DEFAULTS = {
-    locked = true, gap = 2, x = 0, y = -120,
-    order = { "health", "power", "combo", "druidmana" },
-    bars = {
-        health = barDefaults(18, 0.2, 0.8, 0.2, true),
-        power = barDefaults(14, 1, 0.85, 0.1, true),
-        combo = barDefaults(12, 1, 0.3, 0.1, false),
-        druidmana = barDefaults(6, 0.2, 0.45, 1, false),
-    },
+    locked = true,
+    regular = layoutDefaults(true, 0, -120, 2, 220, 18, 14, 12, 6),
+    nameplate = layoutDefaults(false, 0, -2, 1, 110, 8, 6, 6, 4),
 }
-DEFAULTS.bars.power.powerColor = true
 
 local function merge(dst, src)
     for k, v in pairs(src) do
@@ -128,7 +140,7 @@ anchor:SetClampedToScreen(true)
 
 local function place()
     anchor:ClearAllPoints()
-    anchor:SetPoint("TOP", UIParent, "CENTER", db.x, db.y)
+    anchor:SetPoint("TOP", UIParent, "CENTER", db.regular.x, db.regular.y)
 end
 
 -- Position = top-center of the stack, in pixels from the screen center.
@@ -157,7 +169,7 @@ end)
 mover:SetScript("OnDragStop", function()
     anchor:StopMovingOrSizing()
     mover:SetScript("OnUpdate", nil)
-    db.x, db.y = coords()
+    db.regular.x, db.regular.y = coords()
     place()
     changed()
 end)
@@ -170,15 +182,15 @@ local plateAnchor = CreateFrame("Frame", nil, anchor)
 local plateFrames = {}
 ns.plateFrames = plateFrames
 
-local function newBar(parent, key)
+local function newBar(parent, key, mode)
     local f = CreateFrame("Frame", nil, parent)
-    f.key, f.segs = key, {}
+    f.key, f.mode, f.segs = key, mode, {}
     return f
 end
 
 for key in pairs(BARS) do
-    frames[key] = newBar(anchor, key)
-    plateFrames[key] = newBar(plateAnchor, key)
+    frames[key] = newBar(anchor, key, "regular")
+    plateFrames[key] = newBar(plateAnchor, key, "nameplate")
 end
 
 local function paint(s, c, r, g, b)
@@ -197,7 +209,7 @@ local function paint(s, c, r, g, b)
 end
 
 local function layoutBar(f, n)
-    local c = db.bars[f.key]
+    local c = db[f.mode].bars[f.key]
     local r, g, b = unpack(c.color)
     if f.key == "power" and c.powerColor then
         local pc = PowerBarColor and PowerBarColor[select(2, UnitPowerType("player"))]
@@ -253,40 +265,40 @@ local function targetPlate()
     if ok and p and not (p.IsForbidden and p:IsForbidden()) then return p end
 end
 
--- Lays out one stack: bars whose `flag` setting is on, in the chosen order, touching with db.gap.
-local function stack(container, set, flag, on)
-    local prev, w, h = nil, 20, 0
-    for _, key in ipairs(db.order) do
-        local f, c = set[key], db.bars[key]
+-- Lays out one stack: shown bars in order, touching with the gap. Each bar sits in its slot
+-- plus its own x/y offset; offsets don't push the other bars around.
+local function stack(container, set, L, on)
+    local w, h = 0, 0
+    for _, key in ipairs(L.order) do
+        local f, c = set[key], L.bars[key]
         local shown, n = BARS[key].state()
-        shown = (on and shown and c[flag]) and true or false
+        shown = (on and shown and c.show) and true or false
         f:SetShown(shown)
         if shown then
             layoutBar(f, n)
             fill(f)
+            if h > 0 then h = h + L.gap end
             f:ClearAllPoints()
-            if prev then f:SetPoint("TOP", prev, "BOTTOM", 0, -db.gap) else f:SetPoint("TOP") end
-            h = h + c.height + (prev and db.gap or 0)
+            f:SetPoint("TOP", container, "TOP", c.x, c.y - h)
+            h = h + c.height
             w = math.max(w, c.width)
-            prev = f
         end
     end
-    container:SetSize(w, math.max(h, 10))
+    container:SetSize(h > 0 and w or 20, h > 0 and h or 10) -- keeps an empty stack grabbable while unlocked
 end
 
 local function Refresh()
-    stack(anchor, frames, "regular", true)
+    stack(anchor, frames, db.regular, true)
     local plate = targetPlate()
     plateAnchor:SetParent(plate or anchor)
     plateAnchor:SetShown(plate ~= nil)
     if plate then
         plateAnchor:ClearAllPoints()
-        -- ponytail: fixed spot under the nameplate; add x/y offsets if it collides with a plate addon
-        plateAnchor:SetPoint("TOP", plate, "BOTTOM", 0, -2)
+        plateAnchor:SetPoint("TOP", plate, "BOTTOM", db.nameplate.x, db.nameplate.y)
     end
-    stack(plateAnchor, plateFrames, "nameplate", plate ~= nil)
+    stack(plateAnchor, plateFrames, db.nameplate, plate ~= nil)
     mover:SetShown(not db.locked)
-    moverHint:SetFormattedText(HINT, db.x, db.y)
+    moverHint:SetFormattedText(HINT, db.regular.x, db.regular.y)
 end
 
 -- One report per session, printed to chat: Lua errors are hidden by default and this client
@@ -302,7 +314,7 @@ end
 ------------------------------------------------------------------------------------------
 -- Options window (/cpd)
 ------------------------------------------------------------------------------------------
-local cfg, selected = nil, "health"
+local cfg, selected, mode = nil, "health", "regular" -- mode = the open tab
 local refreshers = {}
 
 changed = function()
@@ -310,7 +322,8 @@ changed = function()
     for _, fn in ipairs(refreshers) do fn() end
 end
 
-local function cur() return db.bars[selected] end
+local function L() return db[mode] end
+local function cur() return L().bars[selected] end
 local function onRefresh(fn) refreshers[#refreshers + 1] = fn end
 
 local function label(parent, text, font)
@@ -346,6 +359,9 @@ local SLIDER_BACKDROP = {
     insets = { left = 3, right = 3, top = 6, bottom = 6 },
 }
 
+local function num(v) return type(v) == "function" and v() or v end
+
+-- min/max may be functions, for ranges that depend on the open tab.
 local function slider(parent, text, x, y, min, max, get, set)
     local s = CreateFrame("Slider", nil, parent, "BackdropTemplate")
     s:SetSize(150, 16)
@@ -354,7 +370,7 @@ local function slider(parent, text, x, y, min, max, get, set)
     s:SetOrientation("HORIZONTAL")
     s:SetThumbTexture("Interface\\Buttons\\UI-SliderBar-Button-Horizontal")
     s:GetThumbTexture():SetSize(32, 32)
-    s:SetMinMaxValues(min, max)
+    s:SetMinMaxValues(num(min), num(max))
     s:SetValueStep(1)
     s:SetObeyStepOnDrag(true)
     s:EnableMouseWheel(true) -- wheel = +/-1 for exact values
@@ -375,7 +391,7 @@ local function slider(parent, text, x, y, min, max, get, set)
     local function apply()
         local v = tonumber(box:GetText())
         if v then
-            set(math.max(min, math.min(max, math.floor(v))))
+            set(math.max(num(min), math.min(num(max), math.floor(v))))
             changed()
         end
         box:SetText(tostring(get()))
@@ -390,6 +406,7 @@ local function slider(parent, text, x, y, min, max, get, set)
 
     onRefresh(function()
         syncing = true
+        s:SetMinMaxValues(num(min), num(max))
         s:SetValue(get())
         syncing = false
         if not box:HasFocus() then box:SetText(tostring(get())) end
@@ -470,7 +487,7 @@ local function fontPreview(button, item)
 end
 
 local function move(i, d)
-    local o, j = db.order, i + d
+    local o, j = L().order, i + d
     if o[j] then
         o[i], o[j] = o[j], o[i]
         changed()
@@ -521,7 +538,7 @@ StaticPopupDialogs.COMBOPOINTDISPLAY_DELETE = {
 
 local function buildConfig()
     cfg = CreateFrame("Frame", "ComboPointDisplayConfig", UIParent, "BasicFrameTemplateWithInset")
-    cfg:SetSize(460, 590)
+    cfg:SetSize(680, 480)
     cfg:SetPoint("CENTER")
     cfg:SetFrameStrata("DIALOG")
     cfg:SetMovable(true)
@@ -532,21 +549,21 @@ local function buildConfig()
     tinsert(UISpecialFrames, cfg:GetName()) -- Escape closes it
     label(cfg, "ComboPointDisplay"):SetPoint("TOP", 0, -5)
 
-    -- Left column: profile
-    label(cfg, "Profile (account-wide)", "GameFontNormal"):SetPoint("TOPLEFT", 16, -34)
+    -- Top row: profile (account-wide, holds both tabs)
+    label(cfg, "Profile", "GameFontNormal"):SetPoint("TOPLEFT", 16, -38)
     local dd = CreateFrame("DropdownButton", nil, cfg, "WowStyle1DropdownTemplate")
-    dd:SetPoint("TOPLEFT", 16, -52)
-    dd:SetWidth(196)
+    dd:SetPoint("TOPLEFT", 66, -32)
+    dd:SetWidth(170)
     dd:SetupMenu(function(_, root)
         for _, name in ipairs(profileNames()) do
             root:CreateRadio(name, function() return name == store.chars[charKey] end, function() useProfile(name) end)
         end
     end)
     onRefresh(function() dd:GenerateMenu() end)
-    label(cfg, "New profile (copies current):", "GameFontNormalSmall"):SetPoint("TOPLEFT", 16, -82)
+    label(cfg, "New (copy):", "GameFontNormalSmall"):SetPoint("TOPLEFT", 252, -39)
     local nameBox = CreateFrame("EditBox", nil, cfg, "InputBoxTemplate")
-    nameBox:SetSize(124, 20)
-    nameBox:SetPoint("TOPLEFT", 22, -96)
+    nameBox:SetSize(100, 20)
+    nameBox:SetPoint("TOPLEFT", 326, -34)
     nameBox:SetAutoFocus(false)
     nameBox:SetMaxLetters(32)
     local function create()
@@ -556,82 +573,100 @@ local function buildConfig()
     end
     nameBox:SetScript("OnEnterPressed", create)
     nameBox:SetScript("OnEscapePressed", function() nameBox:ClearFocus() end)
-    button(cfg, "Create", 60, 152, -95, create)
-    button(cfg, "Delete", 96, 16, -124, function()
+    button(cfg, "Create", 56, 432, -33, create)
+    button(cfg, "Delete", 64, 500, -33, function()
         local name = store.chars[charKey]
         StaticPopup_Show("COMBOPOINTDISPLAY_DELETE", name, nil, name)
     end)
-    button(cfg, "Reset profile", 96, 116, -124, function()
+    button(cfg, "Reset profile", 92, 570, -33, function()
         wipe(db)
         merge(db, DEFAULTS)
         place()
         changed()
     end)
 
-    -- Left column: order, gap
-    label(cfg, "Bars, top to bottom", "GameFontNormal"):SetPoint("TOPLEFT", 16, -162)
-    for i = 1, #db.order do
-        local y = -182 - (i - 1) * 26
-        local sel = button(cfg, "", 110, 16, y, function() selected = db.order[i]; changed() end)
+    -- Tabs: everything below is per tab
+    for i, tab in ipairs({ { "regular", "Regular" }, { "nameplate", "Nameplate" } }) do
+        local b = button(cfg, tab[2], 110, 16 + (i - 1) * 116, -68, function() mode = tab[1]; changed() end)
+        onRefresh(function() if mode == tab[1] then b:LockHighlight() else b:UnlockHighlight() end end)
+    end
+    local tabNote = label(cfg, "", "GameFontDisableSmall")
+    tabNote:SetPoint("TOPLEFT", 252, -74)
+    onRefresh(function()
+        tabNote:SetText(mode == "regular" and "Bars on your screen."
+            or "Bars under your target's nameplate. Needs enemy nameplates on (V key).")
+    end)
+
+    -- Column 1: order, gap, group position, lock
+    label(cfg, "Bars, top to bottom", "GameFontNormal"):SetPoint("TOPLEFT", 16, -104)
+    for i = 1, #db.regular.order do
+        local y = -124 - (i - 1) * 26
+        local sel = button(cfg, "", 110, 16, y, function() selected = L().order[i]; changed() end)
         button(cfg, "Up", 36, 128, y, function() move(i, -1) end)
         button(cfg, "Down", 46, 166, y, function() move(i, 1) end)
         onRefresh(function()
-            local key = db.order[i]
+            local key = L().order[i]
             sel:SetText(BARS[key].label)
             if key == selected then sel:LockHighlight() else sel:UnlockHighlight() end
         end)
     end
-    slider(cfg, "Gap between bars", 16, -294, 0, 30, function() return db.gap end, function(v) db.gap = v end)
-
-    -- Left column: position (top-center of the bars, from the screen center)
-    label(cfg, "Position", "GameFontNormal"):SetPoint("TOPLEFT", 16, -340)
-    local xr, yr = math.floor(UIParent:GetWidth() / 2), math.floor(UIParent:GetHeight() / 2)
-    slider(cfg, "X (left / right)", 16, -360, -xr, xr, function() return db.x end, function(v) db.x = v; place() end)
-    slider(cfg, "Y (down / up)", 16, -402, -yr, yr, function() return db.y end, function(v) db.y = v; place() end)
-    local lock = button(cfg, "", 96, 16, -448, function() db.locked = not db.locked; changed() end)
-    onRefresh(function() lock:SetText(db.locked and "Unlock" or "Lock") end)
-    local help = label(cfg, "Mouse wheel on a slider changes it by 1.\nNameplate bars need enemy nameplates on (V key).",
-        "GameFontDisableSmall")
-    help:SetPoint("TOPLEFT", 16, -486)
-    help:SetJustifyH("LEFT")
-
-    -- Right column: selected bar
-    local X = 236
-    local header = label(cfg, "", "GameFontNormal")
-    header:SetPoint("TOPLEFT", X, -34)
+    slider(cfg, "Gap between bars", 16, -236, 0, 30, function() return L().gap end, function(v) L().gap = v end)
+    label(cfg, "Group position", "GameFontNormal"):SetPoint("TOPLEFT", 16, -282)
+    local groupNote = label(cfg, "", "GameFontDisableSmall")
+    groupNote:SetPoint("TOPLEFT", 16, -298)
     onRefresh(function()
-        local shown = frames[selected]:IsShown() or plateFrames[selected]:IsShown()
+        groupNote:SetText(mode == "regular" and "top-center, from the screen center" or "top-center, from under the nameplate")
+    end)
+    local function xr() return mode == "regular" and math.floor(UIParent:GetWidth() / 2) or 200 end
+    local function yr() return mode == "regular" and math.floor(UIParent:GetHeight() / 2) or 200 end
+    slider(cfg, "X (left / right)", 16, -316, function() return -xr() end, xr,
+        function() return L().x end, function(v) L().x = v; place() end)
+    slider(cfg, "Y (down / up)", 16, -358, function() return -yr() end, yr,
+        function() return L().y end, function(v) L().y = v; place() end)
+    local lock = button(cfg, "", 96, 16, -404, function() db.locked = not db.locked; changed() end)
+    onRefresh(function()
+        lock:SetShown(mode == "regular")
+        lock:SetText(db.locked and "Unlock" or "Lock")
+    end)
+    label(cfg, "Mouse wheel on a slider changes it by 1.", "GameFontDisableSmall"):SetPoint("TOPLEFT", 16, -440)
+
+    -- Column 2: the selected bar's show, size, offset, look
+    local X = 240
+    local header = label(cfg, "", "GameFontNormal")
+    header:SetPoint("TOPLEFT", X, -104)
+    onRefresh(function()
+        local shown = (mode == "regular" and frames or plateFrames)[selected]:IsShown()
         header:SetText(BARS[selected].label .. (shown and "" or " |cff888888(hidden now)|r"))
     end)
-    check(cfg, "Show regular", X, -52, function() return cur().regular end, function(v) cur().regular = v end)
-    check(cfg, "Show on target nameplate", X, -74,
-        function() return cur().nameplate end, function(v) cur().nameplate = v end)
-    slider(cfg, "Width", X, -106, 10, 600, function() return cur().width end, function(v) cur().width = v end)
-    slider(cfg, "Height", X, -148, 2, 100, function() return cur().height end, function(v) cur().height = v end)
-    dropdown(cfg, "Texture", X, -190, TEXTURES, function() return cur().texture end,
+    check(cfg, "Show", X, -122, function() return cur().show end, function(v) cur().show = v end)
+    slider(cfg, "Width", X, -150, 10, 600, function() return cur().width end, function(v) cur().width = v end)
+    slider(cfg, "Height", X, -192, 2, 100, function() return cur().height end, function(v) cur().height = v end)
+    slider(cfg, "Bar offset X", X, -234, -300, 300, function() return cur().x end, function(v) cur().x = v end)
+    slider(cfg, "Bar offset Y", X, -276, -300, 300, function() return cur().y end, function(v) cur().y = v end)
+    dropdown(cfg, "Texture", X, -318, TEXTURES, function() return cur().texture end,
         function(v) cur().texture = v end, texturePreview)
-    swatch(cfg, "Bar color", X, -234, function() return cur().color end)
-    local powerColor = check(cfg, "Use power type color", X, -258,
+    swatch(cfg, "Bar color", X, -366, function() return cur().color end)
+    local powerColor = check(cfg, "Use power type color", X, -390,
         function() return cur().powerColor end, function(v) cur().powerColor = v end)
     onRefresh(function() powerColor:SetShown(selected == "power") end)
 
-    check(cfg, "Gradient", X, -286, function() return cur().gradient end, function(v) cur().gradient = v end)
-    local c2 = swatch(cfg, "Gradient end color", X, -312, function() return cur().color2 end)
-    local dir = button(cfg, "", 200, X, -338, function() cur().vertical = not cur().vertical; changed() end)
+    -- Column 3: gradient and text (combo pips have no text)
+    local X3 = 464
+    check(cfg, "Gradient", X3, -122, function() return cur().gradient end, function(v) cur().gradient = v end)
+    local c2 = swatch(cfg, "Gradient end color", X3, -148, function() return cur().color2 end)
+    local dir = button(cfg, "", 200, X3, -174, function() cur().vertical = not cur().vertical; changed() end)
     onRefresh(function()
         c2:SetShown(cur().gradient)
         dir:SetShown(cur().gradient)
         dir:SetText("Direction: " .. (cur().vertical and "Vertical" or "Horizontal"))
     end)
-
-    -- Text (combo pips have none)
     local textWidgets = {
-        check(cfg, "Show text", X, -372, function() return cur().text end, function(v) cur().text = v end),
-        dropdown(cfg, "Font", X, -398, FONTS, function() return cur().font end,
+        check(cfg, "Show text", X3, -210, function() return cur().text end, function(v) cur().text = v end),
+        dropdown(cfg, "Font", X3, -236, FONTS, function() return cur().font end,
             function(v) cur().font = v end, fontPreview),
-        slider(cfg, "Font size", X, -444, 6, 32, function() return cur().fontSize end, function(v) cur().fontSize = v end),
-        check(cfg, "Outline", X, -490, function() return cur().outline end, function(v) cur().outline = v end),
-        swatch(cfg, "Text color", X, -516, function() return cur().textColor end),
+        slider(cfg, "Font size", X3, -284, 6, 32, function() return cur().fontSize end, function(v) cur().fontSize = v end),
+        check(cfg, "Outline", X3, -330, function() return cur().outline end, function(v) cur().outline = v end),
+        swatch(cfg, "Text color", X3, -356, function() return cur().textColor end),
     }
     onRefresh(function()
         for _, w in ipairs(textWidgets) do w:SetShown(selected ~= "combo") end

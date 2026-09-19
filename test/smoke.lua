@@ -25,6 +25,7 @@ function M:SetChecked(v) self._checked = v end
 function M:GetChecked() return self._checked end
 function M:SetSize(w, h) self._w, self._h = w, h end
 function M:SetParent(p) self._parent = p end
+function M:SetPoint(...) self._point = { ... } end
 function M:GetParent() return self._parent end
 function M:GetName() return self._name end
 function M:GetCenter() return 100, 100 end
@@ -132,31 +133,42 @@ local store = ComboPointDisplayDB
 assert(store.profiles.Rogue and store.profiles.Druid and store.profiles.Paladin and store.profiles.Warrior, "class profiles")
 assert(store.chars["WARRIORChar - Realm"] == "Warrior", "character on its class profile")
 
--- Nameplate: every bar has "regular" and "nameplate" toggles: either, both or neither
+-- Per-bar offsets move only that bar; the next bar keeps its slot (18 + 2 = 20, then 20 + 14 + 2 = 36)
 S.secret = true
 login("ROGUE", 3)
+local R = prof().regular.bars
+R.power.x, R.power.y = 5, -3
+fire("UNIT_MAXPOWER")
+local pp, cp = fr.power._point, fr.combo._point
+assert(pp[1] == "TOP" and pp[2] == ComboPointDisplayFrame and pp[4] == 5 and pp[5] == -23, "power offset")
+assert(cp[4] == 0 and cp[5] == -36, "combo keeps its slot")
+R.power.x, R.power.y = 0, 0
+
+-- Nameplate layout is separate: own show flags, sizes, gap and group offset
 local pf, plateStack = ns.plateFrames, ns.plateFrames.combo._parent
-local bars = prof().bars
-bars.combo.nameplate = true
+local N = prof().nameplate.bars
+N.combo.show = true
 fire("PLAYER_TARGET_CHANGED")
 assert(fr.combo:IsShown() and not pf.combo:IsShown() and not plateStack:IsShown(), "no plate: regular only")
 S.plate = new(); fire("NAME_PLATE_UNIT_ADDED")
 assert(fr.combo:IsShown() and pf.combo:IsShown(), "both")
 assert(plateStack._parent == S.plate and plateStack:IsShown(), "plate stack on the plate")
-assert(ComboPointDisplayFrame._h == 48 and plateStack._h == 12, "stacks sized independently")
-bars.combo.regular = false
-bars.health.nameplate = true
+local ps = plateStack._point
+assert(ps[2] == S.plate and ps[3] == "BOTTOM" and ps[4] == 0 and ps[5] == -2, "plate group offset")
+assert(ComboPointDisplayFrame._h == 48 and plateStack._h == 6, "stacks sized independently")
+R.combo.show = false
+N.health.show = true
 fire("PLAYER_TARGET_CHANGED")
 assert(not fr.combo:IsShown() and pf.combo:IsShown() and pf.health:IsShown(), "nameplate only")
-assert(ComboPointDisplayFrame._h == 34 and plateStack._h == 32, "plate stack: 18 + 2 + 12")
+assert(ComboPointDisplayFrame._h == 34 and plateStack._h == 15, "plate stack: 8 + 1 + 6")
 fire("UNIT_POWER_FREQUENT"); fire("UNIT_HEALTH")
 assert(pf.combo.segs[3]._value == SECRET, "plate bars get values")
-bars.combo.nameplate = false
+N.combo.show = false
 fire("PLAYER_TARGET_CHANGED")
 assert(not fr.combo:IsShown() and not pf.combo:IsShown(), "neither")
 S.plate = nil; fire("NAME_PLATE_UNIT_REMOVED")
 assert(not plateStack:IsShown() and not pf.health:IsShown() and plateStack._parent == ComboPointDisplayFrame, "plate gone")
-bars.combo.regular, bars.health.nameplate = true, false
+R.combo.show, N.health.show = true, false
 
 -- Minimap icon: dragging moves it around the minimap
 local mini = ComboPointDisplayMinimapButton
@@ -165,32 +177,43 @@ assert(ComboPointDisplayDB.minimapAngle ~= 220 and not mini._scripts.OnUpdate, "
 
 -- Options window: typed numbers apply on Enter and clamp to the slider range (gap: 0-30)
 SlashCmdList.COMBOPOINTDISPLAY("")
-local boxes = {} -- profile name, gap, X, Y, width, height
+local boxes = {} -- profile name, gap, group X, group Y, width, height, bar X, bar Y, font size
 for _, f in ipairs(created) do if f._kind == "EditBox" then boxes[#boxes + 1] = f end end
 local nameBox, gapBox, xBox, yBox = boxes[1], boxes[2], boxes[3], boxes[4]
 gapBox._text = "7"; gapBox._scripts.OnEnterPressed(gapBox)
-assert(prof().gap == 7 and gapBox._text == "7", "typed gap")
+assert(prof().regular.gap == 7 and gapBox._text == "7", "typed gap")
 gapBox._text = "999"; gapBox._scripts.OnEditFocusLost(gapBox)
-assert(prof().gap == 30 and gapBox._text == "30", "clamped gap")
+assert(prof().regular.gap == 30 and gapBox._text == "30", "clamped gap")
 gapBox._text = "3"; gapBox._scripts.OnEscapePressed(gapBox)
 assert(gapBox._text == "30", "escape restores")
 
 -- Position: X/Y take negative numbers and clamp to half the screen (mock screen 140 x 100)
 xBox._text = "-50"; xBox._scripts.OnEnterPressed(xBox)
 yBox._text = "-999"; yBox._scripts.OnEnterPressed(yBox)
-assert(prof().x == -50 and prof().y == -50, "typed position")
+assert(prof().regular.x == -50 and prof().regular.y == -50, "typed position")
 yBox._text = "abc"; yBox._scripts.OnEnterPressed(yBox)
-assert(prof().y == -50 and yBox._text == "-50", "junk input ignored")
+assert(prof().regular.y == -50 and yBox._text == "-50", "junk input ignored")
 local mover -- the unnamed frame with drag + right-click handlers
 for _, f in ipairs(created) do if f._scripts.OnMouseUp and f._scripts.OnDragStart and not f._name then mover = f end end
 mover._scripts.OnDragStart(mover); mover._scripts.OnUpdate(mover); mover._scripts.OnDragStop(mover)
-assert(prof().x == 0 and prof().y == 50 and not mover._scripts.OnUpdate, "drag stores coordinates")
+assert(prof().regular.x == 0 and prof().regular.y == 50 and not mover._scripts.OnUpdate, "drag stores coordinates")
+
+-- Tabs: the Nameplate tab edits the nameplate layout only; its group range is +-200
+byText("Nameplate")._scripts.OnClick(byText("Nameplate"), "LeftButton")
+assert(gapBox._text == "1" and xBox._text == "0" and yBox._text == "-2", "tab shows nameplate values")
+gapBox._text = "4"; gapBox._scripts.OnEnterPressed(gapBox)
+xBox._text = "-150"; xBox._scripts.OnEnterPressed(xBox)
+boxes[5]._text = "90"; boxes[5]._scripts.OnEnterPressed(boxes[5])
+assert(prof().nameplate.gap == 4 and prof().nameplate.x == -150 and prof().nameplate.bars.health.width == 90, "nameplate edits")
+assert(prof().regular.gap == 30 and prof().regular.x == 0 and prof().regular.bars.health.width == 220, "regular untouched")
+byText("Regular")._scripts.OnClick(byText("Regular"), "LeftButton")
+assert(gapBox._text == "30", "back on the regular tab")
 
 -- Profiles: create copies the current one, dropdown switches, delete falls back to the class profile
 nameBox._text = "  PvP "; nameBox._scripts.OnEnterPressed(nameBox)
-assert(store.profiles.PvP and store.profiles.PvP.gap == 30 and prof() == store.profiles.PvP, "create copies + switches")
-prof().gap = 5
-assert(store.profiles.Rogue.gap == 30, "profiles are independent")
+assert(store.profiles.PvP and store.profiles.PvP.regular.gap == 30 and prof() == store.profiles.PvP, "create copies + switches")
+prof().regular.gap = 5
+assert(store.profiles.Rogue.regular.gap == 30, "profiles are independent")
 local dds = {} -- profile, texture, font
 for _, f in ipairs(created) do if f._gen then dds[#dds + 1] = f end end
 local dd = dds[1]
@@ -222,8 +245,8 @@ end
 for _, it in ipairs(texDD._items) do assert(type(it.init(menuButton())) == "number", "texture preview") end
 for _, it in ipairs(fontDD._items) do assert(type(it.init(menuButton())) == "number", "font preview") end
 texDD._items[2].set(); fontDD._items[6].set()
-assert(prof().bars.health.texture == "Interface\\Buttons\\WHITE8X8", "texture picked")
-assert(prof().bars.health.font:match("Anton%-Regular%.ttf$") and fontDD._items[6].sel(), "font picked")
+assert(prof().regular.bars.health.texture == "Interface\\Buttons\\WHITE8X8", "texture picked")
+assert(prof().regular.bars.health.font:match("Anton%-Regular%.ttf$") and fontDD._items[6].sel(), "font picked")
 
 -- Every bundled font path points at a real file in the addon folder
 for _, f in ipairs(ns.FONTS) do
@@ -247,9 +270,11 @@ for _, f in ipairs(created) do
         sc.OnDragStop(f)
     end
 end
-local seen = {}
-for _, k in ipairs(prof().order) do seen[k] = true end
-assert(seen.health and seen.power and seen.combo and seen.druidmana and #prof().order == 4, "order intact")
+for _, m in ipairs({ "regular", "nameplate" }) do
+    local seen = {}
+    for _, k in ipairs(prof()[m].order) do seen[k] = true end
+    assert(seen.health and seen.power and seen.combo and seen.druidmana and #prof()[m].order == 4, "order intact")
+end
 
 SlashCmdList.COMBOPOINTDISPLAY("")
 realPrint("smoke ok")
