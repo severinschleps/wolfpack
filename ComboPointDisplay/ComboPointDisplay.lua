@@ -44,18 +44,20 @@ end
 
 -- One layout per place the bars can show. x/y = the group's top-center: from the screen center
 -- (regular) or from the bottom of the target's nameplate (nameplate).
-local function layoutDefaults(show, x, y, gap, width, h1, h2, h3, h4)
+local function layoutDefaults(show, x, y, gap, width, h1, h2, h3, h4, h5)
     local l = {
         x = x, y = y, gap = gap,
-        order = { "health", "power", "combo", "druidmana" },
+        order = { "health", "power", "combo", "druidmana", "castbar" },
         bars = {
             health = barDefaults(show, width, h1, 0.2, 0.8, 0.2, show),
             power = barDefaults(show, width, h2, 1, 0.85, 0.1, show),
             combo = barDefaults(show, width, h3, 1, 0.3, 0.1, false),
             druidmana = barDefaults(show, width, h4, 0.2, 0.45, 1, false),
+            castbar = barDefaults(show, width, h5, 1, 0.7, 0, true), -- text = spell name
         },
     }
     l.bars.power.powerColor = true
+    l.bars.castbar.icon, l.bars.castbar.iconSide = true, "left"
     return l
 end
 
@@ -63,8 +65,8 @@ end
 -- top-right corner plus x/y. Icons are file IDs.
 local DEFAULTS = {
     locked = true,
-    regular = layoutDefaults(true, 0, -120, 2, 220, 18, 14, 12, 6),
-    nameplate = layoutDefaults(false, 0, -2, 1, 110, 8, 6, 6, 4),
+    regular = layoutDefaults(true, 0, -120, 2, 220, 18, 14, 12, 6, 14),
+    nameplate = layoutDefaults(false, 0, -2, 1, 110, 8, 6, 6, 4, 8),
     quest = {
         x = 0, y = 0, spacing = 2,
         kill = { show = true, icon = 131013, size = 20 },
@@ -136,6 +138,10 @@ local BARS = {
             return max > 0, max
         end,
         value = function() return UnitPower("player", classPower()) end,
+    },
+    castbar = {
+        label = "Cast Bar",
+        state = function() return true, 1 end, -- keeps its slot; invisible while not casting (fillCast)
     },
     druidmana = {
         label = "Druid Mana",
@@ -266,8 +272,22 @@ local function layoutBar(f, n, width)
         local pc = PowerBarColor and PowerBarColor[select(2, UnitPowerType("player"))]
         if pc then r, g, b = pc.r, pc.g, pc.b end
     end
+    -- Cast bar spell icon: a square at one end, inside the bar's width.
+    local lead, iconSpace = 0, 0
+    if f.key == "castbar" then
+        f.icon = f.icon or f:CreateTexture(nil, "ARTWORK")
+        f.icon:SetTexCoord(0.08, 0.92, 0.08, 0.92) -- trim the icon's built-in border
+        f.icon:SetSize(c.height, c.height)
+        f.icon:ClearAllPoints()
+        f.icon:SetPoint(c.iconSide == "right" and "RIGHT" or "LEFT", f)
+        f.icon:SetShown(c.icon and true or false)
+        if c.icon then
+            iconSpace = c.height + PIP_GAP
+            if c.iconSide ~= "right" then lead = iconSpace end
+        end
+    end
     f:SetSize(width, c.height)
-    local w = (width - (n - 1) * PIP_GAP) / n
+    local w = (width - iconSpace - (n - 1) * PIP_GAP) / n
     for i = 1, math.max(n, #f.segs) do
         local s = f.segs[i]
         if i > n then
@@ -290,7 +310,7 @@ local function layoutBar(f, n, width)
             local t = math.min(c.borderSize, (c.height - 1) / 2, (w - 1) / 2)
             local iw, ih = w - 2 * t, c.height - 2 * t
             s:SetSize(iw, ih)
-            s:SetPoint("LEFT", f, "LEFT", (i - 1) * (w + PIP_GAP) + t, 0)
+            s:SetPoint("LEFT", f, "LEFT", lead + (i - 1) * (w + PIP_GAP) + t, 0)
             s:SetMinMaxValues(i - 1, i) -- pip range; single bars get their real max in fill()
             paint(s, c, r, g, b)
             s.border:SetShown(t > 0)
@@ -309,7 +329,7 @@ local function layoutBar(f, n, width)
     end
     if not f.text then
         f.text = f.segs[1]:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-        f.text:SetPoint("CENTER", f)
+        f.text:SetPoint("CENTER") -- centered on the bar itself (not the cast bar's icon)
     end
     f.text:SetShown(c.text and n == 1)
     local flags = c.outline and "OUTLINE" or ""
@@ -320,7 +340,31 @@ end
 
 local function setText(fs, v) fs:SetText(AbbreviateNumbers(v)) end
 
+-- The cast bar fills from the game's own cast duration object (no per-frame Lua): casts fill
+-- up, channels drain. Not casting: the whole bar, border included, goes invisible.
+local TIMER_ELAPSED, TIMER_REMAINING = 0, 1 -- Enum.StatusBarTimerDirection
+local function fillCast(f)
+    local name, _, icon = UnitCastingInfo("player")
+    local duration, direction = name and UnitCastingDuration("player"), TIMER_ELAPSED
+    if not name then
+        name, _, icon = UnitChannelInfo("player")
+        duration, direction = name and UnitChannelDuration("player"), TIMER_REMAINING
+    end
+    -- Preview while unlocked or in the options, so it can be placed and styled without casting.
+    local preview = not name and (not db.locked or ns.configOpen)
+    f:SetAlpha((name or preview) and 1 or 0)
+    if preview then
+        f.text:SetText(BARS.castbar.label)
+        f.icon:SetTexture(134400) -- Interface/ICONS/INV_Misc_QuestionMark
+    end
+    if not name then return end
+    if duration then f.segs[1]:SetTimerDuration(duration, 0, direction) end
+    f.text:SetText(name)
+    f.icon:SetTexture(icon)
+end
+
 local function fill(f)
+    if f.key == "castbar" then return fillCast(f) end
     local v, max = BARS[f.key].value(f.unit or "player")
     if f.n == 1 then
         f.segs[1]:SetMinMaxValues(0, max)
@@ -838,7 +882,7 @@ StaticPopupDialogs.COMBOPOINTDISPLAY_DELETE = {
 
 local function buildConfig()
     cfg = CreateFrame("Frame", "ComboPointDisplayConfig", UIParent, "BasicFrameTemplateWithInset")
-    cfg:SetSize(820, 600)
+    cfg:SetSize(820, 620)
     cfg:SetPoint("CENTER")
     cfg:SetFrameStrata("DIALOG")
     cfg:SetMovable(true)
@@ -847,6 +891,8 @@ local function buildConfig()
     cfg:SetScript("OnDragStart", cfg.StartMoving)
     cfg:SetScript("OnDragStop", cfg.StopMovingOrSizing)
     tinsert(UISpecialFrames, cfg:GetName()) -- Escape closes it
+    cfg:HookScript("OnShow", function() ns.configOpen = true; changed() end)
+    cfg:HookScript("OnHide", function() ns.configOpen = false; changed() end)
     label(cfg, "ComboPointDisplay"):SetPoint("TOP", 0, -5)
 
     -- Top row: profile (account-wide, holds both tabs)
@@ -904,7 +950,7 @@ local function buildConfig()
     -- Pages to the right of the sidebar. The bars page edits the layout picked by `mode`.
     local barsPage = CreateFrame("Frame", nil, cfg)
     barsPage:SetPoint("TOPLEFT", 134, 0)
-    barsPage:SetSize(686, 600)
+    barsPage:SetSize(686, 620)
     local questPage = CreateFrame("Frame", nil, cfg)
     questPage:SetAllPoints(barsPage)
     local otherPage = CreateFrame("Frame", nil, cfg)
@@ -947,33 +993,33 @@ local function buildConfig()
             if key == selected then sel:LockHighlight() else sel:UnlockHighlight() end
         end)
     end
-    slider(barsPage, "Gap between bars", 16, -236, 0, 30, function() return L().gap end, function(v) L().gap = v end)
-    label(barsPage, "Group position", "GameFontNormal"):SetPoint("TOPLEFT", 16, -282)
+    slider(barsPage, "Gap between bars", 16, -262, 0, 30, function() return L().gap end, function(v) L().gap = v end)
+    label(barsPage, "Group position", "GameFontNormal"):SetPoint("TOPLEFT", 16, -308)
     local groupNote = label(barsPage, "", "GameFontDisableSmall")
-    groupNote:SetPoint("TOPLEFT", 16, -298)
+    groupNote:SetPoint("TOPLEFT", 16, -324)
     onRefresh(function()
         groupNote:SetText(mode == "regular" and "top-center, from the screen center" or "top-center, from under the nameplate")
     end)
     local function xr() return mode == "regular" and math.floor(UIParent:GetWidth() / 2) or 200 end
     local function yr() return mode == "regular" and math.floor(UIParent:GetHeight() / 2) or 200 end
-    slider(barsPage, "X (left / right)", 16, -316, function() return -xr() end, xr,
+    slider(barsPage, "X (left / right)", 16, -342, function() return -xr() end, xr,
         function() return L().x end, function(v) L().x = v; place() end)
-    slider(barsPage, "Y (down / up)", 16, -358, function() return -yr() end, yr,
+    slider(barsPage, "Y (down / up)", 16, -384, function() return -yr() end, yr,
         function() return L().y end, function(v) L().y = v; place() end)
-    local lock = button(barsPage, "", 96, 16, -404, function() db.locked = not db.locked; changed() end)
+    local lock = button(barsPage, "", 96, 16, -430, function() db.locked = not db.locked; changed() end)
     onRefresh(function()
         lock:SetShown(mode == "regular")
         lock:SetText(db.locked and "Unlock" or "Lock")
     end)
     local playerFrameOpts = {
-        check(barsPage, "Hide Blizzard player frame", 16, -436,
+        check(barsPage, "Hide Blizzard player frame", 16, -462,
             function() return db.regular.hidePlayerFrame end, function(v) db.regular.hidePlayerFrame = v end),
-        check(barsPage, "Right-click: player menu", 16, -460,
+        check(barsPage, "Right-click: player menu", 16, -486,
             function() return db.regular.playerMenu end, function(v) db.regular.playerMenu = v end),
     }
     onRefresh(function() for _, w in ipairs(playerFrameOpts) do w:SetShown(mode == "regular") end end)
     label(barsPage, "Mouse wheel on a slider changes it by 1.\nPlayer frame options apply out of combat.\n"
-        .. "Click options block clicks through the bars.", "GameFontDisableSmall"):SetPoint("TOPLEFT", 16, -494)
+        .. "Click options block clicks through the bars.", "GameFontDisableSmall"):SetPoint("TOPLEFT", 16, -520)
 
     -- Column 2: the selected bar's show, size, offset, look
     local X = 240
@@ -995,9 +1041,18 @@ local function buildConfig()
         function() return cur().powerColor end, function(v) cur().powerColor = v end)
     local target = check(barsPage, "Show target health next to it", X, -390,
         function() return cur().target end, function(v) cur().target = v end)
+    local castIcon = check(barsPage, "Show spell icon", X, -390,
+        function() return cur().icon end, function(v) cur().icon = v end)
+    local castSide = button(barsPage, "", 200, X, -416, function()
+        cur().iconSide = cur().iconSide == "right" and "left" or "right"
+        changed()
+    end)
     onRefresh(function()
         powerColor:SetShown(selected == "power")
         target:SetShown(selected == "health" and mode == "regular")
+        castIcon:SetShown(selected == "castbar")
+        castSide:SetShown(selected == "castbar" and cur().icon or false)
+        castSide:SetText("Icon side: " .. (cur().iconSide == "right" and "Right" or "Left"))
     end)
 
     -- Column 3: border, gradient and text (combo pips have no text)
@@ -1207,6 +1262,11 @@ ev:SetScript("OnEvent", function(_, event, unit)
         classProfile, class = UnitClass("player")
         playerName = UnitName("player")
         charKey = playerName .. " - " .. GetRealmName()
+        for _, e in ipairs({ "UNIT_SPELLCAST_START", "UNIT_SPELLCAST_STOP", "UNIT_SPELLCAST_FAILED",
+            "UNIT_SPELLCAST_INTERRUPTED", "UNIT_SPELLCAST_DELAYED", "UNIT_SPELLCAST_CHANNEL_START",
+            "UNIT_SPELLCAST_CHANNEL_STOP", "UNIT_SPELLCAST_CHANNEL_UPDATE" }) do
+            listen(e, "player")
+        end
         listen("UNIT_HEALTH", "player", "target")
         listen("UNIT_MAXHEALTH", "player", "target")
         for _, e in ipairs({ "UNIT_POWER_FREQUENT", "UNIT_MAXPOWER", "UNIT_DISPLAYPOWER", "UNIT_QUEST_LOG_CHANGED" }) do
@@ -1225,6 +1285,8 @@ ev:SetScript("OnEvent", function(_, event, unit)
         if targetFrame:IsShown() then safe(fill, targetFrame) end
     elseif event == "UNIT_POWER_FREQUENT" then
         fillShown("power", "combo", "druidmana")
+    elseif event:find("^UNIT_SPELLCAST_") then
+        fillShown("castbar")
     elseif event == "QUEST_DETAIL" or event == "QUEST_ACCEPT_CONFIRM" then
         safe(autoAccept, event, unit) -- for QUEST_DETAIL the first arg is the quest-starting item
     elseif event == "QUEST_PROGRESS" or event == "QUEST_COMPLETE" or event == "GOSSIP_SHOW" or event == "QUEST_GREETING" then

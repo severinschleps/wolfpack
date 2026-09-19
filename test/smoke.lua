@@ -30,6 +30,8 @@ function M:SetTexture(t) self._tex = t end
 function M:SetScale(v) self._scale = v end
 function M:SetAlpha(v) self._alpha = v end
 function M:SetDesaturated(v) self._desat = v end
+function M:SetTimerDuration(d, interp, dir) self._timer, self._dir = d, dir end
+function M:GetAlpha() return self._alpha or 1 end
 function M:SetColorTexture(...) self._color = { ... } end
 function M:IsMouseOver() return S.mouseOver end
 function M:GetStatusBarTexture() self._sbt = self._sbt or new(); return self._sbt end
@@ -87,6 +89,10 @@ AcceptQuest, ConfirmAcceptQuest = record("accept"), record("confirm")
 AcknowledgeAutoAcceptQuest, StaticPopup_Hide = record("ack"), record("hidepopup")
 IsShiftKeyDown = function() return S.shift end
 IsInGroup = function() return S.group end
+UnitCastingInfo = function() if S.cast then return S.cast, "", 136116 end end
+UnitChannelInfo = function() if S.channel then return S.channel, "", 136197 end end
+UnitCastingDuration = function() return S.cast and "castDuration" end
+UnitChannelDuration = function() return S.channel and "channelDuration" end
 QuestGetAutoAccept = function() return S.autoQuest end
 QuestIsFromAreaTrigger = function() return S.areaTrigger end
 CompleteQuest = record("complete")
@@ -142,7 +148,7 @@ local function prof() return ComboPointDisplayDB.profiles[ComboPointDisplayDB.ch
 local function byText(text) for _, f in ipairs(created) do if f._text == text then return f end end end
 local fr = ns.frames
 
--- Rogue, secret values: 5 pips, each lit when points >= i; stack = 18 + 2 + 14 + 2 + 12
+-- Rogue, secret values: 5 pips, each lit when points >= i; stack = 18 + 2 + 14 + 2 + 12 + 2 + 14 (cast bar)
 login("ROGUE", 3)
 fire("UNIT_POWER_FREQUENT"); fire("UNIT_HEALTH")
 assert(fr.combo:IsShown() and fr.combo.n == 5, "rogue combo pips")
@@ -151,7 +157,7 @@ for i = 1, 5 do
     assert(s._min == i - 1 and s._max == i and s._value == SECRET, "pip " .. i)
 end
 assert(not fr.druidmana:IsShown(), "rogue has no druid mana")
-assert(ComboPointDisplayFrame._h == 48, "stack height " .. tostring(ComboPointDisplayFrame._h))
+assert(ComboPointDisplayFrame._h == 64, "stack height " .. tostring(ComboPointDisplayFrame._h))
 
 -- Druid: caster = no combo, no extra mana; cat = both; bear = mana only
 login("DRUID", 0)
@@ -208,6 +214,28 @@ S.targetHP = nil; fire("PLAYER_TARGET_CHANGED")
 assert(not tf:IsShown() and fr.health._w == 220 and fr.health._point[1] == "TOP", "target gone: full width again")
 prof().regular.bars.health.target = false
 
+-- Cast bar: keeps its slot, invisible idle; casts fill up, channels drain; name centered, icon side
+local cb = fr.castbar
+assert(cb:IsShown() and cb:GetAlpha() == 0 and cb._point[5] == -50, "idle: slot kept, invisible")
+S.cast = "Fireball"; fire("UNIT_SPELLCAST_START", "player")
+local cs = cb.segs[1]
+assert(cb:GetAlpha() == 1 and cs._timer == "castDuration" and cs._dir == 0, "cast fills up")
+assert(cb.text._text == "Fireball" and cb.text:IsShown() and cb.icon._tex == 136116 and cb.icon:IsShown(), "name + icon")
+assert(cs._w == 204 and cs._point[4] == 16 and cb.icon._point[1] == "LEFT", "icon left: bar starts after 14 + 2")
+S.cast = nil; S.channel = "Drain Life"; fire("UNIT_SPELLCAST_CHANNEL_START", "player")
+assert(cs._timer == "channelDuration" and cs._dir == 1 and cb.text._text == "Drain Life", "channel drains")
+prof().regular.bars.castbar.iconSide = "right"; fire("UNIT_MAXPOWER")
+assert(cs._w == 204 and cs._point[4] == 0 and cb.icon._point[1] == "RIGHT", "icon right")
+prof().regular.bars.castbar.icon = false; fire("UNIT_MAXPOWER")
+assert(cs._w == 220 and not cb.icon:IsShown(), "no icon: full width")
+S.channel = nil; fire("UNIT_SPELLCAST_CHANNEL_STOP", "player")
+assert(cb:GetAlpha() == 0, "done: invisible")
+prof().locked = false; fire("UNIT_MAXPOWER")
+assert(cb:GetAlpha() == 1 and cb.text._text == "Cast Bar" and cb.icon._tex == 134400, "unlocked: preview")
+prof().locked = true; fire("UNIT_MAXPOWER")
+assert(cb:GetAlpha() == 0, "locked again: hidden")
+prof().regular.bars.castbar.icon, prof().regular.bars.castbar.iconSide = true, "left"
+
 -- Border and radius: border inside the bar's size, bar inset by it; masks scaled to the radius
 local hb = prof().regular.bars.health -- 220 x 18
 hb.borderSize, hb.radius = 2, 6
@@ -260,7 +288,7 @@ R0.playerMenu = true; fire("UNIT_MAXPOWER")
 local ck = ComboPointDisplayClicker
 assert(ck._template == "SecureUnitButtonTemplate" and ck._attr.unit == "player" and ck._attr.type2 == "togglemenu", "menu button")
 assert(ck._point[1] == "TOP" and ck._point[2] == UIParent and ck._point[4] == R0.x and ck._point[5] == R0.y, "over the bars")
-assert(ck._w == 220 and ck._h == 48 and ck:IsShown(), "same size as the bars")
+assert(ck._w == 220 and ck._h == 64 and ck:IsShown(), "same size as the bars")
 prof().locked = false; fire("UNIT_MAXPOWER")
 assert(not ck:IsShown(), "unlocked: drag handle gets the mouse")
 assert(ck._attr.type1 == nil, "left click off by default")
@@ -285,12 +313,12 @@ assert(fr.combo:IsShown() and pf.combo:IsShown(), "both")
 assert(plateStack._parent == S.plate and plateStack:IsShown(), "plate stack on the plate")
 local ps = plateStack._point
 assert(ps[2] == S.plate and ps[3] == "BOTTOM" and ps[4] == 0 and ps[5] == -2, "plate group offset")
-assert(ComboPointDisplayFrame._h == 48 and plateStack._h == 6, "stacks sized independently")
+assert(ComboPointDisplayFrame._h == 64 and plateStack._h == 6, "stacks sized independently")
 R.combo.show = false
 N.health.show = true
 fire("PLAYER_TARGET_CHANGED")
 assert(not fr.combo:IsShown() and pf.combo:IsShown() and pf.health:IsShown(), "nameplate only")
-assert(ComboPointDisplayFrame._h == 34 and plateStack._h == 15, "plate stack: 8 + 1 + 6")
+assert(ComboPointDisplayFrame._h == 50 and plateStack._h == 15, "plate stack: 8 + 1 + 6")
 fire("UNIT_POWER_FREQUENT"); fire("UNIT_HEALTH")
 assert(pf.combo.segs[3]._value == SECRET, "plate bars get values")
 N.combo.show = false
@@ -525,7 +553,7 @@ end
 for _, m in ipairs({ "regular", "nameplate" }) do
     local seen = {}
     for _, k in ipairs(prof()[m].order) do seen[k] = true end
-    assert(seen.health and seen.power and seen.combo and seen.druidmana and #prof()[m].order == 4, "order intact")
+    assert(seen.health and seen.power and seen.combo and seen.druidmana and seen.castbar and #prof()[m].order == 5, "order intact")
 end
 
 SlashCmdList.COMBOPOINTDISPLAY("")
