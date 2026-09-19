@@ -26,7 +26,7 @@ local function barDefaults(height, r, g, b, text)
 end
 
 local DEFAULTS = {
-    locked = true, gap = 2, x = 0, y = -120,
+    locked = true, gap = 2, x = 0, y = -120, minimapAngle = 220,
     order = { "health", "power", "combo", "druidmana" },
     bars = {
         health = barDefaults(18, 0.2, 0.8, 0.2, true),
@@ -241,12 +241,13 @@ local function Refresh()
     mover:SetShown(not db.locked)
 end
 
--- One report per session: this client stops showing errors after 100.
+-- One report per session, printed to chat: Lua errors are hidden by default and this client
+-- stops delivering them after 100.
 local function safe(fn, ...)
     local ok, err = pcall(fn, ...)
     if not ok and not ns.errored then
         ns.errored = true
-        geterrorhandler()(err)
+        print("|cffff5555ComboPointDisplay error:|r " .. tostring(err))
     end
 end
 
@@ -457,10 +458,63 @@ function ns.ToggleConfig()
     cfg:SetShown(not cfg:IsShown())
     if cfg:IsShown() then changed() end
 end
-ComboPointDisplay_Toggle = ns.ToggleConfig -- addon compartment (minimap addons button)
+ComboPointDisplay_Toggle = ns.ToggleConfig -- addon compartment (retail only, Forever has none)
 
 SLASH_COMBOPOINTDISPLAY1 = "/cpd"
-SlashCmdList.COMBOPOINTDISPLAY = ns.ToggleConfig
+SLASH_COMBOPOINTDISPLAY2 = "/cpb"
+SlashCmdList.COMBOPOINTDISPLAY = function() safe(ns.ToggleConfig) end
+
+-- Minimap icon: left-click options, right-click lock/unlock, drag to move around the minimap.
+-- ponytail: assumes a round minimap; square minimap addons would need corner math.
+local mini = CreateFrame("Button", "ComboPointDisplayMinimapButton", Minimap)
+mini:SetSize(31, 31)
+mini:SetFrameStrata("MEDIUM")
+mini:SetFrameLevel(8)
+mini:SetHighlightTexture("Interface\\Minimap\\UI-Minimap-ZoomButton-Highlight")
+local miniIcon = mini:CreateTexture(nil, "BACKGROUND")
+miniIcon:SetSize(20, 20)
+miniIcon:SetPoint("TOPLEFT", 7, -5)
+miniIcon:SetTexture("Interface\\Icons\\Ability_Rogue_Eviscerate")
+local miniBorder = mini:CreateTexture(nil, "OVERLAY")
+miniBorder:SetSize(53, 53)
+miniBorder:SetPoint("TOPLEFT")
+miniBorder:SetTexture("Interface\\Minimap\\MiniMap-TrackingBorder")
+
+local function placeMini()
+    local a, r = math.rad(db.minimapAngle), Minimap:GetWidth() / 2 + 10
+    mini:ClearAllPoints()
+    mini:SetPoint("CENTER", Minimap, "CENTER", math.cos(a) * r, math.sin(a) * r)
+end
+
+mini:RegisterForClicks("LeftButtonUp", "RightButtonUp")
+mini:RegisterForDrag("LeftButton")
+mini:SetScript("OnClick", function(_, btn)
+    if btn == "RightButton" then
+        db.locked = not db.locked
+        changed()
+    else
+        safe(ns.ToggleConfig)
+    end
+end)
+mini:SetScript("OnDragStart", function(self)
+    self:SetScript("OnUpdate", function()
+        local mx, my = Minimap:GetCenter()
+        local cx, cy = GetCursorPosition()
+        local s = Minimap:GetEffectiveScale()
+        db.minimapAngle = math.deg(math.atan2(cy / s - my, cx / s - mx))
+        placeMini()
+    end)
+end)
+mini:SetScript("OnDragStop", function(self) self:SetScript("OnUpdate", nil) end)
+mini:SetScript("OnEnter", function(self)
+    GameTooltip:SetOwner(self, "ANCHOR_LEFT")
+    GameTooltip:AddLine("ComboPointDisplay")
+    GameTooltip:AddLine("Left-click: options", 1, 1, 1)
+    GameTooltip:AddLine("Right-click: lock / unlock bars", 1, 1, 1)
+    GameTooltip:AddLine("Drag: move this icon", 1, 1, 1)
+    GameTooltip:Show()
+end)
+mini:SetScript("OnLeave", function() GameTooltip:Hide() end)
 
 ------------------------------------------------------------------------------------------
 -- Events
@@ -492,6 +546,7 @@ ev:SetScript("OnEvent", function(_, event)
             listen(e)
         end
         place()
+        placeMini()
         safe(Refresh)
     elseif event == "UNIT_HEALTH" then
         fillShown("health")

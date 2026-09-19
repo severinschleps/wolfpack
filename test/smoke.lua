@@ -25,20 +25,24 @@ function M:GetName() return self._name end
 function M:GetCenter() return 100, 100 end
 function M:GetTop() return 150 end
 function M:GetFrameLevel() return 1 end
+function M:GetWidth() return 140 end
+function M:GetEffectiveScale() return 1 end
 function M:IsForbidden() return false end
 function M:RegisterEvent() evFrame = self end
 function M:RegisterUnitEvent() evFrame = self end
 
 Enum = { PowerType = { Mana = 0, Rage = 1, Energy = 3, ComboPoints = 4, SoulShards = 7, HolyPower = 9,
     Chi = 12, ArcaneCharges = 16, Essence = 19 } }
-UIParent, UISpecialFrames, SlashCmdList = new(), {}, {}
+UIParent, Minimap, GameTooltip, UISpecialFrames, SlashCmdList = new(), new(), new(), {}, {}
 tinsert = table.insert
 wipe = function(t) for k in pairs(t) do t[k] = nil end return t end
 issecretvalue = function(v) return rawequal(v, SECRET) end
 AbbreviateNumbers = function(v) return tostring(v) end
 CreateColor = function(...) return { ... } end
 PowerBarColor = { ENERGY = { r = 1, g = 1, b = 0 }, MANA = { r = 0, g = 0, b = 1 }, RAGE = { r = 1, g = 0, b = 0 } }
-geterrorhandler = function() return function(e) error("addon reported: " .. tostring(e), 0) end end
+local realPrint = print
+print = function(msg) error("addon reported: " .. tostring(msg), 0) end
+GetCursorPosition = function() return 10, 20 end
 CreateFrame = function(kind, name)
     local f = new(kind)
     f._name = name
@@ -106,6 +110,11 @@ assert(ComboPointDisplayFrame._h == 34, "combo left the stack")
 S.plate = nil; fire("NAME_PLATE_UNIT_REMOVED")
 assert(not fr.combo:IsShown() and fr.combo._parent == ComboPointDisplayFrame, "back off the plate")
 
+-- Minimap icon: dragging moves it around the minimap
+local mini = ComboPointDisplayMinimapButton
+mini._scripts.OnDragStart(mini); mini._scripts.OnUpdate(mini); mini._scripts.OnDragStop(mini)
+assert(ComboPointDisplayDB.minimapAngle ~= 220 and not mini._scripts.OnUpdate, "minimap drag")
+
 -- Options window: poke every control
 SlashCmdList.COMBOPOINTDISPLAY("")
 for _, f in ipairs(created) do
@@ -116,10 +125,16 @@ for _, f in ipairs(created) do
     end
     if sc.OnValueChanged then sc.OnValueChanged(f, 42) end
     if sc.OnMouseWheel then sc.OnMouseWheel(f, 1) end
-    if sc.OnDragStart then sc.OnDragStart(f); sc.OnDragStop(f) end
+    if sc.OnEnter then sc.OnEnter(f); sc.OnLeave(f) end
+    if sc.OnDragStart then
+        sc.OnDragStart(f)
+        if f._scripts.OnUpdate then f._scripts.OnUpdate(f) end
+        sc.OnDragStop(f)
+    end
 end
 local seen = {}
 for _, k in ipairs(ComboPointDisplayDB.order) do seen[k] = true end
 assert(seen.health and seen.power and seen.combo and seen.druidmana and #ComboPointDisplayDB.order == 4, "order intact")
 
-print("smoke ok")
+SlashCmdList.COMBOPOINTDISPLAY("")
+realPrint("smoke ok")
