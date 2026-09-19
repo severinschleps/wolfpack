@@ -25,6 +25,7 @@ function M:SetChecked(v) self._checked = v end
 function M:GetChecked() return self._checked end
 function M:SetSize(w, h) self._w, self._h = w, h end
 function M:SetParent(p) self._parent = p end
+function M:GetParent() return self._parent end
 function M:GetName() return self._name end
 function M:GetCenter() return 100, 100 end
 function M:GetTop() return 150 end
@@ -60,9 +61,9 @@ StaticPopupDialogs = {}
 StaticPopup_Show = function(which, _, _, data) StaticPopupDialogs[which].OnAccept(nil, data) end -- clicks Yes
 UnitName = function() return S.name end
 GetRealmName = function() return "Realm" end
-CreateFrame = function(kind, name)
+CreateFrame = function(kind, name, parent)
     local f = new(kind)
-    f._name = name
+    f._name, f._parent = name, parent
     if name then _G[name] = f end
     created[#created + 1] = f
     return f
@@ -123,17 +124,31 @@ local store = ComboPointDisplayDB
 assert(store.profiles.Rogue and store.profiles.Druid and store.profiles.Paladin and store.profiles.Warrior, "class profiles")
 assert(store.chars["WARRIORChar - Realm"] == "Warrior", "character on its class profile")
 
--- Nameplate: combo follows the target plate, hides without one
+-- Nameplate: every bar has "regular" and "nameplate" toggles: either, both or neither
 S.secret = true
 login("ROGUE", 3)
-prof().bars.combo.nameplate = true
+local pf, plateStack = ns.plateFrames, ns.plateFrames.combo._parent
+local bars = prof().bars
+bars.combo.nameplate = true
 fire("PLAYER_TARGET_CHANGED")
-assert(not fr.combo:IsShown(), "no plate, no bar")
+assert(fr.combo:IsShown() and not pf.combo:IsShown() and not plateStack:IsShown(), "no plate: regular only")
 S.plate = new(); fire("NAME_PLATE_UNIT_ADDED")
-assert(fr.combo:IsShown() and fr.combo._parent == S.plate, "on plate")
-assert(ComboPointDisplayFrame._h == 34, "combo left the stack")
+assert(fr.combo:IsShown() and pf.combo:IsShown(), "both")
+assert(plateStack._parent == S.plate and plateStack:IsShown(), "plate stack on the plate")
+assert(ComboPointDisplayFrame._h == 48 and plateStack._h == 12, "stacks sized independently")
+bars.combo.regular = false
+bars.health.nameplate = true
+fire("PLAYER_TARGET_CHANGED")
+assert(not fr.combo:IsShown() and pf.combo:IsShown() and pf.health:IsShown(), "nameplate only")
+assert(ComboPointDisplayFrame._h == 34 and plateStack._h == 32, "plate stack: 18 + 2 + 12")
+fire("UNIT_POWER_FREQUENT"); fire("UNIT_HEALTH")
+assert(pf.combo.segs[3]._value == SECRET, "plate bars get values")
+bars.combo.nameplate = false
+fire("PLAYER_TARGET_CHANGED")
+assert(not fr.combo:IsShown() and not pf.combo:IsShown(), "neither")
 S.plate = nil; fire("NAME_PLATE_UNIT_REMOVED")
-assert(not fr.combo:IsShown() and fr.combo._parent == ComboPointDisplayFrame, "back off the plate")
+assert(not plateStack:IsShown() and not pf.health:IsShown() and plateStack._parent == ComboPointDisplayFrame, "plate gone")
+bars.combo.regular, bars.health.nameplate = true, false
 
 -- Minimap icon: dragging moves it around the minimap
 local mini = ComboPointDisplayMinimapButton

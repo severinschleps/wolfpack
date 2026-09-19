@@ -19,7 +19,7 @@ local TEXTURES = {
 
 local function barDefaults(height, r, g, b, text)
     return {
-        enabled = true, width = 220, height = height, texture = TEXTURES[1][2],
+        regular = true, nameplate = false, width = 220, height = height, texture = TEXTURES[1][2],
         color = { r, g, b, 1 }, gradient = false, color2 = { r * 0.4, g * 0.4, b * 0.4, 1 },
         vertical = false, text = text,
     }
@@ -36,7 +36,6 @@ local DEFAULTS = {
     },
 }
 DEFAULTS.bars.power.powerColor = true
-DEFAULTS.bars.combo.nameplate = false
 
 local function merge(dst, src)
     for k, v in pairs(src) do
@@ -152,9 +151,20 @@ mover:SetScript("OnMouseUp", function(_, button)
     if button == "RightButton" then ns.ToggleConfig() end
 end)
 
+-- Every bar exists twice: in the regular stack and in a second stack under the target nameplate.
+local plateAnchor = CreateFrame("Frame", nil, anchor)
+local plateFrames = {}
+ns.plateFrames = plateFrames
+
+local function newBar(parent, key)
+    local f = CreateFrame("Frame", nil, parent)
+    f.key, f.segs = key, {}
+    return f
+end
+
 for key in pairs(BARS) do
-    frames[key] = CreateFrame("Frame", nil, anchor)
-    frames[key].key, frames[key].segs = key, {}
+    frames[key] = newBar(anchor, key)
+    plateFrames[key] = newBar(plateAnchor, key)
 end
 
 local function paint(s, c, r, g, b)
@@ -226,31 +236,38 @@ local function targetPlate()
     if ok and p and not (p.IsForbidden and p:IsForbidden()) then return p end
 end
 
-local function Refresh()
+-- Lays out one stack: bars whose `flag` setting is on, in the chosen order, touching with db.gap.
+local function stack(container, set, flag, on)
     local prev, w, h = nil, 20, 0
     for _, key in ipairs(db.order) do
-        local f, c = frames[key], db.bars[key]
+        local f, c = set[key], db.bars[key]
         local shown, n = BARS[key].state()
-        local plate = key == "combo" and c.nameplate and targetPlate()
-        shown = (shown and c.enabled and (plate or not c.nameplate)) and true or false
-        f:SetParent(plate or anchor)
+        shown = (on and shown and c[flag]) and true or false
         f:SetShown(shown)
         if shown then
             layoutBar(f, n)
             fill(f)
             f:ClearAllPoints()
-            if plate then
-                -- ponytail: fixed spot under the nameplate; add x/y offsets if it collides with a plate addon
-                f:SetPoint("TOP", plate, "BOTTOM", 0, -2)
-            else
-                if prev then f:SetPoint("TOP", prev, "BOTTOM", 0, -db.gap) else f:SetPoint("TOP") end
-                h = h + c.height + (prev and db.gap or 0)
-                w = math.max(w, c.width)
-                prev = f
-            end
+            if prev then f:SetPoint("TOP", prev, "BOTTOM", 0, -db.gap) else f:SetPoint("TOP") end
+            h = h + c.height + (prev and db.gap or 0)
+            w = math.max(w, c.width)
+            prev = f
         end
     end
-    anchor:SetSize(w, math.max(h, 10))
+    container:SetSize(w, math.max(h, 10))
+end
+
+local function Refresh()
+    stack(anchor, frames, "regular", true)
+    local plate = targetPlate()
+    plateAnchor:SetParent(plate or anchor)
+    plateAnchor:SetShown(plate ~= nil)
+    if plate then
+        plateAnchor:ClearAllPoints()
+        -- ponytail: fixed spot under the nameplate; add x/y offsets if it collides with a plate addon
+        plateAnchor:SetPoint("TOP", plate, "BOTTOM", 0, -2)
+    end
+    stack(plateAnchor, plateFrames, "nameplate", plate ~= nil)
     mover:SetShown(not db.locked)
     moverHint:SetFormattedText(HINT, db.x, db.y)
 end
@@ -520,7 +537,8 @@ local function buildConfig()
     slider(cfg, "Y (down / up)", 16, -402, -yr, yr, function() return db.y end, function(v) db.y = v; place() end)
     local lock = button(cfg, "", 96, 16, -448, function() db.locked = not db.locked; changed() end)
     onRefresh(function() lock:SetText(db.locked and "Unlock" or "Lock") end)
-    local help = label(cfg, "Texture button: left-click next, right-click previous.\nMouse wheel on a slider changes it by 1.",
+    local help = label(cfg, "Texture button: left-click next, right-click previous.\nMouse wheel on a slider changes it by 1.\n"
+        .. "Nameplate bars need enemy nameplates on (V key).",
         "GameFontDisableSmall")
     help:SetPoint("TOPLEFT", 16, -486)
     help:SetJustifyH("LEFT")
@@ -530,35 +548,33 @@ local function buildConfig()
     local header = label(cfg, "", "GameFontNormal")
     header:SetPoint("TOPLEFT", X, -34)
     onRefresh(function()
-        local hidden = frames[selected]:IsShown() and "" or " |cff888888(hidden now)|r"
-        header:SetText(BARS[selected].label .. hidden)
+        local shown = frames[selected]:IsShown() or plateFrames[selected]:IsShown()
+        header:SetText(BARS[selected].label .. (shown and "" or " |cff888888(hidden now)|r"))
     end)
-    check(cfg, "Enabled", X, -52, function() return cur().enabled end, function(v) cur().enabled = v end)
-    slider(cfg, "Width", X, -84, 10, 600, function() return cur().width end, function(v) cur().width = v end)
-    slider(cfg, "Height", X, -126, 2, 100, function() return cur().height end, function(v) cur().height = v end)
-    local tex = button(cfg, "", 200, X, -172, function(_, btn)
+    check(cfg, "Show regular", X, -52, function() return cur().regular end, function(v) cur().regular = v end)
+    check(cfg, "Show on target nameplate", X, -74,
+        function() return cur().nameplate end, function(v) cur().nameplate = v end)
+    slider(cfg, "Width", X, -106, 10, 600, function() return cur().width end, function(v) cur().width = v end)
+    slider(cfg, "Height", X, -148, 2, 100, function() return cur().height end, function(v) cur().height = v end)
+    local tex = button(cfg, "", 200, X, -194, function(_, btn)
         local d = btn == "RightButton" and -1 or 1
         cur().texture = TEXTURES[(texIndex() - 1 + d) % #TEXTURES + 1][2]
         changed()
     end)
     onRefresh(function() tex:SetText("Texture: " .. TEXTURES[texIndex()][1]) end)
-    swatch(cfg, "Bar color", X, -202, function() return cur().color end)
+    swatch(cfg, "Bar color", X, -224, function() return cur().color end)
 
-    -- Bar-specific options share the row under the color swatch
-    local powerColor = check(cfg, "Use power type color", X, -226,
+    local powerColor = check(cfg, "Use power type color", X, -248,
         function() return cur().powerColor end, function(v) cur().powerColor = v end)
-    local plate = check(cfg, "Show on target nameplate", X, -226,
-        function() return cur().nameplate end, function(v) cur().nameplate = v end)
-    local text = check(cfg, "Show text", X, -250, function() return cur().text end, function(v) cur().text = v end)
+    local text = check(cfg, "Show text", X, -272, function() return cur().text end, function(v) cur().text = v end)
     onRefresh(function()
         powerColor:SetShown(selected == "power")
-        plate:SetShown(selected == "combo")
         text:SetShown(selected ~= "combo")
     end)
 
-    check(cfg, "Gradient", X, -280, function() return cur().gradient end, function(v) cur().gradient = v end)
-    local c2 = swatch(cfg, "Gradient end color", X, -306, function() return cur().color2 end)
-    local dir = button(cfg, "", 200, X, -334, function() cur().vertical = not cur().vertical; changed() end)
+    check(cfg, "Gradient", X, -302, function() return cur().gradient end, function(v) cur().gradient = v end)
+    local c2 = swatch(cfg, "Gradient end color", X, -328, function() return cur().color2 end)
+    local dir = button(cfg, "", 200, X, -356, function() cur().vertical = not cur().vertical; changed() end)
     onRefresh(function()
         c2:SetShown(cur().gradient)
         dir:SetShown(cur().gradient)
@@ -642,8 +658,9 @@ end
 
 local function fillShown(...)
     for i = 1, select("#", ...) do
-        local f = frames[select(i, ...)]
-        if f:IsShown() then safe(fill, f) end
+        local key = select(i, ...)
+        if frames[key]:IsShown() then safe(fill, frames[key]) end
+        if plateFrames[key]:IsShown() then safe(fill, plateFrames[key]) end
     end
 end
 
