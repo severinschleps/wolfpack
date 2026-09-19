@@ -50,6 +50,8 @@ function M:GetWidth() return self._w or 140 end
 function M:GetHeight() return self._h or 100 end
 function M:SetAttribute(k, v) self._attr = self._attr or {}; self._attr[k] = v end
 function M:GetUnboundedStringWidth() return 50 end
+function M:GetNumPoints() return self._point and 1 or 0 end
+function M:GetPoint() return unpack(self._point) end
 function M:SetupMenu(gen) self._gen = gen end
 function M:GenerateMenu() -- records the dropdown's radio items
     local root = { items = {} }
@@ -86,7 +88,13 @@ StaticPopupDialogs = {}
 StaticPopup_Show = function(which, _, _, data) StaticPopupDialogs[which].OnAccept(nil, data) end -- clicks Yes
 UnitName = function() return S.name end
 InCombatLockdown = function() return S.combat end
-MainActionBar = { EndCaps = { LeftEndCap = { Texture = new() }, RightEndCap = { Texture = new() } } }
+MainActionBar = new()
+MainActionBar.EndCaps = { LeftEndCap = { Texture = new() }, RightEndCap = { Texture = new() } }
+BagsBar = new()
+BagsBar._parent = UIParent
+BagsBar:SetPoint("TOPRIGHT", "MicroButtonAndBagsBar", "TOPRIGHT", 0, 0)
+ContainerFrameCombinedBags, ContainerFrame1 = new(), new()
+ContainerFrameCombinedBags._shown, ContainerFrame1._shown = false, false
 S.calls = {}
 local function record(name) return function() S.calls[#S.calls + 1] = name end end
 AcceptQuest, ConfirmAcceptQuest = record("accept"), record("confirm")
@@ -134,7 +142,8 @@ C_EncodingUtil = {
     DecodeBase64 = function(str) return str:sub(2) end,
 }
 C_EditMode = { ConvertLayoutInfoToString = function(info) return "EDITMODE:" .. info.layoutName end }
-EditModeManagerFrame = { GetActiveLayoutInfo = function() return { layoutName = "MyLayout" } end }
+EditModeManagerFrame = { GetActiveLayoutInfo = function() return { layoutName = "MyLayout" } end,
+    IsEditModeActive = function() return S.editMode end }
 ChatFontNormal = new()
 PlayerFrame = new()
 PlayerFrame._parent = UIParent
@@ -645,6 +654,39 @@ assert(calls() == "reward1", "single reward taken; choice, gold cost and unfinis
 S.shift = true; fire("GOSSIP_SHOW"); fire("QUEST_COMPLETE"); S.shift = false
 assert(calls() == "", "shift skips")
 prof().other.autoComplete = false
+
+-- Show on mouseover: alpha fades toward 1 while hovered (0.2 s), 0 otherwise; Edit Mode shows all
+local oth = prof().other
+assert(not ns.hoverTicker._scripts.OnUpdate, "no polling by default")
+oth.hover.bar1 = true; fire("UNIT_MAXPOWER")
+local tick = ns.hoverTicker._scripts.OnUpdate
+S.mouseOver = false; tick(nil, 1)
+assert(MainActionBar._alpha == 0, "hidden")
+S.mouseOver = true; tick(nil, 0.1)
+assert(MainActionBar._alpha == 0.5, "fading in")
+tick(nil, 1)
+assert(MainActionBar._alpha == 1, "shown on hover")
+S.mouseOver, S.editMode = false, true; tick(nil, 1)
+assert(MainActionBar._alpha == 1, "Edit Mode shows everything")
+S.editMode = false
+oth.hover.bar1 = nil; fire("UNIT_MAXPOWER")
+assert(MainActionBar._alpha == 1 and not ns.hoverTicker._scripts.OnUpdate, "off: back to normal, no polling")
+
+-- Bag bar only while bags are open: parked, attached above combined bags / beside the backpack,
+-- restored to its Edit Mode spot when turned off; untouched until used
+assert(BagsBar._parent == UIParent and not ContainerFrame1._scripts.OnShow, "untouched by default")
+oth.bagsOnOpen = true; fire("UNIT_MAXPOWER")
+assert(BagsBar._parent == hider, "bags closed: hidden")
+ContainerFrameCombinedBags._shown = true; ContainerFrameCombinedBags._scripts.OnShow()
+local bb = BagsBar._point
+assert(BagsBar._parent == UIParent and bb[1] == "BOTTOMRIGHT" and bb[2] == ContainerFrameCombinedBags and bb[3] == "TOPRIGHT", "above combined bags")
+ContainerFrameCombinedBags._shown = false; ContainerFrameCombinedBags._scripts.OnHide()
+assert(BagsBar._parent == hider, "closed again")
+ContainerFrame1._shown = true; ContainerFrame1._scripts.OnShow()
+assert(BagsBar._point[2] == ContainerFrame1 and BagsBar._point[3] == "BOTTOMLEFT", "beside the backpack")
+ContainerFrame1._shown = false; ContainerFrame1._scripts.OnHide()
+oth.bagsOnOpen = false; fire("UNIT_MAXPOWER")
+assert(BagsBar._parent == UIParent and BagsBar._point[2] == "MicroButtonAndBagsBar", "restored")
 
 -- Export / import: round trip into a new profile; Edit Mode layout only when asked for
 local exp = ns.exportString(false)

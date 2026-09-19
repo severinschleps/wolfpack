@@ -74,7 +74,11 @@ local DEFAULTS = {
         kill = { show = true, icon = 131013, size = 20 },
         loot = { show = true, icon = 131023, size = 20 },
     },
-    other = { hideGryphons = false, autoAccept = false, autoComplete = false },
+    other = {
+        hideGryphons = false, autoAccept = false, autoComplete = false,
+        hover = {},         -- [key from HOVER_FRAMES] = true: that Blizzard element shows only on mouseover
+        bagsOnOpen = false, -- bag bar only while bags are open, attached to them
+    },
 }
 
 DEFAULTS.regular.bars.health.target = false -- target health bar right of it (Combat Display only)
@@ -708,6 +712,93 @@ end
 -- IsMouseOver works without EnableMouse, so the highlight never blocks clicks.
 local function checkHover() setHover(anchor:IsMouseOver()) end
 
+-- Blizzard UI elements that can show only on mouseover. Protected bars may not be hidden in
+-- combat, but their alpha may change: invisible, still clickable, keybinds still work.
+local HOVER_FRAMES = {
+    { "bar1", "Action bar 1", "MainActionBar" }, { "bar2", "Action bar 2", "MultiBarBottomLeft" },
+    { "bar3", "Action bar 3", "MultiBarBottomRight" }, { "bar4", "Action bar 4", "MultiBarRight" },
+    { "bar5", "Action bar 5", "MultiBarLeft" }, { "bar6", "Action bar 6", "MultiBar5" },
+    { "bar7", "Action bar 7", "MultiBar6" }, { "bar8", "Action bar 8", "MultiBar7" },
+    { "stance", "Stance bar", "StanceBar" }, { "pet", "Pet bar", "PetActionBar" },
+    { "micro", "Micro menu", "MicroMenuContainer" }, { "bags", "Bag bar", "BagsBar" },
+}
+local FADE_TIME = 0.2
+local faded = {} -- frame -> alpha we set
+
+local hoverTicker = CreateFrame("Frame")
+ns.hoverTicker = hoverTicker
+local function hoverTick(_, elapsed)
+    local editing = EditModeManagerFrame and EditModeManagerFrame:IsEditModeActive()
+    local step = math.min(elapsed / FADE_TIME, 1)
+    for _, e in ipairs(HOVER_FRAMES) do
+        local f = _G[e[3]]
+        if f and db.other.hover[e[1]] then
+            local want = (editing or f:IsMouseOver()) and 1 or 0
+            local a = faded[f] or f:GetAlpha()
+            a = a + math.max(-step, math.min(step, want - a))
+            f:SetAlpha(a)
+            faded[f] = a
+        elseif f and faded[f] then -- option turned off: back to normal
+            f:SetAlpha(1)
+            faded[f] = nil
+        end
+    end
+end
+
+local function syncHover()
+    local any = false
+    for _, e in ipairs(HOVER_FRAMES) do any = any or db.other.hover[e[1]] or false end
+    if any or next(faded) then
+        hoverTicker:SetScript("OnUpdate", hoverTick)
+        if not any then hoverTick(nil, 0); hoverTicker:SetScript("OnUpdate", nil) end
+    end
+end
+
+-- Bag bar only while bags are open, attached to them. Parked under the hidden frame otherwise
+-- (so Blizzard showing it doesn't reveal it); its Edit Mode spot is restored when turned off.
+local bagsHooked, bagsParked, bagsSaved
+
+local function openBagFrame()
+    for _, f in ipairs({ ContainerFrameCombinedBags, ContainerFrame1 }) do
+        if f and f:IsShown() then return f end
+    end
+end
+
+local function syncBags()
+    local bar = BagsBar
+    local on = db.other.bagsOnOpen
+    if not bar or not (on or bagsSaved) then return end
+    if not bagsSaved then -- first use: remember where Edit Mode put it
+        bagsSaved = { parent = bar:GetParent() }
+        for i = 1, bar:GetNumPoints() do bagsSaved[i] = { bar:GetPoint(i) } end
+    end
+    if not bagsHooked then
+        for _, f in ipairs({ ContainerFrameCombinedBags, ContainerFrame1 }) do
+            if f then
+                f:HookScript("OnShow", function() syncBags() end)
+                f:HookScript("OnHide", function() syncBags() end)
+            end
+        end
+        bagsHooked = true
+    end
+    local bags = on and openBagFrame()
+    bar:ClearAllPoints()
+    if bags then
+        bar:SetParent(bagsSaved.parent)
+        if bags == ContainerFrameCombinedBags then
+            bar:SetPoint("BOTTOMRIGHT", bags, "TOPRIGHT", 0, 4)
+        else -- separate bags stack upward from the backpack, so go beside it
+            bar:SetPoint("BOTTOMRIGHT", bags, "BOTTOMLEFT", -6, 0)
+        end
+    elseif on then
+        bar:SetParent(hider)
+    else -- turned off: back to the Edit Mode spot
+        bar:SetParent(bagsSaved.parent)
+        for _, pt in ipairs(bagsSaved) do bar:SetPoint(unpack(pt)) end
+        bagsSaved = nil
+    end
+end
+
 local function Refresh()
     local health = frames.health
     health.split = (db.regular.bars.health.target and UnitExists("target")) and true or false
@@ -733,6 +824,8 @@ local function Refresh()
     syncProtected()
     syncGryphons()
     syncCombatIcon()
+    syncHover()
+    syncBags()
     anchor:SetScript("OnUpdate", db.regular.highlight.show and checkHover or nil)
     if not db.regular.highlight.show then setHover(false) end
 end
@@ -1420,6 +1513,20 @@ local function buildConfig()
     hint:SetPoint("TOPLEFT", X2, -274)
     hint:SetWidth(300)
     hint:SetJustifyH("LEFT")
+
+    label(otherPage, "Show only on mouseover (Blizzard UI)", "GameFontNormal"):SetPoint("TOPLEFT", X2, -318)
+    for i, e in ipairs(HOVER_FRAMES) do
+        local col, row = (i - 1) % 2, math.floor((i - 1) / 2)
+        check(otherPage, e[2], X2 + col * 160, -336 - row * 22,
+            function() return db.other.hover[e[1]] end, function(v) db.other.hover[e[1]] = v or nil end)
+    end
+    check(otherPage, "Bag bar only while bags are open", X2, -478,
+        function() return db.other.bagsOnOpen end, function(v) db.other.bagsOnOpen = v end)
+    local bagNote = label(otherPage, "It attaches above the bags (beside the backpack with separate bags). "
+        .. "Everything shows while Edit Mode is open.", "GameFontDisableSmall")
+    bagNote:SetPoint("TOPLEFT", X2 + 26, -502)
+    bagNote:SetWidth(290)
+    bagNote:SetJustifyH("LEFT")
 end
 
 function ns.ToggleConfig()
