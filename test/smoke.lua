@@ -730,6 +730,10 @@ nameBox._text = "  PvP "; nameBox._scripts.OnEnterPressed(nameBox)
 assert(store.profiles.PvP and store.profiles.PvP.regular.gap == 30 and prof() == store.profiles.PvP, "create copies + switches")
 prof().regular.gap = 5
 assert(store.profiles.Rogue.regular.gap == 30, "profiles are independent")
+-- a name that is taken gets a number instead of switching to the old one
+nameBox._text = "PvP"; nameBox._scripts.OnEnterPressed(nameBox)
+assert(store.profiles["PvP 2"] and prof() == store.profiles["PvP 2"], "same name again: PvP 2")
+store.profiles["PvP 2"], store.chars[S.name .. " - Realm"] = nil, "PvP"
 local dds = {} -- profile, texture, bar color, border color, radius, font, kill icon, loot icon, combat icon, attach
 for _, f in ipairs(created) do if f._gen then dds[#dds + 1] = f end end
 local dd = dds[1]

@@ -62,7 +62,7 @@ ns.COMBAT_FONTS = COMBAT_FONTS
 
 -- The layout new profiles start from: an export string, read through the same checks as one you
 -- paste in. `decodeExport` is defined with the import code; until then DEFAULTS are used.
-local DEFAULT_PROFILE = "WPA1:7VldaBxFHN8LVkoQBcnDNUiwD0IfbB78gDy0WS+3e5s9U/N1wSgHZXI7d7dkb2c7O9vrBYUqii9i3wRFoUlbi4IVQTC+SIjYWlT8qCKCL74opT7eFLN50Jndvb3L3l3ugxQkdh8uk7nZ/8z8fv/5/X+TXFAsjPK6AS+pJihBywAEvpeoHE6cEWSENYhfky1UhjhVhMAgRTmHSktI1bCjayVgAiUHbLIEsGpBEoywy7pZkFiffdlvrw+nMDALUKtO5pFJ5vUVOJhe8oKfQBpM5RyboBKLbCD8yrZ48y3+vN3QuPW498SUpULSGyQIwtaYEMTg8YSn/Xb4dUy1gDaBCAssyCy8Zb+81sUMSQvZQn3gTyu/K1eGXmxo/Lx5LnuEfuENjGsKgWeIg+HiI6pJIM6DHMxmAC5AwrbNNl2C2QX16DwBxLEnGEhe3IY9syGa7tiCqukY5oiOTBnrhSJRkEMM3YTVREWQ+BzVJMrnq3JZ10gxbqbY3jLIEiQO51yKfdjZ1Jz6/Gzm5MnRTCYllYBuUsYgI42HOzBZ4BNBk1Qlu4jKVZXH9LGKsSfg9tNw2uh6mhC83oRg0BNF8BMPuBcaEAx6AgS7iLgL6w0kh1QM16mYcNhXpp19dlLNyGOLYwHcB5uTJUpMc3r6NDA+AhJer5HAYK6ndTtGAiLujRBBI0T4R61rHmJh4m6Ln7XG/9camkHibosXW+EvuOLh1bXYfsL6ng5Y1xWrh7y/UYP7j7z3hD1R3D9fn7316sj6tvgD/zH7V9gTzfv2EXvkojsJqinOXtBi9kNLJy2qFZT1Qz2cggA7oW32BywIO9FvfLM7tCU9h0zaI+aT/KV5XYOSAfOkLQPNgNfUn/pIdSv/dS7qJeBgHfYmpqMHIyzu/RSE377hz7extoXg2uBx68IvgyE5bQtBGGl/HoSoPkUPgu+0eqkFN7qtBaE4tawFrSLtTwqi5ThKQbIArAGpgFFZ0lDZVDAsOAbAH9a7pplfrvCFOTZEpyGmapEFNnjwNb/q1ECNxbaeaOmoG5xzxFv77rkmiHwxBxKVsS22wyl/Wh9bOl1k2jLj9Xgg0zQPBAiD0WRWnkESf5NlS8WAMiAGsCWbYRMf8deXZKGDlfzPPPsu5qWdUY8/3JNTPxR7tFerPtDBtQRUrcfb6sIuLPXjsQd2sOSOnz37Usz/TBEv/aq9uMHdGN6zO0UTexGxaKClF7WIH/kPu/fRKx/tLJSu+OAHHzfyuCf+3RXvf+OcK858/2PXIk074f6Ah/vik/W1JDRtmi8FGXkL5JbZr8jM+rwk8Gl0dM7X4VFC8jVuhveT23fFxxae22vu3PGrV79yxcKfN71WH0W2z3NzsAM1zY6f3jHH7x57amPTHb99+2/3+MbGZgT1kYXFNqh7vr8rpWtp9iNMHDt/ftUV1etfu+MPvfNuR+NPW1eTPk9MyNtQveo0Stvd68Eee9M+j03HvxXdvR/ccQ7u68BBOrD/0HToDHfhE4a+spL09YymDJRbhhqVTznQJpc8Jy5Iy7phXAzvBo7JDjmXjGEh9s+XnjMfUmx2hhkiA5KBEGkz9jt/rIxYWcOX5SK/fazKJT2HEZ0CDkFJVLIMSCBVSrqpl4D1fso+5QAMqUQwqNCUjxn1lzXFVy+ByjN823SKj/D2ArBGFd3Mowm+oUDNvMEKrlhFpnw0vQQK9jS7CkGTpvnMiVwOWoRO2tAw0o65XLuPcJgXla5EK+m9kJ2BmAkNg/8EwMsQN8qYxP9bIScMqwj+BQ=="
+local DEFAULT_PROFILE = "WPA1:7VldaBxFHN8LVkoQBcnDNUiwD0IfbB78gDy0WS+3e5s9U/N1wSgHZXI7d7dkb2Y7O9vrBYUqii9i3wRFoUlbi4IVQTC+SIjYWlT8qCKCL74opT7eFrN50Jndvb3L3l3ugxQkdh8uk7nZ/8z8fv/5/X+TXFBMgvO6AS+pCJSgaQAK30tUDifOCDImGiSvySYuQ5IqQmDQopzDpSWsasTWtRJAQMkBiy4BopqQBiOsso4KEuuzLvvt9eEUAagAtepkHiM6r6/AwfSSF/wE1mAqZ1sUl1hkA5NXtsWbb/Hn7YbGrce9J6YsFZLeIEEQtsaEIAaPJzztt8OvY6oJtAlMWWBBZuFN6+W1LmZImtgS6gN/WvlduTL0YkPj581z2SPOF97AuKZQeIbaBC4+oiIKSR7kYDYDSAFStm226RLMLqhH5ymgtjXBQPLiNuyZDdF02xJUTScwR3WMZKIXilTBNjV0BKuJiiDxOapJnM9X5bKu0WIcpdjeMtgUJA7nXIp9WNnUnPr8bObkydFMJiWVgI4cxiAjjYc7MFngE0FEq5JVxOWqymP6WMXYE3D7aThtdD1NCF5vQjDoiSL4iQfcCw0IBj0Bgl1E3IX1BpJDKobrVEzY7CtkZZ+dVDPy2OJYAPfB5mSJEtOcnj4NjI+AhNdrJDCY62ndjpGAiHsjRDgRIvyj1jUPsTBxt8XPWuP/aw3NIHG3xYut8Bdc8fDqWmw/YX1PB6zritVD3t+owf1H3nvCnijun6/P3np1ZH1b/IH/mP0r7InmffuIPXLRnQTVFGcvaEH90NJJi2oFZf1QD6cgwE5om/0BC8JO9Bvf7A5tSc9h5PSI+SR/aV7XoGTAPG3LQDPgNfV3fKS6lf86F/UScLAOexPT0YMRFvd+CsJv3/Dn21jbQnBt8Lh54ZfBkJy2hSCMtD8PQlSfogfBd1q91IIb3daCUJxa1oJWkfYnBdFyHKUgWQDmgFQguCxpuIwUAgu2AciH9a5p5pcrfGG2BfFpSBy1yAIbPPiaX3VqoMZiW0+0dNQNzjnirX33XBNEvpgDicrYFtvhlD+tj60zXWTaMuP1eCA7aR4IUAYjYlaeQRJ/k2VLxYAyoAawJIthEx/x15dkoYOV/M88+y7mpZ1Rjz/ck1M/FHu0V6s+0MG1BFStx9vqwi4s9eOxB3aw5I6fPftSzP9MUS/9qr24wd0Y3rM7RRN7EbFooKUXtYgf+Q+799ErH+0slK744AcfN/K4J/7dFe9/45wrznz/Y9ci7XTC/QEP98Un62tJaNo0Xwo28ibILbNfMcr6vCTIaXx0ztfhUUrzNW6G95Pbd8XHFp7ba+7c8atXv3LFwp83vVYfRbbPc3OwAzXNjt+5Y47fPfbUxqY7fvv23+7xjY3NCOojC4ttUPd8f1dK19LsR5g4dv78qiuq1792xx96592Oxt9pXU36PDEhb0P1qtMobXevB3vsTfs8Nh3/VnT3fnDHObivAwfpwP5DZDsz3IVPGPrKStLXMydl4Nwy1Bz5lA0teslz4oK0rBvGxfBuYCN2yLlkDAuxf770nPmQYrEzzBAZkAyMaZux3/ljZczKGrksF/ntY1Uu6TmCnSlgU5zEJdOAFDpKSUd6CZjvp6xTNiDQkSgBFSflY1b1lzXFVy+ByjN8284UH+HtBRDNUXSUxxN8Q4GaeYMVUjGLTPmc9BIoWNPsKgSRk+YzJ3I5aFJn0oKGkbbRcu0+wmFeVLoSraT3QnYGEiY0DP4TgCxD0ihjEv9vhZwwzCL4Fw=="
 -- Ready-made profiles, listed in the profile dropdown even before they exist.
 local PRESETS = { { "Alpha", DEFAULT_PROFILE } }
 local decodeExport
@@ -1727,11 +1727,21 @@ local function profileNames()
     return names
 end
 
--- New profiles start as a copy of the current one; an existing name just switches to it.
+-- A name nobody is using yet: "Alpha", then "Alpha 2", "Alpha 3"...
+local function freeName(base)
+    local name, n = base, 2
+    while store.profiles[name] do
+        name, n = base .. " " .. n, n + 1
+    end
+    return name
+end
+
+-- New profiles start as a copy of the current one; a name already taken gets a number.
 local function createProfile(name)
     name = strtrim(name or "")
     if name == "" then return end
-    if not store.profiles[name] then store.profiles[name] = merge({}, db) end
+    name = freeName(name)
+    store.profiles[name] = merge({}, db)
     useProfile(name)
 end
 
@@ -1846,8 +1856,7 @@ local function importString(text)
     end
     local base = type(data.name) == "string" and strtrim(data.name):sub(1, 32) or ""
     if base == "" then base = "Imported" end
-    local name, n = base, 2
-    while store.profiles[name] do name, n = base .. " " .. n, n + 1 end
+    local name = freeName(base)
     store.profiles[name] = sanitize(data.profile, DEFAULTS)
     for _, f in ipairs(COMBAT_FONTS) do
         if data.combatFont == f[2] and f[2] ~= "" then store.combatFont = f[2] end
