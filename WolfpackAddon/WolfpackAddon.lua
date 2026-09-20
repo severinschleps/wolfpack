@@ -123,10 +123,11 @@ local function totemDuration(slot)
     if ok then return d end
 end
 
-local function layoutDefaults(show, x, y, gap, width, h1, h2, h3, h4, h5, h6, h7, h8)
+local function layoutDefaults(show, x, y, gap, width, h1, h2, h3, h4, h5, h6, h7, h8, h9)
     local l = {
         x = x, y = y, gap = gap, grow = "down", -- "up": the group's bottom edge stays put instead
-        order = { "health", "power", "combo", "druidmana", "castbar", "pethealth", "swing", "totems" },
+        order = { "health", "power", "combo", "druidmana", "castbar", "pethealth", "swing", "totems",
+            "absorb" },
         bars = {
             health = barDefaults(show, width, h1, 0.2, 0.8, 0.2, show),
             power = barDefaults(show, width, h2, 1, 0.85, 0.1, show),
@@ -136,6 +137,7 @@ local function layoutDefaults(show, x, y, gap, width, h1, h2, h3, h4, h5, h6, h7
             pethealth = barDefaults(show, width, h6, 0.3, 0.7, 0.3, show),
             swing = barDefaults(show, width, h7, 0.8, 0.8, 0.85, show), -- text = seconds left
             totems = barDefaults(show, width, h8, 0.6, 0.6, 0.6, false), -- colored per element instead
+            absorb = barDefaults(false, width, h9, 0.9, 0.9, 0.7, true), -- text = points left
         },
     }
     l.bars.power.colorMode = "power"
@@ -151,8 +153,8 @@ end
 -- top-right corner plus x/y. Icons are file IDs.
 local DEFAULTS = {
     locked = true,
-    regular = layoutDefaults(true, 0, -120, 2, 220, 18, 14, 12, 6, 14, 10, 10, 10),
-    nameplate = layoutDefaults(false, 0, -2, 1, 110, 8, 6, 6, 4, 8, 5, 5, 5),
+    regular = layoutDefaults(true, 0, -120, 2, 220, 18, 14, 12, 6, 14, 10, 10, 10, 10),
+    nameplate = layoutDefaults(false, 0, -2, 1, 110, 8, 6, 6, 4, 8, 5, 5, 5, 5),
     quest = {
         x = 0, y = 0, spacing = 2,
         kill = { show = true, icon = 131013, size = 20, count = false },
@@ -252,6 +254,16 @@ local BARS = {
         -- the bars are unlocked or the options are open, for placing it.
         state = function()
             return (ns.previewing() or UnitCastingInfo("player") or UnitChannelInfo("player")) and true or false, 1
+        end,
+    },
+    absorb = {
+        label = "Shield",
+        -- How much damage the absorb shields still swallow, scaled against max health. The amount
+        -- is secret like health is, so it only ever goes into the bar and the text.
+        state = function() return true, 1 end,
+        value = function(unit)
+            local ok, points = pcall(UnitGetTotalAbsorbs, unit)
+            return ok and points or 0, UnitHealthMax(unit)
         end,
     },
     totems = {
@@ -2373,6 +2385,7 @@ local function buildConfig()
     local totemRows = {}
     local function moveTotem(i, d)
         local s, j = cur().slots, i + d
+        if not s then return end -- another bar is selected; these rows are hidden
         if s[j] then
             s[i], s[j] = s[j], s[i]
             changed()
@@ -2930,6 +2943,7 @@ ev:SetScript("OnEvent", function(_, event, unit, arg2, arg3)
         end
         listen("UNIT_HEALTH", "player", "target")
         listen("UNIT_MAXHEALTH", "player", "target")
+        listen("UNIT_ABSORB_AMOUNT_CHANGED", "player")
         listen("UNIT_PET", "player") -- pet summoned, dismissed or swapped
         pcall(petEv.RegisterUnitEvent, petEv, "UNIT_HEALTH", "pet")
         pcall(petEv.RegisterUnitEvent, petEv, "UNIT_MAXHEALTH", "pet")
@@ -2947,8 +2961,11 @@ ev:SetScript("OnEvent", function(_, event, unit, arg2, arg3)
         local mine = store.chars[charKey]
         useProfile(store.profiles[mine or ""] and mine or classProfile)
         placeMini()
+    elseif event == "UNIT_ABSORB_AMOUNT_CHANGED" then
+        fillShown("absorb")
     elseif event == "UNIT_HEALTH" then
         fillShown("health", "pethealth")
+        fillShown("absorb") -- max health scales it
         if targetFrame:IsShown() then safe(fill, targetFrame) end
     elseif event == "UNIT_POWER_FREQUENT" then
         fillShown("power", "combo", "druidmana")

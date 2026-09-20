@@ -170,6 +170,7 @@ C_Spell = { GetSpellPowerCost = function(id) return S.costs and S.costs[id] or {
 GetTotemDuration = function(slot)
     return setmetatable({ slot = slot }, { __index = function() error("read a secret duration") end })
 end
+UnitGetTotalAbsorbs = function(unit) return unit == "player" and (S.absorb or 0) or 0 end
 UnitCastingInfo = function() if S.cast then return S.cast, "", 136116 end end
 UnitChannelInfo = function() if S.channel then return S.channel, "", 136197 end end
 UnitCastingDuration = function() return S.cast and "castDuration" end
@@ -1103,7 +1104,7 @@ assert(#bad == 32 and bp.evil == nil and bp.locked == true, "unknown key dropped
 assert(bp.other.hover.bar1 and bp.other.hover.nope == nil and bp.other.hover.bar2 == nil, "hover: known and true only")
 assert(WolfpackAddonDB.combatFont == ns.COMBAT_FONTS[4][2], "unknown combat font path refused")
 assert(bp.regular.gap == 2 and bp.regular.x == 0, "out-of-range numbers defaulted")
-assert(bp.regular.order[1] == "health" and bp.regular.order[2] == "castbar" and #bp.regular.order == 8, "order repaired")
+assert(bp.regular.order[1] == "health" and bp.regular.order[2] == "castbar" and #bp.regular.order == 9, "order repaired")
 local ns2 = bp.nameplate.bars.power.stops
 assert(#ns2 == 2 and ns2[1].pos == 10 and ns2[2].pos == 90 and ns2[1].color[1] == 1, "gradient points checked")
 local hb2 = bp.regular.bars.health
@@ -1190,7 +1191,7 @@ for _, m in ipairs({ "regular", "nameplate" }) do
     local seen = {}
     for _, k in ipairs(prof()[m].order) do seen[k] = true end
     assert(seen.health and seen.power and seen.combo and seen.druidmana and seen.castbar and seen.pethealth
-        and seen.swing and seen.totems and #prof()[m].order == 8, "order intact")
+        and seen.swing and seen.totems and seen.absorb and #prof()[m].order == 9, "order intact")
 end
 
 -- Totems: four element segments, each draining on its own; the bar is shaman-only and
@@ -1249,6 +1250,18 @@ login("ROGUE", 3)
 prof().other.fsr.show = true
 fire("UNIT_SPELLCAST_START", "player", "cast5", 133)
 assert(not ns.fsr.frame:IsShown(), "no mana, no spinner")
+
+-- Shield bar: absorb points left, scaled against max health
+local ab = ns.frames.absorb
+prof().regular.bars.absorb.show = true -- the control-poking above left this bar off
+prof().regular.bars.absorb.text = true
+S.absorb = 420
+fire("UNIT_MAXPOWER")
+assert(ab:IsShown() and ab.segs[1]._value == 420 and ab.segs[1]._max == 1000, "absorb over max health")
+assert(ab.text._text == "420", "the points left are written out")
+S.absorb = 0; fire("UNIT_ABSORB_AMOUNT_CHANGED", "player")
+assert(ab.segs[1]._value == 0, "shield gone: empty bar")
+prof().regular.bars.absorb.show = false
 
 SlashCmdList.WOLFPACKADDON("")
 realPrint("smoke ok")
