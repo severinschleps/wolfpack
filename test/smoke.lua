@@ -730,10 +730,14 @@ local dd = dds[1]
 dd:GenerateMenu()
 local names = {}
 for _, it in ipairs(dd._items) do names[#names + 1] = it.text .. (it.sel() and "*" or "") end
-assert(table.concat(names, ",") == "Druid,Paladin,PvP*,Rogue,Warrior", table.concat(names, ","))
-dd._items[4].set()
+-- "Alpha" is a ready-made profile: listed before it exists, created when picked
+assert(table.concat(names, ",") == "Alpha,Druid,Paladin,PvP*,Rogue,Warrior", table.concat(names, ","))
+assert(store.profiles.Alpha == nil, "not created until used")
+dd._items[1].set()
+assert(store.profiles.Alpha and prof() == store.profiles.Alpha, "picked: made from the preset")
+dd._items[5].set()
 assert(prof() == store.profiles.Rogue, "dropdown switches")
-dd._items[3].set()
+dd._items[4].set()
 byText("Delete")._scripts.OnClick(byText("Delete"), "LeftButton")
 assert(not store.profiles.PvP and prof() == store.profiles.Rogue, "delete falls back to class profile")
 

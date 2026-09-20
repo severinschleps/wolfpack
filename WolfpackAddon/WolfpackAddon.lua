@@ -62,7 +62,9 @@ ns.COMBAT_FONTS = COMBAT_FONTS
 
 -- The layout new profiles start from: an export string, read through the same checks as one you
 -- paste in. `decodeExport` is defined with the import code; until then DEFAULTS are used.
-local DEFAULT_PROFILE = "WPA1:7VldaBxFHN8LVkIQBcnDNUiwD0IfbB78gDy0OS+3e5c9U/J1wSgHZbI7t7dkb2edne31gkIVxRexb4Ki0KRtBMGKIBhfJESsFhW/EcEXX5RSH2+L2TzozO7c3sfmjsvl2jzYeTgms7Mz8//9/r///JZcylgYFXQDXpFNUIKWAQjcSFaOJc8JEsIqxK9JFipDnC5CYJCipKDSMpJV7OhqCZggowCbLAMsW5DwGXZZNzWRjtnvBf3NkQxyiKGbsCqrOoYK0ZEpYV0rEskmyLJfXqfLGgi/spu48RZrbzd0bj7ut1jKQrZQn/jz6h+Zq8MvNnR+2b6QP+5+7k+Mq12smFnWUv4kQRB2xoXssh/vgr4KhaeDfvg4JltAnUSEoJIwVUAmYbOGMgSeIw6GS4/IJoG4ABSYzwGsQUKjTmMKZ35RPrFAAHHsSYD5BqeRCtOKQyMv0Tmq7tiCyBaqUsjTdJscsgTZP33DTJFtOp+mP3Y+PS8/N5c7c2Ysl0tLZV0lxbgp2kVUrqZQoVAVS0A3Xbq0qUG1SnljQB+Z0the0KTbVASZ7RcEF6ONc/tJW5qiJw/hvR6Bl490grcBzRDDkTqGkw59ZNr5Z6bknDS+NM5hGoywEkmf9qdpSZ+P/ax5oSF9+AhPnygBPkU1fjjsr/uwu5S4dvzUk4UTcW8nIgKp9cCD4CWOra3HDgHzWKin3cSne2P9W40LrtDdxOU7g/U9HbH2K1kPWNOIf2qNeJ+4d1cvatWhCwoiB2pHwWebczdfHd3sjQJeZfqW7vVr5GCl5/dvWPt23+nfXxr2OlC7qvPl0Cnr0q9DITG3m4aOSqjd4ZtHexLDnwW/CV2iL+oKMt19cjDFXlrQVSgasEBqjER1EJ6lXf7/wLJ/7m+BA+7j6wZ4RsBnFogjTkHrAmtOE8d8sI551E60CCF0Tz0JIVQ/Dz8cOWxBtD9YCz9hWeL8hCO3WxgdfVFKA9aAqGFUFlVUNjMYao4B8Af1oRnqlyuMFMeG6CzErlykqxps5fXgvqrlZiy288SejrrBObd468A919TJDnMkWRnfoeHNFqkUJg19dTUVPHRn2MisfxifMDfLTwZNx/1/mfEOpqatA48/fFALfjT2aEB4ew8+0IUH34x3T0/fzO6BzPxAEz3exPnzL8WC3zTxa0h1P3azgdooAT6+eymfgk8R3Y/u48frZESzoo+2fOzqh82+xEs8+P5Hjfj1xZh7ifvfuOAlZr//8Y4ZdDfCQbNDX3qyHkRSVWdYDMgoWEBZoX8iMx/QlMRn0Yn5oLKOEVIIqXqgRtXIXRvfTxsfIaobvdx318f328f3xEPH76mokXe7psE7+dTWtjdx69Y/3qmtre2WkjW6uNSmZPl2vqsSv6eHH+yrh3fbe/jgiuhLYRpuMfqNd0nzZXjy4sU1LyFf/9qbeOiddw/F9XuJxxaf7fd1401cu/aVl9D+uuH3Dtv496SkwU5KyrJbBRC6u7nhO4v4mzTGigElQAxgp6jIuGHjpsSmK8dHpwPTHRQhN20gZQWqrvS8A21yhTuUFd0wLvO3mCJGhNi/X1A8HJMEywxnbJqKtIQNiAZCpHXud01zJURTCG9IRfb1sSaVdAUjdxo4BKVQyTIgge40+zTI4IpVpLy62WWg2TP0wwWabpbNSyoKtIg7ZUPDyDrmistjZxAuZbpSSsp/IT8LMb0DKKCnAV6BuFE7IvvfgpQ0rCL4Dw=="
+local DEFAULT_PROFILE = "WPA1:7VldaBxFHN8LVkoQBcnDNUiwD0IfbB78gDy0WS+3e5s9U/N1wSgHZXI7d7dkb2c7O9vrBYUqii9i3wRFoUlbi4IVQTC+SIjYWlT8qCKCL74opT7eFLN50Jndvb3L3l3ugxQkdh8uk7nZ/8z8fv/5/X+TXFAsjPK6AS+pJihBywAEvpeoHE6cEWSENYhfky1UhjhVhMAgRTmHSktI1bCjayVgAiUHbLIEsGpBEoywy7pZkFiffdlvrw+nMDALUKtO5pFJ5vUVOJhe8oKfQBpM5RyboBKLbCD8yrZ48y3+vN3QuPW498SUpULSGyQIwtaYEMTg8YSn/Xb4dUy1gDaBCAssyCy8Zb+81sUMSQvZQn3gTyu/K1eGXmxo/Lx5LnuEfuENjGsKgWeIg+HiI6pJIM6DHMxmAC5AwrbNNl2C2QX16DwBxLEnGEhe3IY9syGa7tiCqukY5oiOTBnrhSJRkEMM3YTVREWQ+BzVJMrnq3JZ10gxbqbY3jLIEiQO51yKfdjZ1Jz6/Gzm5MnRTCYllYBuUsYgI42HOzBZ4BNBk1Qlu4jKVZXH9LGKsSfg9tNw2uh6mhC83oRg0BNF8BMPuBcaEAx6AgS7iLgL6w0kh1QM16mYcNhXpp19dlLNyGOLYwHcB5uTJUpMc3r6NDA+AhJer5HAYK6ndTtGAiLujRBBI0T4R61rHmJh4m6Ln7XG/9camkHibosXW+EvuOLh1bXYfsL6ng5Y1xWrh7y/UYP7j7z3hD1R3D9fn7316sj6tvgD/zH7V9gTzfv2EXvkojsJqinOXtBi9kNLJy2qFZT1Qz2cggA7oW32BywIO9FvfLM7tCU9h0zaI+aT/KV5XYOSAfOkLQPNgNfUn/pIdSv/dS7qJeBgHfYmpqMHIyzu/RSE377hz7extoXg2uBx68IvgyE5bQtBGGl/HoSoPkUPgu+0eqkFN7qtBaE4tawFrSLtTwqi5ThKQbIArAGpgFFZ0lDZVDAsOAbAH9a7pplfrvCFOTZEpyGmapEFNnjwNb/q1ECNxbaeaOmoG5xzxFv77rkmiHwxBxKVsS22wyl/Wh9bOl1k2jLj9Xgg0zQPBAiD0WRWnkESf5NlS8WAMiAGsCWbYRMf8deXZKGDlfzPPPsu5qWdUY8/3JNTPxR7tFerPtDBtQRUrcfb6sIuLPXjsQd2sOSOnz37Usz/TBEv/aq9uMHdGN6zO0UTexGxaKClF7WIH/kPu/fRKx/tLJSu+OAHHzfyuCf+3RXvf+OcK858/2PXIk074f6Ah/vik/W1JDRtmi8FGXkL5JbZr8jM+rwk8Gl0dM7X4VFC8jVuhveT23fFxxae22vu3PGrV79yxcKfN71WH0W2z3NzsAM1zY6f3jHH7x57amPTHb99+2/3+MbGZgT1kYXFNqh7vr8rpWtp9iNMHDt/ftUV1etfu+MPvfNuR+NPW1eTPk9MyNtQveo0Stvd68Eee9M+j03HvxXdvR/ccQ7u68BBOrD/0HToDHfhE4a+spL09YymDJRbhhqVTznQJpc8Jy5Iy7phXAzvBo7JDjmXjGEh9s+XnjMfUmx2hhkiA5KBEGkz9jt/rIxYWcOX5SK/fazKJT2HEZ0CDkFJVLIMSCBVSrqpl4D1fso+5QAMqUQwqNCUjxn1lzXFVy+ByjN823SKj/D2ArBGFd3Mowm+oUDNvMEKrlhFpnw0vQQK9jS7CkGTpvnMiVwOWoRO2tAw0o65XLuPcJgXla5EK+m9kJ2BmAkNg/8EwMsQN8qYxP9bIScMqwj+BQ=="
+-- Ready-made profiles, listed in the profile dropdown even before they exist.
+local PRESETS = { { "Alpha", DEFAULT_PROFILE } }
 local decodeExport
 
 -- Called on ADDON_LOADED, before the world loads. Only known paths are accepted.
@@ -1688,16 +1690,23 @@ end
 -- Profiles (account-wide). Each character starts on its class profile, e.g. "Rogue".
 ------------------------------------------------------------------------------------------
 useProfile = function(name)
-    store.profiles[name] = merge(store.profiles[name] or ns.freshProfile(), DEFAULTS)
+    store.profiles[name] = merge(store.profiles[name] or ns.freshProfile(name), DEFAULTS)
     store.chars[charKey] = name
     db = store.profiles[name]
     place()
     changed()
 end
 
+-- Your profiles plus the ready-made ones you haven't used yet.
 local function profileNames()
-    local names = {}
-    for name in pairs(store.profiles) do names[#names + 1] = name end
+    local names, seen = {}, {}
+    for name in pairs(store.profiles) do
+        names[#names + 1] = name
+        seen[name] = true
+    end
+    for _, preset in ipairs(PRESETS) do
+        if not seen[preset[1]] then names[#names + 1] = preset[1] end
+    end
     table.sort(names)
     return names
 end
@@ -1791,9 +1800,14 @@ decodeExport = function(text)
     if ok and type(data) == "table" and type(data.profile) == "table" then return data end
 end
 
--- A profile as it starts out: the baked layout where it decodes, the plain defaults otherwise.
-function ns.freshProfile()
-    local data = decodeExport(DEFAULT_PROFILE)
+-- A profile as it starts out: the ready-made one of that name, else the built-in layout, and
+-- the plain defaults for anything those don't decode or don't set.
+function ns.freshProfile(name)
+    local from = DEFAULT_PROFILE
+    for _, preset in ipairs(PRESETS) do
+        if preset[1] == name then from = preset[2] end
+    end
+    local data = decodeExport(from)
     return merge(data and sanitize(data.profile, DEFAULTS) or {}, DEFAULTS)
 end
 
@@ -2050,7 +2064,7 @@ local function buildConfig()
     end)
     button(cfg, "Reset profile", 92, 570, -33, function()
         wipe(db)
-        merge(db, ns.freshProfile())
+        merge(db, ns.freshProfile(store.chars[charKey]))
         place()
         changed()
     end)
