@@ -101,10 +101,28 @@ end
 -- One bar per weapon; the Swing Timer bar shows the ones ticked here.
 local SWING_TYPES = { { "main", "Main hand", 0 }, { "off", "Off hand", 1 }, { "ranged", "Ranged", 2 } }
 
-local function layoutDefaults(show, x, y, gap, width, h1, h2, h3, h4, h5, h6, h7)
+-- The Totems bar is one segment per element, in the game's slot order, each in its own color.
+local TOTEM_SLOTS = { { "Fire", 1, 0.3, 0.1 }, { "Earth", 0.5, 0.35, 0.2 },
+    { "Water", 0.2, 0.5, 1 }, { "Air", 0.6, 0.5, 0.9 } }
+
+-- Returns start and duration only while that slot holds a totem; missing API = no totem.
+local function totemInfo(slot)
+    local ok, have, _, start, duration = pcall(GetTotemInfo, slot)
+    if ok and have and (duration or 0) > 0 then return start, duration end
+end
+
+-- No class check: non-shamans never have a totem out anyway (and `class` isn't known up here).
+local function anyTotem()
+    for i = 1, #TOTEM_SLOTS do
+        if totemInfo(i) then return true end
+    end
+    return false
+end
+
+local function layoutDefaults(show, x, y, gap, width, h1, h2, h3, h4, h5, h6, h7, h8)
     local l = {
         x = x, y = y, gap = gap, grow = "down", -- "up": the group's bottom edge stays put instead
-        order = { "health", "power", "combo", "druidmana", "castbar", "pethealth", "swing" }, -- new bars go last
+        order = { "health", "power", "combo", "druidmana", "castbar", "pethealth", "swing", "totems" },
         bars = {
             health = barDefaults(show, width, h1, 0.2, 0.8, 0.2, show),
             power = barDefaults(show, width, h2, 1, 0.85, 0.1, show),
@@ -113,6 +131,7 @@ local function layoutDefaults(show, x, y, gap, width, h1, h2, h3, h4, h5, h6, h7
             castbar = barDefaults(show, width, h5, 1, 0.7, 0, true), -- text = spell name
             pethealth = barDefaults(show, width, h6, 0.3, 0.7, 0.3, show),
             swing = barDefaults(show, width, h7, 0.8, 0.8, 0.85, show), -- text = seconds left
+            totems = barDefaults(show, width, h8, 0.6, 0.6, 0.6, false), -- colored per element instead
         },
     }
     l.bars.power.colorMode = "power"
@@ -125,8 +144,8 @@ end
 -- top-right corner plus x/y. Icons are file IDs.
 local DEFAULTS = {
     locked = true,
-    regular = layoutDefaults(true, 0, -120, 2, 220, 18, 14, 12, 6, 14, 10, 10),
-    nameplate = layoutDefaults(false, 0, -2, 1, 110, 8, 6, 6, 4, 8, 5, 5),
+    regular = layoutDefaults(true, 0, -120, 2, 220, 18, 14, 12, 6, 14, 10, 10, 10),
+    nameplate = layoutDefaults(false, 0, -2, 1, 110, 8, 6, 6, 4, 8, 5, 5, 5),
     quest = {
         x = 0, y = 0, spacing = 2,
         kill = { show = true, icon = 131013, size = 20, count = false },
@@ -223,6 +242,14 @@ local BARS = {
         -- the bars are unlocked or the options are open, for placing it.
         state = function()
             return (ns.previewing() or UnitCastingInfo("player") or UnitChannelInfo("player")) and true or false, 1
+        end,
+    },
+    totems = {
+        label = "Totems",
+        -- like the cast bar: only while something is out, so the stack closes the gap otherwise
+        state = function()
+            if class ~= "SHAMAN" then return false end
+            return (anyTotem() or ns.previewing()) and true or false, #TOTEM_SLOTS
         end,
     },
     swing = {
@@ -485,7 +512,11 @@ local function layoutBar(f, n, width)
             s:SetPoint("LEFT", f, "LEFT", lead + (i - 1) * (w + PIP_GAP) + t, 0)
             s:SetMinMaxValues(i - 1, i) -- pip range; single bars get their real max in fill()
             s.bg:SetColorTexture(unpack(c.bgColor))
-            paint(s, c, r, g, b, w, c.height)
+            if f.key == "totems" then -- each segment wears its element's color
+                paint(s, c, TOTEM_SLOTS[i][2], TOTEM_SLOTS[i][3], TOTEM_SLOTS[i][4], w, c.height)
+            else
+                paint(s, c, r, g, b, w, c.height)
+            end
             s.border:SetShown(t > 0)
             s.border:SetPoint("TOPLEFT", s, "TOPLEFT", -t, t)
             s.border:SetPoint("BOTTOMRIGHT", s, "BOTTOMRIGHT", t, -t)
@@ -565,6 +596,14 @@ end
 local function fill(f)
     if f.key == "castbar" then return fillCast(f) end
     if f.key == "swing" then return fillSwing(f) end
+    if f.key == "totems" then -- each segment drains with its own totem; empty slots sit at 0
+        for i = 1, f.n do
+            local start, duration = totemInfo(i)
+            f.segs[i]:SetMinMaxValues(0, duration or 1)
+            f.segs[i]:SetValue(duration and math.max(duration - (GetTime() - start), 0) or 0)
+        end
+        return
+    end
     local v, max = BARS[f.key].value(f.unit or "player")
     if f.n == 1 then
         f.segs[1]:SetMinMaxValues(0, max)
@@ -2243,7 +2282,11 @@ local function buildConfig()
         castSide:SetText("Icon side: " .. (cur().iconSide == "right" and "Right" or "Left"))
         local none = not (selected == "castbar" or selected == "swing"
             or (selected == "health" and mode == "regular"))
-        onlyNote:SetText(none and "Nothing extra for this one." or "")
+        if selected == "totems" then
+            onlyNote:SetText("Four segments: fire, earth, water, air, each in its element's color.")
+        else
+            onlyNote:SetText(none and "Nothing extra for this one." or "")
+        end
     end)
     only:close()
 
@@ -2642,11 +2685,11 @@ end
 
 local swingTicker = CreateFrame("Frame")
 ns.swingTicker = swingTicker
-local swingShown = 0 -- which rows were up last tick; a change means the stack must re-flow
+local swingShown = 0 -- what was up last tick; a change means the stack must re-flow
 local function swingTick()
-    local mask = 0
+    local mask = anyTotem() and 1 or 0
     for i, kind in ipairs(SWING_TYPES) do
-        if swingActive(kind[3]) then mask = mask + 2 ^ (i - 1) end
+        if swingActive(kind[3]) then mask = mask + 2 ^ i end
     end
     if mask ~= swingShown then
         swingShown = mask
@@ -2657,8 +2700,10 @@ local function swingTick()
                 if f:IsShown() then safe(fill, f) end
             end
         end
+        if frames.totems:IsShown() then safe(fill, frames.totems) end
+        if plateFrames.totems:IsShown() then safe(fill, plateFrames.totems) end
     end
-    if not swingActive() then swingTicker:SetScript("OnUpdate", nil) end
+    if not swingActive() and not anyTotem() then swingTicker:SetScript("OnUpdate", nil) end
 end
 
 local petEv = CreateFrame("Frame") -- same handler as ev, for pet unit events
@@ -2739,7 +2784,8 @@ ev:SetScript("OnEvent", function(_, event, unit, arg2)
         for _, e in ipairs({ "PLAYER_ENTERING_WORLD", "UPDATE_SHAPESHIFT_FORM", "PLAYER_TARGET_CHANGED",
             "NAME_PLATE_UNIT_ADDED", "NAME_PLATE_UNIT_REMOVED", "QUEST_LOG_UPDATE", "PLAYER_REGEN_ENABLED",
             "QUEST_DETAIL", "QUEST_ACCEPT_CONFIRM", "QUEST_PROGRESS", "QUEST_COMPLETE", "GOSSIP_SHOW", "QUEST_GREETING",
-            "PLAYER_REGEN_DISABLED", "PLAYER_SWING", "MERCHANT_SHOW", "MERCHANT_CLOSED", "GOSSIP_CLOSED" }) do
+            "PLAYER_REGEN_DISABLED", "PLAYER_SWING", "PLAYER_TOTEM_UPDATE", "MERCHANT_SHOW", "MERCHANT_CLOSED",
+            "GOSSIP_CLOSED" }) do
             listen(e)
         end
         inCombat = InCombatLockdown() -- a /reload mid-fight
@@ -2755,6 +2801,9 @@ ev:SetScript("OnEvent", function(_, event, unit, arg2)
         safe(Refresh) -- the cast bar joins or leaves the stack
     elseif event == "PLAYER_SWING" then -- unit, arg2 = duration, swing type
         swingState[arg2] = { start = GetTime(), duration = unit }
+        swingTicker:SetScript("OnUpdate", swingTick)
+        swingTick()
+    elseif event == "PLAYER_TOTEM_UPDATE" then -- the bar joins or leaves the stack
         swingTicker:SetScript("OnUpdate", swingTick)
         swingTick()
     elseif event == "MERCHANT_SHOW" then

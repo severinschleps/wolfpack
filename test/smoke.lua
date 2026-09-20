@@ -158,6 +158,11 @@ IsShiftKeyDown = function() return S.shift end
 IsInGroup = function() return S.group end
 S.time = 1000
 GetTime = function() return S.time end
+GetTotemInfo = function(slot) -- haveTotem, name, start, duration
+    local t = S.totems and S.totems[slot]
+    if t then return true, "Totem", t[1], t[2] end
+    return false
+end
 UnitCastingInfo = function() if S.cast then return S.cast, "", 136116 end end
 UnitChannelInfo = function() if S.channel then return S.channel, "", 136197 end end
 UnitCastingDuration = function() return S.cast and "castDuration" end
@@ -1090,7 +1095,7 @@ assert(#bad == 32 and bp.evil == nil and bp.locked == true, "unknown key dropped
 assert(bp.other.hover.bar1 and bp.other.hover.nope == nil and bp.other.hover.bar2 == nil, "hover: known and true only")
 assert(WolfpackAddonDB.combatFont == ns.COMBAT_FONTS[4][2], "unknown combat font path refused")
 assert(bp.regular.gap == 2 and bp.regular.x == 0, "out-of-range numbers defaulted")
-assert(bp.regular.order[1] == "health" and bp.regular.order[2] == "castbar" and #bp.regular.order == 7, "order repaired")
+assert(bp.regular.order[1] == "health" and bp.regular.order[2] == "castbar" and #bp.regular.order == 8, "order repaired")
 local ns2 = bp.nameplate.bars.power.stops
 assert(#ns2 == 2 and ns2[1].pos == 10 and ns2[2].pos == 90 and ns2[1].color[1] == 1, "gradient points checked")
 local hb2 = bp.regular.bars.health
@@ -1167,8 +1172,31 @@ for _, m in ipairs({ "regular", "nameplate" }) do
     local seen = {}
     for _, k in ipairs(prof()[m].order) do seen[k] = true end
     assert(seen.health and seen.power and seen.combo and seen.druidmana and seen.castbar and seen.pethealth
-        and seen.swing and #prof()[m].order == 7, "order intact")
+        and seen.swing and seen.totems and #prof()[m].order == 8, "order intact")
 end
+
+-- Totems: four element segments, each draining on its own; the bar is shaman-only and
+-- leaves the stack when the last totem drops.
+login("SHAMAN", 0)
+local tb = ns.frames.totems
+prof().locked = true
+fire("UNIT_MAXPOWER")
+assert(not tb:IsShown(), "no totems: no bar")
+S.time = 2000
+S.totems = { [1] = { 2000, 60 }, [3] = { 1990, 30 } } -- fire fresh, water 10 s in
+fire("PLAYER_TOTEM_UPDATE", 1)
+assert(tb:IsShown() and tb.n == 4, "four segments")
+assert(tb.segs[1]._max == 60 and tb.segs[1]._value == 60, "fire full")
+assert(tb.segs[3]._max == 30 and tb.segs[3]._value == 20, "water part-spent")
+assert(tb.segs[2]._value == 0 and tb.segs[4]._value == 0, "empty slots at zero")
+assert(tb.segs[1]._sbc[1] == 1 and tb.segs[3]._sbc[3] == 1, "fire red, water blue")
+S.time = 2005; ns.swingTicker._scripts.OnUpdate()
+assert(tb.segs[1]._value == 55 and tb.segs[3]._value == 15, "both count down")
+S.totems = nil; ns.swingTicker._scripts.OnUpdate()
+assert(not tb:IsShown() and not ns.swingTicker._scripts.OnUpdate, "all gone: bar leaves, ticker stops")
+login("ROGUE", 3)
+fire("UNIT_MAXPOWER")
+assert(not ns.frames.totems:IsShown(), "not a shaman: never shows")
 
 SlashCmdList.WOLFPACKADDON("")
 realPrint("smoke ok")
