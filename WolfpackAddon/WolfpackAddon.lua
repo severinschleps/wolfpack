@@ -1169,9 +1169,24 @@ function mini.trayCollect()
     return found
 end
 
+-- Counters drawn on a collected icon are noise once it sits in the tray.
+function mini.trayNumbers(f, hide, kept)
+    for _, region in ipairs(f.GetRegions and { f:GetRegions() } or {}) do
+        if region:IsObjectType("FontString") and tonumber((region:GetText() or ""):match("^%s*(%d+)%s*$") or "") then
+            if hide then
+                kept.numbers[region] = region:IsShown()
+                region:Hide()
+            elseif kept.numbers[region] ~= nil then
+                region:SetShown(kept.numbers[region])
+            end
+        end
+    end
+end
+
 function mini.trayRelease(f)
     local kept = mini.trayHeld[f]
     if not kept then return end
+    mini.trayNumbers(f, false, kept)
     f:SetParent(kept.parent)
     f:SetFrameStrata(kept.strata)
     f:SetFrameLevel(kept.level)
@@ -1192,14 +1207,12 @@ function mini.trayLayout()
         f:ClearAllPoints()
         f:SetPoint("CENTER", mini.trayPanel, "TOPLEFT",
             6 + cell / 2 + ((i - 1) % 4) * cell, -6 - cell / 2 - math.floor((i - 1) / 4) * cell)
-        f:SetFrameStrata(mini.trayPanel:GetFrameStrata()) -- above the panel's background, not under it
+        f:SetFrameStrata("MEDIUM") -- the backdrop sits in BACKGROUND strata, so icons stay above it
         f:SetFrameLevel(mini.trayPanel:GetFrameLevel() + 2)
     end
     mini.trayPanel:SetSize(12 + perRow * cell, 12 + math.ceil(#held / 4) * cell)
     mini.trayPanel:SetShown(#held > 0 and mini.trayPanel.open or false)
-    mini.tray.count:SetText(#held > 0 and #held or "")
-    mini.tray.countBg:SetShown(#held > 0)
-    mini.tray.countBg:SetSize(mini.tray.count:GetStringWidth() + 4, mini.tray.count:GetStringHeight() + 2)
+    mini.trayBg:SetShown(mini.trayPanel:IsShown())
 end
 
 function mini.trayUpdate()
@@ -1215,12 +1228,6 @@ function mini.trayUpdate()
         icon:SetTexture(133633) -- a bag: the mini.tray holds the other icons
         icon:SetTexCoord(0.08, 0.92, 0.08, 0.92)
         mini.tray:SetHighlightTexture("Interface\\Minimap\\UI-Minimap-ZoomButton-Highlight")
-        mini.tray.countBg = mini.tray:CreateTexture(nil, "OVERLAY", nil, 1) -- how many icons it holds
-        mini.tray.countBg:SetColorTexture(0, 0, 0, 0.8)
-        mini.tray.count = mini.tray:CreateFontString(nil, "OVERLAY", nil, 2)
-        mini.tray.count:SetFont(STANDARD_TEXT_FONT or "Fonts\\FRIZQT__.TTF", 10, "OUTLINE")
-        mini.tray.count:SetPoint("BOTTOMLEFT", mini.tray, "BOTTOMLEFT", 1, 1)
-        mini.tray.countBg:SetPoint("CENTER", mini.tray.count)
         mini.tray:RegisterForDrag("LeftButton")
         mini.tray:SetScript("OnDragStart", function(self)
             self:SetScript("OnUpdate", function()
@@ -1232,14 +1239,19 @@ function mini.trayUpdate()
             end)
         end)
         mini.tray:SetScript("OnDragStop", function(self) self:SetScript("OnUpdate", nil) end)
-        mini.trayPanel = CreateFrame("Frame", nil, mini.tray, "BackdropTemplate")
+        mini.trayPanel = CreateFrame("Frame", nil, mini.tray)
         mini.trayPanel:SetPoint("TOPRIGHT", mini.tray, "TOPLEFT", -4, 0)
-        mini.trayPanel:SetFrameStrata("DIALOG") -- above the minimap, whatever the icons' own strata
-        mini.trayPanel:SetBackdrop({ bgFile = "Interface\\Buttons\\WHITE8X8", edgeFile = "Interface\\Buttons\\WHITE8X8",
-            edgeSize = 1 })
-        mini.trayPanel:SetBackdropColor(0, 0, 0, 0.85)
-        mini.trayPanel:SetBackdropBorderColor(0, 0, 0, 1)
+        mini.trayPanel:SetFrameStrata("MEDIUM")
         mini.trayPanel:Hide()
+        -- the backdrop is its own frame in the lowest strata, so no icon can end up under it
+        mini.trayBg = CreateFrame("Frame", nil, UIParent, "BackdropTemplate")
+        mini.trayBg:SetFrameStrata("BACKGROUND")
+        mini.trayBg:SetPoint("TOPLEFT", mini.trayPanel, "TOPLEFT")
+        mini.trayBg:SetPoint("BOTTOMRIGHT", mini.trayPanel, "BOTTOMRIGHT")
+        mini.trayBg:SetBackdrop({ bgFile = "Interface\\Buttons\\WHITE8X8", edgeFile = "Interface\\Buttons\\WHITE8X8",
+            edgeSize = 1 })
+        mini.trayBg:SetBackdropColor(0, 0, 0, 0.85)
+        mini.trayBg:SetBackdropBorderColor(0, 0, 0, 1)
         mini.tray:SetScript("OnClick", function()
             mini.trayPanel.open = not mini.trayPanel.open
             mini.trayLayout()
@@ -1252,8 +1264,9 @@ function mini.trayUpdate()
             if not mini.trayHeld[f] then
                 local points = {}
                 for i = 1, f:GetNumPoints() do points[i] = { f:GetPoint(i) } end
-                mini.trayHeld[f] = { parent = f:GetParent(), points = points,
+                mini.trayHeld[f] = { parent = f:GetParent(), points = points, numbers = {},
                     strata = f:GetFrameStrata(), level = f:GetFrameLevel() }
+                mini.trayNumbers(f, true, mini.trayHeld[f])
                 f:SetParent(mini.trayPanel)
             end
         end
@@ -1786,7 +1799,7 @@ local function sanitize(src, template)
             out[k] = sanitize(v, def)
         elseif type(v) == "number" then
             if v == v and v >= (MIN_NUMBER[k] or -2000) and v <= 2000 then out[k] = v end
-        elseif type(v) == type(def) or (k == "radius" and v == "pill") then
+        elseif type(v) == type(def) or (k == "radius" and (v == "pill" or v == "round")) then
             out[k] = v
         end
     end
@@ -2456,9 +2469,9 @@ local function buildConfig()
         function(v) store.trayAngle = v * 3.6 - 180; mini.trayPlace() end)
     check(otherPage, "Info bars (zone, coords, time, ping)", mm.x, mm:row(ROW),
         function() return MM().infoBar end, function(v) MM().infoBar = v end)
-    slider(otherPage, "Move X (left / right)", mm.x, mm:row(SLIDER), -400, 400,
+    slider(otherPage, "Move X (left / right)", mm.x, mm:row(SLIDER), -1000, 1000,
         function() return MM().x end, function(v) MM().x = v end)
-    slider(otherPage, "Move Y (down / up)", mm.x, mm:row(SLIDER), -400, 400,
+    slider(otherPage, "Move Y (down / up)", mm.x, mm:row(SLIDER), -1000, 1000,
         function() return MM().y end, function(v) MM().y = v end)
     local mmNote = label(otherPage, "Drag the tray icon around the minimap, or use the slider; click it to open.",
         "GameFontDisableSmall")

@@ -121,6 +121,10 @@ local function addonButton(name)
     return b
 end
 Minimap._children = { addonButton("SomeAddonIcon"), addonButton("AnotherAddonIcon") }
+-- one of them draws its own counter
+local iconCount = new("FontString")
+iconCount._text = "3"
+Minimap._children[1]._regions = { iconCount }
 MinimapBackdrop, MinimapCompassTexture = new(), new()
 MinimapCluster = new()
 MinimapCluster.Tracking, GameTimeFrame = new(), new()
@@ -991,8 +995,10 @@ local panel = icon1._parent
 assert(not panel:IsShown(), "panel closed until the tray is clicked")
 trayBtn._scripts.OnClick()
 assert(panel:IsShown() and panel._w == 12 + 4 * 28, "click opens it, four across")
-assert(trayBtn.count._text == 4 and trayBtn.count._point[1] == "BOTTOMLEFT", "count badge, bottom left")
 assert(not strayCount:IsShown(), "a loose counter on the minimap is hidden while the tray is on")
+assert(not iconCount:IsShown(), "a counter drawn on a collected icon goes quiet too")
+assert(ns.mini.trayBg:GetFrameStrata() == "BACKGROUND" and icon1._strata == "MEDIUM",
+    "backdrop sits behind the icons, not over them")
 assert(icon1._strata == panel:GetFrameStrata() and icon1._level > panel:GetFrameLevel(), "icons above the panel")
 trayBtn._scripts.OnDragStart(trayBtn); trayBtn._scripts.OnUpdate(); trayBtn._scripts.OnDragStop(trayBtn)
 assert(type(WolfpackAddonDB.trayAngle) == "number" and trayBtn._point[2] == Minimap, "dragged around the minimap")
@@ -1007,6 +1013,7 @@ MM.square = false
 MM.tray = false; fire("UNIT_MAXPOWER")
 assert(icon1._parent == Minimap and icon1._point[2] == Minimap and MinimapCluster.Tracking._parent == nil, "given back")
 assert(icon1._strata == "MEDIUM", "strata restored too")
+assert(iconCount:IsShown(), "the icon's own counter comes back")
 assert(strayCount:IsShown(), "the loose counter comes back")
 MM.infoBar = true; fire("UNIT_MAXPOWER")
 local bar, top = ns.mini.infoBar, ns.mini.topBar
@@ -1036,6 +1043,7 @@ assert(MinimapCluster.ZoneTextButton:IsShown() and TimeManagerClockButton:IsShow
 C_EditMode.ConvertStringToLayoutInfo = function(str) if str:match("^EDITMODE:") then return {} end end
 prof().regular.gap = 9
 prof().other.hover.bar3 = true
+prof().other.minimap.square, prof().other.minimap.radius = true, "round"
 WolfpackAddonDB.combatFont = ns.COMBAT_FONTS[4][2]
 local exp = ns.exportString()
 assert(exp:match("^WPA1:") and blobs[#blobs].editMode == nil, "profile string only")
@@ -1046,6 +1054,7 @@ local name, em = ns.importString("  " .. exp .. "\n")
 assert(name == before .. " 2" and em == nil, "imported as a new profile")
 assert(prof() == store.profiles[name] and prof().regular.gap == 9 and prof() ~= store.profiles[before], "switched to the copy")
 assert(prof().other.hover.bar3 == true, "mouseover choices survive")
+assert(prof().other.minimap.square == true and prof().other.minimap.radius == "round", "minimap settings too")
 assert(WolfpackAddonDB.combatFont == ns.COMBAT_FONTS[4][2], "combat font carried along")
 prof().regular.gap = 3
 assert(store.profiles[before].regular.gap == 9, "copy is independent")
