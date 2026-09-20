@@ -41,6 +41,8 @@ function M:SetAtlas(a) self._atlas = a end
 function M:SetTexCoord(...) self._coords = { ... } end
 function M:SetStatusBarColor(...) self._sbc = { ... } end
 function M:SetCooldown(start, dur) self._cd = { start, dur } end
+function M:SetFont(path, size, flags) self._font = { path, size, flags }; return true end
+function M:GetFont() return self._font and self._font[1] or "Fonts\\FRIZQT__.TTF", 25, "OUTLINE" end
 function M:SetSwipeTexture(t) self._swipeTex = t end
 function M:SetReverse(v) self._reverse = v end
 function M:SetFrameLevel(v) self._level = v end
@@ -244,6 +246,7 @@ C_EditMode = { ConvertLayoutInfoToString = function(info) return "EDITMODE:" .. 
 EditModeManagerFrame = { GetActiveLayoutInfo = function() return { layoutName = "MyLayout" } end,
     IsEditModeActive = function() return S.editMode end }
 ChatFontNormal = new()
+CombatTextFont = new() -- the scrolling combat text's font object
 PlayerFrame = new()
 PlayerFrame._parent = UIParent
 GetRealmName = function() return "Realm" end
@@ -1069,18 +1072,17 @@ C_EditMode.ConvertStringToLayoutInfo = function(str) if str:match("^EDITMODE:") 
 prof().regular.gap = 9
 prof().other.hover.bar3 = true
 prof().other.minimap.square, prof().other.minimap.radius = true, "round"
-WolfpackAddonDB.combatFont = ns.COMBAT_FONTS[4][2]
+prof().other.combatFont = ns.COMBAT_FONTS[4][2]
 local exp = ns.exportString()
 assert(exp:match("^WPA1:") and blobs[#blobs].editMode == nil, "profile string only")
 assert(ns.editModeString() == "EDITMODE:MyLayout", "WoW UI layout string on its own")
-WolfpackAddonDB.combatFont = nil
 local before = store.chars[S.name .. " - Realm"]
 local name, em = ns.importString("  " .. exp .. "\n")
 assert(name == before .. " 2" and em == nil, "imported as a new profile")
 assert(prof() == store.profiles[name] and prof().regular.gap == 9 and prof() ~= store.profiles[before], "switched to the copy")
 assert(prof().other.hover.bar3 == true, "mouseover choices survive")
 assert(prof().other.minimap.square == true and prof().other.minimap.radius == "round", "minimap settings too")
-assert(WolfpackAddonDB.combatFont == ns.COMBAT_FONTS[4][2], "combat font carried along")
+assert(prof().other.combatFont == ns.COMBAT_FONTS[4][2], "combat font carried along")
 prof().regular.gap = 3
 assert(store.profiles[before].regular.gap == 9, "copy is independent")
 local _, why = ns.importString("EDITMODE:MyLayout")
@@ -1102,7 +1104,7 @@ local bad = ns.importString("WPA1:Bzblob" .. #blobs)
 local bp = store.profiles[bad]
 assert(#bad == 32 and bp.evil == nil and bp.locked == true, "unknown key dropped, bad type defaulted")
 assert(bp.other.hover.bar1 and bp.other.hover.nope == nil and bp.other.hover.bar2 == nil, "hover: known and true only")
-assert(WolfpackAddonDB.combatFont == ns.COMBAT_FONTS[4][2], "unknown combat font path refused")
+assert(bp.other.combatFont == "", "unknown combat font path refused")
 assert(bp.regular.gap == 2 and bp.regular.x == 0, "out-of-range numbers defaulted")
 assert(bp.regular.order[1] == "health" and bp.regular.order[2] == "castbar" and #bp.regular.order == 9, "order repaired")
 local ns2 = bp.nameplate.bars.power.stops
@@ -1133,16 +1135,25 @@ for _, it in ipairs(dds[9]._items) do
 end
 dds[9]._items[6].set()
 local picked = ns.COMBAT_FONTS[6][2]
-assert(WolfpackAddonDB.combatFont == picked, "stored account-wide")
+assert(prof().other.combatFont == picked, "stored in the profile")
+assert(DAMAGE_TEXT_FONT == picked and CombatTextFont._font[1] == picked, "applied as soon as it's picked")
+DAMAGE_TEXT_FONT = "Fonts\\FRIZQT__.TTF"
 fire("ADDON_LOADED", "SomeOtherAddon")
 assert(DAMAGE_TEXT_FONT == "Fonts\\FRIZQT__.TTF", "other addons' loads ignored")
 fire("ADDON_LOADED", "WolfpackAddon")
 assert(DAMAGE_TEXT_FONT == picked, "applied at load")
+-- switching profiles takes its font along
+local other = ns.freshProfile("Alpha")
+other.other.combatFont = ns.COMBAT_FONTS[8][2]
+WolfpackAddonDB.profiles["FontTest"] = other
+ns.useProfile("FontTest")
+assert(DAMAGE_TEXT_FONT == ns.COMBAT_FONTS[8][2], "the profile's font follows the profile")
+ns.useProfile(store.chars[S.name .. " - Realm"] or "Rogue")
 DAMAGE_TEXT_FONT = "Fonts\\FRIZQT__.TTF"
-WolfpackAddonDB.combatFont = "Interface\\evil.ttf"; fire("ADDON_LOADED", "WolfpackAddon")
+prof().other.combatFont = "Interface\\evil.ttf"; fire("ADDON_LOADED", "WolfpackAddon")
 assert(DAMAGE_TEXT_FONT == "Fonts\\FRIZQT__.TTF", "unknown path refused")
 dds[9]._items[1].set()
-assert(WolfpackAddonDB.combatFont == "", "WoW default is remembered, so the baked font stays off")
+assert(prof().other.combatFont == "", "WoW default is remembered, so the baked font stays off")
 -- the baked-in export string is intact in the file (an edit truncating it would break defaults)
 local src = io.open("WolfpackAddon/WolfpackAddon.lua"):read("*a")
 local baked = src:match('local DEFAULT_PROFILE = "(WPA1:[^"]+)"')
@@ -1152,11 +1163,7 @@ assert(baked and #baked > 1000 and not baked:find("%s"), "baked profile string")
 local bakedFont = ns.COMBAT_FONTS[5][2]
 blobs[#blobs + 1] = { profile = {}, combatFont = bakedFont }
 bakedStub = "zblob" .. #blobs
-local savedDB = WolfpackAddonDB
-WolfpackAddonDB, DAMAGE_TEXT_FONT = nil, "Fonts\\FRIZQT__.TTF"
-fire("ADDON_LOADED", "WolfpackAddon")
-assert(DAMAGE_TEXT_FONT == bakedFont, "no saved variables: the baked profile's font is used")
-WolfpackAddonDB = savedDB
+assert(ns.freshProfile("Alpha").other.combatFont == bakedFont, "new profiles carry the baked font")
 -- new profiles start from it, or the plain defaults if it can't be read
 local fresh = ns.freshProfile()
 assert(fresh.regular and fresh.nameplate and fresh.other and fresh.quest, "a complete profile either way")

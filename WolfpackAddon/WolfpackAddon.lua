@@ -32,7 +32,8 @@ local FONTS = {
 ns.FONTS = FONTS
 
 -- Combat text (damage numbers) fonts, all free (SIL OFL or Apache 2.0, license files next to
--- them). The game reads DAMAGE_TEXT_FONT once at startup, so a pick needs a full restart.
+-- them). Setting DAMAGE_TEXT_FONT and the CombatTextFont object covers the scrolling text the UI
+-- draws; the numbers the engine floats over enemies come from the client's own font files.
 local CF = FONT_DIR .. "Combat\\"
 local DEFAULT_DAMAGE_FONT = DAMAGE_TEXT_FONT
 local COMBAT_FONTS = {
@@ -66,13 +67,16 @@ local DEFAULT_PROFILE = "WPA1:7VlbaBxVGJ6JrZQgKtKHbZBiH5Q+2D54gTy0WTc7s5tZU5O2KU
 -- Ready-made profiles, listed in the profile dropdown even before they exist.
 local PRESETS = { { "Alpha", DEFAULT_PROFILE } }
 local decodeExport
+-- Declared up here because the code below closes over `db`: further down it would bind to a
+-- global of the same name instead, which is always nil.
+local store, db, class, charKey, classProfile
 
 -- Called on ADDON_LOADED, before the world loads. Only known paths are accepted.
+-- The font of the active profile, or — before a profile is loaded, which is when this matters
+-- most — the one baked into the addon.
 local function applyCombatFont()
-    -- `or nil`, because with no saved variables at all this is false, not nil, and the baked
-    -- profile below would never be consulted — which is why no pick ever reached the game.
-    local pick = (type(WolfpackAddonDB) == "table" and WolfpackAddonDB.combatFont) or nil
-    if pick == nil then -- never chosen, or the settings didn't survive: the baked profile's font
+    local pick = db and db.other and db.other.combatFont
+    if pick == nil then -- no profile loaded yet: this is the load-time case that matters
         local data = decodeExport and decodeExport(DEFAULT_PROFILE)
         pick = data and data.combatFont
     end
@@ -168,6 +172,7 @@ local DEFAULTS = {
         hideGryphons = false, autoAccept = false, autoComplete = false, sellJunk = false,
         hover = {},         -- [key from HOVER_FRAMES] = true: that Blizzard element shows only on mouseover
         bagsOnOpen = false, -- bag bar only while bags are open, attached to them
+        combatFont = "",    -- damage-number font; "" = WoW's own, picked on purpose
         minimap = { square = false, border = false, radius = 0, tray = false, trayBlizzard = false,
             infoBar = false, hideDayNight = false, x = 0, y = 0 },
         -- five-second-rule spinner: centered on a bar (or the group, if that bar is hidden) + x/y
@@ -203,7 +208,6 @@ end
 ------------------------------------------------------------------------------------------
 -- store = WolfpackAddonDB, account-wide: { profiles = { [name] = settings }, chars = { [char] = name } }
 -- db = the active profile's settings.
-local store, db, class, charKey, classProfile
 local changed, placeMini, useProfile -- defined further down
 
 -- Bars that only show while they are doing something (cast, swing) stay visible while the bars
@@ -1865,6 +1869,7 @@ useProfile = function(name)
     store.profiles[name] = merge(store.profiles[name] or ns.freshProfile(name), DEFAULTS)
     store.chars[charKey] = name
     db = store.profiles[name]
+    applyCombatFont() -- the font travels with the profile
     place()
     changed()
 end
@@ -1919,7 +1924,7 @@ end
 local E = C_EncodingUtil
 
 local function exportString()
-    local data = { name = store.chars[charKey], profile = db, combatFont = store.combatFont }
+    local data = { name = store.chars[charKey], profile = db, combatFont = db.other.combatFont }
     return "WPA1:" .. E.EncodeBase64(E.CompressString(E.SerializeCBOR(data)))
 end
 
@@ -2002,7 +2007,11 @@ function ns.freshProfile(name)
         if preset[1] == name then from = preset[2] end
     end
     local data = decodeExport(from)
-    return merge(data and sanitize(data.profile, DEFAULTS) or {}, DEFAULTS)
+    local prof = merge(data and sanitize(data.profile, DEFAULTS) or {}, DEFAULTS)
+    for _, f in ipairs(COMBAT_FONTS) do -- strings from before the font moved into the profile
+        if data and data.combatFont == f[2] and f[2] ~= "" then prof.other.combatFont = f[2] end
+    end
+    return prof
 end
 
 -- Returns the new profile's name (and the Edit Mode layout older combined strings carried), or
@@ -2026,13 +2035,14 @@ local function importString(text)
     if base == "" then base = "Imported" end
     local name = freeName(base)
     store.profiles[name] = sanitize(data.profile, DEFAULTS)
-    for _, f in ipairs(COMBAT_FONTS) do
-        if data.combatFont == f[2] and f[2] ~= "" then store.combatFont = f[2] end
+    for _, f in ipairs(COMBAT_FONTS) do -- older strings carried the font outside the profile
+        if data.combatFont == f[2] and f[2] ~= "" then store.profiles[name].other.combatFont = f[2] end
     end
     useProfile(name)
     return name, type(data.editMode) == "string" and data.editMode or nil
 end
 ns.exportString, ns.editModeString, ns.importString = exportString, editModeString, importString
+ns.useProfile = useProfile
 
 StaticPopupDialogs.WOLFPACKADDON_DELETE = {
     text = "Delete Wolfpack Addon profile \"%s\"?",
@@ -2601,20 +2611,23 @@ local function buildConfig()
     -- Other page, column 3: combat text and the minimap
     local cfont = group(otherPage, COL[3], TOP, 202, "Combat text font")
     dropdown(otherPage, "Damage numbers", cfont.x, cfont:row(DROP), COMBAT_FONTS,
-        function() return store.combatFont or "" end,
-        function(v) store.combatFont = v end, combatFontPreview) -- "" = WoW default, chosen on purpose
+        function() return db.other.combatFont end,
+        function(v) db.other.combatFont = v; applyCombatFont() end, combatFontPreview)
     local big = otherPage:CreateFontString(nil, "OVERLAY")
     big:SetPoint("TOPLEFT", cfont.x, cfont:row(40))
     onRefresh(function()
-        if not big:SetFont(store.combatFont or DEFAULT_DAMAGE_FONT, 30, "OUTLINE") then
+        local pick = db.other.combatFont
+        if pick == "" then pick = DEFAULT_DAMAGE_FONT end
+        if not big:SetFont(pick, 30, "OUTLINE") then
             big:SetFont(DEFAULT_DAMAGE_FONT, 30, "OUTLINE")
         end
         big:SetTextColor(unpack(DAMAGE_YELLOW))
         big:SetText("123")
     end)
-    local restart = label(otherPage, "The game loads this font at startup, so it shows after a full "
-        .. "restart. Settings don't survive one on this beta, so the font that actually loads is the "
-        .. "one in the addon's built-in profile.", "GameFontDisableSmall")
+    local restart = label(otherPage, "Changes the scrolling text at your character right away. The "
+        .. "numbers floating over enemies are drawn by the game itself, which an addon can't reach: "
+        .. "for those, copy the .ttf over Fonts\\SKURRI.TTF in your WoW folder and restart.",
+        "GameFontDisableSmall")
     restart:SetPoint("TOPLEFT", cfont.x, cfont:row(46))
     restart:SetWidth(182)
     restart:SetJustifyH("LEFT")
