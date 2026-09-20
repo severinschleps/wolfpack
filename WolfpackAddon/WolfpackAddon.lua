@@ -1106,10 +1106,19 @@ local TRAY_SKIP = { MinimapZoomIn = true, MinimapZoomOut = true, MinimapCompassT
 local tray, trayPanel
 local trayHeld = {} -- button -> { parent, points } so everything can go back
 
+-- The tray rides the minimap's edge: a circle when it's round, the square's edge when it's square
+-- (the same angle, pushed out until it meets the side).
 local function trayPlace()
-    local angle, radius = math.rad(store.trayAngle or 180), Minimap:GetWidth() / 2 + 6
+    if not tray then return end
+    local angle = math.rad(store.trayAngle or 180)
+    local x, y = math.cos(angle), math.sin(angle)
+    if db.other.minimap.square then
+        local m = math.max(math.abs(x), math.abs(y))
+        if m > 0 then x, y = x / m, y / m end
+    end
+    local out = Minimap:GetWidth() / 2 + 6
     tray:ClearAllPoints()
-    tray:SetPoint("CENTER", Minimap, "CENTER", math.cos(angle) * radius, math.sin(angle) * radius)
+    tray:SetPoint("CENTER", Minimap, "CENTER", x * out, y * out)
 end
 
 -- Minimap buttons are Buttons, but some are Frames carrying their own button and counter text;
@@ -2323,7 +2332,11 @@ local function buildConfig()
         function() return MM().trayBlizzard end, function(v) MM().trayBlizzard = v end)
     check(otherPage, "Info bar (time, ping, coords)", mm.x, mm:row(ROW),
         function() return MM().infoBar end, function(v) MM().infoBar = v end)
-    local mmNote = label(otherPage, "Drag the tray icon around the minimap; click it to open.", "GameFontDisableSmall")
+    slider(otherPage, "Tray position (%)", mm.x, mm:row(SLIDER), 0, 100,
+        function() return math.floor(((store.trayAngle or 180) + 180) / 3.6 + 0.5) % 101 end,
+        function(v) store.trayAngle = v * 3.6 - 180; trayPlace() end)
+    local mmNote = label(otherPage, "Drag the tray icon around the minimap, or use the slider; click it to open.",
+        "GameFontDisableSmall")
     mmNote:SetPoint("TOPLEFT", mm.x, mm:row(34))
     mmNote:SetWidth(182)
     mmNote:SetJustifyH("LEFT")

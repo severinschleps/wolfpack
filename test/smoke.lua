@@ -981,6 +981,14 @@ assert(panel:IsShown() and panel._w == 12 + 4 * 28, "click opens it, four across
 assert(icon1._strata == panel:GetFrameStrata() and icon1._level > panel:GetFrameLevel(), "icons above the panel")
 trayBtn._scripts.OnDragStart(trayBtn); trayBtn._scripts.OnUpdate(); trayBtn._scripts.OnDragStop(trayBtn)
 assert(type(WolfpackAddonDB.trayAngle) == "number" and trayBtn._point[2] == Minimap, "dragged around the minimap")
+-- 45 degrees: on the circle it sits at cos/sin, on the square it slides out to the corner
+WolfpackAddonDB.trayAngle = 45
+MM.square = false; fire("UNIT_MAXPOWER")
+local out = 140 / 2 + 6
+assert(math.abs(trayBtn._point[4] - math.cos(math.rad(45)) * out) < 0.01, "round: on the circle")
+MM.square = true; fire("UNIT_MAXPOWER")
+assert(math.abs(trayBtn._point[4] - out) < 0.01 and math.abs(trayBtn._point[5] - out) < 0.01, "square: at the corner")
+MM.square = false
 MM.tray = false; fire("UNIT_MAXPOWER")
 assert(icon1._parent == Minimap and icon1._point[2] == Minimap and MinimapCluster.Tracking._parent == nil, "given back")
 assert(icon1._strata == "MEDIUM", "strata restored too")
