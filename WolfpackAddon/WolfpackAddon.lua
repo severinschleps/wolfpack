@@ -105,22 +105,13 @@ local SWING_TYPES = { { "main", "Main hand", 0 }, { "off", "Off hand", 1 }, { "r
 -- game's slot numbers, which never move.
 local TOTEM_SLOTS = { "Fire", "Earth", "Water", "Air" }
 
--- Totem times are secret: they may not be read, compared or calculated with. The
--- duration object from GetTotemDuration may only be handed to the bar, and IsZero is the one
--- question about it we are allowed to ask ("is this slot empty?").
+-- Everything about a totem's timer is secret, IsZero included: the duration object may only be
+-- handed to the bar, never asked about. So the addon can't tell an empty slot from a full one,
+-- which is why this bar stays in the stack instead of collapsing like the cast bar. An empty
+-- slot's duration is zero, so its segment simply draws empty.
 local function totemDuration(slot)
     local ok, d = pcall(GetTotemDuration, slot)
-    if not ok or not d then return nil end
-    local okZero, zero = pcall(d.IsZero, d)
-    if okZero and not zero then return d end
-end
-
--- No class check: non-shamans never have a totem out anyway (and `class` isn't known up here).
-local function anyTotem()
-    for i = 1, #TOTEM_SLOTS do
-        if totemDuration(i) then return true end
-    end
-    return false
+    if ok then return d end
 end
 
 local function layoutDefaults(show, x, y, gap, width, h1, h2, h3, h4, h5, h6, h7, h8)
@@ -253,11 +244,7 @@ local BARS = {
     },
     totems = {
         label = "Totems",
-        -- like the cast bar: only while something is out, so the stack closes the gap otherwise
-        state = function()
-            if class ~= "SHAMAN" then return false end
-            return (anyTotem() or ns.previewing()) and true or false, #TOTEM_SLOTS
-        end,
+        state = function() return class == "SHAMAN", #TOTEM_SLOTS end,
     },
     swing = {
         label = "Swing Timer",
@@ -610,7 +597,7 @@ local function fill(f)
             local d = totemDuration(c.slots[i])
             if d then
                 f.segs[i]:SetTimerDuration(d, 0, TIMER_REMAINING)
-            else -- empty slot (full while previewing, so the bar can be placed)
+            else -- no such API on this build: show a full bar while placing it, nothing otherwise
                 f.segs[i]:SetMinMaxValues(0, 1)
                 f.segs[i]:SetValue(ns.previewing() and 1 or 0)
             end
@@ -2733,11 +2720,11 @@ end
 
 local swingTicker = CreateFrame("Frame")
 ns.swingTicker = swingTicker
-local swingShown = 0 -- what was up last tick; a change means the stack must re-flow
+local swingShown = 0 -- which rows were up last tick; a change means the stack must re-flow
 local function swingTick()
-    local mask = anyTotem() and 1 or 0
+    local mask = 0
     for i, kind in ipairs(SWING_TYPES) do
-        if swingActive(kind[3]) then mask = mask + 2 ^ i end
+        if swingActive(kind[3]) then mask = mask + 2 ^ (i - 1) end
     end
     if mask ~= swingShown then
         swingShown = mask
@@ -2749,7 +2736,7 @@ local function swingTick()
             end
         end
     end
-    if not swingActive() and not anyTotem() then swingTicker:SetScript("OnUpdate", nil) end
+    if not swingActive() then swingTicker:SetScript("OnUpdate", nil) end
 end
 
 local petEv = CreateFrame("Frame") -- same handler as ev, for pet unit events
@@ -2849,10 +2836,8 @@ ev:SetScript("OnEvent", function(_, event, unit, arg2)
         swingState[arg2] = { start = GetTime(), duration = unit }
         swingTicker:SetScript("OnUpdate", swingTick)
         swingTick()
-    elseif event == "PLAYER_TOTEM_UPDATE" then -- a totem was placed or picked up: re-flow the
-        swingShown = -1 -- stack (no mask matches -1), then watch for it running out
-        swingTicker:SetScript("OnUpdate", swingTick)
-        swingTick()
+    elseif event == "PLAYER_TOTEM_UPDATE" then -- hand the new timers over; they run themselves
+        fillShown("totems")
     elseif event == "MERCHANT_SHOW" then
         safe(sellJunk)
     elseif event == "MERCHANT_CLOSED" then
