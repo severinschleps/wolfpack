@@ -158,10 +158,11 @@ IsShiftKeyDown = function() return S.shift end
 IsInGroup = function() return S.group end
 S.time = 1000
 GetTime = function() return S.time end
-GetTotemInfo = function(slot) -- haveTotem, name, start, duration
-    local t = S.totems and S.totems[slot]
-    if t then return true, "Totem", t[1], t[2] end
-    return false
+-- Duration objects stand in for the client's secret-safe ones: the addon may only pass them on
+-- and ask IsZero.
+GetTotemDuration = function(slot)
+    local left = S.totems and S.totems[slot]
+    return { slot = slot, IsZero = function(self) return not left end }
 end
 UnitCastingInfo = function() if S.cast then return S.cast, "", 136116 end end
 UnitChannelInfo = function() if S.channel then return S.channel, "", 136197 end end
@@ -1182,16 +1183,21 @@ local tb = ns.frames.totems
 prof().locked = true
 fire("UNIT_MAXPOWER")
 assert(not tb:IsShown(), "no totems: no bar")
-S.time = 2000
-S.totems = { [1] = { 2000, 60 }, [3] = { 1990, 30 } } -- fire fresh, water 10 s in
+S.totems = { [1] = true, [3] = true } -- fire and water out
 fire("PLAYER_TOTEM_UPDATE", 1)
 assert(tb:IsShown() and tb.n == 4, "four segments")
-assert(tb.segs[1]._max == 60 and tb.segs[1]._value == 60, "fire full")
-assert(tb.segs[3]._max == 30 and tb.segs[3]._value == 20, "water part-spent")
-assert(tb.segs[2]._value == 0 and tb.segs[4]._value == 0, "empty slots at zero")
+assert(tb.segs[1]._timer.slot == 1 and tb.segs[1]._dir == 1, "fire drains from its own duration")
+assert(tb.segs[3]._timer.slot == 3, "water too")
+assert(tb.segs[2]._value == 0 and tb.segs[4]._value == 0, "empty slots stay empty")
 assert(tb.segs[1]._sbc[1] == 1 and tb.segs[3]._sbc[3] == 1, "fire red, water blue")
-S.time = 2005; ns.swingTicker._scripts.OnUpdate()
-assert(tb.segs[1]._value == 55 and tb.segs[3]._value == 15, "both count down")
+-- reorder and recolor: air first, in green
+local tc = prof().regular.bars.totems
+tc.slots = { 4, 1, 2, 3 }
+tc.slotColors[4] = { 0, 1, 0, 1 }
+fire("PLAYER_TOTEM_UPDATE", 1)
+assert(tb.segs[1]._sbc[2] == 1 and tb.segs[2]._sbc[1] == 1, "air segment first, fire second")
+assert(tb.segs[2]._timer.slot == 1, "the fire totem moved with it")
+tc.slots = { 1, 2, 3, 4 }
 S.totems = nil; ns.swingTicker._scripts.OnUpdate()
 assert(not tb:IsShown() and not ns.swingTicker._scripts.OnUpdate, "all gone: bar leaves, ticker stops")
 login("ROGUE", 3)
