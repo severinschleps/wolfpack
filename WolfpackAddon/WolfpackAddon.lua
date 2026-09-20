@@ -134,7 +134,8 @@ local DEFAULTS = {
         hideGryphons = false, autoAccept = false, autoComplete = false, sellJunk = false,
         hover = {},         -- [key from HOVER_FRAMES] = true: that Blizzard element shows only on mouseover
         bagsOnOpen = false, -- bag bar only while bags are open, attached to them
-        minimap = { square = false, border = false, radius = 0, tray = false, trayBlizzard = false, infoBar = false },
+        minimap = { square = false, border = false, radius = 0, tray = false, trayBlizzard = false,
+            infoBar = false, hideDayNight = false, x = 0, y = 0 },
     },
 }
 
@@ -1018,117 +1019,118 @@ local function syncBags()
     end
 end
 
+local mini = {} -- the minimap module: its state and helpers live in one table
+ns.mini = mini
+
 ------------------------------------------------------------------------------------------
--- Minimap: square shape, a 1 px border, a tray that collects the addon buttons around it, and
+-- Minimap: square shape, a 1 px mini.border, a mini.tray that collects the addon buttons around it, and
 -- a bar underneath with the time, latency and coordinates.
 ------------------------------------------------------------------------------------------
-local SQUARE_MASK, ROUND_MASK = "Interface\\Buttons\\WHITE8X8", "ui-hud-minimap-frame-generic-mask"
+mini.SQUARE_MASK, mini.ROUND_MASK = "Interface\\Buttons\\WHITE8X8", "ui-hud-minimap-frame-generic-mask"
 
 -- The minimap's mask can't be nine-sliced, so it stretches to fit: Media/MinimapRound/m<N>.tga
 -- are 128 px squares whose corner is N px, and the one whose corner ratio is closest to the
 -- radius wanted on this minimap wins.
-local MINIMAP_MASKS = { 2, 3, 4, 6, 8, 12, 16, 24, 32, 48, 64 }
-local MINIMAP_MASK_DIR = "Interface\\AddOns\\" .. ADDON .. "\\Media\\MinimapRound\\m"
+mini.MINIMAP_MASKS = { 2, 3, 4, 6, 8, 12, 16, 24, 32, 48, 64 }
+mini.MINIMAP_MASK_DIR = "Interface\\AddOns\\" .. ADDON .. "\\Media\\MinimapRound\\m"
 
-local function roundedMaskFor(radius, size)
-    local wanted, best, bestOff = radius / math.max(size, 1), MINIMAP_MASKS[1], math.huge
-    for _, r in ipairs(MINIMAP_MASKS) do
+function mini.roundedMaskFor(radius, size)
+    local wanted, best, bestOff = radius / math.max(size, 1), mini.MINIMAP_MASKS[1], math.huge
+    for _, r in ipairs(mini.MINIMAP_MASKS) do
         local off = math.abs(r / 128 - wanted)
         if off < bestOff then best, bestOff = r, off end
     end
-    return MINIMAP_MASK_DIR .. best .. ".tga"
+    return mini.MINIMAP_MASK_DIR .. best .. ".tga"
 end
 
-local function minimapMask()
+function mini.minimapMask()
     local m = db.other.minimap
-    if not m.square then return ROUND_MASK end
-    if m.radius == "round" then return ROUND_MASK end
-    if (m.radius or 0) <= 0 then return SQUARE_MASK end
-    return roundedMaskFor(m.radius, Minimap:GetWidth())
+    if not m.square then return mini.ROUND_MASK end
+    if m.radius == "round" then return mini.ROUND_MASK end
+    if (m.radius or 0) <= 0 then return mini.SQUARE_MASK end
+    return mini.roundedMaskFor(m.radius, Minimap:GetWidth())
 end
 
-local minimapDone = {} -- what we have already changed, so nothing is touched unless asked
+mini.minimapDone = {} -- what we have already changed, so nothing is touched unless asked
 
-local function minimapShape()
-    local mask = minimapMask()
-    if mask == minimapDone.mask then return end
-    if not minimapDone.mask and mask == ROUND_MASK then return end -- default shape: leave it alone
-    minimapDone.mask = mask
+function mini.minimapShape()
+    local mask = mini.minimapMask()
+    if mask == mini.minimapDone.mask then return end
+    if not mini.minimapDone.mask and mask == mini.ROUND_MASK then return end -- default shape: leave it alone
+    mini.minimapDone.mask = mask
     Minimap:SetMaskTexture(mask)
     if MinimapCompassTexture then -- the round frame art only fits the round mask
-        MinimapCompassTexture:SetAlpha(mask == ROUND_MASK and 1 or 0)
+        MinimapCompassTexture:SetAlpha(mask == mini.ROUND_MASK and 1 or 0)
     end
 end
 
--- The border is a black plate behind the minimap, 1 px larger and cut to the same shape, so it
+-- The mini.border is a black plate behind the minimap, 1 px larger and cut to the same shape, so it
 -- shows as an outline whatever the corners look like.
-local border
-local function minimapBorder()
+function mini.minimapBorder()
     local want = db.other.minimap.border and true or false
-    if not border then
+    if not mini.border then
         if not want then return end
-        border = CreateFrame("Frame", nil, MinimapCluster or UIParent)
-        border:SetFrameLevel(math.max(Minimap:GetFrameLevel() - 1, 0))
-        border:SetPoint("TOPLEFT", Minimap, "TOPLEFT", -1, 1)
-        border:SetPoint("BOTTOMRIGHT", Minimap, "BOTTOMRIGHT", 1, -1)
-        border.tex = border:CreateTexture(nil, "BACKGROUND")
-        border.tex:SetAllPoints()
-        border.tex:SetColorTexture(0, 0, 0, 1)
-        border.mask = border:CreateMaskTexture()
-        border.mask:SetAllPoints(border.tex)
+        mini.border = CreateFrame("Frame", nil, MinimapCluster or UIParent)
+        mini.border:SetFrameLevel(math.max(Minimap:GetFrameLevel() - 1, 0))
+        mini.border:SetPoint("TOPLEFT", Minimap, "TOPLEFT", -1, 1)
+        mini.border:SetPoint("BOTTOMRIGHT", Minimap, "BOTTOMRIGHT", 1, -1)
+        mini.border.tex = mini.border:CreateTexture(nil, "BACKGROUND")
+        mini.border.tex:SetAllPoints()
+        mini.border.tex:SetColorTexture(0, 0, 0, 1)
+        mini.border.mask = mini.border:CreateMaskTexture()
+        mini.border.mask:SetAllPoints(mini.border.tex)
     end
-    border:SetShown(want)
+    mini.border:SetShown(want)
     if not want then return end
-    local mask = minimapMask()
-    if mask == ROUND_MASK or mask == SQUARE_MASK then
-        if border.masked then
-            border.tex:RemoveMaskTexture(border.mask)
-            border.masked = nil
+    local mask = mini.minimapMask()
+    if mask == mini.ROUND_MASK or mask == mini.SQUARE_MASK then
+        if mini.border.masked then
+            mini.border.tex:RemoveMaskTexture(mini.border.mask)
+            mini.border.masked = nil
         end
-        if mask == ROUND_MASK then -- the round minimap brings its own frame art
-            border:Hide()
+        if mask == mini.ROUND_MASK then -- the round minimap brings its own frame art
+            mini.border:Hide()
         end
     else
-        border.mask:SetTexture(mask, "CLAMPTOBLACKADDITIVE", "CLAMPTOBLACKADDITIVE")
-        if not border.masked then
-            border.tex:AddMaskTexture(border.mask)
-            border.masked = true
+        mini.border.mask:SetTexture(mask, "CLAMPTOBLACKADDITIVE", "CLAMPTOBLACKADDITIVE")
+        if not mini.border.masked then
+            mini.border.tex:AddMaskTexture(mini.border.mask)
+            mini.border.masked = true
         end
     end
 end
 
--- What the tray leaves alone: the minimap's own parts and the tray itself. Our own icon goes in
+-- What the mini.tray leaves alone: the minimap's own parts and the mini.tray itself. Our own icon goes in
 -- like any other addon's.
-local TRAY_SKIP = { MinimapZoomIn = true, MinimapZoomOut = true, MinimapCompassTexture = true,
+mini.TRAY_SKIP = { MinimapZoomIn = true, MinimapZoomOut = true, MinimapCompassTexture = true,
     MinimapBackdrop = true, MinimapCluster = true, WolfpackAddonTray = true,
     MinimapZoneTextButton = true, MinimapNorthTag = true, MinimapBorderTop = true }
 
-local tray, trayPanel
-local trayHeld = {} -- button -> { parent, points } so everything can go back
-local strayText = {} -- loose counter font strings on the minimap, hidden while the tray is on
+mini.trayHeld = {} -- button -> { parent, points } so everything can go back
+mini.strayText = {} -- loose counter font strings on the minimap, hidden while the mini.tray is on
 
 -- A button's counter usually travels with it. One left behind on the minimap itself (a number
--- floating next to nothing) is hidden while the tray is on, and shown again afterwards.
-local function trayStrayText(hide)
+-- floating next to nothing) is hidden while the mini.tray is on, and shown again afterwards.
+function mini.trayStrayText(hide)
     for _, holder in ipairs({ Minimap, MinimapCluster }) do
         for _, region in ipairs(holder and holder.GetRegions and { holder:GetRegions() } or {}) do
             if region:IsObjectType("FontString") and tonumber((region:GetText() or ""):match("^%s*(%d+)%s*$" ) or "") then
                 if hide then
-                    if strayText[region] == nil then strayText[region] = region:IsShown() end
+                    if mini.strayText[region] == nil then mini.strayText[region] = region:IsShown() end
                     region:Hide()
-                elseif strayText[region] ~= nil then
-                    region:SetShown(strayText[region])
-                    strayText[region] = nil
+                elseif mini.strayText[region] ~= nil then
+                    region:SetShown(mini.strayText[region])
+                    mini.strayText[region] = nil
                 end
             end
         end
     end
 end
 
--- The tray rides the minimap's edge: a circle when it's round, the square's edge when it's square
+-- The mini.tray rides the minimap's edge: a circle when it's round, the square's edge when it's square
 -- (the same angle, pushed out until it meets the side).
-local function trayPlace()
-    if not tray then return end
+function mini.trayPlace()
+    if not mini.tray then return end
     local angle = math.rad(store.trayAngle or 180)
     local x, y = math.cos(angle), math.sin(angle)
     if db.other.minimap.square then
@@ -1136,25 +1138,25 @@ local function trayPlace()
         if m > 0 then x, y = x / m, y / m end
     end
     local out = Minimap:GetWidth() / 2 + 6
-    tray:ClearAllPoints()
-    tray:SetPoint("CENTER", Minimap, "CENTER", x * out, y * out)
+    mini.tray:ClearAllPoints()
+    mini.tray:SetPoint("CENTER", Minimap, "CENTER", x * out, y * out)
 end
 
 -- Minimap buttons are Buttons, but some are Frames carrying their own button and counter text;
 -- anything named, mouse-enabled and icon-sized counts, so a counter travels with its icon.
-local function trayWorthy(f)
+function mini.trayWorthy(f)
     local name = f.GetName and f:GetName()
-    if not name or TRAY_SKIP[name] or not f.GetWidth then return false end
+    if not name or mini.TRAY_SKIP[name] or not f.GetWidth then return false end
     local w = f:GetWidth() or 0
     if w < 12 or w > 48 then return false end
     return f:IsObjectType("Button") or (f.IsMouseEnabled and f:IsMouseEnabled())
 end
 
-local function trayCollect()
+function mini.trayCollect()
     local found = {}
     for _, parent in ipairs({ Minimap, MinimapBackdrop, MinimapCluster }) do
         for _, child in ipairs(parent and parent.GetChildren and { parent:GetChildren() } or {}) do
-            if trayWorthy(child) then found[#found + 1] = child end
+            if mini.trayWorthy(child) then found[#found + 1] = child end
         end
     end
     if db.other.minimap.trayBlizzard then
@@ -1165,20 +1167,20 @@ local function trayCollect()
     return found
 end
 
-local function trayRelease(f)
-    local kept = trayHeld[f]
+function mini.trayRelease(f)
+    local kept = mini.trayHeld[f]
     if not kept then return end
     f:SetParent(kept.parent)
     f:SetFrameStrata(kept.strata)
     f:SetFrameLevel(kept.level)
     f:ClearAllPoints()
     for _, pt in ipairs(kept.points) do f:SetPoint(unpack(pt)) end
-    trayHeld[f] = nil
+    mini.trayHeld[f] = nil
 end
 
-local function trayLayout()
+function mini.trayLayout()
     local held, cell = {}, 28
-    for f in pairs(trayHeld) do
+    for f in pairs(mini.trayHeld) do
         held[#held + 1] = f
         cell = math.max(cell, math.min((f:GetWidth() or 0) + 2, 48)) -- the biggest icon sets the grid
     end
@@ -1186,121 +1188,188 @@ local function trayLayout()
     local perRow = math.min(math.max(#held, 1), 4)
     for i, f in ipairs(held) do
         f:ClearAllPoints()
-        f:SetPoint("CENTER", trayPanel, "TOPLEFT",
+        f:SetPoint("CENTER", mini.trayPanel, "TOPLEFT",
             6 + cell / 2 + ((i - 1) % 4) * cell, -6 - cell / 2 - math.floor((i - 1) / 4) * cell)
-        f:SetFrameStrata(trayPanel:GetFrameStrata()) -- above the panel's background, not under it
-        f:SetFrameLevel(trayPanel:GetFrameLevel() + 2)
+        f:SetFrameStrata(mini.trayPanel:GetFrameStrata()) -- above the panel's background, not under it
+        f:SetFrameLevel(mini.trayPanel:GetFrameLevel() + 2)
     end
-    trayPanel:SetSize(12 + perRow * cell, 12 + math.ceil(#held / 4) * cell)
-    trayPanel:SetShown(#held > 0 and trayPanel.open or false)
-    tray.count:SetText(#held > 0 and #held or "")
-    tray.countBg:SetShown(#held > 0)
-    tray.countBg:SetSize(tray.count:GetStringWidth() + 4, tray.count:GetStringHeight() + 2)
+    mini.trayPanel:SetSize(12 + perRow * cell, 12 + math.ceil(#held / 4) * cell)
+    mini.trayPanel:SetShown(#held > 0 and mini.trayPanel.open or false)
+    mini.tray.count:SetText(#held > 0 and #held or "")
+    mini.tray.countBg:SetShown(#held > 0)
+    mini.tray.countBg:SetSize(mini.tray.count:GetStringWidth() + 4, mini.tray.count:GetStringHeight() + 2)
 end
 
-local function trayUpdate()
+function mini.trayUpdate()
     local on = db.other.minimap.tray
-    if not tray then
+    if not mini.tray then
         if not on then return end
-        tray = CreateFrame("Button", "WolfpackAddonTray", Minimap)
-        tray:SetSize(28, 28)
-        tray:SetFrameStrata("MEDIUM")
-        tray:SetFrameLevel(Minimap:GetFrameLevel() + 20) -- above the minimap and its border
-        local icon = tray:CreateTexture(nil, "ARTWORK")
+        mini.tray = CreateFrame("Button", "WolfpackAddonTray", Minimap)
+        mini.tray:SetSize(28, 28)
+        mini.tray:SetFrameStrata("MEDIUM")
+        mini.tray:SetFrameLevel(Minimap:GetFrameLevel() + 20) -- above the minimap and its mini.border
+        local icon = mini.tray:CreateTexture(nil, "ARTWORK")
         icon:SetAllPoints()
-        icon:SetTexture(133633) -- a bag: the tray holds the other icons
+        icon:SetTexture(133633) -- a bag: the mini.tray holds the other icons
         icon:SetTexCoord(0.08, 0.92, 0.08, 0.92)
-        tray:SetHighlightTexture("Interface\\Minimap\\UI-Minimap-ZoomButton-Highlight")
-        tray.countBg = tray:CreateTexture(nil, "OVERLAY", nil, 1) -- how many icons it holds
-        tray.countBg:SetColorTexture(0, 0, 0, 0.8)
-        tray.count = tray:CreateFontString(nil, "OVERLAY", nil, 2)
-        tray.count:SetFont(STANDARD_TEXT_FONT or "Fonts\\FRIZQT__.TTF", 10, "OUTLINE")
-        tray.count:SetPoint("BOTTOMLEFT", tray, "BOTTOMLEFT", 1, 1)
-        tray.countBg:SetPoint("CENTER", tray.count)
-        tray:RegisterForDrag("LeftButton")
-        tray:SetScript("OnDragStart", function(self)
+        mini.tray:SetHighlightTexture("Interface\\Minimap\\UI-Minimap-ZoomButton-Highlight")
+        mini.tray.countBg = mini.tray:CreateTexture(nil, "OVERLAY", nil, 1) -- how many icons it holds
+        mini.tray.countBg:SetColorTexture(0, 0, 0, 0.8)
+        mini.tray.count = mini.tray:CreateFontString(nil, "OVERLAY", nil, 2)
+        mini.tray.count:SetFont(STANDARD_TEXT_FONT or "Fonts\\FRIZQT__.TTF", 10, "OUTLINE")
+        mini.tray.count:SetPoint("BOTTOMLEFT", mini.tray, "BOTTOMLEFT", 1, 1)
+        mini.tray.countBg:SetPoint("CENTER", mini.tray.count)
+        mini.tray:RegisterForDrag("LeftButton")
+        mini.tray:SetScript("OnDragStart", function(self)
             self:SetScript("OnUpdate", function()
                 local mx, my = Minimap:GetCenter()
                 local cx, cy = GetCursorPosition()
                 local scale = Minimap:GetEffectiveScale()
                 store.trayAngle = math.deg(math.atan2(cy / scale - my, cx / scale - mx))
-                trayPlace()
+                mini.trayPlace()
             end)
         end)
-        tray:SetScript("OnDragStop", function(self) self:SetScript("OnUpdate", nil) end)
-        trayPanel = CreateFrame("Frame", nil, tray, "BackdropTemplate")
-        trayPanel:SetPoint("TOPRIGHT", tray, "TOPLEFT", -4, 0)
-        trayPanel:SetFrameStrata("DIALOG") -- above the minimap, whatever the icons' own strata
-        trayPanel:SetBackdrop({ bgFile = "Interface\\Buttons\\WHITE8X8", edgeFile = "Interface\\Buttons\\WHITE8X8",
+        mini.tray:SetScript("OnDragStop", function(self) self:SetScript("OnUpdate", nil) end)
+        mini.trayPanel = CreateFrame("Frame", nil, mini.tray, "BackdropTemplate")
+        mini.trayPanel:SetPoint("TOPRIGHT", mini.tray, "TOPLEFT", -4, 0)
+        mini.trayPanel:SetFrameStrata("DIALOG") -- above the minimap, whatever the icons' own strata
+        mini.trayPanel:SetBackdrop({ bgFile = "Interface\\Buttons\\WHITE8X8", edgeFile = "Interface\\Buttons\\WHITE8X8",
             edgeSize = 1 })
-        trayPanel:SetBackdropColor(0, 0, 0, 0.85)
-        trayPanel:SetBackdropBorderColor(0, 0, 0, 1)
-        trayPanel:Hide()
-        tray:SetScript("OnClick", function()
-            trayPanel.open = not trayPanel.open
-            trayLayout()
+        mini.trayPanel:SetBackdropColor(0, 0, 0, 0.85)
+        mini.trayPanel:SetBackdropBorderColor(0, 0, 0, 1)
+        mini.trayPanel:Hide()
+        mini.tray:SetScript("OnClick", function()
+            mini.trayPanel.open = not mini.trayPanel.open
+            mini.trayLayout()
         end)
     end
-    tray:SetShown(on)
+    mini.tray:SetShown(on)
     if on then
-        trayPlace()
-        for _, f in ipairs(trayCollect()) do
-            if not trayHeld[f] then
+        mini.trayPlace()
+        for _, f in ipairs(mini.trayCollect()) do
+            if not mini.trayHeld[f] then
                 local points = {}
                 for i = 1, f:GetNumPoints() do points[i] = { f:GetPoint(i) } end
-                trayHeld[f] = { parent = f:GetParent(), points = points,
+                mini.trayHeld[f] = { parent = f:GetParent(), points = points,
                     strata = f:GetFrameStrata(), level = f:GetFrameLevel() }
-                f:SetParent(trayPanel)
+                f:SetParent(mini.trayPanel)
             end
         end
     else
-        for f in pairs(trayHeld) do trayRelease(f) end
-        if trayPanel then trayPanel:Hide() end
+        for f in pairs(mini.trayHeld) do mini.trayRelease(f) end
+        if mini.trayPanel then mini.trayPanel:Hide() end
     end
-    trayStrayText(on)
-    if trayPanel then trayLayout() end
+    mini.trayStrayText(on)
+    if mini.trayPanel then mini.trayLayout() end
 end
-local infoBar
-local function minimapInfo()
+-- Two strips: the zone and coordinates above the minimap, the time and latency below it.
+mini.blizzBars = {} -- Blizzard's zone text and clock, hidden while ours are up
+
+function mini.makeBar(where)
+    local bar = CreateFrame("Frame", nil, Minimap)
+    bar:SetPoint("BOTTOMLEFT", Minimap, "TOPLEFT", 0, 2)
+    bar:SetPoint("BOTTOMRIGHT", Minimap, "TOPRIGHT", 0, 2)
+    if where == "bottom" then
+        bar:ClearAllPoints()
+        bar:SetPoint("TOPLEFT", Minimap, "BOTTOMLEFT", 0, -2)
+        bar:SetPoint("TOPRIGHT", Minimap, "BOTTOMRIGHT", 0, -2)
+    end
+    bar:SetHeight(14)
+    local bg = bar:CreateTexture(nil, "BACKGROUND")
+    bg:SetAllPoints()
+    bg:SetColorTexture(0, 0, 0, 0.6)
+    for _, side in ipairs({ { "left", "LEFT", 4 }, { "right", "RIGHT", -4 } }) do
+        local fs = bar:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+        fs:SetPoint(side[2], side[3], 0)
+        fs:SetJustifyH(side[2])
+        bar[side[1]] = fs
+    end
+    return bar
+end
+
+function mini.minimapInfo()
     local on = db.other.minimap.infoBar
-    if not infoBar then
+    if not mini.infoBar then
         if not on then return end
-        infoBar = CreateFrame("Frame", nil, Minimap)
-        infoBar:SetPoint("TOPLEFT", Minimap, "BOTTOMLEFT", 0, -2)
-        infoBar:SetPoint("TOPRIGHT", Minimap, "BOTTOMRIGHT", 0, -2)
-        infoBar:SetHeight(14)
-        local bg = infoBar:CreateTexture(nil, "BACKGROUND")
-        bg:SetAllPoints()
-        bg:SetColorTexture(0, 0, 0, 0.6)
-        for _, side in ipairs({ { "clock", "LEFT", 4 }, { "ping", "CENTER", 0 }, { "coords", "RIGHT", -4 } }) do
-            local fs = infoBar:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-            fs:SetPoint(side[2], side[3], 0)
-            infoBar[side[1]] = fs
-        end
-        infoBar.next = 0
-        infoBar:SetScript("OnUpdate", function(self, elapsed)
+        mini.topBar, mini.infoBar = mini.makeBar("top"), mini.makeBar("bottom")
+        mini.topBar.left:SetPoint("RIGHT", mini.topBar.right, "LEFT", -6, 0) -- a long zone name gets cut, not overlapped
+        mini.topBar.left:SetJustifyH("LEFT")
+        mini.topBar.left:SetWordWrap(false)
+        mini.infoBar.next = 0
+        mini.infoBar:SetScript("OnUpdate", function(self, elapsed)
             self.next = self.next - elapsed
             if self.next > 0 then return end
             self.next = 1
-            self.clock:SetText(date("%H:%M"))
+            self.left:SetText(date("%H:%M"))
             local _, _, _, world = GetNetStats()
-            self.ping:SetText((world or 0) .. " ms")
+            self.right:SetText((world or 0) .. " ms")
+            mini.topBar.left:SetText(GetMinimapZoneText() or "")
             local map = C_Map.GetBestMapForUnit("player")
             local pos = map and C_Map.GetPlayerMapPosition(map, "player")
             local x, y
             if pos then x, y = pos:GetXY() end -- "and" would keep only the first return
-            self.coords:SetText(x and string.format("%.1f, %.1f", x * 100, y * 100) or "--")
+            mini.topBar.right:SetText(x and string.format("%.1f, %.1f", x * 100, y * 100) or "--")
         end)
     end
-    infoBar:SetShown(on)
+    mini.infoBar:SetShown(on)
+    mini.topBar:SetShown(on)
+    -- Blizzard's own zone name and clock would sit on top of ours
+    for _, f in ipairs({ MinimapCluster and MinimapCluster.ZoneTextButton, TimeManagerClockButton }) do
+        if type(f) == "table" and f.IsShown then
+            if on then
+                if mini.blizzBars[f] == nil then mini.blizzBars[f] = f:IsShown() end
+                f:Hide()
+            elseif mini.blizzBars[f] ~= nil then
+                f:SetShown(mini.blizzBars[f])
+                mini.blizzBars[f] = nil
+            end
+        end
+    end
 end
 
-local function syncMinimap()
+-- The day/night (calendar) icon.
+function mini.minimapDayNight()
+    local hide = db.other.minimap.hideDayNight and true or false
+    if not GameTimeFrame or hide == (mini.dayNightShown == false) then return end
+    if hide then
+        mini.dayNightShown = false
+        GameTimeFrame:Hide()
+    elseif mini.dayNightShown == false then
+        mini.dayNightShown = nil
+        GameTimeFrame:Show()
+    end
+end
+
+-- Nudging the whole minimap, e.g. tighter into the screen corner. Its Edit Mode anchors are kept
+-- and restored; Blizzard re-applies them on layout changes, and Refresh puts the offset back.
+function mini.minimapOffset()
+    local m = db.other.minimap
+    local dx, dy = m.x or 0, m.y or 0
+    if not MinimapCluster or (dx == 0 and dy == 0 and not mini.minimapAnchors) then return end
+    if not mini.minimapAnchors then
+        mini.minimapAnchors = {}
+        for i = 1, MinimapCluster:GetNumPoints() do mini.minimapAnchors[i] = { MinimapCluster:GetPoint(i) } end
+    end
+    if dx == 0 and dy == 0 then -- back to where Edit Mode had it
+        MinimapCluster:ClearAllPoints()
+        for _, pt in ipairs(mini.minimapAnchors) do MinimapCluster:SetPoint(unpack(pt)) end
+        mini.minimapAnchors = nil
+        return
+    end
+    MinimapCluster:ClearAllPoints()
+    for _, pt in ipairs(mini.minimapAnchors) do
+        MinimapCluster:SetPoint(pt[1], pt[2], pt[3], (pt[4] or 0) + dx, (pt[5] or 0) + dy)
+    end
+end
+
+function mini.syncMinimap()
     if not Minimap then return end
-    minimapShape()
-    minimapBorder()
-    trayUpdate()
-    minimapInfo()
+    mini.minimapShape()
+    mini.minimapBorder()
+    mini.trayUpdate()
+    mini.minimapInfo()
+    mini.minimapDayNight()
+    mini.minimapOffset()
 end
 
 local function Refresh()
@@ -1331,7 +1400,7 @@ local function Refresh()
     syncCombatIcon()
     syncHover()
     syncBags()
-    syncMinimap()
+    mini.syncMinimap()
     anchor:SetScript("OnUpdate", db.regular.highlight.show and checkHover or nil)
     if not db.regular.highlight.show then setHover(false) end
 end
@@ -2349,28 +2418,39 @@ local function buildConfig()
         function() return CI().y end, function(v) CI().y = v end)
     icon:close()
 
-    local mm = group(otherPage, COL[4], icon.cursor - 20, 202, "Minimap")
+    local look2 = group(otherPage, COL[3], hover.cursor - 20, 202, "Minimap look")
     local MM = function() return db.other.minimap end
-    check(otherPage, "Square shape", mm.x, mm:row(ROW), function() return MM().square end, function(v) MM().square = v end)
-    check(otherPage, "1 px border", mm.x, mm:row(ROW), function() return MM().border end, function(v) MM().border = v end)
-    dropdown(otherPage, "Corner radius", mm.x, mm:row(DROP), { { "None (square)", 0 }, { "4 px", 4 }, { "8 px", 8 },
-        { "16 px", 16 }, { "32 px", 32 }, { "Round", "round" } }, function() return MM().radius end,
-        function(v) MM().radius = v end, textPreview)
-    check(otherPage, "Tray for addon icons", mm.x, mm:row(ROW), function() return MM().tray end, function(v) MM().tray = v end)
+    check(otherPage, "Square shape", look2.x, look2:row(ROW), function() return MM().square end,
+        function(v) MM().square = v end)
+    check(otherPage, "1 px border", look2.x, look2:row(ROW), function() return MM().border end,
+        function(v) MM().border = v end)
+    dropdown(otherPage, "Corner radius", look2.x, look2:row(DROP), { { "None (square)", 0 }, { "4 px", 4 },
+        { "8 px", 8 }, { "16 px", 16 }, { "32 px", 32 }, { "Round", "round" } },
+        function() return MM().radius end, function(v) MM().radius = v end, textPreview)
+    check(otherPage, "Hide day/night icon", look2.x, look2:row(ROW), function() return MM().hideDayNight end,
+        function(v) MM().hideDayNight = v end)
+    look2:close()
+
+    local mm = group(otherPage, COL[4], icon.cursor - 20, 202, "Minimap tray and bars")
+    check(otherPage, "Tray for addon icons", mm.x, mm:row(ROW), function() return MM().tray end,
+        function(v) MM().tray = v end)
     check(otherPage, "Tray holds tracking + calendar", mm.x, mm:row(ROW),
         function() return MM().trayBlizzard end, function(v) MM().trayBlizzard = v end)
-    check(otherPage, "Info bar (time, ping, coords)", mm.x, mm:row(ROW),
-        function() return MM().infoBar end, function(v) MM().infoBar = v end)
     slider(otherPage, "Tray position (%)", mm.x, mm:row(SLIDER), 0, 100,
         function() return math.floor(((store.trayAngle or 180) + 180) / 3.6 + 0.5) % 101 end,
-        function(v) store.trayAngle = v * 3.6 - 180; trayPlace() end)
+        function(v) store.trayAngle = v * 3.6 - 180; mini.trayPlace() end)
+    check(otherPage, "Info bars (zone, coords, time, ping)", mm.x, mm:row(ROW),
+        function() return MM().infoBar end, function(v) MM().infoBar = v end)
+    slider(otherPage, "Move X (left / right)", mm.x, mm:row(SLIDER), -400, 400,
+        function() return MM().x end, function(v) MM().x = v end)
+    slider(otherPage, "Move Y (down / up)", mm.x, mm:row(SLIDER), -400, 400,
+        function() return MM().y end, function(v) MM().y = v end)
     local mmNote = label(otherPage, "Drag the tray icon around the minimap, or use the slider; click it to open.",
         "GameFontDisableSmall")
     mmNote:SetPoint("TOPLEFT", mm.x, mm:row(34))
     mmNote:SetWidth(182)
     mmNote:SetJustifyH("LEFT")
     mm:close()
-
 
     ns.configHeight = -pageBottom + 24 -- what the tallest column needs
     local height = math.min(ns.configHeight, math.floor(UIParent:GetHeight()) - 40)

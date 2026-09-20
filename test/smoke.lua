@@ -124,6 +124,8 @@ Minimap._children = { addonButton("SomeAddonIcon"), addonButton("AnotherAddonIco
 MinimapBackdrop, MinimapCompassTexture = new(), new()
 MinimapCluster = new()
 MinimapCluster.Tracking, GameTimeFrame = new(), new()
+MinimapCluster.ZoneTextButton, TimeManagerClockButton = new(), new()
+GetMinimapZoneText = function() return "Ruins of Lordaeron" end
 MinimapCluster.Tracking._w, GameTimeFrame._w = 26, 26
 -- a counter text left loose on the minimap, like some addon buttons leave behind
 local strayCount = new("FontString")
@@ -1002,13 +1004,27 @@ assert(icon1._parent == Minimap and icon1._point[2] == Minimap and MinimapCluste
 assert(icon1._strata == "MEDIUM", "strata restored too")
 assert(strayCount:IsShown(), "the loose counter comes back")
 MM.infoBar = true; fire("UNIT_MAXPOWER")
-local bar
-for _, f in ipairs(created) do if f._parent == Minimap and f._scripts.OnUpdate then bar = f end end
+local bar, top = ns.mini.infoBar, ns.mini.topBar
 bar._scripts.OnUpdate(bar, 2)
-assert(bar.clock._text == "12:34" and bar.ping._text == "42 ms" and bar.coords._text == "25.3, 60.7", "time, ping, coords")
+assert(bar.left._text == "12:34" and bar.right._text == "42 ms", "bottom bar: time and ping")
+assert(top.left._text == "Ruins of Lordaeron" and top.right._text == "25.3, 60.7", "top bar: zone and coords")
+assert(not MinimapCluster.ZoneTextButton:IsShown() and not TimeManagerClockButton:IsShown(), "Blizzard's own hidden")
+-- day/night icon and nudging the whole minimap
+MM.hideDayNight = true; fire("UNIT_MAXPOWER")
+assert(not GameTimeFrame:IsShown(), "day/night icon hidden")
+MinimapCluster:SetPoint("TOPRIGHT", UIParent, "TOPRIGHT", -20, -20)
+MM.x, MM.y = -10, 5
+fire("UNIT_MAXPOWER")
+assert(MinimapCluster._point[4] == -30 and MinimapCluster._point[5] == -15, "moved by the offsets")
+MM.x, MM.y = 0, 0
+fire("UNIT_MAXPOWER")
+assert(MinimapCluster._point[4] == -20 and MinimapCluster._point[5] == -20, "back where Edit Mode had it")
+MM.hideDayNight = false; fire("UNIT_MAXPOWER")
+assert(GameTimeFrame:IsShown(), "day/night icon back")
 MM.infoBar, MM.border = false, false
 fire("UNIT_MAXPOWER")
-assert(not bar:IsShown() and not bord:IsShown(), "off again")
+assert(not bar:IsShown() and not top:IsShown() and not bord:IsShown(), "off again")
+assert(MinimapCluster.ZoneTextButton:IsShown() and TimeManagerClockButton:IsShown(), "Blizzard's own back")
 
 -- Export / import: the profile string round-trips into a new profile (mouseover choices and
 -- the account-wide combat font included); the WoW UI layout is its own string for Edit Mode
