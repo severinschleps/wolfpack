@@ -755,6 +755,9 @@ assert(Q.kill.icon == 135274 and Q.kill.size == 32 and Q.loot.size == 20 and Q.x
 assert(h.kill._tex == 135274 and h.kill._w == 32 and h.box._w == 54 and h.box._point[4] == -5, "live plate row restyled")
 byText("Combat Display")._scripts.OnClick(byText("Combat Display"), "LeftButton")
 
+-- The options window sizes itself to its tallest column
+assert(ns.configHeight > 400 and ns.configHeight < 700, "window height " .. ns.configHeight)
+
 -- Other: gryphons hidden via texture alpha only, untouched until the option is used
 local caps = MainActionBar.EndCaps
 assert(caps.LeftEndCap.Texture._alpha == nil, "gryphons untouched by default")
@@ -868,7 +871,7 @@ S.picker.swatchFunc()
 assert(hcol.borderMode == "custom" and hcol.borderColor[1] == 0.1, "picked: custom")
 S.picker.cancelFunc()
 assert(hcol.borderMode == "bar" and hcol.borderColor[1] == 0 and hcol.borderColor[4] == 1, "cancel restores")
-sw["Custom color (and opacity)"]._scripts.OnClick()
+sw["Custom color"]._scripts.OnClick()
 assert(S.picker.r == 1 and S.picker.g == 0.96, "bar picker opens on the class color")
 S.picker.swatchFunc()
 assert(hcol.colorMode == "custom" and hcol.color[3] == 0.3, "bar picked: custom")

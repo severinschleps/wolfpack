@@ -1053,7 +1053,9 @@ local function L() return db[mode] end
 local function cur() return L().bars[selected] end
 local function onRefresh(fn) refreshers[#refreshers + 1] = fn end
 
--- A titled 1 px box that stacks rows: row(h) gives the y for a widget that tall.
+-- A titled 1 px box that stacks rows: row(h) gives the y for a widget that tall. The lowest
+-- box on any page decides how tall the options window needs to be.
+local pageBottom = 0
 local function group(parent, x, y, w, title)
     local g = { x = x + 8, cursor = y - 24, w = w }
     g.title = parent:CreateFontString(nil, "OVERLAY", "GameFontNormal")
@@ -1066,6 +1068,7 @@ local function group(parent, x, y, w, title)
     end
     function g:close()
         local top, bottom = y - 16, self.cursor - 8
+        pageBottom = math.min(pageBottom, bottom)
         for _, side in ipairs({ { x, top, w, 1 }, { x, bottom, w, 1 }, { x, top, 1, top - bottom },
             { x + w - 1, top, 1, top - bottom } }) do
             local t = parent:CreateTexture(nil, "BACKGROUND", nil, 2)
@@ -1116,7 +1119,7 @@ local function num(v) return type(v) == "function" and v() or v end
 -- min/max may be functions, for ranges that depend on the open tab.
 local function slider(parent, text, x, y, min, max, get, set)
     local s = CreateFrame("Slider", nil, parent, "BackdropTemplate")
-    s:SetSize(150, 16)
+    s:SetSize(130, 16) -- 130 + 12 + 40 fits a box's inner width
     s:SetPoint("TOPLEFT", x, y - 16)
     s:SetBackdrop(SLIDER_BACKDROP)
     s:SetOrientation("HORIZONTAL")
@@ -1218,7 +1221,7 @@ end
 local function dropdown(parent, text, x, y, list, get, set, preview)
     local dd = CreateFrame("DropdownButton", nil, parent, "WowStyle1DropdownTemplate")
     dd:SetPoint("TOPLEFT", x, y - 14)
-    dd:SetWidth(200)
+    dd:SetWidth(178)
     label(dd, text, "GameFontNormalSmall"):SetPoint("BOTTOMLEFT", dd, "TOPLEFT", 0, 2)
     dd:SetupMenu(function(_, root)
         for _, item in ipairs(type(list) == "function" and list() or list) do
@@ -1681,7 +1684,7 @@ local function buildConfig()
     -- Pages to the right of the sidebar. The bars page edits the layout picked by `mode`.
     local barsPage = CreateFrame("Frame", nil, cfg)
     barsPage:SetPoint("TOPLEFT", 134, 0)
-    barsPage:SetSize(846, 700)
+    barsPage:SetSize(846, 700) -- height is set once every page is built
     local questPage = CreateFrame("Frame", nil, cfg)
     questPage:SetAllPoints(barsPage)
     local otherPage = CreateFrame("Frame", nil, cfg)
@@ -1779,7 +1782,7 @@ local function buildConfig()
     size:close()
 
     local only = group(barsPage, COL[2], size.cursor - 20, 202, "Just for this bar")
-    local target = check(barsPage, "Show target health next to it", only.x, only:row(ROW),
+    local target = check(barsPage, "Target health beside it", only.x, only:row(ROW),
         function() return cur().target end, function(v) cur().target = v end)
     local swingChecks = {}
     for i, kind in ipairs(SWING_TYPES) do
@@ -1815,7 +1818,7 @@ local function buildConfig()
         if selected == "power" then list[3] = { "Power type color", "power" } end
         return list
     end, function() return cur().colorMode end, function(v) cur().colorMode = v end, textPreview)
-    swatch(barsPage, "Custom color (and opacity)", look.x, look:row(SWATCH), function() return cur().color end, {
+    swatch(barsPage, "Custom color", look.x, look:row(SWATCH), function() return cur().color end, {
         get = function() return cur().colorMode end, set = function(v) cur().colorMode = v end,
         effective = function() return barColors(selFrame(), cur()) end,
     })
@@ -1958,7 +1961,7 @@ local function buildConfig()
         function() return db.regular.hideBlizzCastbar end, function(v) db.regular.hideBlizzCastbar = v end)
     check(otherPage, "Hide action bar gryphons", blizz.x, blizz:row(ROW),
         function() return db.other.hideGryphons end, function(v) db.other.hideGryphons = v end)
-    check(otherPage, "Bag bar only with bags open", blizz.x, blizz:row(ROW),
+    check(otherPage, "Bag bar only with bags", blizz.x, blizz:row(ROW),
         function() return db.other.bagsOnOpen end, function(v) db.other.bagsOnOpen = v end)
     local bagNote = label(otherPage, "The bag bar attaches to the bags. Hiding applies out of combat.",
         "GameFontDisableSmall")
@@ -1972,7 +1975,7 @@ local function buildConfig()
         function() return db.regular.playerTarget end, function(v) db.regular.playerTarget = v end)
     check(otherPage, "Right-click: player menu", mouse.x, mouse:row(ROW),
         function() return db.regular.playerMenu end, function(v) db.regular.playerMenu = v end)
-    check(otherPage, "Mouseover macros (@mouseover)", mouse.x, mouse:row(ROW),
+    check(otherPage, "Mouseover macros", mouse.x, mouse:row(ROW),
         function() return db.regular.playerMouseover end, function(v) db.regular.playerMouseover = v end)
     check(otherPage, "Highlight on mouseover", mouse.x, mouse:row(ROW),
         function() return db.regular.highlight.show end, function(v) db.regular.highlight.show = v end)
@@ -2017,11 +2020,16 @@ local function buildConfig()
         return list
     end, function() return CI().bar end, function(v) CI().bar = v end, textPreview)
     slider(otherPage, "Size", icon.x, icon:row(SLIDER), 8, 64, function() return CI().size end, function(v) CI().size = v end)
-    slider(otherPage, "X (from the bar's left edge)", icon.x, icon:row(SLIDER), -200, 200,
+    slider(otherPage, "X (from the bar's left)", icon.x, icon:row(SLIDER), -200, 200,
         function() return CI().x end, function(v) CI().x = v end)
     slider(otherPage, "Y (down / up)", icon.x, icon:row(SLIDER), -200, 200,
         function() return CI().y end, function(v) CI().y = v end)
     icon:close()
+
+    ns.configHeight = -pageBottom + 24 -- what the tallest column needs
+    local height = math.min(ns.configHeight, math.floor(UIParent:GetHeight()) - 40)
+    cfg:SetHeight(height)
+    barsPage:SetHeight(height)
 end
 
 function ns.ToggleConfig()
