@@ -1105,6 +1105,25 @@ local TRAY_SKIP = { MinimapZoomIn = true, MinimapZoomOut = true, MinimapCompassT
 
 local tray, trayPanel
 local trayHeld = {} -- button -> { parent, points } so everything can go back
+local strayText = {} -- loose counter font strings on the minimap, hidden while the tray is on
+
+-- A button's counter usually travels with it. One left behind on the minimap itself (a number
+-- floating next to nothing) is hidden while the tray is on, and shown again afterwards.
+local function trayStrayText(hide)
+    for _, holder in ipairs({ Minimap, MinimapCluster }) do
+        for _, region in ipairs(holder and holder.GetRegions and { holder:GetRegions() } or {}) do
+            if region:IsObjectType("FontString") and tonumber((region:GetText() or ""):match("^%s*(%d+)%s*$" ) or "") then
+                if hide then
+                    if strayText[region] == nil then strayText[region] = region:IsShown() end
+                    region:Hide()
+                elseif strayText[region] ~= nil then
+                    region:SetShown(strayText[region])
+                    strayText[region] = nil
+                end
+            end
+        end
+    end
+end
 
 -- The tray rides the minimap's edge: a circle when it's round, the square's edge when it's square
 -- (the same angle, pushed out until it meets the side).
@@ -1133,8 +1152,8 @@ end
 
 local function trayCollect()
     local found = {}
-    for _, parent in ipairs({ Minimap, MinimapBackdrop }) do
-        for _, child in ipairs(parent and { parent:GetChildren() } or {}) do
+    for _, parent in ipairs({ Minimap, MinimapBackdrop, MinimapCluster }) do
+        for _, child in ipairs(parent and parent.GetChildren and { parent:GetChildren() } or {}) do
             if trayWorthy(child) then found[#found + 1] = child end
         end
     end
@@ -1174,6 +1193,9 @@ local function trayLayout()
     end
     trayPanel:SetSize(12 + perRow * cell, 12 + math.ceil(#held / 4) * cell)
     trayPanel:SetShown(#held > 0 and trayPanel.open or false)
+    tray.count:SetText(#held > 0 and #held or "")
+    tray.countBg:SetShown(#held > 0)
+    tray.countBg:SetSize(tray.count:GetStringWidth() + 4, tray.count:GetStringHeight() + 2)
 end
 
 local function trayUpdate()
@@ -1189,6 +1211,12 @@ local function trayUpdate()
         icon:SetTexture(133633) -- a bag: the tray holds the other icons
         icon:SetTexCoord(0.08, 0.92, 0.08, 0.92)
         tray:SetHighlightTexture("Interface\\Minimap\\UI-Minimap-ZoomButton-Highlight")
+        tray.countBg = tray:CreateTexture(nil, "OVERLAY", nil, 1) -- how many icons it holds
+        tray.countBg:SetColorTexture(0, 0, 0, 0.8)
+        tray.count = tray:CreateFontString(nil, "OVERLAY", nil, 2)
+        tray.count:SetFont(STANDARD_TEXT_FONT or "Fonts\\FRIZQT__.TTF", 10, "OUTLINE")
+        tray.count:SetPoint("BOTTOMLEFT", tray, "BOTTOMLEFT", 1, 1)
+        tray.countBg:SetPoint("CENTER", tray.count)
         tray:RegisterForDrag("LeftButton")
         tray:SetScript("OnDragStart", function(self)
             self:SetScript("OnUpdate", function()
@@ -1229,6 +1257,7 @@ local function trayUpdate()
         for f in pairs(trayHeld) do trayRelease(f) end
         if trayPanel then trayPanel:Hide() end
     end
+    trayStrayText(on)
     if trayPanel then trayLayout() end
 end
 local infoBar

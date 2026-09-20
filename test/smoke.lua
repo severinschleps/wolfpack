@@ -65,6 +65,8 @@ function M:GetStringWidth() return 8 end
 function M:GetStringHeight() return 10 end
 function M:GetNumPoints() return self._point and 1 or 0 end
 function M:GetChildren() return unpack(self._children or {}) end
+function M:GetRegions() return unpack(self._regions or {}) end
+function M:GetText() return self._text end
 function M:IsObjectType(t) return self._kind == t end
 function M:SetMaskTexture(m) self._mask = m end
 function M:GetPoint() return unpack(self._point) end
@@ -120,9 +122,13 @@ local function addonButton(name)
 end
 Minimap._children = { addonButton("SomeAddonIcon"), addonButton("AnotherAddonIcon") }
 MinimapBackdrop, MinimapCompassTexture = new(), new()
-MinimapCluster = { Tracking = new() }
-GameTimeFrame = new()
+MinimapCluster = new()
+MinimapCluster.Tracking, GameTimeFrame = new(), new()
 MinimapCluster.Tracking._w, GameTimeFrame._w = 26, 26
+-- a counter text left loose on the minimap, like some addon buttons leave behind
+local strayCount = new("FontString")
+strayCount._text = "3"
+Minimap._regions = { strayCount }
 GetNetStats = function() return 0, 0, 30, 42 end
 date = function() return "12:34" end
 C_Map = {
@@ -978,6 +984,8 @@ local panel = icon1._parent
 assert(not panel:IsShown(), "panel closed until the tray is clicked")
 trayBtn._scripts.OnClick()
 assert(panel:IsShown() and panel._w == 12 + 4 * 28, "click opens it, four across")
+assert(trayBtn.count._text == 4 and trayBtn.count._point[1] == "BOTTOMLEFT", "count badge, bottom left")
+assert(not strayCount:IsShown(), "a loose counter on the minimap is hidden while the tray is on")
 assert(icon1._strata == panel:GetFrameStrata() and icon1._level > panel:GetFrameLevel(), "icons above the panel")
 trayBtn._scripts.OnDragStart(trayBtn); trayBtn._scripts.OnUpdate(); trayBtn._scripts.OnDragStop(trayBtn)
 assert(type(WolfpackAddonDB.trayAngle) == "number" and trayBtn._point[2] == Minimap, "dragged around the minimap")
@@ -992,6 +1000,7 @@ MM.square = false
 MM.tray = false; fire("UNIT_MAXPOWER")
 assert(icon1._parent == Minimap and icon1._point[2] == Minimap and MinimapCluster.Tracking._parent == nil, "given back")
 assert(icon1._strata == "MEDIUM", "strata restored too")
+assert(strayCount:IsShown(), "the loose counter comes back")
 MM.infoBar = true; fire("UNIT_MAXPOWER")
 local bar
 for _, f in ipairs(created) do if f._parent == Minimap and f._scripts.OnUpdate then bar = f end end
