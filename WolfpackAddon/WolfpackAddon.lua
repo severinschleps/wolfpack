@@ -1329,7 +1329,9 @@ function mini.minimapInfo()
     mini.infoBar:SetShown(on)
     mini.topBar:SetShown(on)
     -- Blizzard's own zone name and clock would sit on top of ours
-    for _, f in ipairs({ MinimapCluster and MinimapCluster.ZoneTextButton, TimeManagerClockButton }) do
+    -- the zone text, its dark backing strip, and the clock
+    for _, f in ipairs({ MinimapCluster and MinimapCluster.ZoneTextButton,
+        MinimapCluster and MinimapCluster.BorderTop, TimeManagerClockButton }) do
         if type(f) == "table" and f.IsShown then
             if on then
                 if mini.blizzBars[f] == nil then mini.blizzBars[f] = f:IsShown() end

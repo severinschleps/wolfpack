@@ -130,6 +130,7 @@ MinimapCluster = new()
 MinimapCluster.Tracking, GameTimeFrame = new(), new()
 MinimapCluster.ZoneTextButton, TimeManagerClockButton = new(), new()
 MinimapCluster.DielFrame = new() -- Forever's day/night dial
+MinimapCluster.BorderTop = new() -- the dark strip behind Blizzard's zone text
 GetMinimapZoneText = function() return "Ruins of Lordaeron" end
 MinimapCluster.Tracking._w, GameTimeFrame._w = 26, 26
 -- a counter text left loose on the minimap, like some addon buttons leave behind
@@ -1021,6 +1022,7 @@ bar._scripts.OnUpdate(bar, 2)
 assert(bar.left._text == "12:34" and bar.right._text == "42 ms", "bottom bar: time and ping")
 assert(top.left._text == "Ruins of Lordaeron" and top.right._text == "25.3, 60.7", "top bar: zone and coords")
 assert(not MinimapCluster.ZoneTextButton:IsShown() and not TimeManagerClockButton:IsShown(), "Blizzard's own hidden")
+assert(not MinimapCluster.BorderTop:IsShown(), "and the dark strip behind it")
 -- day/night icon and nudging the whole minimap
 MM.hideDayNight = true; fire("UNIT_MAXPOWER")
 assert(not MinimapCluster.DielFrame:IsShown() and GameTimeFrame:IsShown(), "the dial hides, the calendar stays")
@@ -1036,7 +1038,8 @@ assert(MinimapCluster.DielFrame:IsShown(), "dial back")
 MM.infoBar, MM.border = false, false
 fire("UNIT_MAXPOWER")
 assert(not bar:IsShown() and not top:IsShown() and not bord:IsShown(), "off again")
-assert(MinimapCluster.ZoneTextButton:IsShown() and TimeManagerClockButton:IsShown(), "Blizzard's own back")
+assert(MinimapCluster.ZoneTextButton:IsShown() and TimeManagerClockButton:IsShown()
+    and MinimapCluster.BorderTop:IsShown(), "Blizzard's own back")
 
 -- Export / import: the profile string round-trips into a new profile (mouseover choices and
 -- the account-wide combat font included); the WoW UI layout is its own string for Edit Mode
