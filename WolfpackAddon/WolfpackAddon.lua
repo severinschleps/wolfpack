@@ -157,7 +157,7 @@ local DEFAULTS = {
             infoBar = false, hideDayNight = false, x = 0, y = 0 },
         -- five-second-rule spinner: centered on a bar (or the group, if that bar is hidden) + x/y
         fsr = { show = false, bar = "power", size = 28, x = 0, y = 0, color = { 0.3, 0.6, 1, 0.7 },
-            seconds = 6, fill = true }, -- 5 s rule plus the wait for the next 2 s regen tick
+            seconds = 6.5, fill = true }, -- 5 s rule plus the wait for the next 2 s regen tick
     },
 }
 
@@ -1637,7 +1637,8 @@ local SLIDER_BACKDROP = {
 local function num(v) return type(v) == "function" and v() or v end
 
 -- min/max may be functions, for ranges that depend on the open tab.
-local function slider(parent, text, x, y, min, max, get, set)
+local function slider(parent, text, x, y, min, max, get, set, step)
+    step = step or 1 -- whole numbers unless a caller wants finer
     local s = CreateFrame("Slider", nil, parent, "BackdropTemplate")
     s:SetSize(130, 16) -- 130 + 12 + 40 fits a box's inner width
     s:SetPoint("TOPLEFT", x, y - 16)
@@ -1646,16 +1647,16 @@ local function slider(parent, text, x, y, min, max, get, set)
     s:SetThumbTexture("Interface\\Buttons\\UI-SliderBar-Button-Horizontal")
     s:GetThumbTexture():SetSize(32, 32)
     s:SetMinMaxValues(num(min), num(max))
-    s:SetValueStep(1)
+    s:SetValueStep(step)
     s:SetObeyStepOnDrag(true)
     s:EnableMouseWheel(true) -- wheel = +/-1 for exact values
     label(s, text, "GameFontNormalSmall"):SetPoint("BOTTOMLEFT", s, "TOPLEFT", 0, 2)
     local syncing
     s:SetScript("OnValueChanged", function(_, v)
-        v = math.floor(v + 0.5)
+        v = math.floor(v / step + 0.5) * step
         if not syncing and v ~= get() then set(v); changed() end
     end)
-    s:SetScript("OnMouseWheel", function(_, d) s:SetValue(s:GetValue() + d) end)
+    s:SetScript("OnMouseWheel", function(_, d) s:SetValue(s:GetValue() + d * step) end)
 
     -- Typed value: Enter or clicking away applies it (clamped to the slider range), Escape cancels.
     local box = CreateFrame("EditBox", nil, s, "InputBoxTemplate")
@@ -1666,7 +1667,7 @@ local function slider(parent, text, x, y, min, max, get, set)
     local function apply()
         local v = tonumber(box:GetText())
         if v then
-            set(math.max(num(min), math.min(num(max), math.floor(v))))
+            set(math.max(num(min), math.min(num(max), math.floor(v / step + 0.5) * step)))
             changed()
         end
         box:SetText(tostring(get()))
@@ -2673,7 +2674,7 @@ local function buildConfig()
     end)
     onRefresh(function() spinDir:SetText(FS().fill and "Ring: Fills up" or "Ring: Drains away") end)
     slider(otherPage, "Length (seconds)", spin.x, spin:row(SLIDER), 4, 9,
-        function() return FS().seconds end, function(v) FS().seconds = v end)
+        function() return FS().seconds end, function(v) FS().seconds = v end, 0.5)
     slider(otherPage, "X (left / right)", spin.x, spin:row(SLIDER), -200, 200,
         function() return FS().x end, function(v) FS().x = v end)
     slider(otherPage, "Y (down / up)", spin.x, spin:row(SLIDER), -200, 200,
