@@ -572,7 +572,8 @@ R.combo.show, N.health.show = true, false
 -- Quest mobs: sword for open kill objectives, bag for open item objectives, from the tooltip
 local L = Enum.TooltipDataLineType
 S.quests = { { info = { questID = 7, isHeader = false }, objectives = {
-    { text = "Boar Flank: 2/6", type = "item" }, { text = "Boar slain: 3/10", type = "monster" } } } }
+    { text = "Boar Flank: 2/6", type = "item", numFulfilled = 2, numRequired = 6 },
+    { text = "Boar slain: 3/10", type = "monster", numFulfilled = 3, numRequired = 10 } } } }
 fire("QUEST_LOG_UPDATE")
 local plate = new()
 S.plates.nameplate1, S.related.nameplate1 = plate, true
@@ -606,18 +607,20 @@ S.tips.nameplate1[2].completed = true
 fire("QUEST_LOG_UPDATE")
 assert(not h.kill:IsShown() and h.loot:IsShown(), "finished kill objective hidden")
 assert(h.loot._point[4] == 0 and h.box._w == 42, "lone bag slides to the row's left edge, row keeps its size")
--- Groups: QuestPlayer lines say whose objective follows; groupmates-only shows gray
+-- Groups: quests you have stay in color even when the tooltip credits a groupmate
 S.tips.nameplate1 = { { type = L.QuestTitle, leftText = "Boars", id = 7 },
-    { type = L.QuestPlayer, leftText = "ROGUEChar" }, { type = L.QuestObjective, leftText = "3/10 Boar slain" },
     { type = L.QuestPlayer, leftText = "Bob" }, { type = L.QuestObjective, leftText = "Boar Flank: 2/6" },
     { type = L.QuestObjective, leftText = "3/10 Boar slain" } }
 S.group = true; fire("QUEST_LOG_UPDATE")
-assert(h.kill:IsShown() and not h.kill._desat and h.loot:IsShown() and h.loot._desat, "kill mine, loot only Bob's")
+assert(h.kill:IsShown() and not h.kill._desat and h.loot:IsShown() and not h.loot._desat, "both are mine: color")
+assert(h.badge.kill.text._text == 7 and h.badge.loot.text._text == 4, "counts from my own quest log")
 S.related.nameplate1 = false
-S.tips.nameplate1 = { { type = L.QuestTitle, leftText = "Boars", id = 7 }, { type = L.QuestPlayer, leftText = "Bob" },
-    { type = L.QuestObjective, leftText = "Boar Flank: 2/6", completed = false } }
+S.tips.nameplate1 = { { type = L.QuestTitle, leftText = "Wolves", id = 9 }, { type = L.QuestPlayer, leftText = "Bob" },
+    { type = L.QuestObjective, leftText = "Wolf Pelt: 1/4", completed = false } }
 fire("QUEST_LOG_UPDATE")
-assert(not h.kill:IsShown() and h.loot:IsShown() and h.loot._desat and h.loot._point[4] == 0, "not my quest mob: gray bag")
+-- a quest you don't have at all: gray, and shown as a kill since your log can't say otherwise
+assert(h.kill:IsShown() and h.kill._desat and not h.loot:IsShown(), "only Bob needs it: gray")
+assert(h.badge.kill.text._text == 3, "count from the tooltip (1/4)")
 S.tips.nameplate1 = { { type = L.QuestTitle, leftText = "Boars", id = 7 },
     { type = L.QuestObjective, leftText = "Boar Flank: 2/6", completed = false } }
 fire("QUEST_LOG_UPDATE")

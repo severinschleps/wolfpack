@@ -599,19 +599,22 @@ local QUEST_ICONS = {
 local QUEST_ORDER = { "kill", "loot" } -- left to right
 
 local LINE = Enum.TooltipDataLineType
-local objectiveTypes = {} -- objective text without numbers -> "monster", "item", ...
+local objectiveInfo = {} -- objective text without numbers -> { type, left } from your own quest log
 local playerName
 
 -- "Boar Flank: 2/6" and "2/6 Boar Flank" both become "BoarFlank".
 local function bareText(text) return (text:gsub("[%d%p%s]", "")) end
 
 local function scanQuestLog()
-    wipe(objectiveTypes)
+    wipe(objectiveInfo)
     for i = 1, C_QuestLog.GetNumQuestLogEntries() do
         local info = C_QuestLog.GetInfo(i)
         if info and not info.isHeader then
             for _, o in ipairs(C_QuestLog.GetQuestObjectives(info.questID) or {}) do
-                if o.text then objectiveTypes[bareText(o.text)] = o.type end
+                if o.text and not o.finished then
+                    objectiveInfo[bareText(o.text)] = { type = o.type,
+                        left = math.max((o.numRequired or 0) - (o.numFulfilled or 0), 0) }
+                end
             end
         end
     end
@@ -637,11 +640,21 @@ local function questKinds(unit)
             anyObjective = true
             if not line.completed then
                 local text = line.leftText or ""
-                local kind = objectiveTypes[bareText(text)] == "item" and "loot" or "kill"
-                if own then mine[kind] = true else party[kind] = true end
-                local have, need = text:match("(%d+)%s*/%s*(%d+)")
-                if have then -- one mob can serve several quests: the biggest count is what's left
-                    left[kind] = math.max(left[kind] or 0, need - have)
+                local info = objectiveInfo[bareText(text)]
+                local kind = (info and info.type == "item") and "loot" or "kill"
+                -- your own quest log wins over the tooltip's player labels: if you still need it,
+                -- the icon is yours (in a group the tooltip doesn't always name you)
+                local isMine = own or info ~= nil
+                if isMine then mine[kind] = true else party[kind] = true end
+                local remaining
+                if isMine and info then
+                    remaining = info.left
+                else
+                    local have, need = text:match("(%d+)%s*/%s*(%d+)")
+                    if have then remaining = need - have end
+                end
+                if remaining and remaining > 0 then -- several quests on one mob: the biggest count
+                    left[kind] = math.max(left[kind] or 0, remaining)
                 end
             end
         end
