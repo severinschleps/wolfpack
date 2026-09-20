@@ -155,6 +155,8 @@ local DEFAULTS = {
         bagsOnOpen = false, -- bag bar only while bags are open, attached to them
         minimap = { square = false, border = false, radius = 0, tray = false, trayBlizzard = false,
             infoBar = false, hideDayNight = false, x = 0, y = 0 },
+        -- five-second-rule spinner: centered on a bar (or the group, if that bar is hidden) + x/y
+        fsr = { show = false, bar = "power", size = 28, x = 0, y = 0, color = { 0.3, 0.6, 1, 0.7 } },
     },
 }
 
@@ -961,6 +963,74 @@ local function syncCombatIcon()
     combatIcon:SetShown((ci.show and (inCombat or not db.locked or ns.configOpen)) and true or false)
 end
 
+-- Five-second rule: spending mana stops Spirit-based regen for five seconds. This spinner runs
+-- for exactly that window. It's a cooldown swipe, so the animation happens in C and nothing about
+-- it ever has to be read back.
+local fsr = { seconds = 5, classes = { DRUID = true, HUNTER = true, MAGE = true, PALADIN = true,
+    PRIEST = true, SHAMAN = true, WARLOCK = true } }
+fsr.frame = CreateFrame("Cooldown", nil, anchor, "CooldownFrameTemplate")
+fsr.frame:SetHideCountdownNumbers(true)
+fsr.frame:SetDrawEdge(true)
+fsr.frame:Hide()
+ns.fsr = fsr
+
+-- Spell costs are static data, but a pcall keeps a missing API (or a secret cost) from erroring:
+-- when we can't tell, assume the cast cost mana.
+function fsr.costsMana(spellID)
+    local ok, mana = pcall(function()
+        for _, cost in ipairs(C_Spell.GetSpellPowerCost(spellID) or {}) do
+            if cost.type == PT.Mana then return true end
+        end
+        return false
+    end)
+    return (not ok) or mana
+end
+
+function fsr:on() return (db.other.fsr.show and self.classes[class]) and true or false end
+
+function fsr:sync()
+    local o = db.other.fsr
+    local bar = frames[o.bar]
+    local host = (bar and bar:IsShown()) and bar or anchor
+    self.frame:SetParent(host)
+    self.frame:ClearAllPoints()
+    self.frame:SetPoint("CENTER", host, "CENTER", o.x, o.y)
+    self.frame:SetSize(o.size, o.size)
+    self.frame:SetSwipeColor(o.color[1], o.color[2], o.color[3], o.color[4])
+    if self:on() and ns.previewing() then
+        self.frame:SetCooldown(GetTime(), 3600) -- a swipe too slow to see: a full circle to place
+        self.endTime = nil
+        self.frame:Show()
+    else
+        self.frame:SetShown(self:on() and (self.endTime or 0) > GetTime())
+    end
+end
+
+function fsr:start()
+    if not self:on() then return end
+    self.endTime = GetTime() + self.seconds
+    self:sync()
+    self.frame:SetCooldown(GetTime(), self.seconds)
+    self.frame:Show()
+    C_Timer.After(self.seconds, function() pcall(self.sync, self) end) -- safe() isn't defined yet
+end
+
+-- The window opens when the mana is paid: at cast start, or on success for an instant. A cast
+-- that failed never paid, so it takes the spinner back down.
+function fsr:cast(event, castGUID, spellID)
+    if event == "UNIT_SPELLCAST_START" or event == "UNIT_SPELLCAST_CHANNEL_START" then
+        if self.costsMana(spellID) then
+            self.castID = castGUID
+            self:start()
+        end
+    elseif event == "UNIT_SPELLCAST_SUCCEEDED" then
+        if castGUID ~= self.castID and self.costsMana(spellID) then self:start() end
+    elseif event == "UNIT_SPELLCAST_FAILED" and castGUID == self.castID then
+        self.endTime = nil
+        self:sync()
+    end
+end
+
 local function setHover(on)
     if on == (hovered or false) then return end
     hovered = on
@@ -1462,6 +1532,7 @@ local function Refresh()
     syncProtected()
     syncGryphons()
     syncCombatIcon()
+    fsr:sync()
     syncHover()
     syncBags()
     mini.syncMinimap()
@@ -2449,25 +2520,6 @@ local function buildConfig()
         function() return db.other.sellJunk end, function(v) db.other.sellJunk = v end)
     merch:close()
 
-    local cfont = group(otherPage, COL[1], merch.cursor - 20, 202, "Combat text font")
-    dropdown(otherPage, "Damage numbers", cfont.x, cfont:row(DROP), COMBAT_FONTS,
-        function() return store.combatFont or "" end,
-        function(v) store.combatFont = v end, combatFontPreview) -- "" = WoW default, chosen on purpose
-    local big = otherPage:CreateFontString(nil, "OVERLAY")
-    big:SetPoint("TOPLEFT", cfont.x, cfont:row(40))
-    onRefresh(function()
-        if not big:SetFont(store.combatFont or DEFAULT_DAMAGE_FONT, 30, "OUTLINE") then
-            big:SetFont(DEFAULT_DAMAGE_FONT, 30, "OUTLINE")
-        end
-        big:SetTextColor(unpack(DAMAGE_YELLOW))
-        big:SetText("123")
-    end)
-    local restart = label(otherPage, "Needs a full game restart. Addon settings don't survive a restart on this "
-        .. "beta yet, so it applies once Blizzard fixes that.", "GameFontDisableSmall")
-    restart:SetPoint("TOPLEFT", cfont.x, cfont:row(46))
-    restart:SetWidth(182)
-    restart:SetJustifyH("LEFT")
-    cfont:close()
 
     -- Other page, column 2: Blizzard's own frames
     local blizz = group(otherPage, COL[2], TOP, 202, "Blizzard frames")
@@ -2506,8 +2558,28 @@ local function buildConfig()
     mnote:SetJustifyH("LEFT")
     mouse:close()
 
-    -- Other page, column 3: show on mouseover only
-    local hover = group(otherPage, COL[3], TOP, 202, "Show only on mouseover")
+    local cfont = group(otherPage, COL[2], mouse.cursor - 20, 202, "Combat text font")
+    dropdown(otherPage, "Damage numbers", cfont.x, cfont:row(DROP), COMBAT_FONTS,
+        function() return store.combatFont or "" end,
+        function(v) store.combatFont = v end, combatFontPreview) -- "" = WoW default, chosen on purpose
+    local big = otherPage:CreateFontString(nil, "OVERLAY")
+    big:SetPoint("TOPLEFT", cfont.x, cfont:row(40))
+    onRefresh(function()
+        if not big:SetFont(store.combatFont or DEFAULT_DAMAGE_FONT, 30, "OUTLINE") then
+            big:SetFont(DEFAULT_DAMAGE_FONT, 30, "OUTLINE")
+        end
+        big:SetTextColor(unpack(DAMAGE_YELLOW))
+        big:SetText("123")
+    end)
+    local restart = label(otherPage, "Needs a full game restart. Addon settings don't survive a restart on this "
+        .. "beta yet, so it applies once Blizzard fixes that.", "GameFontDisableSmall")
+    restart:SetPoint("TOPLEFT", cfont.x, cfont:row(46))
+    restart:SetWidth(182)
+    restart:SetJustifyH("LEFT")
+    cfont:close()
+
+    -- Other page, column 1: show on mouseover only
+    local hover = group(otherPage, COL[1], merch.cursor - 20, 202, "Show only on mouseover")
     for _, e in ipairs(HOVER_FRAMES) do
         check(otherPage, e[2], hover.x, hover:row(22),
             function() return db.other.hover[e[1]] end, function(v) db.other.hover[e[1]] = v or nil end)
@@ -2542,7 +2614,7 @@ local function buildConfig()
         function() return CI().y end, function(v) CI().y = v end)
     icon:close()
 
-    local look2 = group(otherPage, COL[3], hover.cursor - 20, 202, "Minimap look")
+    local look2 = group(otherPage, COL[3], TOP, 202, "Minimap look")
     local MM = function() return db.other.minimap end
     check(otherPage, "Square shape", look2.x, look2:row(ROW), function() return MM().square end,
         function(v) MM().square = v end)
@@ -2555,7 +2627,7 @@ local function buildConfig()
         function(v) MM().hideDayNight = v end)
     look2:close()
 
-    local mm = group(otherPage, COL[4], icon.cursor - 20, 202, "Minimap tray and bars")
+    local mm = group(otherPage, COL[3], look2.cursor - 20, 202, "Minimap tray and bars")
     check(otherPage, "Tray for addon icons", mm.x, mm:row(ROW), function() return MM().tray end,
         function(v) MM().tray = v end)
     check(otherPage, "Tray holds tracking + calendar", mm.x, mm:row(ROW),
@@ -2575,6 +2647,30 @@ local function buildConfig()
     mmNote:SetWidth(182)
     mmNote:SetJustifyH("LEFT")
     mm:close()
+
+    -- Other page, column 4: the five-second-rule spinner
+    local FS = function() return db.other.fsr end
+    local spin = group(otherPage, COL[4], icon.cursor - 20, 202, "Mana regen spinner")
+    check(otherPage, "Show", spin.x, spin:row(ROW), function() return FS().show end,
+        function(v) FS().show = v end)
+    dropdown(otherPage, "Attach to bar", spin.x, spin:row(DROP), function()
+        local list = {}
+        for _, key in ipairs(db.regular.order) do list[#list + 1] = { BARS[key].label, key } end
+        return list
+    end, function() return FS().bar end, function(v) FS().bar = v end, textPreview)
+    slider(otherPage, "Size", spin.x, spin:row(SLIDER), 8, 96, function() return FS().size end,
+        function(v) FS().size = v end)
+    slider(otherPage, "X (left / right)", spin.x, spin:row(SLIDER), -200, 200,
+        function() return FS().x end, function(v) FS().x = v end)
+    slider(otherPage, "Y (down / up)", spin.x, spin:row(SLIDER), -200, 200,
+        function() return FS().y end, function(v) FS().y = v end)
+    swatch(otherPage, "Color", spin.x, spin:row(SWATCH), function() return FS().color end)
+    local spinNote = label(otherPage, "Runs the five seconds in which spending mana stops your Spirit "
+        .. "regen. Mana classes only.", "GameFontDisableSmall")
+    spinNote:SetPoint("TOPLEFT", spin.x, spin:row(28))
+    spinNote:SetWidth(182)
+    spinNote:SetJustifyH("LEFT")
+    spin:close()
 
     ns.configHeight = -pageBottom + 24 -- what the tallest column needs
     local height = math.min(ns.configHeight, math.floor(UIParent:GetHeight()) - 40)
@@ -2789,7 +2885,7 @@ local function fillShown(...)
     end
 end
 
-ev:SetScript("OnEvent", function(_, event, unit, arg2)
+ev:SetScript("OnEvent", function(_, event, unit, arg2, arg3)
     if event == "ADDON_LOADED" then
         if unit == ADDON then applyCombatFont() end
     elseif event == "PLAYER_LOGIN" then
@@ -2802,6 +2898,7 @@ ev:SetScript("OnEvent", function(_, event, unit, arg2)
         playerName = UnitName("player")
         charKey = playerName .. " - " .. GetRealmName()
         for _, e in ipairs({ "UNIT_SPELLCAST_START", "UNIT_SPELLCAST_STOP", "UNIT_SPELLCAST_FAILED",
+            "UNIT_SPELLCAST_SUCCEEDED",
             "UNIT_SPELLCAST_INTERRUPTED", "UNIT_SPELLCAST_DELAYED", "UNIT_SPELLCAST_CHANNEL_START",
             "UNIT_SPELLCAST_CHANNEL_STOP", "UNIT_SPELLCAST_CHANNEL_UPDATE" }) do
             listen(e, "player")
@@ -2831,6 +2928,7 @@ ev:SetScript("OnEvent", function(_, event, unit, arg2)
     elseif event == "UNIT_POWER_FREQUENT" then
         fillShown("power", "combo", "druidmana")
     elseif event:find("^UNIT_SPELLCAST_") then
+        if unit == "player" then safe(fsr.cast, fsr, event, arg2, arg3) end
         safe(Refresh) -- the cast bar joins or leaves the stack
     elseif event == "PLAYER_SWING" then -- unit, arg2 = duration, swing type
         swingState[arg2] = { start = GetTime(), duration = unit }

@@ -40,6 +40,8 @@ function M:SetDesaturated(v) self._desat = v end
 function M:SetAtlas(a) self._atlas = a end
 function M:SetTexCoord(...) self._coords = { ... } end
 function M:SetStatusBarColor(...) self._sbc = { ... } end
+function M:SetCooldown(start, dur) self._cd = { start, dur } end
+function M:SetSwipeColor(...) self._swipe = { ... } end
 function M:SetTimerDuration(d, interp, dir) self._timer, self._dir = d, dir end
 function M:GetAlpha() return self._alpha or 1 end
 function M:SetColorTexture(...) self._color = { ... } end
@@ -160,6 +162,7 @@ S.time = 1000
 GetTime = function() return S.time end
 -- Duration objects stand in for the client's secret-safe ones: everything about them, IsZero
 -- included, is secret, so the addon may only pass them on. Reading one here fails the test.
+C_Spell = { GetSpellPowerCost = function(id) return S.costs and S.costs[id] or {} end }
 GetTotemDuration = function(slot)
     return setmetatable({ slot = slot }, { __index = function() error("read a secret duration") end })
 end
@@ -812,8 +815,8 @@ assert(Q.kill.icon == 135274 and Q.kill.size == 32 and Q.loot.size == 20 and Q.x
 assert(h.kill._tex == 135274 and h.kill._w == 32 and h.box._w == 54 and h.box._point[4] == -5, "live plate row restyled")
 byText("Combat Display")._scripts.OnClick(byText("Combat Display"), "LeftButton")
 
--- The options window sizes itself to its tallest column
-assert(ns.configHeight > 400 and ns.configHeight < 700, "window height " .. ns.configHeight)
+-- The options window sizes itself to its tallest column; 990x740 still fits a 1080p screen
+assert(ns.configHeight > 400 and ns.configHeight < 740, "window height " .. ns.configHeight)
 
 -- Other: gryphons hidden via texture alpha only, untouched until the option is used
 local caps = MainActionBar.EndCaps
@@ -1198,6 +1201,33 @@ tc.slots = { 1, 2, 3, 4 }
 login("ROGUE", 3)
 fire("UNIT_MAXPOWER")
 assert(not ns.frames.totems:IsShown(), "not a shaman: never shows")
+
+-- Mana regen spinner: the five-second rule, mana classes only
+login("MAGE", 0)
+local spin, FS = ns.fsr.frame, prof().other.fsr
+S.costs = { [133] = { { type = 0, cost = 100 } }, [1953] = {} } -- Fireball costs mana, Blink here doesn't
+FS.show, FS.bar, FS.size, FS.color = true, "power", 30, { 1, 0, 0, 0.5 }
+S.time = 3000
+fire("UNIT_MAXPOWER")
+assert(not spin:IsShown() and spin._w == 30 and spin._swipe[1] == 1, "idle: placed but hidden")
+assert(spin._parent == ns.frames.power, "hangs on the chosen bar")
+fire("UNIT_SPELLCAST_START", "player", "cast1", 133)
+assert(spin:IsShown() and spin._cd[1] == 3000 and spin._cd[2] == 5, "mana spent: 5 s from the cast start")
+S.time = 3002; fire("UNIT_SPELLCAST_SUCCEEDED", "player", "cast1", 133)
+assert(spin._cd[1] == 3000, "the same cast doesn't restart it")
+fire("UNIT_SPELLCAST_SUCCEEDED", "player", "cast2", 133) -- an instant
+assert(spin._cd[1] == 3002, "an instant starts its own window")
+S.time = 3008; ns.fsr:sync()
+assert(not spin:IsShown(), "five seconds later: regen is back")
+fire("UNIT_SPELLCAST_START", "player", "cast3", 1953)
+assert(not spin:IsShown(), "a free spell doesn't break regen")
+fire("UNIT_SPELLCAST_START", "player", "cast4", 133)
+fire("UNIT_SPELLCAST_FAILED", "player", "cast4", 133)
+assert(not spin:IsShown(), "a failed cast paid nothing")
+login("ROGUE", 3)
+prof().other.fsr.show = true
+fire("UNIT_SPELLCAST_START", "player", "cast5", 133)
+assert(not ns.fsr.frame:IsShown(), "no mana, no spinner")
 
 SlashCmdList.WOLFPACKADDON("")
 realPrint("smoke ok")
