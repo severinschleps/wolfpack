@@ -60,6 +60,9 @@ function M:GetUnboundedStringWidth() return 50 end
 function M:GetStringWidth() return 8 end
 function M:GetStringHeight() return 10 end
 function M:GetNumPoints() return self._point and 1 or 0 end
+function M:GetChildren() return unpack(self._children or {}) end
+function M:IsObjectType(t) return self._kind == t end
+function M:SetMaskTexture(m) self._mask = m end
 function M:GetPoint() return unpack(self._point) end
 function M:SetupMenu(gen) self._gen = gen end
 function M:GenerateMenu() -- records the dropdown's radio items
@@ -102,6 +105,25 @@ StaticPopupDialogs = {}
 StaticPopup_Show = function(which, _, _, data) StaticPopupDialogs[which].OnAccept(nil, data) end -- clicks Yes
 UnitName = function() return S.name end
 InCombatLockdown = function() return S.combat end
+-- minimap: two addon buttons sit on it, plus Blizzard's tracking and calendar
+Minimap = new()
+Minimap._w = 140
+local function addonButton(name)
+    local b = new("Button")
+    b._name, b._parent = name, Minimap
+    b:SetPoint("CENTER", Minimap, "CENTER", 10, 0)
+    return b
+end
+Minimap._children = { addonButton("SomeAddonIcon"), addonButton("AnotherAddonIcon") }
+MinimapBackdrop, MinimapCompassTexture = new(), new()
+MinimapCluster = { Tracking = new() }
+GameTimeFrame = new()
+GetNetStats = function() return 0, 0, 30, 42 end
+date = function() return "12:34" end
+C_Map = {
+    GetBestMapForUnit = function() return 84 end,
+    GetPlayerMapPosition = function() return { GetXY = function() return 0.253, 0.607 end } end,
+}
 MainActionBar = new()
 MainActionBar.EndCaps = { LeftEndCap = { Texture = new() }, RightEndCap = { Texture = new() } }
 BagsBar = new()
@@ -916,6 +938,42 @@ assert(stops[2].pos == 40, "typed percent")
 sf.rows[3].del._scripts.OnClick()
 assert(#stops == 2 and not sf.rows[3]:IsShown(), "deleted")
 prof().regular.bars.health.gradient = false
+
+-- Minimap: square mask, 1 px border, the tray collecting icons, and the info bar
+local MM = prof().other.minimap
+assert(Minimap._mask == nil, "untouched by default")
+MM.square = true; fire("UNIT_MAXPOWER")
+assert(Minimap._mask == "Interface\\Buttons\\WHITE8X8" and MinimapCompassTexture._alpha == 0, "square: corners shown")
+MM.square = false; fire("UNIT_MAXPOWER")
+assert(Minimap._mask == "ui-hud-minimap-frame-generic-mask" and MinimapCompassTexture._alpha == 1, "round again")
+MM.border = true; fire("UNIT_MAXPOWER")
+local bord
+for _, f in ipairs(created) do if f._parent == Minimap and f._kind == "Frame" then bord = bord or f end end
+assert(bord and bord:IsShown(), "border frame")
+local icon1, icon2 = Minimap._children[1], Minimap._children[2]
+MM.tray, MM.trayBlizzard = true, false
+fire("UNIT_MAXPOWER")
+local trayBtn = WolfpackAddonTray
+assert(trayBtn and trayBtn:IsShown() and icon1._parent ~= Minimap and icon2._parent ~= Minimap, "addon icons moved into the tray")
+assert(MinimapCluster.Tracking._parent == nil, "tracking left alone until asked")
+MM.trayBlizzard = true; fire("UNIT_MAXPOWER")
+assert(MinimapCluster.Tracking._parent == icon1._parent and GameTimeFrame._parent == icon1._parent, "tracking + calendar too")
+local panel = icon1._parent
+assert(not panel:IsShown(), "panel closed until the tray is clicked")
+trayBtn._scripts.OnClick()
+assert(panel:IsShown() and panel._w == 12 + 4 * 30, "click opens it, four across")
+trayBtn._scripts.OnDragStart(trayBtn); trayBtn._scripts.OnUpdate(); trayBtn._scripts.OnDragStop(trayBtn)
+assert(type(WolfpackAddonDB.trayAngle) == "number" and trayBtn._point[2] == Minimap, "dragged around the minimap")
+MM.tray = false; fire("UNIT_MAXPOWER")
+assert(icon1._parent == Minimap and icon1._point[2] == Minimap and MinimapCluster.Tracking._parent == nil, "given back")
+MM.infoBar = true; fire("UNIT_MAXPOWER")
+local bar
+for _, f in ipairs(created) do if f._parent == Minimap and f._scripts.OnUpdate then bar = f end end
+bar._scripts.OnUpdate(bar, 2)
+assert(bar.clock._text == "12:34" and bar.ping._text == "42 ms" and bar.coords._text == "25.3, 60.7", "time, ping, coords")
+MM.infoBar, MM.border = false, false
+fire("UNIT_MAXPOWER")
+assert(not bar:IsShown() and not bord:IsShown(), "off again")
 
 -- Export / import: the profile string round-trips into a new profile (mouseover choices and
 -- the account-wide combat font included); the WoW UI layout is its own string for Edit Mode

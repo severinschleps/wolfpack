@@ -134,6 +134,7 @@ local DEFAULTS = {
         hideGryphons = false, autoAccept = false, autoComplete = false, sellJunk = false,
         hover = {},         -- [key from HOVER_FRAMES] = true: that Blizzard element shows only on mouseover
         bagsOnOpen = false, -- bag bar only while bags are open, attached to them
+        minimap = { square = false, border = false, tray = false, trayBlizzard = false, infoBar = false },
     },
 }
 
@@ -1017,6 +1018,192 @@ local function syncBags()
     end
 end
 
+------------------------------------------------------------------------------------------
+-- Minimap: square shape, a 1 px border, a tray that collects the addon buttons around it, and
+-- a bar underneath with the time, latency and coordinates.
+------------------------------------------------------------------------------------------
+local SQUARE_MASK, ROUND_MASK = "Interface\\Buttons\\WHITE8X8", "ui-hud-minimap-frame-generic-mask"
+local minimapDone = {} -- what we have already changed, so nothing is touched unless asked
+
+local function minimapShape()
+    local want = db.other.minimap.square and true or false
+    if want == (minimapDone.square or false) then return end
+    minimapDone.square = want
+    Minimap:SetMaskTexture(want and SQUARE_MASK or ROUND_MASK)
+    if MinimapCompassTexture then MinimapCompassTexture:SetAlpha(want and 0 or 1) end -- round frame art
+end
+
+local border -- 1 px frame around the minimap
+local function minimapBorder()
+    local want = db.other.minimap.border and true or false
+    if not border then
+        if not want then return end
+        border = CreateFrame("Frame", nil, Minimap)
+        border:SetPoint("TOPLEFT", -1, 1)
+        border:SetPoint("BOTTOMRIGHT", 1, -1)
+        border:SetFrameLevel(Minimap:GetFrameLevel() + 10)
+        for _, side in ipairs({ { "TOPLEFT", "TOPRIGHT", 0, 1 }, { "BOTTOMLEFT", "BOTTOMRIGHT", 0, 1 },
+            { "TOPLEFT", "BOTTOMLEFT", 1, 0 }, { "TOPRIGHT", "BOTTOMRIGHT", 1, 0 } }) do
+            local t = border:CreateTexture(nil, "OVERLAY")
+            t:SetColorTexture(0, 0, 0, 1)
+            t:SetPoint(side[1])
+            t:SetPoint(side[2])
+            if side[3] > 0 then t:SetWidth(1) else t:SetHeight(1) end
+        end
+    end
+    border:SetShown(want)
+end
+
+-- Buttons the tray leaves alone: Blizzard's own, ours, and anything without a name.
+local TRAY_SKIP = { MinimapZoomIn = true, MinimapZoomOut = true, MinimapCompassTexture = true,
+    MinimapBackdrop = true, MinimapCluster = true, WolfpackAddonMinimapButton = true,
+    WolfpackAddonTray = true, ExpansionLandingPageMinimapButton = true, QueueStatusMinimapButton = true,
+    AddonCompartmentFrame = true, MinimapZoneTextButton = true, GarrisonLandingPageMinimapButton = true }
+
+local tray, trayPanel
+local trayHeld = {} -- button -> { parent, points } so everything can go back
+
+local function trayPlace()
+    local angle, radius = math.rad(store.trayAngle or 180), Minimap:GetWidth() / 2 + 6
+    tray:ClearAllPoints()
+    tray:SetPoint("CENTER", Minimap, "CENTER", math.cos(angle) * radius, math.sin(angle) * radius)
+end
+
+local function trayCollect()
+    local found = {}
+    for _, parent in ipairs({ Minimap, MinimapBackdrop }) do
+        for _, child in ipairs(parent and { parent:GetChildren() } or {}) do
+            local name = child.GetName and child:GetName()
+            if name and not TRAY_SKIP[name] and child:IsObjectType("Button") then found[#found + 1] = child end
+        end
+    end
+    if db.other.minimap.trayBlizzard then
+        for _, f in ipairs({ MinimapCluster and MinimapCluster.Tracking, GameTimeFrame }) do
+            if f then found[#found + 1] = f end
+        end
+    end
+    return found
+end
+
+local function trayRelease(f)
+    local kept = trayHeld[f]
+    if not kept then return end
+    f:SetParent(kept.parent)
+    f:ClearAllPoints()
+    for _, pt in ipairs(kept.points) do f:SetPoint(unpack(pt)) end
+    trayHeld[f] = nil
+end
+
+local function trayLayout()
+    local held = {}
+    for f in pairs(trayHeld) do held[#held + 1] = f end
+    table.sort(held, function(a, b) return (a:GetName() or "") < (b:GetName() or "") end)
+    local perRow = math.min(math.max(#held, 1), 4)
+    for i, f in ipairs(held) do
+        f:ClearAllPoints()
+        f:SetPoint("TOPLEFT", trayPanel, "TOPLEFT", 6 + ((i - 1) % 4) * 30, -6 - math.floor((i - 1) / 4) * 30)
+        f:SetScale(1)
+    end
+    trayPanel:SetSize(12 + perRow * 30, 12 + math.ceil(#held / 4) * 30)
+    trayPanel:SetShown(#held > 0 and trayPanel.open or false)
+end
+
+local function trayUpdate()
+    local on = db.other.minimap.tray
+    if not tray then
+        if not on then return end
+        tray = CreateFrame("Button", "WolfpackAddonTray", Minimap)
+        tray:SetSize(28, 28)
+        tray:SetFrameLevel(Minimap:GetFrameLevel() + 12)
+        local icon = tray:CreateTexture(nil, "ARTWORK")
+        icon:SetAllPoints()
+        icon:SetTexture(133633) -- a bag: the tray holds the other icons
+        icon:SetTexCoord(0.08, 0.92, 0.08, 0.92)
+        tray:SetHighlightTexture("Interface\\Minimap\\UI-Minimap-ZoomButton-Highlight")
+        tray:RegisterForDrag("LeftButton")
+        tray:SetScript("OnDragStart", function(self)
+            self:SetScript("OnUpdate", function()
+                local mx, my = Minimap:GetCenter()
+                local cx, cy = GetCursorPosition()
+                local scale = Minimap:GetEffectiveScale()
+                store.trayAngle = math.deg(math.atan2(cy / scale - my, cx / scale - mx))
+                trayPlace()
+            end)
+        end)
+        tray:SetScript("OnDragStop", function(self) self:SetScript("OnUpdate", nil) end)
+        trayPanel = CreateFrame("Frame", nil, tray, "BackdropTemplate")
+        trayPanel:SetPoint("TOPRIGHT", tray, "TOPLEFT", -4, 0)
+        trayPanel:SetFrameStrata("HIGH")
+        trayPanel:SetBackdrop({ bgFile = "Interface\\Buttons\\WHITE8X8", edgeFile = "Interface\\Buttons\\WHITE8X8",
+            edgeSize = 1 })
+        trayPanel:SetBackdropColor(0, 0, 0, 0.85)
+        trayPanel:SetBackdropBorderColor(0, 0, 0, 1)
+        trayPanel:Hide()
+        tray:SetScript("OnClick", function()
+            trayPanel.open = not trayPanel.open
+            trayLayout()
+        end)
+    end
+    tray:SetShown(on)
+    if on then
+        trayPlace()
+        for _, f in ipairs(trayCollect()) do
+            if not trayHeld[f] then
+                local points = {}
+                for i = 1, f:GetNumPoints() do points[i] = { f:GetPoint(i) } end
+                trayHeld[f] = { parent = f:GetParent(), points = points }
+                f:SetParent(trayPanel)
+            end
+        end
+    else
+        for f in pairs(trayHeld) do trayRelease(f) end
+        if trayPanel then trayPanel:Hide() end
+    end
+    if trayPanel then trayLayout() end
+end
+local infoBar
+local function minimapInfo()
+    local on = db.other.minimap.infoBar
+    if not infoBar then
+        if not on then return end
+        infoBar = CreateFrame("Frame", nil, Minimap)
+        infoBar:SetPoint("TOPLEFT", Minimap, "BOTTOMLEFT", 0, -2)
+        infoBar:SetPoint("TOPRIGHT", Minimap, "BOTTOMRIGHT", 0, -2)
+        infoBar:SetHeight(14)
+        local bg = infoBar:CreateTexture(nil, "BACKGROUND")
+        bg:SetAllPoints()
+        bg:SetColorTexture(0, 0, 0, 0.6)
+        for _, side in ipairs({ { "clock", "LEFT", 4 }, { "ping", "CENTER", 0 }, { "coords", "RIGHT", -4 } }) do
+            local fs = infoBar:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+            fs:SetPoint(side[2], side[3], 0)
+            infoBar[side[1]] = fs
+        end
+        infoBar.next = 0
+        infoBar:SetScript("OnUpdate", function(self, elapsed)
+            self.next = self.next - elapsed
+            if self.next > 0 then return end
+            self.next = 1
+            self.clock:SetText(date("%H:%M"))
+            local _, _, _, world = GetNetStats()
+            self.ping:SetText((world or 0) .. " ms")
+            local map = C_Map.GetBestMapForUnit("player")
+            local pos = map and C_Map.GetPlayerMapPosition(map, "player")
+            local x, y
+            if pos then x, y = pos:GetXY() end -- "and" would keep only the first return
+            self.coords:SetText(x and string.format("%.1f, %.1f", x * 100, y * 100) or "--")
+        end)
+    end
+    infoBar:SetShown(on)
+end
+
+local function syncMinimap()
+    if not Minimap then return end
+    minimapShape()
+    minimapBorder()
+    trayUpdate()
+    minimapInfo()
+end
+
 local function Refresh()
     if not moving then place() end -- keeps the pinned edge right after any settings change
     local health = frames.health
@@ -1045,6 +1232,7 @@ local function Refresh()
     syncCombatIcon()
     syncHover()
     syncBags()
+    syncMinimap()
     anchor:SetScript("OnUpdate", db.regular.highlight.show and checkHover or nil)
     if not db.regular.highlight.show then setHover(false) end
 end
@@ -2038,6 +2226,21 @@ local function buildConfig()
     hnote:SetWidth(182)
     hnote:SetJustifyH("LEFT")
     hover:close()
+
+    local mm = group(otherPage, COL[3], hover.cursor - 20, 202, "Minimap")
+    local MM = function() return db.other.minimap end
+    check(otherPage, "Square shape", mm.x, mm:row(ROW), function() return MM().square end, function(v) MM().square = v end)
+    check(otherPage, "1 px border", mm.x, mm:row(ROW), function() return MM().border end, function(v) MM().border = v end)
+    check(otherPage, "Tray for addon icons", mm.x, mm:row(ROW), function() return MM().tray end, function(v) MM().tray = v end)
+    check(otherPage, "Tray holds tracking + calendar", mm.x, mm:row(ROW),
+        function() return MM().trayBlizzard end, function(v) MM().trayBlizzard = v end)
+    check(otherPage, "Info bar (time, ping, coords)", mm.x, mm:row(ROW),
+        function() return MM().infoBar end, function(v) MM().infoBar = v end)
+    local mmNote = label(otherPage, "Drag the tray icon around the minimap; click it to open.", "GameFontDisableSmall")
+    mmNote:SetPoint("TOPLEFT", mm.x, mm:row(34))
+    mmNote:SetWidth(182)
+    mmNote:SetJustifyH("LEFT")
+    mm:close()
 
     -- Other page, column 4: the in-combat icon
     local CI = function() return db.regular.combatIcon end
