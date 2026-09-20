@@ -991,7 +991,14 @@ DAMAGE_TEXT_FONT = "Fonts\\FRIZQT__.TTF"
 WolfpackAddonDB.combatFont = "Interface\\evil.ttf"; fire("ADDON_LOADED", "WolfpackAddon")
 assert(DAMAGE_TEXT_FONT == "Fonts\\FRIZQT__.TTF", "unknown path refused")
 dds[9]._items[1].set()
-assert(WolfpackAddonDB.combatFont == nil, "WoW default clears it")
+assert(WolfpackAddonDB.combatFont == "", "WoW default is remembered, so the baked font stays off")
+-- the baked-in export string is intact in the file (an edit truncating it would break defaults)
+local src = io.open("WolfpackAddon/WolfpackAddon.lua"):read("*a")
+local baked = src:match('local DEFAULT_PROFILE = "(WPA1:[^"]+)"')
+assert(baked and #baked > 1000 and not baked:find("%s"), "baked profile string")
+-- new profiles start from it, or the plain defaults if it can't be read
+local fresh = ns.freshProfile()
+assert(fresh.regular and fresh.nameplate and fresh.other and fresh.quest, "a complete profile either way")
 
 -- Every bundled font path points at a real file in the addon folder
 for _, f in ipairs(ns.COMBAT_FONTS) do

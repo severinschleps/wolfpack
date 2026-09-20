@@ -60,9 +60,18 @@ local COMBAT_FONTS = {
 }
 ns.COMBAT_FONTS = COMBAT_FONTS
 
+-- The layout new profiles start from: an export string, read through the same checks as one you
+-- paste in. `decodeExport` is defined with the import code; until then DEFAULTS are used.
+local DEFAULT_PROFILE = "WPA1:7ZlPbNtUHMftiqGqQnDpIavQBAekHVgvgNTD1pDGTuLQqf+CqFCk6dV+caw6fub5eVkqkAYCcWM3JBBI+1tOjAsS4YKqIgYTIP4LTdqFC2gax3ii7gHesx0njevITVOtEvMhcl6e35/v5/f7va/bK3kTo4qmw2uSAWrQ1AGB65nGk5lznIiwAvHbuSoEOqmKJqpDLMqotoIkBduaUgMGyMvAIisASyYkQT+rrhmqQNusj/z75kQe2UTXDNiSFA1DmWjIELGmVoloEWRab1ymw+oIv7mdvvMeu97vurn7jHfxWRNZXKfjr2t/5K+Pv9Z189vmhfJx50uvY0pJMGJ+Rc16nTiO25riiivefpe0Nci94N+HP/OSCZQZRAiqcYUKMgjrNZYn8ByxMVx+SjIIxBUgw3IJYBUSuuscpnKWX5ROLBFAbGsG4GCC00iBOdmmO6/RPopmW5zABmpRyXN0mhIyOclbfVdPgU26mKMfVjm3KL28UDpzZrJUyol1TSHVlCFYVVRvZVGl0hJqQDMcOrShQqVF6TGhjxRUNhc06DQNTmLz+Zvj6RUQ/iwWU3Tlobw3I/IGLf3k7VJzjxq2FYsAikRS/MJ6IulTL4Be7YqkoCWIpCgLj1Yb1U4ClGEcqk7cBExG+zHx020AJHwY4Nvpzw8Dit0W1IPgVhtRkMPb6asxCHxZhkXg4b4EvFI3GIFfDhuByILiCHzRXLj71rFmPIEhJ0FfBJ1zZn+16fZ37PqePzQ1KVxQXC36euyUeeX3sRDMQWN4qB+G9iHfPDpQMvxZ8S4uofqCJiPD2SODAntoSVOgoMMKaROJ5kG4lrj4/4lF/8LfXCC4p6/j6xkRn3mkQHEqWgKtA0zR+h/1Gz2JENqrgRIhzP5g+2HL/U6I+IX18AnLUsAnbDnoxOhrnLIqMHlBxaguKKhu5DFUbR3gjztNc9RQNxgU24LoLMSOVKWj6mzky95inHZs8vzWs23L7Z9ygS3rstY95tu31+3sZIs5kmlMbdHtzVdpKszo2tpa1v/RmWMt895iPGCtYrAyaNjO/8utT3SCeMamnQyr/FJBKolTy1OxFj31xH49+lH+aR94vEkfSWDSm6nkeIZmgffl9kd24HGnz59/nfc/c8SrIa0kZAIOo11oowA8fXfLfCo+VXQveZ863oERjYphmXXOTU9e/6SfLxnZrQwn0GlnTrjpR9+54Kbnf/z5QN15d+11IgR8PG0Iy891NpFRlDm2B6RXTCCv0q/IKPuQMvgsOrHo19VJQiohqMfaoCYemPhhmvgIqCTZ8sgDFz9sFz8Qh75vU1Eb7yTG4J58fmPTnb537x/31MbGZsKC5Vn5ROV9V/8+OlT/7sT7d/94GEpZGu8x+d3nyM6D8OTFi5fctHTzW3f68Q8+PASOfyhHjTt948Y3blr96453d78t/0BZ1PcPc0V2ogBCZzfWPU+RepfusaFDERAdWFmaYIFVC+yIRUdOHZv17bZfgJycjuRVqDjiKza0yLXAm6xqun41eIrlwwTH//sV1cM2iD/MeN6igUjL14igI0R6+/6wo6+IaADhdbHK3jsuiTVNxsiZBTZBWVQzdUigM8teCvK4YVYpV6e4AlRrjr6yQMMpsn4ZWYYmcQoW1PWibaw6wd6ZhMv5RHmS9R4oz0NM6z8V9DTAqxB3Z47A/u0gZnSzCv4D"
+local decodeExport
+
 -- Called on ADDON_LOADED, before the world loads. Only known paths are accepted.
 local function applyCombatFont()
     local pick = type(WolfpackAddonDB) == "table" and WolfpackAddonDB.combatFont
+    if pick == nil then -- never chosen: the baked profile's font
+        local data = decodeExport and decodeExport(DEFAULT_PROFILE)
+        pick = data and data.combatFont
+    end
     for _, f in ipairs(COMBAT_FONTS) do
         if pick and pick ~= "" and f[2] == pick then DAMAGE_TEXT_FONT = pick end
     end
@@ -1310,7 +1319,7 @@ end
 -- Profiles (account-wide). Each character starts on its class profile, e.g. "Rogue".
 ------------------------------------------------------------------------------------------
 useProfile = function(name)
-    store.profiles[name] = merge(store.profiles[name] or {}, DEFAULTS)
+    store.profiles[name] = merge(store.profiles[name] or ns.freshProfile(), DEFAULTS)
     store.chars[charKey] = name
     db = store.profiles[name]
     place()
@@ -1403,6 +1412,20 @@ local function sanitize(src, template)
         end
     end
     return out
+end
+
+-- The data inside an export string, or nil: shared by Import and the baked default profile.
+decodeExport = function(text)
+    local b64 = (text or ""):gsub("%s", ""):match("^WPA1:(.+)$") or (text or ""):match("^CPD1:(.+)$")
+    if not b64 then return nil end
+    local ok, data = pcall(function() return E.DeserializeCBOR(E.DecompressString(E.DecodeBase64(b64))) end)
+    if ok and type(data) == "table" and type(data.profile) == "table" then return data end
+end
+
+-- A profile as it starts out: the baked layout where it decodes, the plain defaults otherwise.
+function ns.freshProfile()
+    local data = decodeExport(DEFAULT_PROFILE)
+    return merge(data and sanitize(data.profile, DEFAULTS) or {}, DEFAULTS)
 end
 
 -- Returns the new profile's name (and the Edit Mode layout older combined strings carried), or
@@ -1658,7 +1681,7 @@ local function buildConfig()
     end)
     button(cfg, "Reset profile", 92, 570, -33, function()
         wipe(db)
-        merge(db, DEFAULTS)
+        merge(db, ns.freshProfile())
         place()
         changed()
     end)
@@ -1936,7 +1959,7 @@ local function buildConfig()
     local cfont = group(otherPage, COL[1], merch.cursor - 20, 202, "Combat text font")
     dropdown(otherPage, "Damage numbers", cfont.x, cfont:row(DROP), COMBAT_FONTS,
         function() return store.combatFont or "" end,
-        function(v) store.combatFont = v ~= "" and v or nil end, combatFontPreview)
+        function(v) store.combatFont = v end, combatFontPreview) -- "" = WoW default, chosen on purpose
     local big = otherPage:CreateFontString(nil, "OVERLAY")
     big:SetPoint("TOPLEFT", cfont.x, cfont:row(40))
     onRefresh(function()
