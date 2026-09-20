@@ -52,7 +52,11 @@ function M:GetName() return self._name end
 function M:GetCenter() return 100, 100 end
 function M:GetTop() return 150 end
 function M:GetBottom() return 60 end
-function M:GetFrameLevel() return 1 end
+function M:GetFrameLevel() return self._level or 1 end
+function M:SetFrameLevel(v) self._level = v end
+function M:GetFrameStrata() return self._strata or "MEDIUM" end
+function M:SetFrameStrata(v) self._strata = v end
+function M:IsMouseEnabled() return true end
 function M:GetWidth() return self._w or 140 end
 function M:GetHeight() return self._h or 100 end
 function M:SetAttribute(k, v) self._attr = self._attr or {}; self._attr[k] = v end
@@ -110,7 +114,7 @@ Minimap = new()
 Minimap._w = 140
 local function addonButton(name)
     local b = new("Button")
-    b._name, b._parent = name, Minimap
+    b._name, b._parent, b._w = name, Minimap, 24 -- icon-sized, like a real minimap button
     b:SetPoint("CENTER", Minimap, "CENTER", 10, 0)
     return b
 end
@@ -118,6 +122,7 @@ Minimap._children = { addonButton("SomeAddonIcon"), addonButton("AnotherAddonIco
 MinimapBackdrop, MinimapCompassTexture = new(), new()
 MinimapCluster = { Tracking = new() }
 GameTimeFrame = new()
+MinimapCluster.Tracking._w, GameTimeFrame._w = 26, 26
 GetNetStats = function() return 0, 0, 30, 42 end
 date = function() return "12:34" end
 C_Map = {
@@ -972,11 +977,13 @@ assert(MinimapCluster.Tracking._parent == icon1._parent and GameTimeFrame._paren
 local panel = icon1._parent
 assert(not panel:IsShown(), "panel closed until the tray is clicked")
 trayBtn._scripts.OnClick()
-assert(panel:IsShown() and panel._w == 12 + 4 * 30, "click opens it, four across")
+assert(panel:IsShown() and panel._w == 12 + 4 * 28, "click opens it, four across")
+assert(icon1._strata == panel:GetFrameStrata() and icon1._level > panel:GetFrameLevel(), "icons above the panel")
 trayBtn._scripts.OnDragStart(trayBtn); trayBtn._scripts.OnUpdate(); trayBtn._scripts.OnDragStop(trayBtn)
 assert(type(WolfpackAddonDB.trayAngle) == "number" and trayBtn._point[2] == Minimap, "dragged around the minimap")
 MM.tray = false; fire("UNIT_MAXPOWER")
 assert(icon1._parent == Minimap and icon1._point[2] == Minimap and MinimapCluster.Tracking._parent == nil, "given back")
+assert(icon1._strata == "MEDIUM", "strata restored too")
 MM.infoBar = true; fire("UNIT_MAXPOWER")
 local bar
 for _, f in ipairs(created) do if f._parent == Minimap and f._scripts.OnUpdate then bar = f end end

@@ -1097,11 +1097,11 @@ local function minimapBorder()
     end
 end
 
--- Buttons the tray leaves alone: Blizzard's own, ours, and anything without a name.
+-- What the tray leaves alone: the minimap's own parts and the tray itself. Our own icon goes in
+-- like any other addon's.
 local TRAY_SKIP = { MinimapZoomIn = true, MinimapZoomOut = true, MinimapCompassTexture = true,
-    MinimapBackdrop = true, MinimapCluster = true, WolfpackAddonMinimapButton = true,
-    WolfpackAddonTray = true, ExpansionLandingPageMinimapButton = true, QueueStatusMinimapButton = true,
-    AddonCompartmentFrame = true, MinimapZoneTextButton = true, GarrisonLandingPageMinimapButton = true }
+    MinimapBackdrop = true, MinimapCluster = true, WolfpackAddonTray = true,
+    MinimapZoneTextButton = true, MinimapNorthTag = true, MinimapBorderTop = true }
 
 local tray, trayPanel
 local trayHeld = {} -- button -> { parent, points } so everything can go back
@@ -1112,12 +1112,21 @@ local function trayPlace()
     tray:SetPoint("CENTER", Minimap, "CENTER", math.cos(angle) * radius, math.sin(angle) * radius)
 end
 
+-- Minimap buttons are Buttons, but some are Frames carrying their own button and counter text;
+-- anything named, mouse-enabled and icon-sized counts, so a counter travels with its icon.
+local function trayWorthy(f)
+    local name = f.GetName and f:GetName()
+    if not name or TRAY_SKIP[name] or not f.GetWidth then return false end
+    local w = f:GetWidth() or 0
+    if w < 12 or w > 48 then return false end
+    return f:IsObjectType("Button") or (f.IsMouseEnabled and f:IsMouseEnabled())
+end
+
 local function trayCollect()
     local found = {}
     for _, parent in ipairs({ Minimap, MinimapBackdrop }) do
         for _, child in ipairs(parent and { parent:GetChildren() } or {}) do
-            local name = child.GetName and child:GetName()
-            if name and not TRAY_SKIP[name] and child:IsObjectType("Button") then found[#found + 1] = child end
+            if trayWorthy(child) then found[#found + 1] = child end
         end
     end
     if db.other.minimap.trayBlizzard then
@@ -1132,22 +1141,29 @@ local function trayRelease(f)
     local kept = trayHeld[f]
     if not kept then return end
     f:SetParent(kept.parent)
+    f:SetFrameStrata(kept.strata)
+    f:SetFrameLevel(kept.level)
     f:ClearAllPoints()
     for _, pt in ipairs(kept.points) do f:SetPoint(unpack(pt)) end
     trayHeld[f] = nil
 end
 
 local function trayLayout()
-    local held = {}
-    for f in pairs(trayHeld) do held[#held + 1] = f end
+    local held, cell = {}, 28
+    for f in pairs(trayHeld) do
+        held[#held + 1] = f
+        cell = math.max(cell, math.min((f:GetWidth() or 0) + 2, 48)) -- the biggest icon sets the grid
+    end
     table.sort(held, function(a, b) return (a:GetName() or "") < (b:GetName() or "") end)
     local perRow = math.min(math.max(#held, 1), 4)
     for i, f in ipairs(held) do
         f:ClearAllPoints()
-        f:SetPoint("TOPLEFT", trayPanel, "TOPLEFT", 6 + ((i - 1) % 4) * 30, -6 - math.floor((i - 1) / 4) * 30)
-        f:SetScale(1)
+        f:SetPoint("CENTER", trayPanel, "TOPLEFT",
+            6 + cell / 2 + ((i - 1) % 4) * cell, -6 - cell / 2 - math.floor((i - 1) / 4) * cell)
+        f:SetFrameStrata(trayPanel:GetFrameStrata()) -- above the panel's background, not under it
+        f:SetFrameLevel(trayPanel:GetFrameLevel() + 2)
     end
-    trayPanel:SetSize(12 + perRow * 30, 12 + math.ceil(#held / 4) * 30)
+    trayPanel:SetSize(12 + perRow * cell, 12 + math.ceil(#held / 4) * cell)
     trayPanel:SetShown(#held > 0 and trayPanel.open or false)
 end
 
@@ -1157,7 +1173,8 @@ local function trayUpdate()
         if not on then return end
         tray = CreateFrame("Button", "WolfpackAddonTray", Minimap)
         tray:SetSize(28, 28)
-        tray:SetFrameLevel(Minimap:GetFrameLevel() + 12)
+        tray:SetFrameStrata("MEDIUM")
+        tray:SetFrameLevel(Minimap:GetFrameLevel() + 20) -- above the minimap and its border
         local icon = tray:CreateTexture(nil, "ARTWORK")
         icon:SetAllPoints()
         icon:SetTexture(133633) -- a bag: the tray holds the other icons
@@ -1176,7 +1193,7 @@ local function trayUpdate()
         tray:SetScript("OnDragStop", function(self) self:SetScript("OnUpdate", nil) end)
         trayPanel = CreateFrame("Frame", nil, tray, "BackdropTemplate")
         trayPanel:SetPoint("TOPRIGHT", tray, "TOPLEFT", -4, 0)
-        trayPanel:SetFrameStrata("HIGH")
+        trayPanel:SetFrameStrata("DIALOG") -- above the minimap, whatever the icons' own strata
         trayPanel:SetBackdrop({ bgFile = "Interface\\Buttons\\WHITE8X8", edgeFile = "Interface\\Buttons\\WHITE8X8",
             edgeSize = 1 })
         trayPanel:SetBackdropColor(0, 0, 0, 0.85)
@@ -1194,7 +1211,8 @@ local function trayUpdate()
             if not trayHeld[f] then
                 local points = {}
                 for i = 1, f:GetNumPoints() do points[i] = { f:GetPoint(i) } end
-                trayHeld[f] = { parent = f:GetParent(), points = points }
+                trayHeld[f] = { parent = f:GetParent(), points = points,
+                    strata = f:GetFrameStrata(), level = f:GetFrameLevel() }
                 f:SetParent(trayPanel)
             end
         end
