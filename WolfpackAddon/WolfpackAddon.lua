@@ -157,7 +157,7 @@ local DEFAULTS = {
             infoBar = false, hideDayNight = false, x = 0, y = 0 },
         -- five-second-rule spinner: centered on a bar (or the group, if that bar is hidden) + x/y
         fsr = { show = false, bar = "power", size = 28, x = 0, y = 0, color = { 0.3, 0.6, 1, 0.7 },
-            seconds = 6.5, fill = true }, -- 5 s rule plus the wait for the next 2 s regen tick
+            fill = true },
     },
 }
 
@@ -1012,9 +1012,11 @@ function fsr:sync()
     end
 end
 
+-- In combat the window is the plain five-second rule; out of combat regen takes until the
+-- seventh second to come back.
 function fsr:start()
     if not self:on() then return end
-    local seconds = db.other.fsr.seconds
+    local seconds = inCombat and 5 or 7
     self.endTime = GetTime() + seconds
     self:sync()
     self.frame:SetCooldown(GetTime(), seconds)
@@ -2673,15 +2675,13 @@ local function buildConfig()
         changed()
     end)
     onRefresh(function() spinDir:SetText(FS().fill and "Ring: Fills up" or "Ring: Drains away") end)
-    slider(otherPage, "Length (seconds)", spin.x, spin:row(SLIDER), 4, 9,
-        function() return FS().seconds end, function(v) FS().seconds = v end, 0.5)
     slider(otherPage, "X (left / right)", spin.x, spin:row(SLIDER), -200, 200,
         function() return FS().x end, function(v) FS().x = v end)
     slider(otherPage, "Y (down / up)", spin.x, spin:row(SLIDER), -200, 200,
         function() return FS().y end, function(v) FS().y = v end)
     swatch(otherPage, "Color", spin.x, spin:row(SWATCH), function() return FS().color end)
-    local spinNote = label(otherPage, "Spending mana stops Spirit regen for 5 s, and it returns on the "
-        .. "next 2 s tick, so 6 is a fair length. Mana classes only.", "GameFontDisableSmall")
+    local spinNote = label(otherPage, "Runs until Spirit regen is back: 5 s in combat, 7 s out of it. "
+        .. "Mana classes only.", "GameFontDisableSmall")
     spinNote:SetPoint("TOPLEFT", spin.x, spin:row(28))
     spinNote:SetWidth(182)
     spinNote:SetJustifyH("LEFT")
