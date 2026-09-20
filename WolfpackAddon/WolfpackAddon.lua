@@ -1329,16 +1329,17 @@ function mini.minimapInfo()
     end
 end
 
--- The day/night (calendar) icon.
+-- Forever's day/night dial in the minimap's corner (its own frame, not the calendar button).
 function mini.minimapDayNight()
+    local dial = MinimapCluster and MinimapCluster.DielFrame
     local hide = db.other.minimap.hideDayNight and true or false
-    if not GameTimeFrame or hide == (mini.dayNightShown == false) then return end
+    if type(dial) ~= "table" or not dial.Hide or hide == (mini.dayNightShown == false) then return end
     if hide then
         mini.dayNightShown = false
-        GameTimeFrame:Hide()
+        dial:Hide()
     elseif mini.dayNightShown == false then
         mini.dayNightShown = nil
-        GameTimeFrame:Show()
+        dial:Show()
     end
 end
 
@@ -2441,7 +2442,7 @@ local function buildConfig()
     dropdown(otherPage, "Corner radius", look2.x, look2:row(DROP), { { "None (square)", 0 }, { "4 px", 4 },
         { "8 px", 8 }, { "16 px", 16 }, { "32 px", 32 }, { "Round", "round" } },
         function() return MM().radius end, function(v) MM().radius = v end, textPreview)
-    check(otherPage, "Hide day/night icon", look2.x, look2:row(ROW), function() return MM().hideDayNight end,
+    check(otherPage, "Hide day/night dial", look2.x, look2:row(ROW), function() return MM().hideDayNight end,
         function(v) MM().hideDayNight = v end)
     look2:close()
 

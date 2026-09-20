@@ -125,6 +125,7 @@ MinimapBackdrop, MinimapCompassTexture = new(), new()
 MinimapCluster = new()
 MinimapCluster.Tracking, GameTimeFrame = new(), new()
 MinimapCluster.ZoneTextButton, TimeManagerClockButton = new(), new()
+MinimapCluster.DielFrame = new() -- Forever's day/night dial
 GetMinimapZoneText = function() return "Ruins of Lordaeron" end
 MinimapCluster.Tracking._w, GameTimeFrame._w = 26, 26
 -- a counter text left loose on the minimap, like some addon buttons leave behind
@@ -1015,7 +1016,7 @@ assert(top.left._text == "Ruins of Lordaeron" and top.right._text == "25.3, 60.7
 assert(not MinimapCluster.ZoneTextButton:IsShown() and not TimeManagerClockButton:IsShown(), "Blizzard's own hidden")
 -- day/night icon and nudging the whole minimap
 MM.hideDayNight = true; fire("UNIT_MAXPOWER")
-assert(not GameTimeFrame:IsShown(), "day/night icon hidden")
+assert(not MinimapCluster.DielFrame:IsShown() and GameTimeFrame:IsShown(), "the dial hides, the calendar stays")
 MinimapCluster:SetPoint("TOPRIGHT", UIParent, "TOPRIGHT", -20, -20)
 MM.x, MM.y = -10, 5
 fire("UNIT_MAXPOWER")
@@ -1024,7 +1025,7 @@ MM.x, MM.y = 0, 0
 fire("UNIT_MAXPOWER")
 assert(MinimapCluster._point[4] == -20 and MinimapCluster._point[5] == -20, "back where Edit Mode had it")
 MM.hideDayNight = false; fire("UNIT_MAXPOWER")
-assert(GameTimeFrame:IsShown(), "day/night icon back")
+assert(MinimapCluster.DielFrame:IsShown(), "dial back")
 MM.infoBar, MM.border = false, false
 fire("UNIT_MAXPOWER")
 assert(not bar:IsShown() and not top:IsShown() and not bord:IsShown(), "off again")
