@@ -1004,6 +1004,9 @@ assert(not strayCount:IsShown(), "a loose counter on the minimap is hidden while
 assert(not iconCount:IsShown(), "a counter drawn on a collected icon goes quiet too")
 assert(ns.mini.trayBg:GetFrameStrata() == "BACKGROUND" and icon1._strata == "MEDIUM",
     "backdrop sits behind the icons, not over them")
+-- Edit Mode measures the minimap from its children: ours must not count
+assert(trayBtn.ignoreInLayout and panel.ignoreInLayout and WolfpackAddonMinimapButton.ignoreInLayout,
+    "tray, panel and our icon stay out of the minimap's layout")
 assert(icon1._strata == panel:GetFrameStrata() and icon1._level > panel:GetFrameLevel(), "icons above the panel")
 trayBtn._scripts.OnDragStart(trayBtn); trayBtn._scripts.OnUpdate(); trayBtn._scripts.OnDragStop(trayBtn)
 assert(type(WolfpackAddonDB.trayAngle) == "number" and trayBtn._point[2] == Minimap, "dragged around the minimap")
@@ -1024,6 +1027,7 @@ MM.infoBar = true; fire("UNIT_MAXPOWER")
 local bar, top = ns.mini.infoBar, ns.mini.topBar
 bar._scripts.OnUpdate(bar, 2)
 assert(bar.left._text == "12:34" and bar.right._text == "42 ms", "bottom bar: time and ping")
+assert(bar.ignoreInLayout and top.ignoreInLayout and bord.ignoreInLayout, "bars and border out of the layout too")
 assert(top.left._text == "Ruins of Lordaeron" and top.right._text == "25.3, 60.7", "top bar: zone and coords")
 assert(not MinimapCluster.ZoneTextButton:IsShown() and not TimeManagerClockButton:IsShown(), "Blizzard's own hidden")
 assert(not MinimapCluster.BorderTop:IsShown(), "and the dark strip behind it")

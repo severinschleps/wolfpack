@@ -1022,6 +1022,13 @@ local function syncBags()
 end
 
 local mini = {} -- the minimap module: its state and helpers live in one table
+
+-- Anything hung on the minimap must stay out of its layout, or Edit Mode's outline (and the
+-- cluster's own sizing) grows around it. Blizzard's own day/night dial does the same.
+local function ignoreLayout(f)
+    f.ignoreInLayout = true
+    return f
+end
 ns.mini = mini
 
 ------------------------------------------------------------------------------------------
@@ -1072,7 +1079,7 @@ function mini.minimapBorder()
     local want = db.other.minimap.border and true or false
     if not mini.border then
         if not want then return end
-        mini.border = CreateFrame("Frame", nil, MinimapCluster or UIParent)
+        mini.border = ignoreLayout(CreateFrame("Frame", nil, MinimapCluster or UIParent))
         mini.border:SetFrameLevel(math.max(Minimap:GetFrameLevel() - 1, 0))
         mini.border:SetPoint("TOPLEFT", Minimap, "TOPLEFT", -1, 1)
         mini.border:SetPoint("BOTTOMRIGHT", Minimap, "BOTTOMRIGHT", 1, -1)
@@ -1219,7 +1226,7 @@ function mini.trayUpdate()
     local on = db.other.minimap.tray
     if not mini.tray then
         if not on then return end
-        mini.tray = CreateFrame("Button", "WolfpackAddonTray", Minimap)
+        mini.tray = ignoreLayout(CreateFrame("Button", "WolfpackAddonTray", Minimap))
         mini.tray:SetSize(28, 28)
         mini.tray:SetFrameStrata("MEDIUM")
         mini.tray:SetFrameLevel(Minimap:GetFrameLevel() + 20) -- above the minimap and its mini.border
@@ -1239,7 +1246,7 @@ function mini.trayUpdate()
             end)
         end)
         mini.tray:SetScript("OnDragStop", function(self) self:SetScript("OnUpdate", nil) end)
-        mini.trayPanel = CreateFrame("Frame", nil, mini.tray)
+        mini.trayPanel = ignoreLayout(CreateFrame("Frame", nil, mini.tray))
         mini.trayPanel:SetPoint("TOPRIGHT", mini.tray, "TOPLEFT", -4, 0)
         mini.trayPanel:SetFrameStrata("MEDIUM")
         mini.trayPanel:Hide()
@@ -1281,7 +1288,7 @@ end
 mini.blizzBars = {} -- Blizzard's zone text and clock, hidden while ours are up
 
 function mini.makeBar(where)
-    local bar = CreateFrame("Frame", nil, Minimap)
+    local bar = ignoreLayout(CreateFrame("Frame", nil, Minimap))
     bar:SetPoint("BOTTOMLEFT", Minimap, "TOPLEFT", 0, 2)
     bar:SetPoint("BOTTOMRIGHT", Minimap, "TOPRIGHT", 0, 2)
     if where == "bottom" then
@@ -2512,29 +2519,29 @@ SlashCmdList.WOLFPACKADDON = function() safe(ns.ToggleConfig) end
 
 -- Minimap icon: left-click options, right-click lock/unlock, drag to move around the minimap.
 -- ponytail: assumes a round minimap; square minimap addons would need corner math.
-local mini = CreateFrame("Button", "WolfpackAddonMinimapButton", Minimap)
-mini:SetSize(31, 31)
-mini:SetFrameStrata("MEDIUM")
-mini:SetFrameLevel(8)
-mini:SetHighlightTexture("Interface\\Minimap\\UI-Minimap-ZoomButton-Highlight")
-local miniIcon = mini:CreateTexture(nil, "BACKGROUND")
+local miniBtn = ignoreLayout(CreateFrame("Button", "WolfpackAddonMinimapButton", Minimap))
+miniBtn:SetSize(31, 31)
+miniBtn:SetFrameStrata("MEDIUM")
+miniBtn:SetFrameLevel(8)
+miniBtn:SetHighlightTexture("Interface\\Minimap\\UI-Minimap-ZoomButton-Highlight")
+local miniIcon = miniBtn:CreateTexture(nil, "BACKGROUND")
 miniIcon:SetSize(20, 20)
 miniIcon:SetPoint("TOPLEFT", 7, -5)
 miniIcon:SetTexture("Interface\\Icons\\Ability_Rogue_Eviscerate")
-local miniBorder = mini:CreateTexture(nil, "OVERLAY")
+local miniBorder = miniBtn:CreateTexture(nil, "OVERLAY")
 miniBorder:SetSize(53, 53)
 miniBorder:SetPoint("TOPLEFT")
 miniBorder:SetTexture("Interface\\Minimap\\MiniMap-TrackingBorder")
 
 placeMini = function()
     local a, r = math.rad(store.minimapAngle), Minimap:GetWidth() / 2 + 10
-    mini:ClearAllPoints()
-    mini:SetPoint("CENTER", Minimap, "CENTER", math.cos(a) * r, math.sin(a) * r)
+    miniBtn:ClearAllPoints()
+    miniBtn:SetPoint("CENTER", Minimap, "CENTER", math.cos(a) * r, math.sin(a) * r)
 end
 
-mini:RegisterForClicks("LeftButtonUp", "RightButtonUp")
-mini:RegisterForDrag("LeftButton")
-mini:SetScript("OnClick", function(_, btn)
+miniBtn:RegisterForClicks("LeftButtonUp", "RightButtonUp")
+miniBtn:RegisterForDrag("LeftButton")
+miniBtn:SetScript("OnClick", function(_, btn)
     if btn == "RightButton" then
         db.locked = not db.locked
         changed()
@@ -2542,7 +2549,7 @@ mini:SetScript("OnClick", function(_, btn)
         safe(ns.ToggleConfig)
     end
 end)
-mini:SetScript("OnDragStart", function(self)
+miniBtn:SetScript("OnDragStart", function(self)
     self:SetScript("OnUpdate", function()
         local mx, my = Minimap:GetCenter()
         local cx, cy = GetCursorPosition()
@@ -2551,8 +2558,8 @@ mini:SetScript("OnDragStart", function(self)
         placeMini()
     end)
 end)
-mini:SetScript("OnDragStop", function(self) self:SetScript("OnUpdate", nil) end)
-mini:SetScript("OnEnter", function(self)
+miniBtn:SetScript("OnDragStop", function(self) self:SetScript("OnUpdate", nil) end)
+miniBtn:SetScript("OnEnter", function(self)
     GameTooltip:SetOwner(self, "ANCHOR_LEFT")
     GameTooltip:AddLine("Wolfpack Addon")
     GameTooltip:AddLine("Left-click: options", 1, 1, 1)
@@ -2560,7 +2567,7 @@ mini:SetScript("OnEnter", function(self)
     GameTooltip:AddLine("Drag: move this icon", 1, 1, 1)
     GameTooltip:Show()
 end)
-mini:SetScript("OnLeave", function() GameTooltip:Hide() end)
+miniBtn:SetScript("OnLeave", function() GameTooltip:Hide() end)
 
 ------------------------------------------------------------------------------------------
 -- Events
