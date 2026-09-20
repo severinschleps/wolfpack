@@ -1,9 +1,0 @@
-## Interface: 16001
-## Title: ComboPointDisplay
-## Notes: Health, power, combo point and druid mana bars, on screen and on nameplates, plus quest mob icons. /cpd to configure.
-## Author: severin
-## Version: 1.0.0
-## SavedVariables: ComboPointDisplayDB
-## AddonCompartmentFunc: ComboPointDisplay_Toggle
-
-ComboPointDisplay.lua

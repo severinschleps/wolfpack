@@ -1,4 +1,4 @@
--- ComboPointDisplay: stacked health / power / combo point / druid mana bars for WoW: Forever,
+-- Wolfpack Addon: stacked health / power / combo point / druid mana bars for WoW: Forever,
 -- plus quest mob icons (sword = kill, bag = drops an item) on nameplates.
 --
 -- Forever runs the Retail (Midnight) API: UnitPower and friends return "secret" values that
@@ -62,7 +62,7 @@ ns.COMBAT_FONTS = COMBAT_FONTS
 
 -- Called on ADDON_LOADED, before the world loads. Only known paths are accepted.
 local function applyCombatFont()
-    local pick = type(ComboPointDisplayDB) == "table" and ComboPointDisplayDB.combatFont
+    local pick = type(WolfpackAddonDB) == "table" and WolfpackAddonDB.combatFont
     for _, f in ipairs(COMBAT_FONTS) do
         if pick and pick ~= "" and f[2] == pick then DAMAGE_TEXT_FONT = pick end
     end
@@ -153,7 +153,7 @@ end
 ------------------------------------------------------------------------------------------
 -- Data sources
 ------------------------------------------------------------------------------------------
--- store = ComboPointDisplayDB, account-wide: { profiles = { [name] = settings }, chars = { [char] = name } }
+-- store = WolfpackAddonDB, account-wide: { profiles = { [name] = settings }, chars = { [char] = name } }
 -- db = the active profile's settings.
 local store, db, class, charKey, classProfile
 local changed, placeMini, useProfile -- defined further down
@@ -230,7 +230,7 @@ local BARS = {
 local frames = {}
 ns.frames = frames
 
-local anchor = CreateFrame("Frame", "ComboPointDisplayFrame", UIParent)
+local anchor = CreateFrame("Frame", "WolfpackAddonFrame", UIParent)
 anchor:SetMovable(true)
 anchor:SetClampedToScreen(true)
 
@@ -827,7 +827,7 @@ local function syncProtected()
     local R = db.regular
     local wanted = (R.playerMenu or R.playerTarget or R.playerMouseover) and true or false
     if wanted and not clicker then
-        clicker = CreateFrame("Button", "ComboPointDisplayClicker", UIParent, "SecureUnitButtonTemplate")
+        clicker = CreateFrame("Button", "WolfpackAddonClicker", UIParent, "SecureUnitButtonTemplate")
         clicker:SetAttribute("unit", "player")
         clicker:RegisterForClicks("LeftButtonUp", "RightButtonUp")
     end
@@ -1033,7 +1033,7 @@ local function safe(fn, ...)
     local ok, err = pcall(fn, ...)
     if not ok and not ns.errored then
         ns.errored = true
-        print("|cffff5555ComboPointDisplay error:|r " .. tostring(err))
+        print("|cffff5555Wolfpack Addon error:|r " .. tostring(err))
     end
 end
 
@@ -1260,13 +1260,13 @@ end
 -- Menu font strings refuse SetFont, so each font gets a Font object for SetFontObject.
 -- Copying the default first keeps a usable font if a file fails to load.
 for i, f in ipairs(FONTS) do
-    f.object = CreateFont("ComboPointDisplayFont" .. i)
+    f.object = CreateFont("WolfpackAddonFont" .. i)
     f.object:CopyFontObject(GameFontHighlight)
     f.object:SetFont(f[2], 14, "")
 end
 
 for i, f in ipairs(COMBAT_FONTS) do
-    f.object = CreateFont("ComboPointDisplayCombatFont" .. i)
+    f.object = CreateFont("WolfpackAddonCombatFont" .. i)
     f.object:CopyFontObject(GameFontHighlight)
     f.object:SetFont(f[2] ~= "" and f[2] or DEFAULT_DAMAGE_FONT, 16, "OUTLINE")
 end
@@ -1340,7 +1340,7 @@ end
 
 ------------------------------------------------------------------------------------------
 -- Export / import. Two separate strings:
---  * the addon profile: "CPD1:" + base64(deflate(CBOR{ name, profile, combatFont })), imported here
+--  * the addon profile: "WPA1:" + base64(deflate(CBOR{ name, profile, combatFont })), imported here
 --  * the WoW UI layout: Blizzard's own Edit Mode string, imported in Edit Mode itself, because
 --    writing Edit Mode layouts from an addon would get overwritten or taint Edit Mode
 ------------------------------------------------------------------------------------------
@@ -1348,7 +1348,7 @@ local E = C_EncodingUtil
 
 local function exportString()
     local data = { name = store.chars[charKey], profile = db, combatFont = store.combatFont }
-    return "CPD1:" .. E.EncodeBase64(E.CompressString(E.SerializeCBOR(data)))
+    return "WPA1:" .. E.EncodeBase64(E.CompressString(E.SerializeCBOR(data)))
 end
 
 local function editModeString()
@@ -1406,14 +1406,14 @@ end
 -- nil and an error.
 local function importString(text)
     text = (text or ""):gsub("%s", "")
-    local b64 = text:match("^CPD1:(.+)$")
+    local b64 = text:match("^WPA1:(.+)$") or text:match("^CPD1:(.+)$") -- CPD1: was the old name
     if not b64 then
         local ok, layout = pcall(C_EditMode.ConvertStringToLayoutInfo, text)
         if text ~= "" and ok and layout then
             return nil, "That's a WoW UI layout string. Paste it in Edit Mode instead: open Edit Mode, "
                 .. "then Layout dropdown, Import."
         end
-        return nil, "That's not a ComboPointDisplay string (those start with CPD1:)."
+        return nil, "That's not a Wolfpack Addon string (those start with WPA1:)."
     end
     local ok, data = pcall(function() return E.DeserializeCBOR(E.DecompressString(E.DecodeBase64(b64))) end)
     if not ok or type(data) ~= "table" or type(data.profile) ~= "table" then
@@ -1432,8 +1432,8 @@ local function importString(text)
 end
 ns.exportString, ns.editModeString, ns.importString = exportString, editModeString, importString
 
-StaticPopupDialogs.COMBOPOINTDISPLAY_DELETE = {
-    text = "Delete ComboPointDisplay profile \"%s\"?",
+StaticPopupDialogs.WOLFPACKADDON_DELETE = {
+    text = "Delete Wolfpack Addon profile \"%s\"?",
     button1 = YES, button2 = NO,
     OnAccept = function(_, name) deleteProfile(name) end,
     timeout = 0, whileDead = true, hideOnEscape = true,
@@ -1470,7 +1470,7 @@ end
 local function openIO(mode)
     local f = ioFrame
     if not f then
-        f = CreateFrame("Frame", "ComboPointDisplayIO", UIParent, "BasicFrameTemplateWithInset")
+        f = CreateFrame("Frame", "WolfpackAddonIO", UIParent, "BasicFrameTemplateWithInset")
         f:SetSize(540, 400)
         f:SetPoint("CENTER")
         f:SetFrameStrata("FULLSCREEN_DIALOG")
@@ -1526,7 +1526,7 @@ local function openIO(mode)
             .. "addon settings when the game restarts, and it brings them back.")
         f.area1.box:SetFocus()
     else
-        f.label1:SetText("Paste an addon profile string (starts with CPD1:), then click Import.")
+        f.label1:SetText("Paste an addon profile string (starts with WPA1:), then click Import.")
         f.area1.box:SetText("")
         f.note:SetText("It becomes a new profile. WoW UI layout strings go into Edit Mode's own Import.")
         f.area1.box:SetFocus()
@@ -1539,7 +1539,7 @@ local stopsFrame
 function openStops()
     local f = stopsFrame
     if not f then
-        f = CreateFrame("Frame", "ComboPointDisplayStops", UIParent, "BasicFrameTemplateWithInset")
+        f = CreateFrame("Frame", "WolfpackAddonStops", UIParent, "BasicFrameTemplateWithInset")
         f:SetSize(330, 330)
         f:SetPoint("CENTER")
         f:SetFrameStrata("FULLSCREEN_DIALOG")
@@ -1610,7 +1610,7 @@ function openStops()
 end
 
 local function buildConfig()
-    cfg = CreateFrame("Frame", "ComboPointDisplayConfig", UIParent, "BasicFrameTemplateWithInset")
+    cfg = CreateFrame("Frame", "WolfpackAddonConfig", UIParent, "BasicFrameTemplateWithInset")
     cfg:SetSize(990, 700)
     cfg:SetPoint("CENTER")
     cfg:SetFrameStrata("DIALOG")
@@ -1622,7 +1622,7 @@ local function buildConfig()
     tinsert(UISpecialFrames, cfg:GetName()) -- Escape closes it
     cfg:HookScript("OnShow", function() ns.configOpen = true; changed() end)
     cfg:HookScript("OnHide", function() ns.configOpen = false; changed() end)
-    label(cfg, "ComboPointDisplay"):SetPoint("TOP", 0, -5)
+    label(cfg, "Wolfpack Addon"):SetPoint("TOP", 0, -5)
 
     -- Top row: profile (account-wide, holds every page)
     label(cfg, "Profile", "GameFontNormal"):SetPoint("TOPLEFT", 16, -38)
@@ -1651,7 +1651,7 @@ local function buildConfig()
     button(cfg, "Create", 56, 432, -33, create)
     button(cfg, "Delete", 64, 500, -33, function()
         local name = store.chars[charKey]
-        StaticPopup_Show("COMBOPOINTDISPLAY_DELETE", name, nil, name)
+        StaticPopup_Show("WOLFPACKADDON_DELETE", name, nil, name)
     end)
     button(cfg, "Reset profile", 92, 570, -33, function()
         wipe(db)
@@ -2030,15 +2030,16 @@ function ns.ToggleConfig()
     cfg:SetShown(not cfg:IsShown())
     if cfg:IsShown() then changed() end
 end
-ComboPointDisplay_Toggle = ns.ToggleConfig -- addon compartment (retail only, Forever has none)
+WolfpackAddon_Toggle = ns.ToggleConfig -- addon compartment (retail only, Forever has none)
 
-SLASH_COMBOPOINTDISPLAY1 = "/cpd"
-SLASH_COMBOPOINTDISPLAY2 = "/cpb"
-SlashCmdList.COMBOPOINTDISPLAY = function() safe(ns.ToggleConfig) end
+SLASH_WOLFPACKADDON1 = "/wolfpack"
+SLASH_WOLFPACKADDON2 = "/wp"
+SLASH_WOLFPACKADDON3 = "/cpd" -- the old name still works
+SlashCmdList.WOLFPACKADDON = function() safe(ns.ToggleConfig) end
 
 -- Minimap icon: left-click options, right-click lock/unlock, drag to move around the minimap.
 -- ponytail: assumes a round minimap; square minimap addons would need corner math.
-local mini = CreateFrame("Button", "ComboPointDisplayMinimapButton", Minimap)
+local mini = CreateFrame("Button", "WolfpackAddonMinimapButton", Minimap)
 mini:SetSize(31, 31)
 mini:SetFrameStrata("MEDIUM")
 mini:SetFrameLevel(8)
@@ -2080,7 +2081,7 @@ end)
 mini:SetScript("OnDragStop", function(self) self:SetScript("OnUpdate", nil) end)
 mini:SetScript("OnEnter", function(self)
     GameTooltip:SetOwner(self, "ANCHOR_LEFT")
-    GameTooltip:AddLine("ComboPointDisplay")
+    GameTooltip:AddLine("Wolfpack Addon")
     GameTooltip:AddLine("Left-click: options", 1, 1, 1)
     GameTooltip:AddLine("Right-click: lock / unlock bars", 1, 1, 1)
     GameTooltip:AddLine("Drag: move this icon", 1, 1, 1)
@@ -2210,7 +2211,7 @@ local function sellJunk()
         sellTicker = nil
         C_Timer.After(0.5, function() -- the money arrives a moment after the last sale
             local earned = GetMoney() - before
-            if earned > 0 then print("|cff33ff99ComboPointDisplay|r sold junk for " .. GetMoneyString(earned)) end
+            if earned > 0 then print("|cff33ff99Wolfpack Addon|r sold junk for " .. GetMoneyString(earned)) end
         end)
     end, #queue + 1)
 end
@@ -2235,9 +2236,9 @@ ev:SetScript("OnEvent", function(_, event, unit, arg2)
         if unit == ADDON then applyCombatFont() end
     elseif event == "PLAYER_LOGIN" then
         -- ponytail: settings saved before profiles existed are dropped (the beta never loaded them anyway)
-        store = type(ComboPointDisplayDB) == "table" and ComboPointDisplayDB.profiles and ComboPointDisplayDB
+        store = type(WolfpackAddonDB) == "table" and WolfpackAddonDB.profiles and WolfpackAddonDB
             or { profiles = {}, chars = {} }
-        ComboPointDisplayDB = store
+        WolfpackAddonDB = store
         store.minimapAngle = store.minimapAngle or 220
         classProfile, class = UnitClass("player")
         playerName = UnitName("player")
