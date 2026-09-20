@@ -134,7 +134,7 @@ local DEFAULTS = {
         hideGryphons = false, autoAccept = false, autoComplete = false, sellJunk = false,
         hover = {},         -- [key from HOVER_FRAMES] = true: that Blizzard element shows only on mouseover
         bagsOnOpen = false, -- bag bar only while bags are open, attached to them
-        minimap = { square = false, border = false, tray = false, trayBlizzard = false, infoBar = false },
+        minimap = { square = false, border = false, radius = 0, tray = false, trayBlizzard = false, infoBar = false },
     },
 }
 
@@ -1023,35 +1023,78 @@ end
 -- a bar underneath with the time, latency and coordinates.
 ------------------------------------------------------------------------------------------
 local SQUARE_MASK, ROUND_MASK = "Interface\\Buttons\\WHITE8X8", "ui-hud-minimap-frame-generic-mask"
+
+-- The minimap's mask can't be nine-sliced, so it stretches to fit: Media/MinimapRound/m<N>.tga
+-- are 128 px squares whose corner is N px, and the one whose corner ratio is closest to the
+-- radius wanted on this minimap wins.
+local MINIMAP_MASKS = { 2, 3, 4, 6, 8, 12, 16, 24, 32, 48, 64 }
+local MINIMAP_MASK_DIR = "Interface\\AddOns\\" .. ADDON .. "\\Media\\MinimapRound\\m"
+
+local function roundedMaskFor(radius, size)
+    local wanted, best, bestOff = radius / math.max(size, 1), MINIMAP_MASKS[1], math.huge
+    for _, r in ipairs(MINIMAP_MASKS) do
+        local off = math.abs(r / 128 - wanted)
+        if off < bestOff then best, bestOff = r, off end
+    end
+    return MINIMAP_MASK_DIR .. best .. ".tga"
+end
+
+local function minimapMask()
+    local m = db.other.minimap
+    if not m.square then return ROUND_MASK end
+    if m.radius == "round" then return ROUND_MASK end
+    if (m.radius or 0) <= 0 then return SQUARE_MASK end
+    return roundedMaskFor(m.radius, Minimap:GetWidth())
+end
+
 local minimapDone = {} -- what we have already changed, so nothing is touched unless asked
 
 local function minimapShape()
-    local want = db.other.minimap.square and true or false
-    if want == (minimapDone.square or false) then return end
-    minimapDone.square = want
-    Minimap:SetMaskTexture(want and SQUARE_MASK or ROUND_MASK)
-    if MinimapCompassTexture then MinimapCompassTexture:SetAlpha(want and 0 or 1) end -- round frame art
+    local mask = minimapMask()
+    if mask == minimapDone.mask then return end
+    if not minimapDone.mask and mask == ROUND_MASK then return end -- default shape: leave it alone
+    minimapDone.mask = mask
+    Minimap:SetMaskTexture(mask)
+    if MinimapCompassTexture then -- the round frame art only fits the round mask
+        MinimapCompassTexture:SetAlpha(mask == ROUND_MASK and 1 or 0)
+    end
 end
 
-local border -- 1 px frame around the minimap
+-- The border is a black plate behind the minimap, 1 px larger and cut to the same shape, so it
+-- shows as an outline whatever the corners look like.
+local border
 local function minimapBorder()
     local want = db.other.minimap.border and true or false
     if not border then
         if not want then return end
-        border = CreateFrame("Frame", nil, Minimap)
-        border:SetPoint("TOPLEFT", -1, 1)
-        border:SetPoint("BOTTOMRIGHT", 1, -1)
-        border:SetFrameLevel(Minimap:GetFrameLevel() + 10)
-        for _, side in ipairs({ { "TOPLEFT", "TOPRIGHT", 0, 1 }, { "BOTTOMLEFT", "BOTTOMRIGHT", 0, 1 },
-            { "TOPLEFT", "BOTTOMLEFT", 1, 0 }, { "TOPRIGHT", "BOTTOMRIGHT", 1, 0 } }) do
-            local t = border:CreateTexture(nil, "OVERLAY")
-            t:SetColorTexture(0, 0, 0, 1)
-            t:SetPoint(side[1])
-            t:SetPoint(side[2])
-            if side[3] > 0 then t:SetWidth(1) else t:SetHeight(1) end
-        end
+        border = CreateFrame("Frame", nil, MinimapCluster or UIParent)
+        border:SetFrameLevel(math.max(Minimap:GetFrameLevel() - 1, 0))
+        border:SetPoint("TOPLEFT", Minimap, "TOPLEFT", -1, 1)
+        border:SetPoint("BOTTOMRIGHT", Minimap, "BOTTOMRIGHT", 1, -1)
+        border.tex = border:CreateTexture(nil, "BACKGROUND")
+        border.tex:SetAllPoints()
+        border.tex:SetColorTexture(0, 0, 0, 1)
+        border.mask = border:CreateMaskTexture()
+        border.mask:SetAllPoints(border.tex)
     end
     border:SetShown(want)
+    if not want then return end
+    local mask = minimapMask()
+    if mask == ROUND_MASK or mask == SQUARE_MASK then
+        if border.masked then
+            border.tex:RemoveMaskTexture(border.mask)
+            border.masked = nil
+        end
+        if mask == ROUND_MASK then -- the round minimap brings its own frame art
+            border:Hide()
+        end
+    else
+        border.mask:SetTexture(mask, "CLAMPTOBLACKADDITIVE", "CLAMPTOBLACKADDITIVE")
+        if not border.masked then
+            border.tex:AddMaskTexture(border.mask)
+            border.masked = true
+        end
+    end
 end
 
 -- Buttons the tray leaves alone: Blizzard's own, ours, and anything without a name.
@@ -2227,21 +2270,6 @@ local function buildConfig()
     hnote:SetJustifyH("LEFT")
     hover:close()
 
-    local mm = group(otherPage, COL[3], hover.cursor - 20, 202, "Minimap")
-    local MM = function() return db.other.minimap end
-    check(otherPage, "Square shape", mm.x, mm:row(ROW), function() return MM().square end, function(v) MM().square = v end)
-    check(otherPage, "1 px border", mm.x, mm:row(ROW), function() return MM().border end, function(v) MM().border = v end)
-    check(otherPage, "Tray for addon icons", mm.x, mm:row(ROW), function() return MM().tray end, function(v) MM().tray = v end)
-    check(otherPage, "Tray holds tracking + calendar", mm.x, mm:row(ROW),
-        function() return MM().trayBlizzard end, function(v) MM().trayBlizzard = v end)
-    check(otherPage, "Info bar (time, ping, coords)", mm.x, mm:row(ROW),
-        function() return MM().infoBar end, function(v) MM().infoBar = v end)
-    local mmNote = label(otherPage, "Drag the tray icon around the minimap; click it to open.", "GameFontDisableSmall")
-    mmNote:SetPoint("TOPLEFT", mm.x, mm:row(34))
-    mmNote:SetWidth(182)
-    mmNote:SetJustifyH("LEFT")
-    mm:close()
-
     -- Other page, column 4: the in-combat icon
     local CI = function() return db.regular.combatIcon end
     local icon = group(otherPage, COL[4], TOP, 202, "In-combat icon")
@@ -2264,6 +2292,25 @@ local function buildConfig()
     slider(otherPage, "Y (down / up)", icon.x, icon:row(SLIDER), -200, 200,
         function() return CI().y end, function(v) CI().y = v end)
     icon:close()
+
+    local mm = group(otherPage, COL[4], icon.cursor - 20, 202, "Minimap")
+    local MM = function() return db.other.minimap end
+    check(otherPage, "Square shape", mm.x, mm:row(ROW), function() return MM().square end, function(v) MM().square = v end)
+    check(otherPage, "1 px border", mm.x, mm:row(ROW), function() return MM().border end, function(v) MM().border = v end)
+    dropdown(otherPage, "Corner radius", mm.x, mm:row(DROP), { { "None (square)", 0 }, { "4 px", 4 }, { "8 px", 8 },
+        { "16 px", 16 }, { "32 px", 32 }, { "Round", "round" } }, function() return MM().radius end,
+        function(v) MM().radius = v end, textPreview)
+    check(otherPage, "Tray for addon icons", mm.x, mm:row(ROW), function() return MM().tray end, function(v) MM().tray = v end)
+    check(otherPage, "Tray holds tracking + calendar", mm.x, mm:row(ROW),
+        function() return MM().trayBlizzard end, function(v) MM().trayBlizzard = v end)
+    check(otherPage, "Info bar (time, ping, coords)", mm.x, mm:row(ROW),
+        function() return MM().infoBar end, function(v) MM().infoBar = v end)
+    local mmNote = label(otherPage, "Drag the tray icon around the minimap; click it to open.", "GameFontDisableSmall")
+    mmNote:SetPoint("TOPLEFT", mm.x, mm:row(34))
+    mmNote:SetWidth(182)
+    mmNote:SetJustifyH("LEFT")
+    mm:close()
+
 
     ns.configHeight = -pageBottom + 24 -- what the tallest column needs
     local height = math.min(ns.configHeight, math.floor(UIParent:GetHeight()) - 40)

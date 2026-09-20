@@ -946,10 +946,21 @@ MM.square = true; fire("UNIT_MAXPOWER")
 assert(Minimap._mask == "Interface\\Buttons\\WHITE8X8" and MinimapCompassTexture._alpha == 0, "square: corners shown")
 MM.square = false; fire("UNIT_MAXPOWER")
 assert(Minimap._mask == "ui-hud-minimap-frame-generic-mask" and MinimapCompassTexture._alpha == 1, "round again")
-MM.border = true; fire("UNIT_MAXPOWER")
+MM.square, MM.border = true, true
+fire("UNIT_MAXPOWER")
 local bord
-for _, f in ipairs(created) do if f._parent == Minimap and f._kind == "Frame" then bord = bord or f end end
-assert(bord and bord:IsShown(), "border frame")
+for _, f in ipairs(created) do if f._parent == MinimapCluster and f._kind == "Frame" then bord = bord or f end end
+assert(bord and bord:IsShown() and not bord.masked, "square: plain border plate behind the minimap")
+MM.radius = 8; fire("UNIT_MAXPOWER")
+-- 8 px on a 140 px minimap is a ratio of 0.057: m8 (0.0625) is the closest mask
+assert(Minimap._mask:match("MinimapRound\\m8%.tga$") and bord.masked, "rounded corners: closest mask for both")
+for _, r in ipairs({ 2, 3, 4, 6, 8, 12, 16, 24, 32, 48, 64 }) do
+    assert(io.open("WolfpackAddon/Media/MinimapRound/m" .. r .. ".tga"), "minimap mask m" .. r)
+end
+MM.radius = "round"; fire("UNIT_MAXPOWER")
+assert(Minimap._mask == "ui-hud-minimap-frame-generic-mask" and not bord:IsShown(), "round again, Blizzard's own art")
+MM.radius, MM.square = 0, false
+fire("UNIT_MAXPOWER")
 local icon1, icon2 = Minimap._children[1], Minimap._children[2]
 MM.tray, MM.trayBlizzard = true, false
 fire("UNIT_MAXPOWER")
