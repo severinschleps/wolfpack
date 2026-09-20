@@ -110,6 +110,10 @@ end
 -- One bar per weapon; the Swing Timer bar shows the ones ticked here.
 local SWING_TYPES = { { "main", "Main hand", 0 }, { "off", "Off hand", 1 }, { "ranged", "Ranged", 2 } }
 
+-- The Shield bar fills to the size the shield had when it landed, which can't be calculated
+-- from a secret: it's snapshotted on the first absorb change after a new aura appears.
+local absorb = { max = nil, have = false, pending = false }
+
 -- The Totems bar is one segment per element. Order and colors are per profile; these are the
 -- game's slot numbers, which never move.
 local TOTEM_SLOTS = { "Fire", "Earth", "Water", "Air" }
@@ -258,12 +262,15 @@ local BARS = {
     },
     absorb = {
         label = "Shield",
-        -- How much damage the absorb shields still swallow, scaled against max health. The amount
-        -- is secret like health is, so it only ever goes into the bar and the text.
+        -- How much damage the absorb shields still swallow. The amount is secret like health is,
+        -- so it can only be passed on, never read: `absorb.have` tracks whether a snapshot of the
+        -- shield's full size exists, because testing the snapshot itself would be a read.
         state = function() return true, 1 end,
         value = function(unit)
             local ok, points = pcall(UnitGetTotalAbsorbs, unit)
-            return ok and points or 0, UnitHealthMax(unit)
+            local max
+            if unit == "player" and absorb.have then max = absorb.max else max = UnitHealthMax(unit) end
+            return ok and points or 0, max
         end,
     },
     totems = {
@@ -2944,6 +2951,7 @@ ev:SetScript("OnEvent", function(_, event, unit, arg2, arg3)
         listen("UNIT_HEALTH", "player", "target")
         listen("UNIT_MAXHEALTH", "player", "target")
         listen("UNIT_ABSORB_AMOUNT_CHANGED", "player")
+        listen("UNIT_AURA", "player") -- a new aura may be a new shield: re-snapshot its size
         listen("UNIT_PET", "player") -- pet summoned, dismissed or swapped
         pcall(petEv.RegisterUnitEvent, petEv, "UNIT_HEALTH", "pet")
         pcall(petEv.RegisterUnitEvent, petEv, "UNIT_MAXHEALTH", "pet")
@@ -2961,7 +2969,16 @@ ev:SetScript("OnEvent", function(_, event, unit, arg2, arg3)
         local mine = store.chars[charKey]
         useProfile(store.profiles[mine or ""] and mine or classProfile)
         placeMini()
+    elseif event == "UNIT_AURA" then
+        -- arg2 is the update info; a full update (nil) or an added aura may bring a new shield
+        if unit == "player" and (arg2 == nil or arg2.isFullUpdate or arg2.addedAuras) then
+            absorb.pending = true
+        end
     elseif event == "UNIT_ABSORB_AMOUNT_CHANGED" then
+        if absorb.pending then -- the shield just landed: this is its full size
+            local ok, points = pcall(UnitGetTotalAbsorbs, "player")
+            absorb.max, absorb.have, absorb.pending = ok and points, ok, false
+        end
         fillShown("absorb")
     elseif event == "UNIT_HEALTH" then
         fillShown("health", "pethealth")
