@@ -224,6 +224,7 @@ PlayerCastingBarFrame = new()
 PlayerCastingBarFrame._parent = UIParent
 -- Serialization stand-in: deep copies, so nothing is shared between export and import
 local blobs = {}
+local bakedStub -- stands in for the baked profile string, which the fake codec can't decode
 local function deepcopy(t)
     if type(t) ~= "table" then return t end
     local c = {}
@@ -236,7 +237,7 @@ C_EncodingUtil = {
     CompressString = function(str) return "z" .. str end,
     DecompressString = function(str) assert(str:sub(1, 1) == "z", "bad deflate"); return str:sub(2) end,
     EncodeBase64 = function(str) return "B" .. str end,
-    DecodeBase64 = function(str) return str:sub(2) end,
+    DecodeBase64 = function(str) return str:sub(1, 1) == "B" and str:sub(2) or bakedStub end,
 }
 C_EditMode = { ConvertLayoutInfoToString = function(info) return "EDITMODE:" .. info.layoutName end }
 EditModeManagerFrame = { GetActiveLayoutInfo = function() return { layoutName = "MyLayout" } end,
@@ -1145,6 +1146,16 @@ assert(WolfpackAddonDB.combatFont == "", "WoW default is remembered, so the bake
 local src = io.open("WolfpackAddon/WolfpackAddon.lua"):read("*a")
 local baked = src:match('local DEFAULT_PROFILE = "(WPA1:[^"]+)"')
 assert(baked and #baked > 1000 and not baked:find("%s"), "baked profile string")
+-- With no saved variables at all -- this beta never reads them back -- the font has to come
+-- from the baked profile, or no pick ever reaches the game.
+local bakedFont = ns.COMBAT_FONTS[5][2]
+blobs[#blobs + 1] = { profile = {}, combatFont = bakedFont }
+bakedStub = "zblob" .. #blobs
+local savedDB = WolfpackAddonDB
+WolfpackAddonDB, DAMAGE_TEXT_FONT = nil, "Fonts\\FRIZQT__.TTF"
+fire("ADDON_LOADED", "WolfpackAddon")
+assert(DAMAGE_TEXT_FONT == bakedFont, "no saved variables: the baked profile's font is used")
+WolfpackAddonDB = savedDB
 -- new profiles start from it, or the plain defaults if it can't be read
 local fresh = ns.freshProfile()
 assert(fresh.regular and fresh.nameplate and fresh.other and fresh.quest, "a complete profile either way")
