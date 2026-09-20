@@ -255,6 +255,17 @@ end
 assert(not fr.druidmana:IsShown(), "rogue has no druid mana")
 assert(ComboPointDisplayFrame._h == 48, "stack height " .. tostring(ComboPointDisplayFrame._h))
 
+-- Extra space above / below a bar pushes the rest of the stack
+local hp = prof().regular.bars.health
+hp.padBottom = 10
+fire("UNIT_MAXPOWER")
+assert(fr.power._point[5] == -30 and ComboPointDisplayFrame._h == 58, "space below health")
+hp.padBottom, prof().regular.bars.power.padTop = 0, 6
+fire("UNIT_MAXPOWER")
+assert(fr.power._point[5] == -26, "space above power")
+prof().regular.bars.power.padTop = 0
+fire("UNIT_MAXPOWER")
+
 -- Druid: caster = no combo, no extra mana; cat = both; bear = mana only
 login("DRUID", 0)
 assert(not fr.combo:IsShown() and not fr.druidmana:IsShown(), "druid caster")
@@ -637,7 +648,8 @@ assert(ComboPointDisplayDB.minimapAngle ~= 220 and not mini._scripts.OnUpdate, "
 
 -- Options window: typed numbers apply on Enter and clamp to the slider range (gap: 0-30)
 SlashCmdList.COMBOPOINTDISPLAY("")
-local boxes = {} -- profile name, gap, group X/Y, width, height, bar X/Y, border, font size, quest row X/Y/spacing, kill size, loot size, ...
+local boxes = {} -- profile name, gap, group X/Y, width, height, extra above/below, offset X/Y, border,
+-- text size, quest row X/Y/spacing, kill size, loot size, highlight opacity, icon size/X/Y
 for _, f in ipairs(created) do if f._kind == "EditBox" then boxes[#boxes + 1] = f end end
 local nameBox, gapBox, xBox, yBox = boxes[1], boxes[2], boxes[3], boxes[4]
 gapBox._text = "7"; gapBox._scripts.OnEnterPressed(gapBox)
@@ -736,8 +748,8 @@ dds[7]:GenerateMenu(); dds[8]:GenerateMenu()
 assert(#dds[7]._items == 4 and #dds[8]._items == 4, "icon choices")
 for _, it in ipairs(dds[7]._items) do assert(type(it.init(menuButton())) == "number", "icon preview") end
 dds[7]._items[3].set()
-boxes[14]._text = "32"; boxes[14]._scripts.OnEnterPressed(boxes[14]) -- kill size
-boxes[11]._text = "-5"; boxes[11]._scripts.OnEnterPressed(boxes[11]) -- row X
+boxes[16]._text = "32"; boxes[16]._scripts.OnEnterPressed(boxes[16]) -- kill size
+boxes[13]._text = "-5"; boxes[13]._scripts.OnEnterPressed(boxes[13]) -- row X
 local Q = prof().quest
 assert(Q.kill.icon == 135274 and Q.kill.size == 32 and Q.loot.size == 20 and Q.x == -5, "quest page edits")
 assert(h.kill._tex == 135274 and h.kill._w == 32 and h.box._w == 54 and h.box._point[4] == -5, "live plate row restyled")
@@ -747,19 +759,11 @@ byText("Combat Display")._scripts.OnClick(byText("Combat Display"), "LeftButton"
 local caps = MainActionBar.EndCaps
 assert(caps.LeftEndCap.Texture._alpha == nil, "gryphons untouched by default")
 byText("Other")._scripts.OnClick(byText("Other"), "LeftButton")
-local pages, gcheck = {} -- bars, quest, other: frames directly on the options window
-for _, f in ipairs(created) do if f._kind == "Frame" and f._parent == ComboPointDisplayConfig then pages[#pages + 1] = f end end
-for _, f in ipairs(created) do if f._kind == "CheckButton" and f._parent == pages[3] then gcheck = gcheck or f end end
-gcheck._checked = true; gcheck._scripts.OnClick(gcheck)
-assert(prof().other.hideGryphons and caps.LeftEndCap.Texture._alpha == 0 and caps.RightEndCap.Texture._alpha == 0, "hidden")
-gcheck._checked = false; gcheck._scripts.OnClick(gcheck)
+prof().other.hideGryphons = true; fire("UNIT_MAXPOWER")
+assert(caps.LeftEndCap.Texture._alpha == 0 and caps.RightEndCap.Texture._alpha == 0, "hidden")
+prof().other.hideGryphons = false; fire("UNIT_MAXPOWER")
 assert(caps.LeftEndCap.Texture._alpha == 1, "shown again")
-dds[9]:GenerateMenu(); dds[10]:GenerateMenu() -- combat icon art, attach-to bar
-assert(#dds[9]._items == 4 and #dds[10]._items == 7, "combat icon choices, one entry per bar")
-for _, it in ipairs(dds[9]._items) do assert(type(it.init(menuButton())) == "number", "combat icon preview") end
-dds[10]._items[2].set()
-assert(prof().regular.combatIcon.bar == prof().regular.order[2], "attached to the second bar")
-local opBox = boxes[#boxes] -- the last slider made: highlight opacity (%)
+local opBox = boxes[18] -- highlight opacity (%)
 opBox._text = "60"; opBox._scripts.OnEnterPressed(opBox)
 assert(math.abs(prof().regular.highlight.color[4] - 0.6) < 1e-9 and opBox._text == "60", "opacity typed")
 byText("Combat Display")._scripts.OnClick(byText("Combat Display"), "LeftButton")
@@ -856,7 +860,7 @@ assert(BagsBar._parent == UIParent and BagsBar._point[2] == "MicroButtonAndBagsB
 -- a color makes it custom, opacity alone doesn't, cancel restores both
 local sw, hcol = ns.swatches, prof().regular.bars.health
 hcol.colorMode, hcol.borderMode = "class", "bar"
-sw["Custom border color (and opacity)"]._scripts.OnClick()
+sw["Custom border color"]._scripts.OnClick()
 assert(S.picker.r == 1 and S.picker.b == 0.41, "border picker opens on the (class) bar color")
 S.picker.opacityFunc()
 assert(hcol.borderMode == "bar" and hcol.borderColor[4] == 0.5, "opacity only: mode kept")
@@ -966,14 +970,14 @@ assert(iof.note._text:find("Imported as profile") and not iof.area2:IsShown(), "
 
 -- Combat text font: 20 fonts + default; applied on ADDON_LOADED only for known paths
 assert(#ns.COMBAT_FONTS == 21, "20 fonts + WoW default")
-dds[11]:GenerateMenu()
-assert(#dds[11]._items == 21, "combat font dropdown")
-for _, it in ipairs(dds[11]._items) do
+dds[9]:GenerateMenu()
+assert(#dds[9]._items == 21, "combat font dropdown")
+for _, it in ipairs(dds[9]._items) do
     local b = menuButton()
     assert(type(it.init(b)) == "number" and b._attached._text == "123", "combat font preview")
     checkColumn(b, 56)
 end
-dds[11]._items[6].set()
+dds[9]._items[6].set()
 local picked = ns.COMBAT_FONTS[6][2]
 assert(ComboPointDisplayDB.combatFont == picked, "stored account-wide")
 fire("ADDON_LOADED", "SomeOtherAddon")
@@ -983,7 +987,7 @@ assert(DAMAGE_TEXT_FONT == picked, "applied at load")
 DAMAGE_TEXT_FONT = "Fonts\\FRIZQT__.TTF"
 ComboPointDisplayDB.combatFont = "Interface\\evil.ttf"; fire("ADDON_LOADED", "ComboPointDisplay")
 assert(DAMAGE_TEXT_FONT == "Fonts\\FRIZQT__.TTF", "unknown path refused")
-dds[11]._items[1].set()
+dds[9]._items[1].set()
 assert(ComboPointDisplayDB.combatFont == nil, "WoW default clears it")
 
 -- Every bundled font path points at a real file in the addon folder

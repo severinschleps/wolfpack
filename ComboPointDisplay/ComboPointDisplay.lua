@@ -78,7 +78,7 @@ local function barDefaults(show, width, height, r, g, b, text)
             { pos = 0, color = { r, g, b, 1 } },
             { pos = 100, color = { r * 0.4, g * 0.4, b * 0.4, 1 } },
         },
-        text = text,
+        text = text, padTop = 0, padBottom = 0, -- extra space above / below this bar
         font = FONTS[1][2], fontSize = 10, outline = false, textColor = { 1, 1, 1, 1 },
         colorMode = "custom", -- "custom", "class" or "power" (power bar only)
         borderSize = 0, borderColor = { 0, 0, 0, 1 }, borderMode = "custom", radius = 0, -- border: or "class", "bar"
@@ -752,9 +752,10 @@ local function stack(container, set, L, on, swings)
                     layoutBar(sf, 1)
                     fill(sf)
                     if h > 0 then h = h + L.gap end
+                    h = h + c.padTop
                     sf:ClearAllPoints()
                     sf:SetPoint("TOP", container, "TOP", c.x, c.y - h)
-                    h = h + c.height
+                    h = h + c.height + c.padBottom
                     w = math.max(w, c.width)
                 end
             end
@@ -766,13 +767,14 @@ local function stack(container, set, L, on, swings)
             layoutBar(f, n, f.split and (c.width - L.gap) / 2 or nil)
             fill(f)
             if h > 0 then h = h + L.gap end
+            h = h + c.padTop
             f:ClearAllPoints()
             if f.split then
                 f:SetPoint("TOPLEFT", container, "TOP", c.x - c.width / 2, c.y - h)
             else
                 f:SetPoint("TOP", container, "TOP", c.x, c.y - h)
             end
-            h = h + c.height
+            h = h + c.height + c.padBottom
             w = math.max(w, c.width)
         end
     end
@@ -1050,6 +1052,31 @@ end
 local function L() return db[mode] end
 local function cur() return L().bars[selected] end
 local function onRefresh(fn) refreshers[#refreshers + 1] = fn end
+
+-- A titled 1 px box that stacks rows: row(h) gives the y for a widget that tall.
+local function group(parent, x, y, w, title)
+    local g = { x = x + 8, cursor = y - 24, w = w }
+    g.title = parent:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+    g.title:SetPoint("TOPLEFT", x + 6, y)
+    g.title:SetText(title)
+    function g:row(h)
+        local at = self.cursor
+        self.cursor = at - h
+        return at
+    end
+    function g:close()
+        local top, bottom = y - 16, self.cursor - 8
+        for _, side in ipairs({ { x, top, w, 1 }, { x, bottom, w, 1 }, { x, top, 1, top - bottom },
+            { x + w - 1, top, 1, top - bottom } }) do
+            local t = parent:CreateTexture(nil, "BACKGROUND", nil, 2)
+            t:SetColorTexture(1, 1, 1, 0.18)
+            t:SetPoint("TOPLEFT", side[1], side[2])
+            t:SetSize(side[3], side[4])
+        end
+        return self
+    end
+    return g
+end
 
 local function label(parent, text, font)
     local fs = parent:CreateFontString(nil, "OVERLAY", font or "GameFontHighlight")
@@ -1584,7 +1611,7 @@ end
 
 local function buildConfig()
     cfg = CreateFrame("Frame", "ComboPointDisplayConfig", UIParent, "BasicFrameTemplateWithInset")
-    cfg:SetSize(820, 700)
+    cfg:SetSize(990, 700)
     cfg:SetPoint("CENTER")
     cfg:SetFrameStrata("DIALOG")
     cfg:SetMovable(true)
@@ -1597,7 +1624,7 @@ local function buildConfig()
     cfg:HookScript("OnHide", function() ns.configOpen = false; changed() end)
     label(cfg, "ComboPointDisplay"):SetPoint("TOP", 0, -5)
 
-    -- Top row: profile (account-wide, holds both tabs)
+    -- Top row: profile (account-wide, holds every page)
     label(cfg, "Profile", "GameFontNormal"):SetPoint("TOPLEFT", 16, -38)
     local dd = CreateFrame("DropdownButton", nil, cfg, "WowStyle1DropdownTemplate")
     dd:SetPoint("TOPLEFT", 66, -32)
@@ -1654,7 +1681,7 @@ local function buildConfig()
     -- Pages to the right of the sidebar. The bars page edits the layout picked by `mode`.
     local barsPage = CreateFrame("Frame", nil, cfg)
     barsPage:SetPoint("TOPLEFT", 134, 0)
-    barsPage:SetSize(686, 700)
+    barsPage:SetSize(846, 700)
     local questPage = CreateFrame("Frame", nil, cfg)
     questPage:SetAllPoints(barsPage)
     local otherPage = CreateFrame("Frame", nil, cfg)
@@ -1684,122 +1711,139 @@ local function buildConfig()
             or "Bars under your target's nameplate. Needs enemy nameplates on (V key).")
     end)
 
-    -- Column 1: order, gap, group position, lock
-    label(barsPage, "Bars, top to bottom", "GameFontNormal"):SetPoint("TOPLEFT", 16, -104)
+    -- Four columns of boxes; a box's rows are stacked by g:row(height).
+    local COL, TOP = { 8, 218, 428, 638 }, -100
+    local ROW, SLIDER, DROP, SWATCH, BUTTON = 24, 44, 48, 26, 26
+
+    -- Bars page, column 1: which bars, and where the group sits
+    local bars = group(barsPage, COL[1], TOP, 202, "Bars, top to bottom")
     for i = 1, #db.regular.order do
-        local y = -124 - (i - 1) * 26
-        local sel = button(barsPage, "", 110, 16, y, function() selected = L().order[i]; changed() end)
-        button(barsPage, "Up", 36, 128, y, function() move(i, -1) end)
-        button(barsPage, "Down", 46, 166, y, function() move(i, 1) end)
+        local y = bars:row(ROW)
+        local sel = button(barsPage, "", 96, bars.x, y, function() selected = L().order[i]; changed() end)
+        button(barsPage, "Up", 34, bars.x + 100, y, function() move(i, -1) end)
+        button(barsPage, "Down", 44, bars.x + 136, y, function() move(i, 1) end)
         onRefresh(function()
             local key = L().order[i]
             sel:SetText(BARS[key].label)
             if key == selected then sel:LockHighlight() else sel:UnlockHighlight() end
         end)
     end
-    slider(barsPage, "Gap between bars", 16, -314, 0, 30, function() return L().gap end, function(v) L().gap = v end)
-    label(barsPage, "Group position", "GameFontNormal"):SetPoint("TOPLEFT", 16, -360)
+    slider(barsPage, "Gap between bars", bars.x, bars:row(SLIDER), 0, 30,
+        function() return L().gap end, function(v) L().gap = v end)
+    bars:close()
+
+    local grp = group(barsPage, COL[1], bars.cursor - 20, 202, "Group position")
     local groupNote = label(barsPage, "", "GameFontDisableSmall")
-    groupNote:SetPoint("TOPLEFT", 16, -376)
+    groupNote:SetPoint("TOPLEFT", grp.x, grp:row(16))
     onRefresh(function()
         groupNote:SetText((L().grow == "up" and "bottom-center" or "top-center")
             .. (mode == "regular" and ", from the screen center" or ", from under the nameplate"))
     end)
-    local grow = button(barsPage, "", 200, 16, -394, function()
+    local grow = button(barsPage, "", 186, grp.x, grp:row(BUTTON), function()
         L().grow = L().grow == "up" and "down" or "up"
         place()
         changed()
     end)
-    onRefresh(function()
-        grow:SetText("Grows: " .. (L().grow == "up" and "Upwards" or "Downwards"))
-    end)
+    onRefresh(function() grow:SetText("Grows: " .. (L().grow == "up" and "Upwards" or "Downwards")) end)
     local function xr() return mode == "regular" and math.floor(UIParent:GetWidth() / 2) or 200 end
     local function yr() return mode == "regular" and math.floor(UIParent:GetHeight() / 2) or 200 end
-    slider(barsPage, "X (left / right)", 16, -428, function() return -xr() end, xr,
+    slider(barsPage, "X (left / right)", grp.x, grp:row(SLIDER), function() return -xr() end, xr,
         function() return L().x end, function(v) L().x = v; place() end)
-    slider(barsPage, "Y (down / up)", 16, -470, function() return -yr() end, yr,
+    slider(barsPage, "Y (down / up)", grp.x, grp:row(SLIDER), function() return -yr() end, yr,
         function() return L().y end, function(v) L().y = v; place() end)
-    local lock = button(barsPage, "", 96, 16, -516, function() db.locked = not db.locked; changed() end)
+    local lock = button(barsPage, "", 96, grp.x, grp:row(BUTTON), function() db.locked = not db.locked; changed() end)
     onRefresh(function()
         lock:SetShown(mode == "regular")
         lock:SetText(db.locked and "Unlock" or "Lock")
     end)
-    local playerFrameOpts = {
-        check(barsPage, "Hide Blizzard player frame", 16, -548,
-            function() return db.regular.hidePlayerFrame end, function(v) db.regular.hidePlayerFrame = v end),
-        check(barsPage, "Right-click: player menu", 16, -572,
-            function() return db.regular.playerMenu end, function(v) db.regular.playerMenu = v end),
-        check(barsPage, "Hide Blizzard cast bar", 16, -596,
-            function() return db.regular.hideBlizzCastbar end, function(v) db.regular.hideBlizzCastbar = v end),
-    }
-    onRefresh(function() for _, w in ipairs(playerFrameOpts) do w:SetShown(mode == "regular") end end)
-    label(barsPage, "Mouse wheel on a slider changes it by 1.\nBlizzard frame options apply out of combat.\n"
-        .. "Click options block clicks through the bars.", "GameFontDisableSmall"):SetPoint("TOPLEFT", 16, -630)
+    grp:close()
+    label(barsPage, "Mouse wheel on a slider changes it by 1.", "GameFontDisableSmall")
+        :SetPoint("TOPLEFT", grp.x, grp.cursor - 24)
 
-    -- Column 2: the selected bar's show, size, offset, look
-    local X = 240
-    local header = label(barsPage, "", "GameFontNormal")
-    header:SetPoint("TOPLEFT", X, -104)
-    onRefresh(function()
-        local shown = (mode == "regular" and frames or plateFrames)[selected]:IsShown()
-        header:SetText(BARS[selected].label .. (shown and "" or " |cff888888(hidden now)|r"))
-    end)
-    check(barsPage, "Show", X, -122, function() return cur().show end, function(v) cur().show = v end)
-    slider(barsPage, "Width", X, -150, 10, 600, function() return cur().width end, function(v) cur().width = v end)
-    slider(barsPage, "Height", X, -192, 2, 100, function() return cur().height end, function(v) cur().height = v end)
-    slider(barsPage, "Bar offset X", X, -234, -300, 300, function() return cur().x end, function(v) cur().x = v end)
-    slider(barsPage, "Bar offset Y", X, -276, -300, 300, function() return cur().y end, function(v) cur().y = v end)
-    dropdown(barsPage, "Texture", X, -318, TEXTURES, function() return cur().texture end,
-        function(v) cur().texture = v end, texturePreview)
-    dropdown(barsPage, "Bar color", X, -362, function()
-        local list = { { "Custom", "custom" }, { "Class color", "class" } }
-        if selected == "power" then list[3] = { "Power type color", "power" } end
-        return list
-    end, function() return cur().colorMode end, function(v) cur().colorMode = v end, textPreview)
+    -- Column 2: the selected bar's size and spacing
     local function selFrame() return (mode == "regular" and frames or plateFrames)[selected] end
-    swatch(barsPage, "Custom color (and opacity)", X, -410, function() return cur().color end, {
-        get = function() return cur().colorMode end, set = function(v) cur().colorMode = v end,
-        effective = function() return barColors(selFrame(), cur()) end,
-    })
-    swatch(barsPage, "Background color", X, -436, function() return cur().bgColor end)
-    local target = check(barsPage, "Show target health next to it", X, -462,
+    local size = group(barsPage, COL[2], TOP, 202, "")
+    onRefresh(function()
+        local shown = selFrame():IsShown()
+        size.title:SetText(BARS[selected].label .. (shown and "" or " |cff888888(hidden)|r"))
+    end)
+    check(barsPage, "Show", size.x, size:row(ROW), function() return cur().show end, function(v) cur().show = v end)
+    slider(barsPage, "Width", size.x, size:row(SLIDER), 10, 600, function() return cur().width end, function(v) cur().width = v end)
+    slider(barsPage, "Height", size.x, size:row(SLIDER), 2, 100, function() return cur().height end, function(v) cur().height = v end)
+    slider(barsPage, "Extra space above", size.x, size:row(SLIDER), 0, 60,
+        function() return cur().padTop end, function(v) cur().padTop = v end)
+    slider(barsPage, "Extra space below", size.x, size:row(SLIDER), 0, 60,
+        function() return cur().padBottom end, function(v) cur().padBottom = v end)
+    slider(barsPage, "Offset X", size.x, size:row(SLIDER), -300, 300, function() return cur().x end, function(v) cur().x = v end)
+    slider(barsPage, "Offset Y", size.x, size:row(SLIDER), -300, 300, function() return cur().y end, function(v) cur().y = v end)
+    size:close()
+
+    local only = group(barsPage, COL[2], size.cursor - 20, 202, "Just for this bar")
+    local target = check(barsPage, "Show target health next to it", only.x, only:row(ROW),
         function() return cur().target end, function(v) cur().target = v end)
     local swingChecks = {}
     for i, kind in ipairs(SWING_TYPES) do
-        swingChecks[i] = check(barsPage, kind[2], X, -462 - (i - 1) * 24,
+        swingChecks[i] = check(barsPage, kind[2], only.x, only:row(0) - (i - 1) * ROW,
             function() return cur()[kind[1]] end, function(v) cur()[kind[1]] = v end)
     end
-    local castIcon = check(barsPage, "Show spell icon", X, -462,
+    local castIcon = check(barsPage, "Show spell icon", only.x, only:row(ROW),
         function() return cur().icon end, function(v) cur().icon = v end)
-    local castSide = button(barsPage, "", 200, X, -488, function()
+    local castSide = button(barsPage, "", 186, only.x, only:row(BUTTON), function()
         cur().iconSide = cur().iconSide == "right" and "left" or "right"
         changed()
     end)
+    local onlyNote = label(barsPage, "", "GameFontDisableSmall")
+    onlyNote:SetPoint("TOPLEFT", only.x, only:row(16))
     onRefresh(function()
         target:SetShown(selected == "health" and mode == "regular")
         for _, w in ipairs(swingChecks) do w:SetShown(selected == "swing") end
         castIcon:SetShown(selected == "castbar")
         castSide:SetShown(selected == "castbar" and cur().icon or false)
         castSide:SetText("Icon side: " .. (cur().iconSide == "right" and "Right" or "Left"))
+        local none = not (selected == "castbar" or selected == "swing"
+            or (selected == "health" and mode == "regular"))
+        onlyNote:SetText(none and "Nothing extra for this one." or "")
     end)
+    only:close()
 
-    -- Column 3: border, gradient and text (combo pips have no text)
-    local X3 = 464
-    slider(barsPage, "Border", X3, -104, 0, 10, function() return cur().borderSize end, function(v) cur().borderSize = v end)
-    dropdown(barsPage, "Border color", X3, -146, { { "Custom", "custom" }, { "Class color", "class" },
+    -- Column 3: colors and border
+    local look = group(barsPage, COL[3], TOP, 202, "Colors")
+    dropdown(barsPage, "Texture", look.x, look:row(DROP), TEXTURES, function() return cur().texture end,
+        function(v) cur().texture = v end, texturePreview)
+    dropdown(barsPage, "Bar color", look.x, look:row(DROP), function()
+        local list = { { "Custom", "custom" }, { "Class color", "class" } }
+        if selected == "power" then list[3] = { "Power type color", "power" } end
+        return list
+    end, function() return cur().colorMode end, function(v) cur().colorMode = v end, textPreview)
+    swatch(barsPage, "Custom color (and opacity)", look.x, look:row(SWATCH), function() return cur().color end, {
+        get = function() return cur().colorMode end, set = function(v) cur().colorMode = v end,
+        effective = function() return barColors(selFrame(), cur()) end,
+    })
+    swatch(barsPage, "Background color", look.x, look:row(SWATCH), function() return cur().bgColor end)
+    look:close()
+
+    local bord = group(barsPage, COL[3], look.cursor - 20, 202, "Border")
+    slider(barsPage, "Thickness", bord.x, bord:row(SLIDER), 0, 10,
+        function() return cur().borderSize end, function(v) cur().borderSize = v end)
+    dropdown(barsPage, "Color", bord.x, bord:row(DROP), { { "Custom", "custom" }, { "Class color", "class" },
         { "Same as bar color", "bar" } }, function() return cur().borderMode end, function(v) cur().borderMode = v end,
         textPreview)
-    swatch(barsPage, "Custom border color (and opacity)", X3, -194, function() return cur().borderColor end, {
+    swatch(barsPage, "Custom border color", bord.x, bord:row(SWATCH), function() return cur().borderColor end, {
         get = function() return cur().borderMode end, set = function(v) cur().borderMode = v end,
         effective = function() return select(4, barColors(selFrame(), cur())) end,
     })
-    dropdown(barsPage, "Corner radius", X3, -214, { { "None", 0 }, { "2 px", 2 }, { "4 px", 4 }, { "8 px", 8 },
-        { "16 px", 16 }, { "32 px", 32 }, { "Pill (50% of height)", "pill" } }, function() return cur().radius end,
-        function(v) cur().radius = v end, textPreview)
-    check(barsPage, "Gradient", X3, -264, function() return cur().gradient end, function(v) cur().gradient = v end)
+    dropdown(barsPage, "Corner radius", bord.x, bord:row(DROP), { { "None", 0 }, { "2 px", 2 }, { "4 px", 4 },
+        { "8 px", 8 }, { "16 px", 16 }, { "32 px", 32 }, { "Pill (50% of height)", "pill" } },
+        function() return cur().radius end, function(v) cur().radius = v end, textPreview)
+    bord:close()
+
+    -- Column 4: gradient and text
+    local grad = group(barsPage, COL[4], TOP, 202, "Gradient")
+    check(barsPage, "Gradient", grad.x, grad:row(ROW), function() return cur().gradient end,
+        function(v) cur().gradient = v end)
     local DIRECTIONS = { { "right", "Left to right" }, { "left", "Right to left" },
         { "down", "Top to bottom" }, { "up", "Bottom to top" } }
-    local dir = button(barsPage, "", 200, X3, -290, function()
+    local dir = button(barsPage, "", 186, grad.x, grad:row(BUTTON), function()
         local i = 1
         for n, d in ipairs(DIRECTIONS) do
             if d[1] == cur().direction then i = n end
@@ -1807,7 +1851,7 @@ local function buildConfig()
         cur().direction = DIRECTIONS[i % #DIRECTIONS + 1][1]
         changed()
     end)
-    local points = button(barsPage, "Gradient points...", 200, X3, -316, function() openStops() end)
+    local points = button(barsPage, "Gradient points...", 186, grad.x, grad:row(BUTTON), function() openStops() end)
     onRefresh(function()
         dir:SetShown(cur().gradient)
         points:SetShown(cur().gradient)
@@ -1815,84 +1859,83 @@ local function buildConfig()
             if d[1] == cur().direction then dir:SetText("Direction: " .. d[2]) end
         end
     end)
+    grad:close()
+
+    local txt = group(barsPage, COL[4], grad.cursor - 20, 202, "Text")
     local textWidgets = {
-        check(barsPage, "Show text", X3, -350, function() return cur().text end, function(v) cur().text = v end),
-        dropdown(barsPage, "Font", X3, -376, FONTS, function() return cur().font end,
+        check(barsPage, "Show text", txt.x, txt:row(ROW), function() return cur().text end, function(v) cur().text = v end),
+        dropdown(barsPage, "Font", txt.x, txt:row(DROP), FONTS, function() return cur().font end,
             function(v) cur().font = v end, fontPreview),
-        slider(barsPage, "Font size", X3, -424, 6, 32, function() return cur().fontSize end, function(v) cur().fontSize = v end),
-        check(barsPage, "Outline", X3, -470, function() return cur().outline end, function(v) cur().outline = v end),
-        swatch(barsPage, "Text color", X3, -496, function() return cur().textColor end),
+        slider(barsPage, "Size", txt.x, txt:row(SLIDER), 6, 32, function() return cur().fontSize end,
+            function(v) cur().fontSize = v end),
+        check(barsPage, "Outline", txt.x, txt:row(ROW), function() return cur().outline end, function(v) cur().outline = v end),
+        swatch(barsPage, "Text color", txt.x, txt:row(SWATCH), function() return cur().textColor end),
     }
+    local noText = label(barsPage, "", "GameFontDisableSmall")
+    noText:SetPoint("TOPLEFT", txt.x, txt:row(16))
     onRefresh(function()
         for _, w in ipairs(textWidgets) do w:SetShown(selected ~= "combo") end
+        noText:SetText(selected == "combo" and "Combo points show no text." or "")
     end)
+    txt:close()
 
     -- Quest mobs page
-    label(questPage, "Quest mobs", "GameFontNormal"):SetPoint("TOPLEFT", 16, -104)
+    local qinfo = group(questPage, COL[1], TOP, 202, "Quest mobs")
     local desc = label(questPage, "Marks enemies you still need for a quest.\n\nSword: you need to kill it.\n"
-        .. "Bag: it drops an item you need.\nGray: only groupmates still need it.\n\nThe icons sit in a row at the nameplate's top-right corner; "
-        .. "a lone icon keeps to the row's left. Finished objectives show nothing. Needs enemy nameplates "
-        .. "on (V key).", "GameFontHighlightSmall")
-    desc:SetPoint("TOPLEFT", 16, -126)
-    desc:SetWidth(200)
+        .. "Bag: it drops an item you need.\nGray: only groupmates still need it.\n\nThe icons sit in a row at "
+        .. "the nameplate's top-right corner; a lone icon keeps to the row's left. Needs enemy nameplates on "
+        .. "(V key).", "GameFontHighlightSmall")
+    desc:SetPoint("TOPLEFT", qinfo.x, qinfo:row(186))
+    desc:SetWidth(182)
     desc:SetJustifyH("LEFT")
+    qinfo:close()
+
     local Q = function() return db.quest end
-    label(questPage, "Icon row", "GameFontNormal"):SetPoint("TOPLEFT", 16, -262)
-    slider(questPage, "X (left / right)", 16, -280, -200, 200, function() return Q().x end, function(v) Q().x = v end)
-    slider(questPage, "Y (down / up)", 16, -322, -200, 200, function() return Q().y end, function(v) Q().y = v end)
-    slider(questPage, "Spacing", 16, -364, 0, 20, function() return Q().spacing end, function(v) Q().spacing = v end)
+    local row = group(questPage, COL[1], qinfo.cursor - 20, 202, "Icon row")
+    slider(questPage, "X (left / right)", row.x, row:row(SLIDER), -200, 200, function() return Q().x end,
+        function(v) Q().x = v end)
+    slider(questPage, "Y (down / up)", row.x, row:row(SLIDER), -200, 200, function() return Q().y end,
+        function(v) Q().y = v end)
+    slider(questPage, "Spacing", row.x, row:row(SLIDER), 0, 20, function() return Q().spacing end,
+        function(v) Q().spacing = v end)
+    row:close()
+
     for i, kind in ipairs({ { "kill", "Kill it (sword)" }, { "loot", "Drops a quest item (bag)" } }) do
-        local X = 16 + i * 224
         local function q() return db.quest[kind[1]] end
-        label(questPage, kind[2], "GameFontNormal"):SetPoint("TOPLEFT", X, -104)
-        check(questPage, "Show", X, -122, function() return q().show end, function(v) q().show = v end)
-        dropdown(questPage, "Icon", X, -150, QUEST_ICONS[kind[1]], function() return q().icon end,
+        local g = group(questPage, COL[i + 1], TOP, 202, kind[2])
+        check(questPage, "Show", g.x, g:row(ROW), function() return q().show end, function(v) q().show = v end)
+        dropdown(questPage, "Icon", g.x, g:row(DROP), QUEST_ICONS[kind[1]], function() return q().icon end,
             function(v) q().icon = v end, iconPreview)
-        slider(questPage, "Size", X, -198, 8, 64, function() return q().size end, function(v) q().size = v end)
-        check(questPage, "Show how many are left", X, -246, function() return q().count end,
+        slider(questPage, "Size", g.x, g:row(SLIDER), 8, 64, function() return q().size end, function(v) q().size = v end)
+        check(questPage, "Show how many are left", g.x, g:row(ROW), function() return q().count end,
             function(v) q().count = v end)
+        g:close()
     end
 
-    -- Other page: general toggles, and the Combat Display group's mouse behaviour
-    label(otherPage, "General", "GameFontNormal"):SetPoint("TOPLEFT", 16, -104)
-    check(otherPage, "Hide action bar gryphons", 16, -122,
-        function() return db.other.hideGryphons end, function(v) db.other.hideGryphons = v end)
-    check(otherPage, "Auto-accept quests (hold Shift to skip)", 16, -146,
+    -- Other page, column 1: quests and merchants
+    local quests = group(otherPage, COL[1], TOP, 202, "Quests")
+    check(otherPage, "Auto-accept (Shift skips)", quests.x, quests:row(ROW),
         function() return db.other.autoAccept end, function(v) db.other.autoAccept = v end)
-    check(otherPage, "Auto-complete quests (hold Shift to skip)", 16, -170,
+    check(otherPage, "Auto-complete (Shift skips)", quests.x, quests:row(ROW),
         function() return db.other.autoComplete end, function(v) db.other.autoComplete = v end)
-    check(otherPage, "Auto-sell junk (gray items) at merchants", 16, -194,
-        function() return db.other.sellJunk end, function(v) db.other.sellJunk = v end)
-    local note = label(otherPage, "Auto-complete leaves quests with a reward choice or a gold cost to you.",
+    local qnote = label(otherPage, "Quests with a reward choice or a gold cost stay with you.",
         "GameFontDisableSmall")
-    note:SetPoint("TOPLEFT", 42, -220)
-    note:SetWidth(260)
-    note:SetJustifyH("LEFT")
+    qnote:SetPoint("TOPLEFT", quests.x, quests:row(34))
+    qnote:SetWidth(182)
+    qnote:SetJustifyH("LEFT")
+    quests:close()
 
-    local CI = function() return db.regular.combatIcon end
-    label(otherPage, "In-combat icon (Combat Display)", "GameFontNormal"):SetPoint("TOPLEFT", 16, -262)
-    check(otherPage, "Show", 16, -280, function() return CI().show end, function(v) CI().show = v end)
-    dropdown(otherPage, "Icon", 16, -308, COMBAT_ICONS, function() return CI().style end,
-        function(v) CI().style = v end, function(button, item)
-            local t = button:AttachTexture()
-            t:SetSize(20, 20)
-            setCombatArt(t, item[2])
-            return beforeName(button, item, t, 20)
-        end)
-    dropdown(otherPage, "Attach to bar", 16, -356, function()
-        local list = {}
-        for _, key in ipairs(db.regular.order) do list[#list + 1] = { BARS[key].label, key } end
-        return list
-    end, function() return CI().bar end, function(v) CI().bar = v end, textPreview)
-    slider(otherPage, "Size", 16, -404, 8, 64, function() return CI().size end, function(v) CI().size = v end)
-    slider(otherPage, "X (from the bar's left edge)", 16, -446, -200, 200, function() return CI().x end, function(v) CI().x = v end)
-    slider(otherPage, "Y (down / up)", 16, -488, -200, 200, function() return CI().y end, function(v) CI().y = v end)
+    local merch = group(otherPage, COL[1], quests.cursor - 20, 202, "Merchants")
+    check(otherPage, "Auto-sell junk (gray items)", merch.x, merch:row(ROW),
+        function() return db.other.sellJunk end, function(v) db.other.sellJunk = v end)
+    merch:close()
 
-    label(otherPage, "Combat text font (damage numbers)", "GameFontNormal"):SetPoint("TOPLEFT", 16, -534)
-    dropdown(otherPage, "Font", 16, -552, COMBAT_FONTS, function() return store.combatFont or "" end,
+    local cfont = group(otherPage, COL[1], merch.cursor - 20, 202, "Combat text font")
+    dropdown(otherPage, "Damage numbers", cfont.x, cfont:row(DROP), COMBAT_FONTS,
+        function() return store.combatFont or "" end,
         function(v) store.combatFont = v ~= "" and v or nil end, combatFontPreview)
     local big = otherPage:CreateFontString(nil, "OVERLAY")
-    big:SetPoint("LEFT", otherPage, "TOPLEFT", 236, -580)
+    big:SetPoint("TOPLEFT", cfont.x, cfont:row(40))
     onRefresh(function()
         if not big:SetFont(store.combatFont or DEFAULT_DAMAGE_FONT, 30, "OUTLINE") then
             big:SetFont(DEFAULT_DAMAGE_FONT, 30, "OUTLINE")
@@ -1900,44 +1943,85 @@ local function buildConfig()
         big:SetTextColor(unpack(DAMAGE_YELLOW))
         big:SetText("123")
     end)
-    local restart = label(otherPage, "Needs a full game restart (not /reload). On this beta build addon settings "
-        .. "don't survive a restart yet, so it applies once Blizzard fixes that.", "GameFontDisableSmall")
-    restart:SetPoint("TOPLEFT", 16, -602)
-    restart:SetWidth(310)
+    local restart = label(otherPage, "Needs a full game restart. Addon settings don't survive a restart on this "
+        .. "beta yet, so it applies once Blizzard fixes that.", "GameFontDisableSmall")
+    restart:SetPoint("TOPLEFT", cfont.x, cfont:row(46))
+    restart:SetWidth(182)
     restart:SetJustifyH("LEFT")
+    cfont:close()
 
-    local X2 = 340
-    local R = function() return db.regular end
-    label(otherPage, "Bar group (Combat Display)", "GameFontNormal"):SetPoint("TOPLEFT", X2, -104)
-    check(otherPage, "Left-click: target yourself", X2, -122,
-        function() return R().playerTarget end, function(v) R().playerTarget = v end)
-    check(otherPage, "Mouseover macros (@mouseover)", X2, -146,
-        function() return R().playerMouseover end, function(v) R().playerMouseover = v end)
-    check(otherPage, "Highlight on mouseover", X2, -178,
-        function() return R().highlight.show end, function(v) R().highlight.show = v end)
-    swatch(otherPage, "Highlight color", X2, -204, function() return R().highlight.color end)
-    slider(otherPage, "Highlight opacity (%)", X2, -228, 0, 100,
-        function() return math.floor(R().highlight.color[4] * 100 + 0.5) end,
-        function(v) R().highlight.color[4] = v / 100 end)
-    local hint = label(otherPage, "Click options apply out of combat and block clicks through the bars. "
-        .. "The highlight doesn't.", "GameFontDisableSmall")
-    hint:SetPoint("TOPLEFT", X2, -274)
-    hint:SetWidth(300)
-    hint:SetJustifyH("LEFT")
+    -- Other page, column 2: Blizzard's own frames
+    local blizz = group(otherPage, COL[2], TOP, 202, "Blizzard frames")
+    check(otherPage, "Hide player frame", blizz.x, blizz:row(ROW),
+        function() return db.regular.hidePlayerFrame end, function(v) db.regular.hidePlayerFrame = v end)
+    check(otherPage, "Hide cast bar", blizz.x, blizz:row(ROW),
+        function() return db.regular.hideBlizzCastbar end, function(v) db.regular.hideBlizzCastbar = v end)
+    check(otherPage, "Hide action bar gryphons", blizz.x, blizz:row(ROW),
+        function() return db.other.hideGryphons end, function(v) db.other.hideGryphons = v end)
+    check(otherPage, "Bag bar only with bags open", blizz.x, blizz:row(ROW),
+        function() return db.other.bagsOnOpen end, function(v) db.other.bagsOnOpen = v end)
+    local bagNote = label(otherPage, "The bag bar attaches to the bags. Hiding applies out of combat.",
+        "GameFontDisableSmall")
+    bagNote:SetPoint("TOPLEFT", blizz.x, blizz:row(34))
+    bagNote:SetWidth(182)
+    bagNote:SetJustifyH("LEFT")
+    blizz:close()
 
-    label(otherPage, "Show only on mouseover (Blizzard UI)", "GameFontNormal"):SetPoint("TOPLEFT", X2, -318)
-    for i, e in ipairs(HOVER_FRAMES) do
-        local col, row = (i - 1) % 2, math.floor((i - 1) / 2)
-        check(otherPage, e[2], X2 + col * 160, -336 - row * 22,
+    local mouse = group(otherPage, COL[2], blizz.cursor - 20, 202, "Bar group mouse")
+    check(otherPage, "Left-click: target yourself", mouse.x, mouse:row(ROW),
+        function() return db.regular.playerTarget end, function(v) db.regular.playerTarget = v end)
+    check(otherPage, "Right-click: player menu", mouse.x, mouse:row(ROW),
+        function() return db.regular.playerMenu end, function(v) db.regular.playerMenu = v end)
+    check(otherPage, "Mouseover macros (@mouseover)", mouse.x, mouse:row(ROW),
+        function() return db.regular.playerMouseover end, function(v) db.regular.playerMouseover = v end)
+    check(otherPage, "Highlight on mouseover", mouse.x, mouse:row(ROW),
+        function() return db.regular.highlight.show end, function(v) db.regular.highlight.show = v end)
+    swatch(otherPage, "Highlight color", mouse.x, mouse:row(SWATCH), function() return db.regular.highlight.color end)
+    slider(otherPage, "Highlight opacity (%)", mouse.x, mouse:row(SLIDER), 0, 100,
+        function() return math.floor(db.regular.highlight.color[4] * 100 + 0.5) end,
+        function(v) db.regular.highlight.color[4] = v / 100 end)
+    local mnote = label(otherPage, "Click and mouseover options apply out of combat and block clicks through "
+        .. "the bars. The highlight doesn't.", "GameFontDisableSmall")
+    mnote:SetPoint("TOPLEFT", mouse.x, mouse:row(40))
+    mnote:SetWidth(182)
+    mnote:SetJustifyH("LEFT")
+    mouse:close()
+
+    -- Other page, column 3: show on mouseover only
+    local hover = group(otherPage, COL[3], TOP, 202, "Show only on mouseover")
+    for _, e in ipairs(HOVER_FRAMES) do
+        check(otherPage, e[2], hover.x, hover:row(22),
             function() return db.other.hover[e[1]] end, function(v) db.other.hover[e[1]] = v or nil end)
     end
-    check(otherPage, "Bag bar only while bags are open", X2, -478,
-        function() return db.other.bagsOnOpen end, function(v) db.other.bagsOnOpen = v end)
-    local bagNote = label(otherPage, "It attaches above the bags (beside the backpack with separate bags). "
-        .. "Everything shows while Edit Mode is open.", "GameFontDisableSmall")
-    bagNote:SetPoint("TOPLEFT", X2 + 26, -502)
-    bagNote:SetWidth(290)
-    bagNote:SetJustifyH("LEFT")
+    local hnote = label(otherPage, "They fade in under the cursor, stay clickable and show while Edit Mode is "
+        .. "open.", "GameFontDisableSmall")
+    hnote:SetPoint("TOPLEFT", hover.x, hover:row(40))
+    hnote:SetWidth(182)
+    hnote:SetJustifyH("LEFT")
+    hover:close()
+
+    -- Other page, column 4: the in-combat icon
+    local CI = function() return db.regular.combatIcon end
+    local icon = group(otherPage, COL[4], TOP, 202, "In-combat icon")
+    check(otherPage, "Show", icon.x, icon:row(ROW), function() return CI().show end, function(v) CI().show = v end)
+    dropdown(otherPage, "Icon", icon.x, icon:row(DROP), COMBAT_ICONS, function() return CI().style end,
+        function(v) CI().style = v end, function(button, item)
+            local t = button:AttachTexture()
+            t:SetSize(20, 20)
+            setCombatArt(t, item[2])
+            return beforeName(button, item, t, 20)
+        end)
+    dropdown(otherPage, "Attach to bar", icon.x, icon:row(DROP), function()
+        local list = {}
+        for _, key in ipairs(db.regular.order) do list[#list + 1] = { BARS[key].label, key } end
+        return list
+    end, function() return CI().bar end, function(v) CI().bar = v end, textPreview)
+    slider(otherPage, "Size", icon.x, icon:row(SLIDER), 8, 64, function() return CI().size end, function(v) CI().size = v end)
+    slider(otherPage, "X (from the bar's left edge)", icon.x, icon:row(SLIDER), -200, 200,
+        function() return CI().x end, function(v) CI().x = v end)
+    slider(otherPage, "Y (down / up)", icon.x, icon:row(SLIDER), -200, 200,
+        function() return CI().y end, function(v) CI().y = v end)
+    icon:close()
 end
 
 function ns.ToggleConfig()
