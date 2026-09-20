@@ -41,6 +41,10 @@ function M:SetAtlas(a) self._atlas = a end
 function M:SetTexCoord(...) self._coords = { ... } end
 function M:SetStatusBarColor(...) self._sbc = { ... } end
 function M:SetCooldown(start, dur) self._cd = { start, dur } end
+function M:SetSwipeTexture(t) self._swipeTex = t end
+function M:SetReverse(v) self._reverse = v end
+function M:SetFrameLevel(v) self._level = v end
+function M:GetFrameLevel() return self._level or 0 end
 function M:SetSwipeColor(...) self._swipe = { ... } end
 function M:SetTimerDuration(d, interp, dir) self._timer, self._dir = d, dir end
 function M:GetAlpha() return self._alpha or 1 end
@@ -1207,18 +1211,20 @@ login("MAGE", 0)
 local spin, FS = ns.fsr.frame, prof().other.fsr
 S.costs = { [133] = { { type = 0, cost = 100 } }, [1953] = {} } -- Fireball costs mana, Blink here doesn't
 FS.show, FS.bar, FS.size, FS.color = true, "power", 30, { 1, 0, 0, 0.5 }
+FS.seconds, FS.fill = 6, true -- 5 s rule plus the wait for the next regen tick
 S.time = 3000
 fire("UNIT_MAXPOWER")
 assert(not spin:IsShown() and spin._w == 30 and spin._swipe[1] == 1, "idle: placed but hidden")
-assert(spin._parent == ns.frames.power, "hangs on the chosen bar")
+assert(spin._parent == ns.frames.power and spin._level > ns.frames.power:GetFrameLevel(), "over its bar")
+assert(spin._swipeTex:find("Ring") and spin._reverse == true, "a ring that fills up")
 fire("UNIT_SPELLCAST_START", "player", "cast1", 133)
-assert(spin:IsShown() and spin._cd[1] == 3000 and spin._cd[2] == 5, "mana spent: 5 s from the cast start")
+assert(spin:IsShown() and spin._cd[1] == 3000 and spin._cd[2] == 6, "mana spent: the window runs")
 S.time = 3002; fire("UNIT_SPELLCAST_SUCCEEDED", "player", "cast1", 133)
 assert(spin._cd[1] == 3000, "the same cast doesn't restart it")
 fire("UNIT_SPELLCAST_SUCCEEDED", "player", "cast2", 133) -- an instant
 assert(spin._cd[1] == 3002, "an instant starts its own window")
-S.time = 3008; ns.fsr:sync()
-assert(not spin:IsShown(), "five seconds later: regen is back")
+S.time = 3010; ns.fsr:sync()
+assert(not spin:IsShown(), "window over: regen is back")
 fire("UNIT_SPELLCAST_START", "player", "cast3", 1953)
 assert(not spin:IsShown(), "a free spell doesn't break regen")
 fire("UNIT_SPELLCAST_START", "player", "cast4", 133)

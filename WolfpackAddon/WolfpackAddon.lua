@@ -156,7 +156,8 @@ local DEFAULTS = {
         minimap = { square = false, border = false, radius = 0, tray = false, trayBlizzard = false,
             infoBar = false, hideDayNight = false, x = 0, y = 0 },
         -- five-second-rule spinner: centered on a bar (or the group, if that bar is hidden) + x/y
-        fsr = { show = false, bar = "power", size = 28, x = 0, y = 0, color = { 0.3, 0.6, 1, 0.7 } },
+        fsr = { show = false, bar = "power", size = 28, x = 0, y = 0, color = { 0.3, 0.6, 1, 0.7 },
+            seconds = 6, fill = true }, -- 5 s rule plus the wait for the next 2 s regen tick
     },
 }
 
@@ -966,11 +967,14 @@ end
 -- Five-second rule: spending mana stops Spirit-based regen for five seconds. This spinner runs
 -- for exactly that window. It's a cooldown swipe, so the animation happens in C and nothing about
 -- it ever has to be read back.
-local fsr = { seconds = 5, classes = { DRUID = true, HUNTER = true, MAGE = true, PALADIN = true,
+local fsr = { classes = { DRUID = true, HUNTER = true, MAGE = true, PALADIN = true,
     PRIEST = true, SHAMAN = true, WARLOCK = true } }
 fsr.frame = CreateFrame("Cooldown", nil, anchor, "CooldownFrameTemplate")
 fsr.frame:SetHideCountdownNumbers(true)
-fsr.frame:SetDrawEdge(true)
+fsr.frame:SetDrawEdge(false)
+fsr.frame:SetDrawBling(false)
+-- The swipe is masked to a ring texture, so it sweeps as a ring instead of a pie slice.
+fsr.frame:SetSwipeTexture("Interface\\AddOns\\WolfpackAddon\\Media\\Ring")
 fsr.frame:Hide()
 ns.fsr = fsr
 
@@ -993,12 +997,14 @@ function fsr:sync()
     local bar = frames[o.bar]
     local host = (bar and bar:IsShown()) and bar or anchor
     self.frame:SetParent(host)
+    self.frame:SetFrameLevel(host:GetFrameLevel() + 20) -- over the bars, like the in-combat icon
     self.frame:ClearAllPoints()
     self.frame:SetPoint("CENTER", host, "CENTER", o.x, o.y)
     self.frame:SetSize(o.size, o.size)
     self.frame:SetSwipeColor(o.color[1], o.color[2], o.color[3], o.color[4])
+    self.frame:SetReverse(o.fill and true or false) -- fill up, or drain away
     if self:on() and ns.previewing() then
-        self.frame:SetCooldown(GetTime(), 3600) -- a swipe too slow to see: a full circle to place
+        self.frame:SetCooldown(GetTime(), 3600) -- a sweep too slow to see: a full ring, to place it
         self.endTime = nil
         self.frame:Show()
     else
@@ -1008,11 +1014,12 @@ end
 
 function fsr:start()
     if not self:on() then return end
-    self.endTime = GetTime() + self.seconds
+    local seconds = db.other.fsr.seconds
+    self.endTime = GetTime() + seconds
     self:sync()
-    self.frame:SetCooldown(GetTime(), self.seconds)
+    self.frame:SetCooldown(GetTime(), seconds)
     self.frame:Show()
-    C_Timer.After(self.seconds, function() pcall(self.sync, self) end) -- safe() isn't defined yet
+    C_Timer.After(seconds, function() pcall(self.sync, self) end) -- safe() isn't defined yet
 end
 
 -- The window opens when the mana is paid: at cast start, or on success for an instant. A cast
@@ -2538,7 +2545,8 @@ local function buildConfig()
     bagNote:SetJustifyH("LEFT")
     blizz:close()
 
-    local mouse = group(otherPage, COL[2], blizz.cursor - 20, 202, "Bar group mouse")
+    -- Other page, column 4: what the mouse does over the bars, and the regen spinner
+    local mouse = group(otherPage, COL[4], TOP, 202, "Bar group mouse")
     check(otherPage, "Left-click: target yourself", mouse.x, mouse:row(ROW),
         function() return db.regular.playerTarget end, function(v) db.regular.playerTarget = v end)
     check(otherPage, "Right-click: player menu", mouse.x, mouse:row(ROW),
@@ -2558,7 +2566,8 @@ local function buildConfig()
     mnote:SetJustifyH("LEFT")
     mouse:close()
 
-    local cfont = group(otherPage, COL[2], mouse.cursor - 20, 202, "Combat text font")
+    -- Other page, column 3: combat text and the minimap
+    local cfont = group(otherPage, COL[3], TOP, 202, "Combat text font")
     dropdown(otherPage, "Damage numbers", cfont.x, cfont:row(DROP), COMBAT_FONTS,
         function() return store.combatFont or "" end,
         function(v) store.combatFont = v end, combatFontPreview) -- "" = WoW default, chosen on purpose
@@ -2591,9 +2600,8 @@ local function buildConfig()
     hnote:SetJustifyH("LEFT")
     hover:close()
 
-    -- Other page, column 4: the in-combat icon
     local CI = function() return db.regular.combatIcon end
-    local icon = group(otherPage, COL[4], TOP, 202, "In-combat icon")
+    local icon = group(otherPage, COL[2], blizz.cursor - 20, 202, "In-combat icon")
     check(otherPage, "Show", icon.x, icon:row(ROW), function() return CI().show end, function(v) CI().show = v end)
     dropdown(otherPage, "Icon", icon.x, icon:row(DROP), COMBAT_ICONS, function() return CI().style end,
         function(v) CI().style = v end, function(button, item)
@@ -2614,7 +2622,7 @@ local function buildConfig()
         function() return CI().y end, function(v) CI().y = v end)
     icon:close()
 
-    local look2 = group(otherPage, COL[3], TOP, 202, "Minimap look")
+    local look2 = group(otherPage, COL[3], cfont.cursor - 20, 202, "Minimap look")
     local MM = function() return db.other.minimap end
     check(otherPage, "Square shape", look2.x, look2:row(ROW), function() return MM().square end,
         function(v) MM().square = v end)
@@ -2648,9 +2656,8 @@ local function buildConfig()
     mmNote:SetJustifyH("LEFT")
     mm:close()
 
-    -- Other page, column 4: the five-second-rule spinner
     local FS = function() return db.other.fsr end
-    local spin = group(otherPage, COL[4], icon.cursor - 20, 202, "Mana regen spinner")
+    local spin = group(otherPage, COL[4], mouse.cursor - 20, 202, "Mana regen spinner")
     check(otherPage, "Show", spin.x, spin:row(ROW), function() return FS().show end,
         function(v) FS().show = v end)
     dropdown(otherPage, "Attach to bar", spin.x, spin:row(DROP), function()
@@ -2660,13 +2667,20 @@ local function buildConfig()
     end, function() return FS().bar end, function(v) FS().bar = v end, textPreview)
     slider(otherPage, "Size", spin.x, spin:row(SLIDER), 8, 96, function() return FS().size end,
         function(v) FS().size = v end)
+    local spinDir = button(otherPage, "", 186, spin.x, spin:row(BUTTON), function()
+        FS().fill = not FS().fill
+        changed()
+    end)
+    onRefresh(function() spinDir:SetText(FS().fill and "Ring: Fills up" or "Ring: Drains away") end)
+    slider(otherPage, "Length (seconds)", spin.x, spin:row(SLIDER), 4, 9,
+        function() return FS().seconds end, function(v) FS().seconds = v end)
     slider(otherPage, "X (left / right)", spin.x, spin:row(SLIDER), -200, 200,
         function() return FS().x end, function(v) FS().x = v end)
     slider(otherPage, "Y (down / up)", spin.x, spin:row(SLIDER), -200, 200,
         function() return FS().y end, function(v) FS().y = v end)
     swatch(otherPage, "Color", spin.x, spin:row(SWATCH), function() return FS().color end)
-    local spinNote = label(otherPage, "Runs the five seconds in which spending mana stops your Spirit "
-        .. "regen. Mana classes only.", "GameFontDisableSmall")
+    local spinNote = label(otherPage, "Spending mana stops Spirit regen for 5 s, and it returns on the "
+        .. "next 2 s tick, so 6 is a fair length. Mana classes only.", "GameFontDisableSmall")
     spinNote:SetPoint("TOPLEFT", spin.x, spin:row(28))
     spinNote:SetWidth(182)
     spinNote:SetJustifyH("LEFT")
