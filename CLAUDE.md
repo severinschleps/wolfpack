@@ -17,8 +17,9 @@ Never install a version whose test fails; fix it first.
 game keeps its settings in `WTF/`, not in the addon folder, so nothing of the
 user's is lost.
 
-Note the target is `Interface/AddOns/`, not `Interface/` — WoW only loads
-addons from `AddOns/`.
+Note the target is the addon folder, not `Interface/` itself — WoW only loads
+addons from it. On this Mac the disk spells it `AddOns` and `Addons` reaches
+the very same directory, so either works in the command above.
 
 ## Testing
 
