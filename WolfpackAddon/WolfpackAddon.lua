@@ -182,6 +182,14 @@ local function layoutDefaults(show, x, y, gap, width, h1, h2, h3, h4, h5, h6, h7
     return l
 end
 
+-- Holding a secret value is fine; testing one throws. This client can say which is which, so
+-- ask before comparing anything that came out of an aura.
+local function readable(v)
+    if v == nil then return false end
+    if issecretvalue and issecretvalue(v) then return false end
+    return true
+end
+
 -- An aura's corner: the point it hangs from, and which way the next one in that corner grows.
 local CORNERS = { { "topleft", "TOPLEFT", 1, -1 }, { "topright", "TOPRIGHT", -1, -1 },
     { "bottomleft", "BOTTOMLEFT", 1, 1 }, { "bottomright", "BOTTOMRIGHT", -1, 1 } }
@@ -225,7 +233,7 @@ local DISPELS = {
     SHAMAN = { Poison = true, Disease = true },
     WARLOCK = { Magic = true }, -- the felhunter's Devour Magic
 }
-local DISPEL_TYPES = { "Magic", "Curse", "Poison", "Disease" }
+local DISPEL_TYPES = { "Magic", "Curse", "Poison", "Disease", "Other" }
 
 -- Corners of Interface/LFGFrame/UI-LFG-ICON-ROLES, in case the client has no helper for them.
 local ROLE_COORDS = { TANK = { 0, 0.5, 0.5, 1 }, HEALER = { 0.5, 1, 0, 0.5 },
@@ -281,7 +289,8 @@ DEFAULTS.group = {
         borderColor = { 1, 1, 1, 0.8 } },
     -- border color when the unit has something you can take off
     dispel = { show = true, Magic = { 0.2, 0.5, 1, 1 }, Curse = { 0.65, 0.25, 0.95, 1 },
-        Poison = { 0.2, 0.85, 0.25, 1 }, Disease = { 0.95, 0.6, 0.15, 1 } },
+        Poison = { 0.2, 0.85, 0.25, 1 }, Disease = { 0.95, 0.6, 0.15, 1 },
+        Other = { 1, 1, 1, 1 } }, -- something you can cure whose type the client won't say
 }
 
 DEFAULTS.regular.bars.health.target = false -- target health bar right of it (Combat Display only)
@@ -1903,7 +1912,7 @@ function gf.auraFor(unit, name)
         for i = 1, 40 do -- older builds: walk the list and match the name
             local d = C_UnitAuras.GetAuraDataByIndex(unit, i, "HELPFUL|PLAYER")
             if not d then return nil end
-            if d.name == name then return d end
+            if readable(d.name) and d.name == name then return d end
         end
     end)
     if ok then return data end
@@ -1949,16 +1958,27 @@ end
 -- A debuff you can take off turns the border its color: blue for magic, purple for a curse,
 -- green for poison, orange for disease. Debuff data can be secret, so every read is wrapped.
 function gf.dispel(f, cfg, unit)
-    local can, found = DISPELS[class or ""], nil
-    if can and db.group.dispel.show then
-        for i = 1, 40 do
-            local ok, data = pcall(C_UnitAuras.GetAuraDataByIndex, unit, i, "HARMFUL")
-            if not ok or not data then break end
-            pcall(function()
+    local found
+    if db.group.dispel.show then
+        -- "HARMFUL|RAID" is the game's own list of what you can take off this unit, so no class
+        -- table is needed, and it answers in combat where walking the aura list throws. The type
+        -- itself may still be secret: then the frame says "something", in the Other color.
+        local ok = pcall(function()
+            for _, data in ipairs(C_UnitAuras.GetUnitAuras(unit, "HARMFUL|RAID", 8)) do
+                local kind = data.dispelName -- holding it is fine, comparing it is not
+                if readable(kind) and db.group.dispel[kind] then found = kind
+                else found = found or "Other" end
+            end
+        end)
+        if not ok and C_UnitAuras.GetUnitAuras == nil then -- older build: walk it ourselves
+            local can = DISPELS[class or ""]
+            for i = 1, can and 40 or 0 do
+                local got, data = pcall(C_UnitAuras.GetAuraDataByIndex, unit, i, "HARMFUL")
+                if not got or not data then break end
                 local kind = data.dispelName
-                if kind and can[kind] then found = kind end
-            end)
-            if found then break end
+                if readable(kind) and can[kind] then found = kind end
+                if found then break end
+            end
         end
     end
     local col = found and db.group.dispel[found]

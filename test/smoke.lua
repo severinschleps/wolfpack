@@ -169,6 +169,7 @@ AcknowledgeAutoAcceptQuest, StaticPopup_Hide = record("ack"), record("hidepopup"
 IsShiftKeyDown = function() return S.shift end
 IsInGroup = function() return S.group end
 IsInRaid = function() return S.raid or false end
+issecretvalue = function(v) return v == SECRET end
 UnitIsUnit = function(a, b) return a == b or (b == "target" and a == S.targetUnit) end
 RegisterUnitWatch = function(f) f._watched = true end
 GetNumGroupMembers = function() return S.members or 0 end
@@ -180,6 +181,11 @@ C_UnitAuras = {
         assert(not S.combat, "aura data is secret in combat")
         if filter == "HARMFUL" then return (S.debuffs or {})[i] end
         return (S.auras or {})[i]
+    end,
+    -- the game's own list of what you can take off; its entries may hold secret fields
+    GetUnitAuras = function(unit, filter)
+        if filter ~= "HARMFUL|RAID" then return {} end
+        return S.curable or {}
     end,
     GetAuraDataBySpellName = function(unit, name)
         for _, a in ipairs(S.auras or {}) do
@@ -1387,20 +1393,28 @@ S.targetUnit = nil
 login("PRIEST", 0)
 prof().group.party.show, prof().group.party.test, prof().group.hover.show = true, true, true
 prof().group.dispel.show = true
-S.debuffs = { { dispelName = "Curse" } }
+S.curable = {}
 fire("UNIT_MAXPOWER")
 local pf = ns.gf.frames[1]
-assert(pf.border._color[1] == 0 and pf.border._color[3] == 0, "a curse is not a priest's problem")
-S.debuffs = { { dispelName = "Magic" } }
+assert(pf.border._color[1] == 0 and pf.border._color[3] == 0, "nothing to cure: plain border")
+S.curable = { { dispelName = "Magic" } }
 fire("UNIT_MAXPOWER")
 assert(pf.border._color[3] == 1 and pf.border._color[1] == 0.2, "magic turns the border blue")
-S.debuffs = { { dispelName = "Disease" } }
+S.curable = { { dispelName = "Disease" } }
 fire("UNIT_MAXPOWER")
 assert(pf.border._color[1] == 0.95, "disease turns it orange")
+S.curable = { { dispelName = SECRET } } -- the client won't say which kind it is
+fire("UNIT_MAXPOWER")
+assert(pf.border._color[1] == 1 and pf.border._color[2] == 1, "still says there is something")
+S.combat = true; S.curable = { { dispelName = "Magic" } }
+fire("UNIT_MAXPOWER")
+assert(pf.border._color[3] == 1, "and it all still works in combat")
+S.combat = false
 prof().group.party.borderSize = 0
+S.curable = { { dispelName = "Disease" } }
 fire("UNIT_MAXPOWER")
 assert(pf.ring:IsShown() and pf.ring._color[1] == 0.95, "no border on this layout: a ring instead")
-S.debuffs = nil
+S.curable = nil
 fire("UNIT_MAXPOWER")
 assert(not pf.ring:IsShown(), "nothing to take off: back to normal")
 prof().group.party.borderSize = 1
