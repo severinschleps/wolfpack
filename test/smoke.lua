@@ -1443,6 +1443,18 @@ local byName2, bulk2b = C_UnitAuras.GetAuraDataBySpellName, C_UnitAuras.GetUnitA
 C_UnitAuras.GetAuraDataBySpellName, C_UnitAuras.GetUnitAuras = nil, nil
 ns.bfEv._scripts.OnEvent(ns.bfEv, "UNIT_AURA")
 assert(bi[1]:IsShown(), "combat: the row holds its last answer")
+-- this client answers "nothing" in combat rather than refusing, which must not read as "missing"
+C_UnitAuras.GetAuraDataBySpellName, C_UnitAuras.GetUnitAuras = byName2, bulk2b
+S.auras = { { name = "Inner Fire" }, { name = "Power Word: Fortitude" } }
+S.combat = false
+ns.bfEv._scripts.OnEvent(ns.bfEv, "UNIT_AURA")
+assert(not bi[1]:IsShown(), "out of combat, buffed: nothing to show")
+S.combat = true
+S.auras = {} -- in combat every question comes back empty, buffs or not
+ns.bfEv._scripts.OnEvent(ns.bfEv, "UNIT_AURA")
+assert(not bi[1]:IsShown(), "combat: an empty answer is not an answer")
+C_UnitAuras.GetAuraDataBySpellName, C_UnitAuras.GetUnitAuras = nil, nil
+
 -- and a buff you cast in combat counts, the same way a debuff does
 S.spellNames = { [1243] = "Power Word: Fortitude" }
 S.time = 6000

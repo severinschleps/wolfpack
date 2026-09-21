@@ -1786,23 +1786,32 @@ function bf.icon(sp)
     return bf.textures[sp.name]
 end
 
+-- "Yes" is always the truth. "Nothing" is only the truth out of combat: in a fight this client
+-- answers nothing for every aura, which is a refusal wearing an answer's clothes. Then our own
+-- cast decides, and if we never saw one, nobody knows.
+local function auraAnswer(fn)
+    local ok, data = pcall(fn)
+    if ok and data ~= nil then return true, true end
+    if ok and not InCombatLockdown() then return false, true end
+    return false, false
+end
+
 -- Asks the game for one aura by name. Returns whether you have it, and whether it answered.
 function bf.has(name)
-    local ok, data
+    local has, answered
     if C_UnitAuras.GetAuraDataBySpellName then
-        ok, data = pcall(function()
+        has, answered = auraAnswer(function()
             local d = C_UnitAuras.GetAuraDataBySpellName("player", name, "HELPFUL")
             if d then return d end
         end)
-        if ok then return data ~= nil, true end
+        if answered then return has, true end
     end
-    ok, data = pcall(function()
+    has, answered = auraAnswer(function()
         for _, d in ipairs(C_UnitAuras.GetUnitAuras("player", "HELPFUL", 40)) do
             if readable(d.name) and d.name == name then return d end
         end
     end)
-    if ok then return data ~= nil, true end
-    -- The game would not say, so our own cast decides: still running, or run out.
+    if answered then return has, true end
     local mine = bf.selfTimers[name]
     if mine then return mine > GetTime(), true end
     return false, false
@@ -1930,21 +1939,20 @@ end
 
 -- Is it on the target? A timer of ours counts, and so does the game's answer when it gives one.
 function bf.hasDebuff(name)
-    local ok, data
+    local has, answered
     if C_UnitAuras.GetAuraDataBySpellName then
-        ok, data = pcall(function()
+        has, answered = auraAnswer(function()
             local d = C_UnitAuras.GetAuraDataBySpellName("target", name, "HARMFUL|PLAYER")
             if d then return d end
         end)
-        if ok then return data ~= nil, true end
+        if answered then return has, true end
     end
-    ok, data = pcall(function()
+    has, answered = auraAnswer(function()
         for _, d in ipairs(C_UnitAuras.GetUnitAuras("target", "HARMFUL|PLAYER", 40)) do
             if readable(d.name) and d.name == name then return d end
         end
     end)
-    if ok then return data ~= nil, true end
-    -- In a fight the game says nothing, so our own cast on this target decides.
+    if answered then return has, true end
     local guid = UnitGUID("target")
     local mine = guid and bf.applied[guid] and bf.applied[guid][name]
     if mine then return mine > GetTime(), true end
