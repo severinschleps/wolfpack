@@ -1777,10 +1777,8 @@ end
 -- Hands the frame to the game: which unit it is, what a left and a right click do.
 function gf.secure(f, unit)
     f.unit = unit
-    if InCombatLockdown() then
-        gf.pending = true -- attributes are locked down; PLAYER_REGEN_ENABLED picks this up
-        return
-    end
+    -- Attributes are locked down in combat; PLAYER_REGEN_ENABLED refreshes and sets them then.
+    if InCombatLockdown() then return end
     f:SetAttribute("unit", unit)
     f:SetAttribute("type1", "target")
     f:SetAttribute("type2", "togglemenu")
