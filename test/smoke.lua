@@ -1329,8 +1329,10 @@ fire("UNIT_MAXPOWER")
 assert(not hb.over:IsShown() and not pb.over:IsShown(), "switched off: both overlays gone")
 
 -- Group frames: a layout per group size, own auras in the corners, test mode without a group
+ns.groupEdit = "party" -- the options above left the dropdown somewhere else
 local gp = prof().group
-gp.party.test, gp.party.width, gp.party.height, gp.party.perLine = true, 100, 40, 2
+gp.party.show, gp.party.test = true, true -- the control poking above turned these off
+gp.party.width, gp.party.height, gp.party.perLine = 100, 40, 2
 gp.party.gap, gp.party.grow = 4, "right"
 gp.hover.show, gp.hover.border = true, true -- the control poking above turned these off
 S.units = { party1 = "HEALER", party2 = "TANK" }
@@ -1341,6 +1343,15 @@ local gfr = ns.gf.frames
 assert(ns.gf.anchor:IsShown() and gfr[1]:IsShown(), "shown without a group while testing")
 assert(gfr[1]._w == 100 and gfr[1]._h == 40, "frame size")
 assert(gfr[1].name._text == "ROGUECha", "first name, eight letters")
+gp.party.radius, gp.party.borderSize = 8, 1
+fire("UNIT_MAXPOWER")
+assert(gfr[1].bg.cpdMask == gfr[1].mask and gfr[1].border.cpdMask == gfr[1].borderMask,
+    "corners are rounded inside and out")
+assert(gfr[1].health:GetStatusBarTexture().cpdMask == gfr[1].mask, "the fill follows them")
+gp.party.radius = 0
+gp.hover.borderSize = 3
+fire("UNIT_MAXPOWER")
+assert(gfr[1].hlBorder._points[1][2] == -3, "highlight border thickness")
 assert(gfr[2]._point[4] == 104 and gfr[2]._point[5] == 0, "second frame sits right of the first")
 assert(gfr[3]._point[4] == 0 and gfr[3]._point[5] == -44, "third wraps to the next line")
 assert(gfr[1].icons[1] and gfr[1].icons[1]._point[1] == "TOPRIGHT", "own aura in its corner")
@@ -1360,7 +1371,7 @@ assert(not gfr[1].hl:IsShown(), "which goes out again")
 S.targetUnit = nil
 -- a debuff the class can take off turns the border its color
 login("PRIEST", 0)
-prof().group.party.test, prof().group.hover.show = true, true
+prof().group.party.show, prof().group.party.test, prof().group.hover.show = true, true, true
 prof().group.dispel.show = true
 S.debuffs = { { dispelName = "Curse" } }
 fire("UNIT_MAXPOWER")
@@ -1381,7 +1392,7 @@ assert(not pf.ring:IsShown(), "nothing to take off: back to normal")
 prof().group.party.borderSize = 1
 
 -- the class list fills itself in, so a priest can just tick what they want
-prof().group.party.test = true
+prof().group.party.show, prof().group.party.test = true, true
 prof().group.hover.show = true
 fire("UNIT_MAXPOWER")
 local known = ns.gf.knownSpells()

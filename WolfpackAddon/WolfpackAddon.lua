@@ -273,7 +273,8 @@ DEFAULTS.group = {
     raid40 = groupDefaults(8, 64, 28, 3, 200),
     spells = {}, -- { id, corner, show }: which of your auras show, and where
     -- what a frame looks like under the cursor
-    hover = { show = true, color = { 1, 1, 1, 0.15 }, border = true, borderColor = { 1, 1, 1, 0.8 } },
+    hover = { show = true, color = { 1, 1, 1, 0.15 }, border = true, borderSize = 1,
+        borderColor = { 1, 1, 1, 0.8 } },
     -- border color when the unit has something you can take off
     dispel = { show = true, Magic = { 0.2, 0.5, 1, 1 }, Curse = { 0.65, 0.25, 0.95, 1 },
         Poison = { 0.2, 0.85, 0.25, 1 }, Disease = { 0.95, 0.6, 0.15, 1 } },
@@ -1821,7 +1822,8 @@ function gf.make(parent)
     f.bg = f:CreateTexture(nil, "BACKGROUND")
     f.bg:SetAllPoints()
     f.border = f:CreateTexture(nil, "BACKGROUND", nil, -8)
-    f.mask = newMask(f)
+    f.mask = newMask(f)       -- rounds what sits inside the border
+    f.borderMask = newMask(f) -- rounds the border and the highlight
     f.health = CreateFrame("StatusBar", nil, f)
     f.power = CreateFrame("StatusBar", nil, f)
     f.name = f.health:CreateFontString(nil, "OVERLAY")
@@ -1975,6 +1977,9 @@ function gf.update(f, cfg, unit)
         f.health:SetStatusBarColor(cfg.color[1], cfg.color[2], cfg.color[3])
     end
     local role = cfg.role and UnitGroupRolesAssigned and UnitGroupRolesAssigned(unit)
+    if cfg.role and ns.previewing() and not (role == "TANK" or role == "HEALER") then
+        role = "DAMAGER" -- a stand-in while the options are open, so you can place it
+    end
     if role == "TANK" or role == "HEALER" or role == "DAMAGER" then
         f.role:SetTexCoord(GetTexCoordsForRoleSmallCircle(role))
         f.role:Show()
@@ -2006,8 +2011,20 @@ function gf.style(f, cfg)
     f.border:SetPoint("TOPLEFT", -0, 0)
     f.border:SetPoint("BOTTOMRIGHT", 0, 0)
     f.border:SetColorTexture(unpack(cfg.borderColor))
+    -- Rounding: the border and the highlight follow the frame, everything inside follows the
+    -- inner corners. A mask only carries one radius, hence the two of them.
     local radius = cfg.radius == "pill" and math.huge or cfg.radius
-    round(f.bg, f.mask, radius, cfg.width, cfg.height)
+    local iw, ih = cfg.width - 2 * t, cfg.height - 2 * t
+    local inner = math.max(radius - t, 0)
+    f.borderMask:ClearAllPoints()
+    f.borderMask:SetAllPoints(f)
+    f.mask:ClearAllPoints()
+    f.mask:SetPoint("TOPLEFT", f, "TOPLEFT", t, -t)
+    f.mask:SetPoint("BOTTOMRIGHT", f, "BOTTOMRIGHT", -t, t)
+    round(f.border, f.borderMask, radius, cfg.width, cfg.height)
+    round(f.bg, f.mask, inner, iw, ih)
+    round(f.health:GetStatusBarTexture(), f.mask, inner, iw, ih)
+    round(f.power:GetStatusBarTexture(), f.mask, inner, iw, ih)
     local flags = cfg.outline and "OUTLINE" or ""
     if not f.name:SetFont(cfg.font, cfg.fontSize, flags) then f.name:SetFont(FONTS[1][2], cfg.fontSize, flags) end
     f.name:SetTextColor(unpack(cfg.nameColor))
@@ -2017,10 +2034,11 @@ function gf.style(f, cfg)
     local h = db.group.hover
     f.hl:SetAllPoints()
     f.hl:SetColorTexture(unpack(h.color))
-    round(f.hl, f.mask, radius, cfg.width, cfg.height)
+    round(f.hl, f.borderMask, radius, cfg.width, cfg.height)
+    local hb = math.max(h.borderSize, 0)
     f.hlBorder:ClearAllPoints()
-    f.hlBorder:SetPoint("TOPLEFT", -1, 1)
-    f.hlBorder:SetPoint("BOTTOMRIGHT", 1, -1)
+    f.hlBorder:SetPoint("TOPLEFT", -hb, hb)
+    f.hlBorder:SetPoint("BOTTOMRIGHT", hb, -hb)
     f.hlBorder:SetColorTexture(unpack(h.borderColor))
     f.role:SetSize(cfg.roleSize, cfg.roleSize)
     f.role:ClearAllPoints()
@@ -3247,16 +3265,9 @@ local function buildConfig()
     ns.groupEdit = "party"
     local G = function() return db.group[ns.groupEdit] end
     local sizes = group(groupPage, COL[1], TOP, 202, "Group size")
-    for _, e in ipairs({ { "party", "Party (5)" }, { "raid10", "Raid (10)" }, { "raid20", "Raid (20)" },
-        { "raid40", "Raid (40)" } }) do
-        local b = button(groupPage, e[2], 186, sizes.x, sizes:row(BUTTON), function()
-            ns.groupEdit = e[1]
-            changed()
-        end)
-        onRefresh(function()
-            if ns.groupEdit == e[1] then b:LockHighlight() else b:UnlockHighlight() end
-        end)
-    end
+    dropdown(groupPage, "Editing", sizes.x, sizes:row(DROP), { { "Party (5)", "party" },
+        { "Raid (10)", "raid10" }, { "Raid (20)", "raid20" }, { "Raid (40)", "raid40" } },
+        function() return ns.groupEdit end, function(v) ns.groupEdit = v end, textPreview)
     check(groupPage, "Show these frames", sizes.x, sizes:row(ROW), function() return G().show end,
         function(v) G().show = v end)
     check(groupPage, "Show without a group", sizes.x, sizes:row(ROW), function() return G().test end,
@@ -3329,15 +3340,20 @@ local function buildConfig()
         function(v) GH().color[4] = v / 100 end)
     check(groupPage, "Border", hov.x, hov:row(ROW), function() return GH().border end,
         function(v) GH().border = v end)
+    slider(groupPage, "Border thickness", hov.x, hov:row(SLIDER), 0, 8,
+        function() return GH().borderSize end, function(v) GH().borderSize = v end)
     swatch(groupPage, "Border color", hov.x, hov:row(SWATCH), function() return GH().borderColor end)
-    -- The border also says what you could take off this unit, in the colors below.
+    hov:close()
+
+    -- The border also says what you could take off this unit.
+    local dsp = group(groupPage, COL[1], nm.cursor - 20, 202, "Dispel border")
     local GD = function() return db.group.dispel end
-    check(groupPage, "Border on dispellable", hov.x, hov:row(ROW), function() return GD().show end,
+    check(groupPage, "Color what you can cure", dsp.x, dsp:row(ROW), function() return GD().show end,
         function(v) GD().show = v end)
     for _, kind in ipairs(DISPEL_TYPES) do
-        swatch(groupPage, kind, hov.x, hov:row(SWATCH), function() return GD()[kind] end)
+        swatch(groupPage, kind, dsp.x, dsp:row(SWATCH), function() return GD()[kind] end)
     end
-    hov:close()
+    dsp:close()
 
 
     -- Column 4: your class's buffs, ticked on or off, and the settings of the one you picked
