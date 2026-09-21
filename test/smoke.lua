@@ -1356,146 +1356,41 @@ prof().regular.bars.health.heal, prof().regular.bars.power.cost = false, false
 fire("UNIT_MAXPOWER")
 assert(not hb.over:IsShown() and not pb.over:IsShown(), "switched off: both overlays gone")
 
--- Group frames: a layout per group size, own auras in the corners, test mode without a group
-ns.groupEdit = "party" -- the options above left the dropdown somewhere else
+-- Blizzard's raid frames, restyled: their look is ours, their auras stay theirs
 local gp = prof().group
-gp.party.show, gp.party.test, gp.party.role = true, true, true -- control poking turned these off
-gp.party.width, gp.party.height, gp.party.perLine = 100, 40, 2
-gp.party.gap, gp.party.grow = 4, "right"
-gp.hover.show, gp.hover.border = true, true -- the control poking above turned these off
-S.units = { party1 = "HEALER", party2 = "TANK" }
-S.auras = { { name = "Renew", spellId = 139, auraInstanceID = 7 } }
-gp.spells = { { name = "Renew", id = 139, corner = "topright", size = 12, show = true } }
+gp.useBlizzard, gp.name, gp.borderSize, gp.radius = true, true, 2, 4
+gp.hover.show, gp.hover.border, gp.hover.borderSize = true, true, 3
+gp.texture = ns.TEXTURES[2][2]
+local bzf, bzf2 = _G.CompactRaidFrame1, _G.CompactRaidFrame2
+bzf.unit, bzf2.unit = "party1", "party2"
 fire("UNIT_MAXPOWER")
-local gfr = ns.gf.frames
-assert(ns.gf.anchor:IsShown() and gfr[1]:IsShown(), "shown without a group while testing")
-assert(gfr[1]._w == 100 and gfr[1]._h == 40, "frame size")
-gp.party.name = true
-fire("UNIT_MAXPOWER")
-assert(gfr[1].name._text == "ROGUECha" and gfr[1].name:IsShown(), "first name, eight letters")
-gp.party.name = false
-fire("UNIT_MAXPOWER")
-assert(not gfr[1].name:IsShown(), "names can be turned off")
-gp.party.name = true
-assert(gfr[1].role:IsShown(), "role icon stands in while testing, even with no roles about")
-gp.party.radius, gp.party.borderSize = 8, 1
-fire("UNIT_MAXPOWER")
-assert(gfr[1].bg.cpdMask == gfr[1].mask and gfr[1].border.cpdMask == gfr[1].borderMask,
-    "corners are rounded inside and out")
-assert(gfr[1].health:GetStatusBarTexture().cpdMask == gfr[1].mask, "the fill follows them")
-gp.party.radius = 0
-gp.hover.borderSize = 3
-fire("UNIT_MAXPOWER")
-assert(gfr[1].hlBorder._points[1][2] == -3, "highlight border thickness")
-assert(gfr[2]._point[4] == 104 and gfr[2]._point[5] == 0, "second frame sits right of the first")
-assert(gfr[3]._point[4] == 0 and gfr[3]._point[5] == -44, "third wraps to the next line")
-assert(gfr[1].icons[1] and gfr[1].icons[1]._point[1] == "TOPRIGHT", "own aura in its corner")
-assert(gfr[1].icons[1].tex._tex == 135953 and gfr[1].icons[1].bar._timer, "the game's icon, draining")
-assert(gfr[1].icons[1]._w == 12, "at the size set for that spell")
--- clicks: the game does the targeting and the menu, and the target frame lights up
-assert(gfr[1]:GetAttribute("unit") == "player" and gfr[2]:GetAttribute("unit") == "party1", "units set")
-assert(gfr[1]:GetAttribute("type1") == "target" and gfr[1]:GetAttribute("type2") == "togglemenu",
-    "left targets, right opens the menu")
-assert(gfr[1]._watched and gfr[1]._clicks[1] == "AnyUp", "the game shows and hides them")
-S.targetUnit = "party1"; ns.gfEv._scripts.OnEvent(ns.gfEv, "PLAYER_TARGET_CHANGED")
-assert(gfr[2].hl:IsShown() and not gfr[1].hl:IsShown(), "the targeted frame is lit")
-gfr[1]._scripts.OnEnter(gfr[1])
-assert(gfr[1].hl:IsShown(), "and so is the one under the cursor")
-gfr[1]._scripts.OnLeave(gfr[1])
-assert(not gfr[1].hl:IsShown(), "which goes out again")
-S.targetUnit = nil
--- a debuff the class can take off turns the border its color
-login("PRIEST", 0)
-prof().group.party.show, prof().group.party.test, prof().group.hover.show = true, true, true
-prof().group.dispel.show = true
-S.curable = {}
-fire("UNIT_MAXPOWER")
-local pf = ns.gf.frames[1]
-assert(pf.border._color[1] == 0 and pf.border._color[3] == 0, "nothing to cure: plain border")
-S.curable = { { dispelName = "Magic" } }
-fire("UNIT_MAXPOWER")
-assert(pf.border._color[3] == 1 and pf.border._color[1] == 0.2, "magic turns the border blue")
-S.curable = { { dispelName = "Disease" } }
-fire("UNIT_MAXPOWER")
-assert(pf.border._color[1] == 0.95, "disease turns it orange")
-S.curable = { { dispelName = SECRET } } -- the client won't say which kind it is
-fire("UNIT_MAXPOWER")
-assert(pf.border._color[1] == 1 and pf.border._color[2] == 1, "still says there is something")
-S.combat = true; S.curable = { { dispelName = "Magic" } }
-fire("UNIT_MAXPOWER")
-assert(pf.border._color[3] == 1, "and it all still works in combat")
-S.combat = false
-prof().group.party.borderSize = 0
-S.curable = { { dispelName = "Disease" } }
-fire("UNIT_MAXPOWER")
-assert(pf.ring:IsShown() and pf.ring._color[1] == 0.95, "no border on this layout: a ring instead")
--- a client that refuses the list keeps the last border it knew
-local bulk2 = C_UnitAuras.GetUnitAuras
-C_UnitAuras.GetUnitAuras = function() error("Auras cannot be accessed when secret while tainted") end
-fire("UNIT_MAXPOWER")
-assert(pf.ring:IsShown() and pf.ring._color[1] == 0.95, "refused: the border stays as it was")
-C_UnitAuras.GetUnitAuras = bulk2
-S.curable = nil
-fire("UNIT_MAXPOWER")
-assert(not pf.ring:IsShown(), "nothing to take off: back to normal")
-prof().group.party.borderSize = 1
-
--- the class list fills itself in, so a priest can just tick what they want
-prof().group.party.show, prof().group.party.test = true, true
-prof().group.hover.show = true
-fire("UNIT_MAXPOWER")
-local known = ns.gf.knownSpells()
-assert(#known >= 10 and known[1].name == "Power Word: Shield", "priest buffs loaded")
-assert(known[1].show == false and known[1].corner == "topleft" and known[1].size == 14, "off until ticked")
-assert(ns.gf.spellIcon(known[1]) == 117, "the game's icon for that spell")
-login("ROGUE", 3)
--- combat makes the aura list unreadable, but the by-name lookup and the bulk list still answer
-S.combat = true
-fire("UNIT_MAXPOWER")
-assert(gfr[1].icons[1]:IsShown() and gfr[1].icons[1].tex._tex == 135953, "buffs stay up in combat")
-local byName = C_UnitAuras.GetAuraDataBySpellName
-C_UnitAuras.GetAuraDataBySpellName = nil -- a build without it falls back to the bulk list
-fire("UNIT_MAXPOWER")
-assert(gfr[1].icons[1]:IsShown(), "and again without the by-name lookup")
-C_UnitAuras.GetAuraDataBySpellName = byName
--- a client that refuses every route keeps the icons that are already up, timers and all
-local bulk = C_UnitAuras.GetUnitAuras
-C_UnitAuras.GetAuraDataBySpellName, C_UnitAuras.GetUnitAuras = nil, nil
-fire("UNIT_MAXPOWER")
-assert(gfr[1].icons[1]:IsShown(), "a refusal leaves the icons alone")
--- and this client's actual behaviour: it answers "nothing" for everything while fighting
-C_UnitAuras.GetAuraDataBySpellName = function() return nil end
-C_UnitAuras.GetUnitAuras = function() return {} end
-fire("UNIT_MAXPOWER")
-assert(gfr[1].icons[1]:IsShown(), "an empty answer in combat leaves them alone too")
-C_UnitAuras.GetAuraDataBySpellName, C_UnitAuras.GetUnitAuras = byName, bulk
-S.combat = false
-gp.spells[1].show = false
-fire("UNIT_MAXPOWER")
-assert(not gfr[1].icons[1]:IsShown(), "unticked spells stay off")
-gp.party.grow, gp.party.perLine = "down", 2
-fire("UNIT_MAXPOWER")
-assert(gfr[2]._point[5] == -44 and gfr[3]._point[4] == 104, "growing down wraps to the next column")
-gp.party.test = false
-fire("UNIT_MAXPOWER")
-assert(not ns.gf.anchor:IsShown(), "no group, no test: hidden")
-
--- Blizzard's frames, restyled: ours step aside, theirs take our look
-local bzf = _G.CompactRaidFrame1
-prof().group.useBlizzard = true
-prof().group.party.texture = ns.TEXTURES[2][2]
-fire("UNIT_MAXPOWER")
-assert(not ns.gf.anchor:IsShown(), "our own frames step aside")
+local d = ns.bz.deco[bzf]
 assert(bzf.healthBar._tex == ns.TEXTURES[2][2], "their health bar wears our texture")
-assert(ns.bz.deco[bzf].border:IsShown(), "and our border")
-assert(bzf.name._font[1] == prof().group.party.font, "and our name font")
-prof().group.useBlizzard = false
-fire("UNIT_MAXPOWER")
-assert(not ns.bz.deco[bzf].border:IsShown(), "switched off: their own look is back")
+assert(d.border:IsShown() and bzf.name._font[1] == gp.font, "our border and name font")
+assert(bzf.healthBar:GetStatusBarTexture().cpdMask == d.mask, "corners rounded")
+-- the cursor and the target light a frame up, which their frames do not do on their own
+assert(not d.hl:IsShown(), "nothing lit to start with")
+bzf._scripts.OnEnter(bzf)
+assert(d.hl:IsShown() and d.hlBorder:IsShown(), "cursor lights it")
+bzf._scripts.OnLeave(bzf)
+assert(not d.hl:IsShown(), "and unlights it")
+S.targetUnit = "party2"
+ns.bzEv._scripts.OnEvent(ns.bzEv, "PLAYER_TARGET_CHANGED")
+assert(ns.bz.deco[bzf2].hl:IsShown() and not d.hl:IsShown(), "your target stays lit")
+S.targetUnit = nil
+gp.hover.show, gp.hover.border = false, false
+ns.bzEv._scripts.OnEvent(ns.bzEv, "PLAYER_TARGET_CHANGED")
+assert(not ns.bz.deco[bzf2].hl:IsShown(), "switched off: nothing lights up")
+gp.hover.show, gp.hover.border = true, true
 ns.bz.raidStyleParty(true)
 assert(ns.bz.raidStyleOn(), "a party can wear raid frames, which is Blizzard's own setting")
 ns.bz.editMode()
 assert(S.shownPanel == EditModeManagerFrame, "and Edit Mode shows them without a group")
+gp.useBlizzard = false
+fire("UNIT_MAXPOWER")
+assert(not d.border:IsShown() and not d.hl:IsShown(), "switched off: their own look is back")
+gp.useBlizzard = true
+
 SlashCmdList.WOLFPACKADDON("blizz")
 SlashCmdList.WOLFPACKADDON("auras") -- the probe must not error, whatever the client has
 SlashCmdList.WOLFPACKADDON("")

@@ -191,68 +191,6 @@ local function readable(v)
     return true
 end
 
--- An aura's corner: the point it hangs from, and which way the next one in that corner grows.
-local CORNERS = { { "topleft", "TOPLEFT", 1, -1 }, { "topright", "TOPRIGHT", -1, -1 },
-    { "bottomleft", "BOTTOMLEFT", 1, 1 }, { "bottomright", "BOTTOMRIGHT", -1, 1 } }
-local CORNER_BY_KEY = {}
-for _, c in ipairs(CORNERS) do CORNER_BY_KEY[c[1]] = c end
-
--- The buffs each class can put on someone, listed by name so every rank matches, with one
--- spell ID each for the game's own icon.
-local CLASS_BUFFS = {
-    PRIEST = { { "Power Word: Shield", 17 }, { "Renew", 139 }, { "Power Word: Fortitude", 1243 },
-        { "Divine Spirit", 14752 }, { "Shadow Protection", 976 }, { "Inner Fire", 588 },
-        { "Fear Ward", 6346 }, { "Prayer of Fortitude", 21562 }, { "Prayer of Spirit", 27681 },
-        { "Prayer of Shadow Protection", 27683 }, { "Levitate", 1706 }, { "Abolish Disease", 552 } },
-    DRUID = { { "Rejuvenation", 774 }, { "Regrowth", 8936 }, { "Mark of the Wild", 1126 },
-        { "Gift of the Wild", 21849 }, { "Thorns", 467 }, { "Abolish Poison", 2893 },
-        { "Innervate", 29166 }, { "Nature's Grasp", 16689 }, { "Barkskin", 22812 } },
-    PALADIN = { { "Blessing of Might", 19740 }, { "Blessing of Wisdom", 19742 },
-        { "Blessing of Kings", 20217 }, { "Blessing of Salvation", 1038 }, { "Blessing of Light", 19977 },
-        { "Blessing of Sanctuary", 20911 }, { "Blessing of Freedom", 1044 },
-        { "Blessing of Protection", 1022 }, { "Blessing of Sacrifice", 6940 }, { "Divine Shield", 642 } },
-    MAGE = { { "Arcane Intellect", 1459 }, { "Arcane Brilliance", 23028 }, { "Ice Barrier", 13031 },
-        { "Mana Shield", 1463 }, { "Dampen Magic", 604 }, { "Amplify Magic", 1008 },
-        { "Slow Fall", 130 }, { "Ice Block", 45438 } },
-    SHAMAN = { { "Lightning Shield", 324 }, { "Earth Shield", 974 }, { "Water Walking", 546 },
-        { "Water Breathing", 131 }, { "Stoneskin", 8071 }, { "Strength of Earth", 8075 } },
-    WARLOCK = { { "Unending Breath", 5697 }, { "Detect Invisibility", 132 }, { "Demon Skin", 696 },
-        { "Soulstone Resurrection", 20707 }, { "Shadow Ward", 6229 } },
-    WARRIOR = { { "Battle Shout", 6673 }, { "Shield Wall", 871 }, { "Last Stand", 12975 },
-        { "Berserker Rage", 18499 } },
-    HUNTER = { { "Aspect of the Hawk", 13165 }, { "Aspect of the Cheetah", 5118 },
-        { "Trueshot Aura", 19506 }, { "Mend Pet", 136 }, { "Rapid Fire", 3045 } },
-    ROGUE = { { "Slice and Dice", 5171 }, { "Sprint", 2983 }, { "Evasion", 5277 }, { "Stealth", 1784 } },
-}
-
--- What each class can take off someone, and the color the frame border turns when it can.
-local DISPELS = {
-    PRIEST = { Magic = true, Disease = true },
-    PALADIN = { Magic = true, Poison = true, Disease = true },
-    DRUID = { Curse = true, Poison = true },
-    MAGE = { Curse = true },
-    SHAMAN = { Poison = true, Disease = true },
-    WARLOCK = { Magic = true }, -- the felhunter's Devour Magic
-}
-local DISPEL_TYPES = { "Magic", "Curse", "Poison", "Disease", "Other" }
-
--- Corners of Interface/LFGFrame/UI-LFG-ICON-ROLES, in case the client has no helper for them.
-local ROLE_COORDS = { TANK = { 0, 0.5, 0.5, 1 }, HEALER = { 0.5, 1, 0, 0.5 },
-    DAMAGER = { 0.5, 1, 0.5, 1 } }
-
--- One group-frame layout per group size. Frames grow in `grow`, wrapping after `perLine`.
-local function groupDefaults(perLine, w, h, ph, y)
-    return {
-        show = true, test = false, x = 0, y = y, width = w, height = h, powerHeight = ph,
-        gap = 2, perLine = perLine, grow = "right", -- "left", "down", "up"
-        texture = TEXTURES[1][2], borderSize = 1, borderColor = { 0, 0, 0, 1 }, radius = 0,
-        classColor = true, color = { 0.2, 0.6, 0.2, 1 }, bgColor = { 0, 0, 0, 0.6 },
-        name = true, font = FONTS[1][2], fontSize = 10, outline = true, nameColor = { 1, 1, 1, 1 },
-        role = true, roleSize = 12, roleX = 0, roleY = 0,
-        pets = false, petHeight = 8,
-    }
-end
-
 -- Quest mob icons on nameplates: a row (kill, then loot) whose top-right sits at the nameplate's
 -- top-right corner plus x/y. Icons are file IDs.
 local DEFAULTS = {
@@ -277,21 +215,14 @@ local DEFAULTS = {
     },
 }
 
--- Group frames: four layouts, plus the auras of yours that show on them.
+-- Blizzard's raid frames, restyled. Their layout is Edit Mode's; this is only the look.
 DEFAULTS.group = {
-    locked = true,
-    party = groupDefaults(5, 90, 40, 4, 200),
-    raid10 = groupDefaults(5, 80, 36, 3, 200),
-    raid20 = groupDefaults(5, 74, 32, 3, 200),
-    raid40 = groupDefaults(8, 64, 28, 3, 200),
-    spells = {}, -- { id, corner, show }: which of your auras show, and where
-    -- what a frame looks like under the cursor
+    useBlizzard = true,
+    texture = TEXTURES[1][2], borderSize = 1, borderColor = { 0, 0, 0, 1 }, radius = 0,
+    name = true, font = FONTS[1][2], fontSize = 10, outline = true, nameColor = { 1, 1, 1, 1 },
+    -- under the cursor, and on the one you have targeted
     hover = { show = true, color = { 1, 1, 1, 0.15 }, border = true, borderSize = 1,
         borderColor = { 1, 1, 1, 0.8 } },
-    -- border color when the unit has something you can take off
-    dispel = { show = true, Magic = { 0.2, 0.5, 1, 1 }, Curse = { 0.65, 0.25, 0.95, 1 },
-        Poison = { 0.2, 0.85, 0.25, 1 }, Disease = { 0.95, 0.6, 0.15, 1 },
-        Other = { 1, 1, 1, 1 } }, -- something you can cure whose type the client won't say
 }
 
 DEFAULTS.regular.bars.health.target = false -- target health bar right of it (Combat Display only)
@@ -321,7 +252,7 @@ end
 ------------------------------------------------------------------------------------------
 -- store = WolfpackAddonDB, account-wide: { profiles = { [name] = settings }, chars = { [char] = name } }
 -- db = the active profile's settings.
-local changed, placeMini, useProfile, gf, bz -- defined further down
+local changed, placeMini, useProfile, bz -- defined further down
 
 -- Bars that only show while they are doing something (cast, swing) stay visible while the bars
 -- are unlocked or the options are open, so they can be placed.
@@ -1729,7 +1660,6 @@ local function Refresh()
     syncProtected()
     syncGryphons()
     syncCombatIcon()
-    gf.refresh()
     bz.sync()
     fsr:sync()
     syncHover()
@@ -1747,452 +1677,6 @@ local function safe(fn, ...)
         ns.errored = true
         print("|cffff5555Wolfpack Addon error:|r " .. tostring(err))
     end
-end
-
-------------------------------------------------------------------------------------------
--- Group frames: one frame per party or raid member, health and power, your own auras in the
--- corners. Plain frames, not secure ones: they show what is going on, they are not click-cast
--- targets, which keeps them out of combat lockdown entirely.
-------------------------------------------------------------------------------------------
-gf = { frames = {}, pets = {}, bucket = "party" }
-gf.anchor = CreateFrame("Frame", "WolfpackAddonGroupFrames", UIParent)
-gf.anchor:SetSize(10, 10)
-gf.anchor:SetMovable(true)
-gf.anchor:SetClampedToScreen(true)
-gf.anchor:RegisterForDrag("LeftButton")
-gf.anchor:SetScript("OnDragStart", function(a) a:StartMoving() end)
-gf.anchor:SetScript("OnDragStop", function(a)
-    a:StopMovingOrSizing()
-    local ux, uy = UIParent:GetCenter()
-    local cfg = db.group[gf.bucket]
-    cfg.x = math.floor(a:GetCenter() - ux + 0.5)
-    cfg.y = math.floor(select(2, a:GetCenter()) - uy + 0.5)
-    gf.place()
-    changed()
-end)
-ns.gf = gf
-
--- Your class's buffs, added to the profile once so they can be ticked off in the options.
-function gf.knownSpells()
-    local list, seen = db.group.spells, {}
-    for _, sp in ipairs(list) do if sp.name then seen[sp.name] = sp end end
-    local mine = {}
-    for _, e in ipairs(CLASS_BUFFS[class or ""] or {}) do
-        local sp = seen[e[1]]
-        if not sp then
-            sp = { name = e[1], id = e[2], corner = "topleft", size = 14, show = false }
-            list[#list + 1] = sp
-        end
-        sp.id = sp.id ~= 0 and sp.id or e[2]
-        mine[#mine + 1] = sp
-    end
-    return mine
-end
-
--- The icon the game uses for that spell, so it looks right even when the aura itself is secret.
-function gf.spellIcon(sp)
-    gf.icons = gf.icons or {}
-    if gf.icons[sp.name] == nil then
-        local ok, tex = pcall(function()
-            return (C_Spell and C_Spell.GetSpellTexture and C_Spell.GetSpellTexture(sp.id))
-                or GetSpellTexture(sp.id)
-        end)
-        gf.icons[sp.name] = (ok and tex) or 134400 -- a question mark, if the id is unknown here
-    end
-    return gf.icons[sp.name]
-end
-
--- Which layout the current group calls for, and the units it holds.
-function gf.pick()
-    if ns.groupEdit and ns.previewing() then return ns.groupEdit end
-    if not IsInRaid() then return "party" end
-    local n = GetNumGroupMembers() or 0
-    if n <= 10 then return "raid10" elseif n <= 20 then return "raid20" else return "raid40" end
-end
-
-local BUCKET_SIZE = { party = 5, raid10 = 10, raid20 = 20, raid40 = 40 }
-
-function gf.units(key)
-    local t, n = {}, BUCKET_SIZE[key]
-    if key == "party" then
-        t[1] = "player"
-        for i = 1, n - 1 do t[i + 1] = "party" .. i end
-    else
-        for i = 1, n do t[i] = "raid" .. i end
-    end
-    return t
-end
-
-function gf.petUnit(key, i)
-    if key ~= "party" then return "raidpet" .. i end
-    return i == 1 and "pet" or ("partypet" .. (i - 1))
-end
-
--- Secure unit buttons: the game turns the click into a target or the unit menu itself, and
--- @mouseover macros find them the same way they find Blizzard's raid frames. Attributes can
--- only be set out of combat, so anything set in combat waits for the fight to end.
-function gf.make(parent)
-    local f = CreateFrame("Button", nil, parent, "SecureUnitButtonTemplate")
-    f:RegisterForClicks("AnyUp")
-    f.bg = f:CreateTexture(nil, "BACKGROUND")
-    f.bg:SetAllPoints()
-    f.border = f:CreateTexture(nil, "BACKGROUND", nil, -8)
-    f.mask = newMask(f)       -- rounds what sits inside the border
-    f.borderMask = newMask(f) -- rounds the border and the highlight
-    f.health = CreateFrame("StatusBar", nil, f)
-    f.power = CreateFrame("StatusBar", nil, f)
-    f.name = f.health:CreateFontString(nil, "OVERLAY")
-    f.name:SetPoint("CENTER")
-    f.role = f:CreateTexture(nil, "OVERLAY")
-    f.role:SetTexture("Interface\\LFGFrame\\UI-LFG-ICON-ROLES")
-    f.ring = f:CreateTexture(nil, "OVERLAY", nil, -8) -- dispel ring, for frames with no border
-    f.ring:Hide()
-    f.hl = f:CreateTexture(nil, "OVERLAY", nil, -7)
-    f.hlBorder = f:CreateTexture(nil, "OVERLAY", nil, -6)
-    f.hl:Hide()
-    f.hlBorder:Hide()
-    f:SetScript("OnEnter", function(self) gf.hover(self, true) end)
-    f:SetScript("OnLeave", function(self) gf.hover(self, false) end)
-    f.icons = {}
-    return f
-end
-
--- Under the cursor, or your current target: an overlay in the chosen color and a border.
-function gf.hover(f, on)
-    local h = db.group.hover
-    local lit = on or (f.unit and UnitIsUnit(f.unit, "target")) or false
-    f.hl:SetShown((lit and h.show) and true or false)
-    f.hlBorder:SetShown((lit and h.border) and true or false)
-end
-
--- Hands the frame to the game: which unit it is, what a left and a right click do.
-function gf.secure(f, unit)
-    f.unit = unit
-    -- Attributes are locked down in combat; PLAYER_REGEN_ENABLED refreshes and sets them then.
-    if InCombatLockdown() then return end
-    f:SetAttribute("unit", unit)
-    f:SetAttribute("type1", "target")
-    f:SetAttribute("type2", "togglemenu")
-    if not f.watched then
-        pcall(RegisterUnitWatch, f) -- the game shows and hides it with the unit
-        f.watched = true
-    end
-end
-
--- One aura icon: the spell's icon with a bar over it that drains with the aura.
-function gf.icon(f, i, size)
-    local ic = f.icons[i]
-    if not ic then
-        ic = CreateFrame("Frame", nil, f)
-        ic.tex = ic:CreateTexture(nil, "ARTWORK")
-        ic.tex:SetAllPoints()
-        ic.tex:SetTexCoord(0.08, 0.92, 0.08, 0.92)
-        ic.bar = CreateFrame("StatusBar", nil, ic)
-        ic.bar:SetAllPoints()
-        ic.bar:SetStatusBarTexture("Interface\\Buttons\\WHITE8X8")
-        ic.bar:SetStatusBarColor(0, 0, 0, 0.45) -- a see-through sweep, the icon stays readable
-        ic.bar:SetOrientation("VERTICAL")
-        ic.bar:SetFrameLevel(ic:GetFrameLevel() + 1)
-        f.icons[i] = ic
-    end
-    ic:SetSize(size, size)
-    ic:SetFrameLevel(f.health:GetFrameLevel() + 2)
-    return ic
-end
-
--- Asking for one spell by name beats walking the unit's aura list: in combat this client makes
--- aura data secret and GetAuraDataByIndex throws instead of answering, which is why the icons
--- used to vanish the moment a fight started. The name comes from our own list, so it is never
--- secret, and nothing about the aura is read -- the icon comes from the spell and the duration
--- object only gets passed on.
--- Returns the aura, and whether the game answered at all. "It said no" and "it refused to
--- say" are different: on a refusal the icons already on screen are left alone, because their
--- timer bars keep draining in C without anyone reading them.
-function gf.auraFor(unit, name)
-    local ok, data
-    if C_UnitAuras.GetAuraDataBySpellName then -- ask for this one spell: nothing to read
-        ok, data = pcall(function()
-            local d = C_UnitAuras.GetAuraDataBySpellName(unit, name, "HELPFUL|PLAYER")
-            if d then return d end
-        end)
-        if ok then return data, true end
-    end
-    if C_UnitAuras.GetUnitAuras then -- the bulk list, which also answers in combat
-        ok, data = pcall(function()
-            for _, d in ipairs(C_UnitAuras.GetUnitAuras(unit, "HELPFUL|PLAYER", 40)) do
-                if readable(d.name) and d.name == name then return d end
-            end
-        end)
-        if ok then return data, true end
-    end
-    ok, data = pcall(function() -- older builds: walk the list yourself
-        for i = 1, 40 do
-            local d = C_UnitAuras.GetAuraDataByIndex(unit, i, "HELPFUL|PLAYER")
-            if not d then return nil end
-            if readable(d.name) and d.name == name then return d end
-        end
-    end)
-    if ok then return data, true end
-    return nil, false
-end
-
--- Your own helpful auras, in the corners you picked for them.
-function gf.auras(f, cfg, unit)
-    local used, n, refused = { 0, 0, 0, 0 }, 0, false
-    for _, sp in ipairs(db.group.spells) do
-        local data, ok
-        if sp.show then
-            data, ok = gf.auraFor(unit, sp.name)
-            refused = refused or not ok
-        end
-        if data then
-            local c, ci = CORNER_BY_KEY[sp.corner], 0
-            for k, v in ipairs(CORNERS) do if v[1] == sp.corner then ci = k end end
-            n = n + 1
-            local ic = gf.icon(f, n, sp.size)
-            ic.tex:SetTexture(gf.spellIcon(sp))
-            ic:ClearAllPoints()
-            ic:SetPoint(c[2], f, c[2], c[3] * (2 + used[ci] * (sp.size + 1)), c[4] * 2)
-            used[ci] = used[ci] + 1
-            local dur = select(2, pcall(function()
-                return C_UnitAuras.GetAuraDuration(unit, data.auraInstanceID)
-            end))
-            if dur then ic.bar:SetTimerDuration(dur, 0, TIMER_REMAINING) end
-            ic:Show()
-        end
-    end
-    -- In combat this client answers "nothing" for every aura instead of refusing, so a rebuild
-    -- could only ever wipe icons. Either way, keep what is on screen: the timer bars go on
-    -- draining in C, and the next refresh out of combat sets it straight.
-    if refused or (n == 0 and InCombatLockdown()) then return end
-    for i = n + 1, #f.icons do f.icons[i]:Hide() end
-end
-
--- First name only, at most eight letters, counted in characters so an accented one isn't
--- cut in half.
-function gf.shortName(unit)
-    local name = UnitName(unit) or ""
-    name = name:match("^[^%s%-]+") or name
-    local out, n = "", 0
-    for ch in name:gmatch("[%z\1-\127\194-\244][\128-\191]*") do
-        if n >= 8 then break end
-        out, n = out .. ch, n + 1
-    end
-    return out
-end
-
--- A debuff you can take off turns the border its color: blue for magic, purple for a curse,
--- green for poison, orange for disease. Debuff data can be secret, so every read is wrapped.
-function gf.dispel(f, cfg, unit)
-    local found, refused = nil, false
-    if db.group.dispel.show then
-        -- "HARMFUL|RAID" is the game's own list of what you can take off this unit, so no class
-        -- table is needed, and it answers in combat where walking the aura list throws. The type
-        -- itself may still be secret: then the frame says "something", in the Other color.
-        local ok = pcall(function()
-            for _, data in ipairs(C_UnitAuras.GetUnitAuras(unit, "HARMFUL|RAID", 8)) do
-                local kind = data.dispelName -- holding it is fine, comparing it is not
-                if readable(kind) and db.group.dispel[kind] then found = kind
-                else found = found or "Other" end
-            end
-        end)
-        refused = not ok
-        if not ok and C_UnitAuras.GetUnitAuras == nil then -- older build: walk it ourselves
-            refused = false
-            local can = DISPELS[class or ""]
-            for i = 1, can and 40 or 0 do
-                local got, data = pcall(C_UnitAuras.GetAuraDataByIndex, unit, i, "HARMFUL")
-                if not got or not data then break end
-                local kind = data.dispelName
-                if readable(kind) and can[kind] then found = kind end
-                if found then break end
-            end
-        end
-        if not ok and C_UnitAuras.GetUnitAuras ~= nil then refused = true end
-    end
-    -- A refusal is not an answer: keep the last thing we knew, because gf.style has already
-    -- reset the border to its plain color by the time we get here.
-    if refused then found = f.dispelKind else f.dispelKind = found end
-    local col = found and db.group.dispel[found]
-    local t = math.min(cfg.borderSize, (cfg.height - 1) / 2, (cfg.width - 1) / 2)
-    if col and t > 0 then -- there is a border already: recolor it
-        f.border:SetColorTexture(col[1], col[2], col[3], col[4])
-        f.ring:Hide()
-    elseif col then -- no border on this layout: a ring around the frame instead
-        f.ring:SetColorTexture(col[1], col[2], col[3], col[4])
-        f.ring:Show()
-    else
-        f.border:SetColorTexture(unpack(cfg.borderColor))
-        f.ring:Hide()
-    end
-end
-
--- Health, power, name, role and auras for one unit.
-function gf.update(f, cfg, unit)
-    if not UnitExists(unit) then
-        f:Hide()
-        return
-    end
-    f:Show()
-    f.health:SetMinMaxValues(0, UnitHealthMax(unit))
-    f.health:SetValue(UnitHealth(unit))
-    local ptype = UnitPowerType(unit)
-    f.power:SetMinMaxValues(0, UnitPowerMax(unit, ptype))
-    f.power:SetValue(UnitPower(unit, ptype))
-    f.name:SetText(gf.shortName(unit))
-    local _, token = UnitClass(unit)
-    local col = cfg.classColor and token and C_ClassColor.GetClassColor(token)
-    if col then
-        f.health:SetStatusBarColor(col.r, col.g, col.b)
-    else
-        f.health:SetStatusBarColor(cfg.color[1], cfg.color[2], cfg.color[3])
-    end
-    local role = cfg.role and UnitGroupRolesAssigned and UnitGroupRolesAssigned(unit)
-    -- While the options are open, or the layout is in test mode, everyone gets a stand-in role
-    -- so the icon can be placed even when nobody in the group has one.
-    if cfg.role and (ns.previewing() or cfg.test) and not ROLE_COORDS[role] then role = "DAMAGER" end
-    if ROLE_COORDS[role] then
-        if not pcall(function() f.role:SetTexCoord(GetTexCoordsForRoleSmallCircle(role)) end) then
-            f.role:SetTexCoord(unpack(ROLE_COORDS[role])) -- no helper on this client
-        end
-        f.role:Show()
-    else
-        f.role:Hide()
-    end
-    gf.auras(f, cfg, unit)
-    gf.dispel(f, cfg, unit)
-end
-
--- Size, colors and border of one frame; the same shape the bars use.
-function gf.style(f, cfg)
-    f:SetSize(cfg.width, cfg.height)
-    local t = math.min(cfg.borderSize, (cfg.height - 1) / 2, (cfg.width - 1) / 2)
-    local ph = math.max(math.min(cfg.powerHeight, cfg.height - 2 * t - 4), 0)
-    f.health:ClearAllPoints()
-    f.health:SetPoint("TOPLEFT", t, -t)
-    f.health:SetPoint("BOTTOMRIGHT", f, "BOTTOMRIGHT", -t, t + ph)
-    f.health:SetStatusBarTexture(cfg.texture)
-    f.power:ClearAllPoints()
-    f.power:SetPoint("TOPLEFT", f.health, "BOTTOMLEFT", 0, 0)
-    f.power:SetPoint("BOTTOMRIGHT", f, "BOTTOMRIGHT", -t, t)
-    f.power:SetStatusBarTexture(cfg.texture)
-    f.power:SetShown(ph > 0)
-    f.power:SetStatusBarColor(0.3, 0.4, 0.9)
-    f.bg:SetColorTexture(unpack(cfg.bgColor))
-    f.border:SetShown(t > 0)
-    f.border:ClearAllPoints()
-    f.border:SetPoint("TOPLEFT", -0, 0)
-    f.border:SetPoint("BOTTOMRIGHT", 0, 0)
-    f.border:SetColorTexture(unpack(cfg.borderColor))
-    -- Rounding: the border and the highlight follow the frame, everything inside follows the
-    -- inner corners. A mask only carries one radius, hence the two of them.
-    local radius = cfg.radius == "pill" and math.huge or cfg.radius
-    local iw, ih = cfg.width - 2 * t, cfg.height - 2 * t
-    local inner = math.max(radius - t, 0)
-    f.borderMask:ClearAllPoints()
-    f.borderMask:SetAllPoints(f)
-    f.mask:ClearAllPoints()
-    f.mask:SetPoint("TOPLEFT", f, "TOPLEFT", t, -t)
-    f.mask:SetPoint("BOTTOMRIGHT", f, "BOTTOMRIGHT", -t, t)
-    round(f.border, f.borderMask, radius, cfg.width, cfg.height)
-    round(f.bg, f.mask, inner, iw, ih)
-    round(f.health:GetStatusBarTexture(), f.mask, inner, iw, ih)
-    round(f.power:GetStatusBarTexture(), f.mask, inner, iw, ih)
-    local flags = cfg.outline and "OUTLINE" or ""
-    if not f.name:SetFont(cfg.font, cfg.fontSize, flags) then f.name:SetFont(FONTS[1][2], cfg.fontSize, flags) end
-    f.name:SetTextColor(unpack(cfg.nameColor))
-    f.name:SetShown(cfg.name)
-    f.ring:ClearAllPoints()
-    f.ring:SetPoint("TOPLEFT", -1, 1)
-    f.ring:SetPoint("BOTTOMRIGHT", 1, -1)
-    local h = db.group.hover
-    f.hl:SetAllPoints()
-    f.hl:SetColorTexture(unpack(h.color))
-    round(f.hl, f.borderMask, radius, cfg.width, cfg.height)
-    local hb = math.max(h.borderSize, 0)
-    f.hlBorder:ClearAllPoints()
-    f.hlBorder:SetPoint("TOPLEFT", -hb, hb)
-    f.hlBorder:SetPoint("BOTTOMRIGHT", hb, -hb)
-    f.hlBorder:SetColorTexture(unpack(h.borderColor))
-    f.role:SetSize(cfg.roleSize, cfg.roleSize)
-    f.role:ClearAllPoints()
-    f.role:SetPoint("CENTER", f, "CENTER", cfg.roleX, cfg.roleY)
-end
-
--- Where frame number i sits: along `grow`, wrapping to a new line every `perLine`.
-function gf.spot(cfg, i)
-    local line, at = math.floor((i - 1) / cfg.perLine), (i - 1) % cfg.perLine
-    local dx, dy = cfg.width + cfg.gap, cfg.height + cfg.gap
-    if cfg.grow == "right" then return at * dx, -line * dy end
-    if cfg.grow == "left" then return -at * dx, -line * dy end
-    if cfg.grow == "down" then return line * dx, -at * dy end
-    return line * dx, at * dy -- "up"
-end
-
-function gf.place()
-    local cfg = db.group[gf.bucket]
-    gf.anchor:ClearAllPoints()
-    gf.anchor:SetPoint("CENTER", UIParent, "CENTER", cfg.x, cfg.y)
-end
-
--- Builds, styles and fills every frame of the layout in use.
-function gf.refresh()
-    local key = gf.pick()
-    gf.bucket = key
-    local cfg = db.group[key]
-    local preview = ns.previewing() or cfg.test
-    -- Blizzard's frames take over when asked: ours can't read auras in combat, theirs can.
-    local on = cfg.show and not db.group.useBlizzard and (IsInGroup() or preview) and true or false
-    gf.anchor:SetShown(on)
-    local dragging = not db.group.locked
-    gf.anchor:EnableMouse(dragging)
-    if not on then return end
-    gf.place()
-    gf.knownSpells()
-    local units = gf.units(key)
-    for i = 1, BUCKET_SIZE[key] do
-        local f = gf.frames[i] or gf.make(gf.anchor)
-        gf.frames[i] = f
-        gf.style(f, cfg)
-        if not InCombatLockdown() then f:EnableMouse(not dragging) end -- unlocked: the block drags
-        f:ClearAllPoints()
-        local x, y = gf.spot(cfg, i)
-        f:SetPoint("TOPLEFT", gf.anchor, "TOPLEFT", x, y)
-        local unit = units[i]
-        if cfg.test and not UnitExists(unit) then unit = "player" end -- so they can be placed
-        gf.secure(f, unit)
-        gf.update(f, cfg, unit)
-        gf.hover(f, false) -- re-lights it if this is the unit you have targeted
-    end
-    for i = BUCKET_SIZE[key] + 1, #gf.frames do gf.frames[i]:Hide() end
-    -- Pets hang under the group as their own block.
-    local rows = math.ceil(BUCKET_SIZE[key] / cfg.perLine)
-    for i = 1, BUCKET_SIZE[key] do
-        local f = gf.pets[i]
-        if cfg.pets then
-            f = f or gf.make(gf.anchor)
-            gf.pets[i] = f
-            local petCfg = setmetatable({ height = math.max(cfg.petHeight, 6), powerHeight = 0 }, { __index = cfg })
-            gf.style(f, petCfg)
-            gf.secure(f, gf.petUnit(key, i))
-            f:ClearAllPoints()
-            local x, y = gf.spot(cfg, i)
-            f:SetPoint("TOPLEFT", gf.anchor, "TOPLEFT", x, y - rows * (cfg.height + cfg.gap) - cfg.gap)
-            gf.update(f, petCfg, gf.petUnit(key, i))
-        elseif f then
-            f:Hide()
-        end
-    end
-end
-
--- Group events come in for units we do not show, so the cheap move is a full refresh.
-local gfEv = CreateFrame("Frame")
-ns.gfEv = gfEv
-gfEv:SetScript("OnEvent", function() safe(gf.refresh) end)
-for _, e in ipairs({ "GROUP_ROSTER_UPDATE", "UNIT_HEALTH", "UNIT_MAXHEALTH", "UNIT_POWER_UPDATE",
-    "UNIT_MAXPOWER", "UNIT_AURA", "UNIT_NAME_UPDATE", "UNIT_PET", "PLAYER_ROLES_ASSIGNED",
-    "PLAYER_TARGET_CHANGED", "PLAYER_REGEN_ENABLED" }) do
-    pcall(gfEv.RegisterEvent, gfEv, e)
 end
 
 ------------------------------------------------------------------------------------------
@@ -2224,14 +1708,40 @@ function bz.each(fn)
     end
 end
 
+-- Lights a frame while the cursor is on it, and while it is your target. Their own frames have
+-- no such thing, so these are our textures, kept in bz.deco rather than on their frame.
+function bz.light(f)
+    local d, h = bz.deco[f], db.group.hover
+    if not d then return end
+    local unit = f.unit or f.displayedUnit
+    local lit = d.over or (unit and UnitIsUnit(unit, "target")) or false
+    d.hl:SetShown((lit and h.show) and true or false)
+    d.hlBorder:SetShown((lit and h.border and h.borderSize > 0) and true or false)
+end
+
 function bz.skin(f)
     if not db or not db.group.useBlizzard then return end
-    local cfg = db.group[gf.pick()]
+    local cfg = db.group
     local d = bz.deco[f]
     if not d then
-        d = { border = f:CreateTexture(nil, "BACKGROUND", nil, -8), mask = f:CreateMaskTexture() }
+        d = { border = f:CreateTexture(nil, "BACKGROUND", nil, -8), mask = f:CreateMaskTexture(),
+            hl = f:CreateTexture(nil, "OVERLAY", nil, 6),
+            hlBorder = f:CreateTexture(nil, "OVERLAY", nil, 7) }
         d.mask:SetAllPoints(f)
+        d.hl:SetAllPoints(f)
+        d.hl:Hide()
+        d.hlBorder:Hide()
         bz.deco[f] = d
+        f:HookScript("OnEnter", function(self) -- additive, so their own handler still runs
+            local dd = bz.deco[self]
+            if dd then dd.over = true end
+            safe(bz.light, self)
+        end)
+        f:HookScript("OnLeave", function(self)
+            local dd = bz.deco[self]
+            if dd then dd.over = nil end
+            safe(bz.light, self)
+        end)
     end
     local hb = f.healthBar
     if hb then
@@ -2254,6 +1764,15 @@ function bz.skin(f)
     d.border:SetPoint("BOTTOMRIGHT", t, -t)
     d.border:SetColorTexture(unpack(cfg.borderColor))
     d.border:SetShown(t > 0)
+    local h = db.group.hover
+    d.hl:SetColorTexture(unpack(h.color))
+    local radius = cfg.radius == "pill" and math.huge or cfg.radius
+    round(d.hl, d.mask, radius, f:GetWidth() or 1, f:GetHeight() or 1)
+    d.hlBorder:ClearAllPoints()
+    d.hlBorder:SetPoint("TOPLEFT", -h.borderSize, h.borderSize)
+    d.hlBorder:SetPoint("BOTTOMRIGHT", h.borderSize, -h.borderSize)
+    d.hlBorder:SetColorTexture(unpack(h.borderColor))
+    bz.light(f)
 end
 
 -- Puts back what we changed, as far as a texture swap can be put back.
@@ -2263,6 +1782,8 @@ function bz.unskin(f)
     if f.healthBar then f.healthBar:SetStatusBarTexture(BLIZZ_BAR) end
     if f.powerBar then f.powerBar:SetStatusBarTexture(BLIZZ_BAR) end
     d.border:Hide()
+    d.hl:Hide()
+    d.hlBorder:Hide()
 end
 
 function bz.sync()
@@ -2280,6 +1801,14 @@ function bz.sync()
     elseif next(bz.deco) then
         bz.each(function(f) safe(bz.unskin, f) end)
     end
+end
+
+local bzEv = CreateFrame("Frame")
+ns.bzEv = bzEv
+bzEv:SetScript("OnEvent", function() safe(bz.sync) end)
+for _, e in ipairs({ "GROUP_ROSTER_UPDATE", "PLAYER_TARGET_CHANGED", "PLAYER_REGEN_ENABLED",
+    "PLAYER_ENTERING_WORLD", "RAID_ROSTER_UPDATE" }) do
+    pcall(bzEv.RegisterEvent, bzEv, e)
 end
 
 -- Blizzard's own setting for showing a party with raid frames. It is a CVar, so it can only
@@ -2682,17 +2211,6 @@ local function sanitize(src, template)
             out.hover = {}
             for _, e in ipairs(HOVER_FRAMES) do
                 if type(v) == "table" and v[e[1]] == true then out.hover[e[1]] = true end
-            end
-        elseif k == "spells" then -- one entry per buff: { name, id, corner, size, show }
-            out.spells = {}
-            for _, sp in ipairs(type(v) == "table" and v or {}) do
-                local name = type(sp) == "table" and sp.name
-                local size = type(sp) == "table" and tonumber(sp.size) or 14
-                if type(name) == "string" and name ~= "" and CORNER_BY_KEY[sp.corner] then
-                    out.spells[#out.spells + 1] = { name = name:sub(1, 64), corner = sp.corner,
-                        id = tonumber(sp.id) or 0, show = sp.show == true,
-                        size = math.max(6, math.min(40, size == size and size or 14)) }
-                end
             end
         elseif k == "slots" then -- a permutation of the totem slots, no gaps, no repeats
             local seen = {}
@@ -3455,88 +2973,28 @@ local function buildConfig()
     mm:close()
 
     ----------------------------------------------------------------------------------
-    -- Group frames page: one set of settings per group size, plus the aura list
+    -- Group frames page: Blizzard's raid frames, restyled. Their layout is Edit Mode's.
     ----------------------------------------------------------------------------------
-    ns.groupEdit = "party"
-    local G = function() return db.group[ns.groupEdit] end
-    local sizes = group(groupPage, COL[1], TOP, 202, "Group size")
-    dropdown(groupPage, "Editing", sizes.x, sizes:row(DROP), { { "Party (5)", "party" },
-        { "Raid (10)", "raid10" }, { "Raid (20)", "raid20" }, { "Raid (40)", "raid40" } },
-        function() return ns.groupEdit end, function(v) ns.groupEdit = v end, textPreview)
-    check(groupPage, "Show these frames", sizes.x, sizes:row(ROW), function() return G().show end,
-        function(v) G().show = v end)
-    check(groupPage, "Use Blizzard's frames", sizes.x, sizes:row(ROW),
-        function() return db.group.useBlizzard end, function(v) db.group.useBlizzard = v end)
-    check(groupPage, "Show without a group", sizes.x, sizes:row(ROW), function() return G().test end,
-        function(v) G().test = v end)
-    local glock = button(groupPage, "", 186, sizes.x, sizes:row(BUTTON), function()
-        db.group.locked = not db.group.locked
-        changed()
-    end)
-    onRefresh(function()
-        glock:SetText(db.group.locked and "Locked (click to unlock)" or "Unlocked - drag them")
-    end)
+    local G = function() return db.group end
+    local sizes = group(groupPage, COL[1], TOP, 202, "Blizzard's raid frames")
+    check(groupPage, "Restyle them", sizes.x, sizes:row(ROW), function() return G().useBlizzard end,
+        function(v) G().useBlizzard = v end)
     check(groupPage, "Party uses raid frames", sizes.x, sizes:row(ROW),
         bz.raidStyleOn, function(v) bz.raidStyleParty(v) end)
     button(groupPage, "Show them: Edit Mode", 186, sizes.x, sizes:row(BUTTON), function()
         safe(bz.editMode)
     end)
-    local blizzNote = label(groupPage, "", "GameFontDisableSmall")
-    blizzNote:SetPoint("TOPLEFT", sizes.x, sizes:row(30))
+    local blizzNote = label(groupPage, "Buffs, debuffs and dispels on these keep working in "
+        .. "combat, where an addon's own aura reads are refused. Size, spacing and position are "
+        .. "Edit Mode's; everything here is the look.", "GameFontDisableSmall")
+    blizzNote:SetPoint("TOPLEFT", sizes.x, sizes:row(46))
     blizzNote:SetWidth(182)
     blizzNote:SetJustifyH("LEFT")
-    onRefresh(function()
-        blizzNote:SetText(db.group.useBlizzard
-            and "Restyled with the look settings on this page. Their buffs and dispels keep "
-                .. "working in combat; size, spacing and position come from Edit Mode, which is "
-                .. "also where you see them without a group."
-            or "")
-    end)
-    slider(groupPage, "X (left / right)", sizes.x, sizes:row(SLIDER), -1200, 1200,
-        function() return G().x end, function(v) G().x = v end)
-    slider(groupPage, "Y (down / up)", sizes.x, sizes:row(SLIDER), -800, 800,
-        function() return G().y end, function(v) G().y = v end)
     sizes:close()
 
-    local shape = group(groupPage, COL[2], TOP, 202, "Frame shape")
-    slider(groupPage, "Width", shape.x, shape:row(SLIDER), 30, 300, function() return G().width end,
-        function(v) G().width = v end)
-    slider(groupPage, "Height", shape.x, shape:row(SLIDER), 12, 200, function() return G().height end,
-        function(v) G().height = v end)
-    slider(groupPage, "Power bar height", shape.x, shape:row(SLIDER), 0, 30,
-        function() return G().powerHeight end, function(v) G().powerHeight = v end)
-    slider(groupPage, "Gap", shape.x, shape:row(SLIDER), 0, 30, function() return G().gap end,
-        function(v) G().gap = v end)
-    slider(groupPage, "Per row / column", shape.x, shape:row(SLIDER), 1, 40,
-        function() return G().perLine end, function(v) G().perLine = v end)
-    dropdown(groupPage, "Grows", shape.x, shape:row(DROP), { { "Right, then down", "right" },
-        { "Left, then down", "left" }, { "Down, then right", "down" }, { "Up, then right", "up" } },
-        function() return G().grow end, function(v) G().grow = v end, textPreview)
-    check(groupPage, "Pet frames below", shape.x, shape:row(ROW), function() return G().pets end,
-        function(v) G().pets = v end)
-    slider(groupPage, "Pet frame height", shape.x, shape:row(SLIDER), 4, 40,
-        function() return G().petHeight end, function(v) G().petHeight = v end)
-    shape:close()
-
-    local nm = group(groupPage, COL[1], sizes.cursor - 20, 202, "Name")
-    check(groupPage, "Show the name", nm.x, nm:row(ROW), function() return G().name end,
-        function(v) G().name = v end)
-    dropdown(groupPage, "Name font", nm.x, nm:row(DROP), FONTS, function() return G().font end,
-        function(v) G().font = v end, fontPreview)
-    slider(groupPage, "Name size", nm.x, nm:row(SLIDER), 6, 24, function() return G().fontSize end,
-        function(v) G().fontSize = v end)
-    check(groupPage, "Outline", nm.x, nm:row(ROW), function() return G().outline end,
-        function(v) G().outline = v end)
-    swatch(groupPage, "Name color", nm.x, nm:row(SWATCH), function() return G().nameColor end)
-    nm:close()
-
-    local look3 = group(groupPage, COL[3], TOP, 202, "Colors and border")
+    local look3 = group(groupPage, COL[2], TOP, 202, "Bars and border")
     dropdown(groupPage, "Texture", look3.x, look3:row(DROP), TEXTURES, function() return G().texture end,
         function(v) G().texture = v end, texturePreview)
-    check(groupPage, "Class colors", look3.x, look3:row(ROW), function() return G().classColor end,
-        function(v) G().classColor = v end)
-    swatch(groupPage, "Health color", look3.x, look3:row(SWATCH), function() return G().color end)
-    swatch(groupPage, "Background", look3.x, look3:row(SWATCH), function() return G().bgColor end)
     slider(groupPage, "Border thickness", look3.x, look3:row(SLIDER), 0, 8,
         function() return G().borderSize end, function(v) G().borderSize = v end)
     swatch(groupPage, "Border color", look3.x, look3:row(SWATCH), function() return G().borderColor end)
@@ -3545,7 +3003,19 @@ local function buildConfig()
         function() return G().radius end, function(v) G().radius = v end, textPreview)
     look3:close()
 
-    local hov = group(groupPage, COL[3], look3.cursor - 20, 202, "Highlights")
+    local nm = group(groupPage, COL[3], TOP, 202, "Name")
+    check(groupPage, "Show the name", nm.x, nm:row(ROW), function() return G().name end,
+        function(v) G().name = v end)
+    dropdown(groupPage, "Font", nm.x, nm:row(DROP), FONTS, function() return G().font end,
+        function(v) G().font = v end, fontPreview)
+    slider(groupPage, "Size", nm.x, nm:row(SLIDER), 6, 24, function() return G().fontSize end,
+        function(v) G().fontSize = v end)
+    check(groupPage, "Outline", nm.x, nm:row(ROW), function() return G().outline end,
+        function(v) G().outline = v end)
+    swatch(groupPage, "Color", nm.x, nm:row(SWATCH), function() return G().nameColor end)
+    nm:close()
+
+    local hov = group(groupPage, COL[4], TOP, 202, "Cursor and target")
     local GH = function() return db.group.hover end
     check(groupPage, "Highlight overlay", hov.x, hov:row(ROW), function() return GH().show end,
         function(v) GH().show = v end)
@@ -3555,115 +3025,12 @@ local function buildConfig()
     slider(groupPage, "Border thickness", hov.x, hov:row(SLIDER), 0, 8,
         function() return GH().borderSize end, function(v) GH().borderSize = v end)
     swatch(groupPage, "Border color", hov.x, hov:row(SWATCH), function() return GH().borderColor end)
+    local hovNote = label(groupPage, "The frame under the cursor and the one you have targeted "
+        .. "both wear this.", "GameFontDisableSmall")
+    hovNote:SetPoint("TOPLEFT", hov.x, hov:row(30))
+    hovNote:SetWidth(182)
+    hovNote:SetJustifyH("LEFT")
     hov:close()
-
-    -- The border also says what you could take off this unit.
-    local dsp = group(groupPage, COL[3], hov.cursor - 20, 202, "Dispel border")
-    local GD = function() return db.group.dispel end
-    check(groupPage, "Color what you can cure", dsp.x, dsp:row(ROW), function() return GD().show end,
-        function(v) GD().show = v end)
-    for i = 1, #DISPEL_TYPES, 2 do -- two colors per row, the names are short enough
-        local y = dsp:row(SWATCH)
-        for k = 0, 1 do
-            local kind = DISPEL_TYPES[i + k]
-            if kind then
-                swatch(groupPage, kind, dsp.x + k * 92, y, function() return GD()[kind] end)
-            end
-        end
-    end
-    dsp:close()
-
-
-    -- Column 4: your class's buffs, ticked on or off, and the settings of the one you picked
-    local aur = group(groupPage, COL[4], TOP, 202, "Your buffs")
-    local pickedSpell = 1
-    for i = 1, 12 do
-        local y = aur:row(22)
-        local row = CreateFrame("Button", nil, groupPage)
-        row:SetSize(122, 20)
-        row:SetPoint("TOPLEFT", aur.x + 26, y - 1)
-        row:SetHighlightTexture("Interface\\Buttons\\WHITE8X8")
-        row:GetHighlightTexture():SetVertexColor(1, 1, 1, 0.12)
-        local icon = groupPage:CreateTexture(nil, "ARTWORK")
-        icon:SetSize(16, 16)
-        icon:SetPoint("TOPLEFT", aur.x + 4, y - 2)
-        icon:SetTexCoord(0.08, 0.92, 0.08, 0.92)
-        local nameLbl = label(row, "", "GameFontHighlightSmall")
-        nameLbl:SetPoint("LEFT", 2, 0)
-        nameLbl:SetWidth(120)
-        nameLbl:SetJustifyH("LEFT")
-        local onBtn = check(groupPage, "", aur.x + 154, y + 2, function()
-            local sp = ns.gf.knownSpells()[i]
-            return sp and sp.show
-        end, function(v)
-            local sp = ns.gf.knownSpells()[i]
-            if sp then sp.show = v end
-        end)
-        row:SetScript("OnClick", function() pickedSpell = i; changed() end)
-        onRefresh(function()
-            local sp = ns.gf.knownSpells()[i]
-            row:SetShown(sp ~= nil)
-            icon:SetShown(sp ~= nil)
-            onBtn:SetShown(sp ~= nil)
-            if not sp then return end
-            icon:SetTexture(ns.gf.spellIcon(sp))
-            nameLbl:SetText(sp.name)
-            nameLbl:SetTextColor(1, 1, 1, sp.show and 1 or 0.45)
-            if pickedSpell == i then row:LockHighlight() else row:UnlockHighlight() end
-        end)
-    end
-    local aurNote = label(groupPage, "", "GameFontDisableSmall")
-    aurNote:SetPoint("TOPLEFT", aur.x, aur:row(26))
-    aurNote:SetWidth(182)
-    aurNote:SetJustifyH("LEFT")
-    onRefresh(function()
-        aurNote:SetText(#ns.gf.knownSpells() == 0 and "No buffs listed for your class yet."
-            or "Tick a buff to show it, click its name to set it up below.")
-    end)
-    aur:close()
-
-    local one = group(groupPage, COL[4], aur.cursor - 20, 202, "The buff you picked")
-    local S1 = function() return ns.gf.knownSpells()[pickedSpell] end
-    local oneName = label(groupPage, "", "GameFontNormalSmall")
-    oneName:SetPoint("TOPLEFT", one.x, one:row(18))
-    local corner = button(groupPage, "", 186, one.x, one:row(BUTTON), function()
-        local sp = S1()
-        if not sp then return end
-        for k, c in ipairs(CORNERS) do
-            if c[1] == sp.corner then
-                sp.corner = CORNERS[k % #CORNERS + 1][1]
-                break
-            end
-        end
-        changed()
-    end)
-    slider(groupPage, "Icon size", one.x, one:row(SLIDER), 6, 40,
-        function() local sp = S1() return sp and sp.size or 14 end,
-        function(v) local sp = S1() if sp then sp.size = v end end)
-    onRefresh(function()
-        local sp = S1()
-        oneName:SetText(sp and sp.name or "")
-        corner:SetText("Corner: " .. (sp and ({ topleft = "Top left", topright = "Top right",
-            bottomleft = "Bottom left", bottomright = "Bottom right" })[sp.corner] or "-"))
-    end)
-    local oneNote = label(groupPage, "Several buffs in one corner line up away from it, and a spell "
-        .. "the client keeps secret can't be read at all.", "GameFontDisableSmall")
-    oneNote:SetPoint("TOPLEFT", one.x, one:row(30))
-    oneNote:SetWidth(182)
-    oneNote:SetJustifyH("LEFT")
-    one:close()
-
-
-    local rl = group(groupPage, COL[2], shape.cursor - 20, 202, "Role icon")
-    check(groupPage, "Show role icon", rl.x, rl:row(ROW), function() return G().role end,
-        function(v) G().role = v end)
-    slider(groupPage, "Size", rl.x, rl:row(SLIDER), 6, 40, function() return G().roleSize end,
-        function(v) G().roleSize = v end)
-    slider(groupPage, "X (from the center)", rl.x, rl:row(SLIDER), -100, 100,
-        function() return G().roleX end, function(v) G().roleX = v end)
-    slider(groupPage, "Y (from the center)", rl.x, rl:row(SLIDER), -100, 100,
-        function() return G().roleY end, function(v) G().roleY = v end)
-    rl:close()
 
     local FS = function() return db.other.fsr end
     local spin = group(otherPage, COL[4], mouse.cursor - 20, 202, "Mana regen spinner")
@@ -3713,15 +3080,11 @@ SLASH_WOLFPACKADDON3 = "/cpd" -- the old name still works
 -- /cpd auras: says which aura calls this client has and whether they answer right now, which
 -- is the only way to tell from inside the game why a buff icon is missing. Run it twice: once
 -- out of combat and once in combat, with the buff actually on you.
-function ns.AuraReport()
+function ns.AuraReport(spellName)
     local function say(t) print("|cff88ccffWolfpack:|r " .. t) end
-    local sp
-    for _, e in ipairs(db.group.spells) do
-        if e.show then sp = e break end
-    end
-    sp = sp or db.group.spells[1] or { name = "Renew", id = 139 }
-    say(("combat %s, issecretvalue %s, looking for %s (#%d) -- have it on you when you run this")
-        :format(tostring(InCombatLockdown()), tostring(issecretvalue ~= nil), sp.name, sp.id or 0))
+    local sp = { name = (spellName ~= "" and spellName) or "Renew", id = 0 }
+    say(("combat %s, issecretvalue %s, looking for %s -- have it on you when you run this")
+        :format(tostring(InCombatLockdown()), tostring(issecretvalue ~= nil), sp.name))
 
     local function report(label, fn, ...)
         local args = { ... }
@@ -3766,7 +3129,7 @@ end
 
 SlashCmdList.WOLFPACKADDON = function(msg)
     msg = (msg or ""):lower()
-    if msg:find("aura") then return safe(ns.AuraReport) end
+    if msg:find("aura") then return safe(ns.AuraReport, (msg:gsub("^%s*auras?%s*", ""))) end
     if msg:find("blizz") then return safe(ns.BlizzReport) end
     safe(ns.ToggleConfig)
 end
