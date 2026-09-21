@@ -114,9 +114,13 @@ end
 -- One bar per weapon; the Swing Timer bar shows the ones ticked here.
 local SWING_TYPES = { { "main", "Main hand", 0 }, { "off", "Off hand", 1 }, { "ranged", "Ranged", 2 } }
 
--- The Shield bar fills to the size the shield had when it landed, which can't be calculated
--- from a secret: it's snapshotted on the first absorb change after a new aura appears.
-local absorb = { max = nil, have = false, pending = false }
+-- The Shield bar fills to the size the shield had when it landed. That size can't be computed
+-- from a secret, and the aura payload that would announce a new shield is secret through and
+-- through -- even its isFullUpdate flag. What is readable is the clock and our own casts, so an
+-- absorb change right after a cast of ours counts as a shield landing, and anything later counts
+-- as damage eating it. A shield cast by someone else leaves the bar on its previous scale.
+local absorb = { max = nil, have = false, castAt = 0 }
+local ABSORB_CAST_WINDOW = 0.4
 
 -- The Totems bar is one segment per element. Order and colors are per profile; these are the
 -- game's slot numbers, which never move.
@@ -2964,7 +2968,6 @@ ev:SetScript("OnEvent", function(_, event, unit, arg2, arg3)
         listen("UNIT_HEALTH", "player", "target")
         listen("UNIT_MAXHEALTH", "player", "target")
         listen("UNIT_ABSORB_AMOUNT_CHANGED", "player")
-        listen("UNIT_AURA", "player") -- a new aura may be a new shield: re-snapshot its size
         listen("UNIT_PET", "player") -- pet summoned, dismissed or swapped
         pcall(petEv.RegisterUnitEvent, petEv, "UNIT_HEALTH", "pet")
         pcall(petEv.RegisterUnitEvent, petEv, "UNIT_MAXHEALTH", "pet")
@@ -2982,15 +2985,10 @@ ev:SetScript("OnEvent", function(_, event, unit, arg2, arg3)
         local mine = store.chars[charKey]
         useProfile(store.profiles[mine or ""] and mine or classProfile)
         placeMini()
-    elseif event == "UNIT_AURA" then
-        -- arg2 is the update info; a full update (nil) or an added aura may bring a new shield
-        if unit == "player" and (arg2 == nil or arg2.isFullUpdate or arg2.addedAuras) then
-            absorb.pending = true
-        end
     elseif event == "UNIT_ABSORB_AMOUNT_CHANGED" then
-        if absorb.pending then -- the shield just landed: this is its full size
+        if GetTime() - absorb.castAt <= ABSORB_CAST_WINDOW then -- our cast just put a shield up
             local ok, points = pcall(UnitGetTotalAbsorbs, "player")
-            absorb.max, absorb.have, absorb.pending = ok and points, ok, false
+            absorb.max, absorb.have = ok and points, ok
         end
         fillShown("absorb")
     elseif event == "UNIT_HEALTH" then
@@ -3000,7 +2998,10 @@ ev:SetScript("OnEvent", function(_, event, unit, arg2, arg3)
     elseif event == "UNIT_POWER_FREQUENT" then
         fillShown("power", "combo", "druidmana")
     elseif event:find("^UNIT_SPELLCAST_") then
-        if unit == "player" then safe(fsr.cast, fsr, event, arg2, arg3) end
+        if unit == "player" then
+            safe(fsr.cast, fsr, event, arg2, arg3)
+            if event == "UNIT_SPELLCAST_SUCCEEDED" then absorb.castAt = GetTime() end
+        end
         safe(Refresh) -- the cast bar joins or leaves the stack
     elseif event == "PLAYER_SWING" then -- unit, arg2 = duration, swing type
         swingState[arg2] = { start = GetTime(), duration = unit }

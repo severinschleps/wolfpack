@@ -1266,12 +1266,13 @@ S.absorb = 420
 fire("UNIT_MAXPOWER")
 assert(ab:IsShown() and ab.segs[1]._value == 420 and ab.segs[1]._max == 1000, "no shield seen land: max health")
 assert(ab.text._text == "420", "the points left are written out")
--- a shield lands: the bar starts full and drains from there
-fire("UNIT_AURA", "player", { addedAuras = { { spellId = 17 } } })
+-- we cast a shield: the change right after the cast sets the bar's full width
+S.time = 4000
+fire("UNIT_SPELLCAST_SUCCEEDED", "player", "castShield", 17)
 fire("UNIT_ABSORB_AMOUNT_CHANGED", "player")
 assert(ab.segs[1]._value == 420 and ab.segs[1]._max == 420, "full width when it lands")
-S.absorb = 105; fire("UNIT_ABSORB_AMOUNT_CHANGED", "player")
-assert(ab.segs[1]._value == 105 and ab.segs[1]._max == 420, "a quarter left, same scale")
+S.time = 4008; S.absorb = 105; fire("UNIT_ABSORB_AMOUNT_CHANGED", "player")
+assert(ab.segs[1]._value == 105 and ab.segs[1]._max == 420, "later changes are damage, same scale")
 S.absorb = 0; fire("UNIT_ABSORB_AMOUNT_CHANGED", "player")
 assert(ab.segs[1]._value == 0 and ab.segs[1]._max == 420, "shield gone: empty bar")
 prof().regular.bars.absorb.show = false
