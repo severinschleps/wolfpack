@@ -165,6 +165,14 @@ AcceptQuest, ConfirmAcceptQuest = record("accept"), record("confirm")
 AcknowledgeAutoAcceptQuest, StaticPopup_Hide = record("ack"), record("hidepopup")
 IsShiftKeyDown = function() return S.shift end
 IsInGroup = function() return S.group end
+IsInRaid = function() return S.raid or false end
+GetNumGroupMembers = function() return S.members or 0 end
+UnitGroupRolesAssigned = function(unit) return (S.units or {})[unit] or "NONE" end
+GetTexCoordsForRoleSmallCircle = function() return 0, 0.5, 0, 0.5 end
+C_UnitAuras = {
+    GetAuraDataByIndex = function(unit, i) return (S.auras or {})[i] end,
+    GetAuraDuration = function() return { IsZero = function() return false end } end,
+}
 S.time = 1000
 GetTime = function() return S.time end
 -- Duration objects stand in for the client's secret-safe ones: everything about them, IsZero
@@ -298,6 +306,8 @@ UnitHealth = function(unit)
 end
 UnitExists = function(unit)
     if unit == "pet" then return S.petHP ~= nil end
+    if unit == "player" then return true end
+    if (S.units or {})[unit] then return true end
     return unit == "target" and S.targetHP ~= nil
 end
 UnitHealthMax = function() return 1000 end
@@ -1307,6 +1317,31 @@ assert(pb.over._value == 0, "cast over: nothing reserved")
 prof().regular.bars.health.heal, prof().regular.bars.power.cost = false, false
 fire("UNIT_MAXPOWER")
 assert(not hb.over:IsShown() and not pb.over:IsShown(), "switched off: both overlays gone")
+
+-- Group frames: a layout per group size, own auras in the corners, test mode without a group
+local gp = prof().group
+gp.party.test, gp.party.width, gp.party.height, gp.party.perLine = true, 100, 40, 2
+gp.party.gap, gp.party.grow = 4, "right"
+S.units = { party1 = "HEALER", party2 = "TANK" }
+S.auras = { { spellId = 139, icon = 135953, auraInstanceID = 7 } }
+gp.spells = { { id = 139, corner = "topright", show = true } }
+fire("UNIT_MAXPOWER")
+local gfr = ns.gf.frames
+assert(ns.gf.anchor:IsShown() and gfr[1]:IsShown(), "shown without a group while testing")
+assert(gfr[1]._w == 100 and gfr[1]._h == 40, "frame size")
+assert(gfr[2]._point[4] == 104 and gfr[2]._point[5] == 0, "second frame sits right of the first")
+assert(gfr[3]._point[4] == 0 and gfr[3]._point[5] == -44, "third wraps to the next line")
+assert(gfr[1].icons[1] and gfr[1].icons[1]._point[1] == "TOPRIGHT", "own aura in its corner")
+assert(gfr[1].icons[1].tex._tex == 135953 and gfr[1].icons[1].bar._timer, "icon drains with the aura")
+gp.spells[1].show = false
+fire("UNIT_MAXPOWER")
+assert(not gfr[1].icons[1]:IsShown(), "unticked spells stay off")
+gp.party.grow, gp.party.perLine = "down", 2
+fire("UNIT_MAXPOWER")
+assert(gfr[2]._point[5] == -44 and gfr[3]._point[4] == 104, "growing down wraps to the next column")
+gp.party.test = false
+fire("UNIT_MAXPOWER")
+assert(not ns.gf.anchor:IsShown(), "no group, no test: hidden")
 
 SlashCmdList.WOLFPACKADDON("")
 realPrint("smoke ok")

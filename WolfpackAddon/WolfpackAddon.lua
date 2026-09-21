@@ -182,6 +182,25 @@ local function layoutDefaults(show, x, y, gap, width, h1, h2, h3, h4, h5, h6, h7
     return l
 end
 
+-- An aura's corner: the point it hangs from, and which way the next one in that corner grows.
+local CORNERS = { { "topleft", "TOPLEFT", 1, -1 }, { "topright", "TOPRIGHT", -1, -1 },
+    { "bottomleft", "BOTTOMLEFT", 1, 1 }, { "bottomright", "BOTTOMRIGHT", -1, 1 } }
+local CORNER_BY_KEY = {}
+for _, c in ipairs(CORNERS) do CORNER_BY_KEY[c[1]] = c end
+
+-- One group-frame layout per group size. Frames grow in `grow`, wrapping after `perLine`.
+local function groupDefaults(perLine, w, h, ph, y)
+    return {
+        show = true, test = false, x = 0, y = y, width = w, height = h, powerHeight = ph,
+        gap = 2, perLine = perLine, grow = "right", -- "left", "down", "up"
+        texture = TEXTURES[1][2], borderSize = 1, borderColor = { 0, 0, 0, 1 }, radius = 0,
+        classColor = true, color = { 0.2, 0.6, 0.2, 1 }, bgColor = { 0, 0, 0, 0.6 },
+        font = FONTS[1][2], fontSize = 10, outline = true, nameColor = { 1, 1, 1, 1 },
+        role = true, roleSize = 12, roleX = 0, roleY = 0,
+        pets = false, petHeight = 8, auraSize = 14,
+    }
+end
+
 -- Quest mob icons on nameplates: a row (kill, then loot) whose top-right sits at the nameplate's
 -- top-right corner plus x/y. Icons are file IDs.
 local DEFAULTS = {
@@ -204,6 +223,18 @@ local DEFAULTS = {
         fsr = { show = false, bar = "power", size = 28, x = 0, y = 0, color = { 0.3, 0.6, 1, 0.7 },
             fill = true },
     },
+}
+
+-- Group frames: four layouts, plus the auras of yours that show on them.
+DEFAULTS.group = {
+    locked = true,
+    party = groupDefaults(5, 90, 40, 4, 200),
+    raid10 = groupDefaults(5, 80, 36, 3, 200),
+    raid20 = groupDefaults(5, 74, 32, 3, 200),
+    raid40 = groupDefaults(8, 64, 28, 3, 200),
+    spells = {}, -- { id, corner, show }: which of your auras show, and where
+    -- what a frame looks like under the cursor
+    hover = { show = true, color = { 1, 1, 1, 0.15 }, border = true, borderColor = { 1, 1, 1, 0.8 } },
 }
 
 DEFAULTS.regular.bars.health.target = false -- target health bar right of it (Combat Display only)
@@ -233,7 +264,7 @@ end
 ------------------------------------------------------------------------------------------
 -- store = WolfpackAddonDB, account-wide: { profiles = { [name] = settings }, chars = { [char] = name } }
 -- db = the active profile's settings.
-local changed, placeMini, useProfile -- defined further down
+local changed, placeMini, useProfile, gf -- defined further down
 
 -- Bars that only show while they are doing something (cast, swing) stay visible while the bars
 -- are unlocked or the options are open, so they can be placed.
@@ -1641,6 +1672,7 @@ local function Refresh()
     syncProtected()
     syncGryphons()
     syncCombatIcon()
+    gf.refresh()
     fsr:sync()
     syncHover()
     syncBags()
@@ -1657,6 +1689,273 @@ local function safe(fn, ...)
         ns.errored = true
         print("|cffff5555Wolfpack Addon error:|r " .. tostring(err))
     end
+end
+
+------------------------------------------------------------------------------------------
+-- Group frames: one frame per party or raid member, health and power, your own auras in the
+-- corners. Plain frames, not secure ones: they show what is going on, they are not click-cast
+-- targets, which keeps them out of combat lockdown entirely.
+------------------------------------------------------------------------------------------
+gf = { frames = {}, pets = {}, bucket = "party" }
+gf.anchor = CreateFrame("Frame", "WolfpackAddonGroupFrames", UIParent)
+gf.anchor:SetSize(10, 10)
+gf.anchor:SetMovable(true)
+gf.anchor:SetClampedToScreen(true)
+gf.anchor:RegisterForDrag("LeftButton")
+gf.anchor:SetScript("OnDragStart", function(a) a:StartMoving() end)
+gf.anchor:SetScript("OnDragStop", function(a)
+    a:StopMovingOrSizing()
+    local ux, uy = UIParent:GetCenter()
+    local cfg = db.group[gf.bucket]
+    cfg.x = math.floor(a:GetCenter() - ux + 0.5)
+    cfg.y = math.floor(select(2, a:GetCenter()) - uy + 0.5)
+    gf.place()
+    changed()
+end)
+ns.gf = gf
+
+-- Which layout the current group calls for, and the units it holds.
+function gf.pick()
+    if ns.groupEdit and ns.previewing() then return ns.groupEdit end
+    if not IsInRaid() then return "party" end
+    local n = GetNumGroupMembers() or 0
+    if n <= 10 then return "raid10" elseif n <= 20 then return "raid20" else return "raid40" end
+end
+
+local BUCKET_SIZE = { party = 5, raid10 = 10, raid20 = 20, raid40 = 40 }
+
+function gf.units(key)
+    local t, n = {}, BUCKET_SIZE[key]
+    if key == "party" then
+        t[1] = "player"
+        for i = 1, n - 1 do t[i + 1] = "party" .. i end
+    else
+        for i = 1, n do t[i] = "raid" .. i end
+    end
+    return t
+end
+
+function gf.petUnit(key, i)
+    if key ~= "party" then return "raidpet" .. i end
+    return i == 1 and "pet" or ("partypet" .. (i - 1))
+end
+
+function gf.make(parent)
+    local f = CreateFrame("Frame", nil, parent)
+    f.bg = f:CreateTexture(nil, "BACKGROUND")
+    f.bg:SetAllPoints()
+    f.border = f:CreateTexture(nil, "BACKGROUND", nil, -8)
+    f.mask = newMask(f)
+    f.health = CreateFrame("StatusBar", nil, f)
+    f.power = CreateFrame("StatusBar", nil, f)
+    f.name = f.health:CreateFontString(nil, "OVERLAY")
+    f.name:SetPoint("CENTER")
+    f.role = f:CreateTexture(nil, "OVERLAY")
+    f.role:SetTexture("Interface\\LFGFrame\\UI-LFG-ICON-ROLES")
+    f.hl = f:CreateTexture(nil, "OVERLAY", nil, -7)
+    f.hlBorder = f:CreateTexture(nil, "OVERLAY", nil, -6)
+    f.hl:Hide()
+    f.hlBorder:Hide()
+    f:SetScript("OnEnter", function(self) gf.hover(self, true) end)
+    f:SetScript("OnLeave", function(self) gf.hover(self, false) end)
+    f.icons = {}
+    return f
+end
+
+-- Under the cursor: an overlay in the chosen color, and a border around the frame.
+function gf.hover(f, on)
+    local h = db.group.hover
+    f.hl:SetShown((on and h.show) and true or false)
+    f.hlBorder:SetShown((on and h.border) and true or false)
+end
+
+-- One aura icon: the spell's icon with a bar over it that drains with the aura.
+function gf.icon(f, i, size)
+    local ic = f.icons[i]
+    if not ic then
+        ic = CreateFrame("Frame", nil, f)
+        ic.tex = ic:CreateTexture(nil, "ARTWORK")
+        ic.tex:SetAllPoints()
+        ic.tex:SetTexCoord(0.08, 0.92, 0.08, 0.92)
+        ic.bar = CreateFrame("StatusBar", nil, ic)
+        ic.bar:SetAllPoints()
+        ic.bar:SetStatusBarTexture("Interface\\Buttons\\WHITE8X8")
+        ic.bar:SetStatusBarColor(0, 0, 0, 0.55)
+        ic.bar:SetOrientation("VERTICAL")
+        ic.bar:SetFrameLevel(ic:GetFrameLevel() + 1)
+        f.icons[i] = ic
+    end
+    ic:SetSize(size, size)
+    ic:SetFrameLevel(f.health:GetFrameLevel() + 2)
+    return ic
+end
+
+-- Your own helpful auras, in the corners you picked for them. Every read is wrapped: on this
+-- client an aura that is not whitelisted is secret, and touching its fields throws.
+function gf.auras(f, cfg, unit)
+    local want, used, n = {}, { 0, 0, 0, 0 }, 0
+    for _, sp in ipairs(db.group.spells) do
+        if sp.show then want[sp.id] = sp.corner end
+    end
+    for i = 1, 40 do
+        local ok, data = pcall(C_UnitAuras.GetAuraDataByIndex, unit, i, "HELPFUL|PLAYER")
+        if not ok or not data then break end
+        pcall(function()
+            local corner = want[data.spellId]
+            if not corner then return end
+            local c, ci = CORNER_BY_KEY[corner], 0
+            for k, v in ipairs(CORNERS) do if v[1] == corner then ci = k end end
+            n = n + 1
+            local ic = gf.icon(f, n, cfg.auraSize)
+            ic.tex:SetTexture(data.icon)
+            ic:ClearAllPoints()
+            ic:SetPoint(c[2], f, c[2], c[3] * (2 + used[ci] * (cfg.auraSize + 1)), c[4] * 2)
+            used[ci] = used[ci] + 1
+            local dur = select(2, pcall(C_UnitAuras.GetAuraDuration, unit, data.auraInstanceID))
+            if dur then ic.bar:SetTimerDuration(dur, 0, TIMER_REMAINING) end
+            ic:Show()
+        end)
+    end
+    for i = n + 1, #f.icons do f.icons[i]:Hide() end
+end
+
+-- Health, power, name, role and auras for one unit.
+function gf.update(f, cfg, unit)
+    if not UnitExists(unit) then
+        f:Hide()
+        return
+    end
+    f:Show()
+    f.health:SetMinMaxValues(0, UnitHealthMax(unit))
+    f.health:SetValue(UnitHealth(unit))
+    local ptype = UnitPowerType(unit)
+    f.power:SetMinMaxValues(0, UnitPowerMax(unit, ptype))
+    f.power:SetValue(UnitPower(unit, ptype))
+    f.name:SetText(UnitName(unit) or "")
+    local _, token = UnitClass(unit)
+    local col = cfg.classColor and token and C_ClassColor.GetClassColor(token)
+    if col then
+        f.health:SetStatusBarColor(col.r, col.g, col.b)
+    else
+        f.health:SetStatusBarColor(cfg.color[1], cfg.color[2], cfg.color[3])
+    end
+    local role = cfg.role and UnitGroupRolesAssigned and UnitGroupRolesAssigned(unit)
+    if role == "TANK" or role == "HEALER" or role == "DAMAGER" then
+        f.role:SetTexCoord(GetTexCoordsForRoleSmallCircle(role))
+        f.role:Show()
+    else
+        f.role:Hide()
+    end
+    gf.auras(f, cfg, unit)
+end
+
+-- Size, colors and border of one frame; the same shape the bars use.
+function gf.style(f, cfg)
+    f:SetSize(cfg.width, cfg.height)
+    local t = math.min(cfg.borderSize, (cfg.height - 1) / 2, (cfg.width - 1) / 2)
+    local ph = math.max(math.min(cfg.powerHeight, cfg.height - 2 * t - 4), 0)
+    f.health:ClearAllPoints()
+    f.health:SetPoint("TOPLEFT", t, -t)
+    f.health:SetPoint("BOTTOMRIGHT", f, "BOTTOMRIGHT", -t, t + ph)
+    f.health:SetStatusBarTexture(cfg.texture)
+    f.power:ClearAllPoints()
+    f.power:SetPoint("TOPLEFT", f.health, "BOTTOMLEFT", 0, 0)
+    f.power:SetPoint("BOTTOMRIGHT", f, "BOTTOMRIGHT", -t, t)
+    f.power:SetStatusBarTexture(cfg.texture)
+    f.power:SetShown(ph > 0)
+    f.power:SetStatusBarColor(0.3, 0.4, 0.9)
+    f.bg:SetColorTexture(unpack(cfg.bgColor))
+    f.border:SetShown(t > 0)
+    f.border:ClearAllPoints()
+    f.border:SetPoint("TOPLEFT", -0, 0)
+    f.border:SetPoint("BOTTOMRIGHT", 0, 0)
+    f.border:SetColorTexture(unpack(cfg.borderColor))
+    local radius = cfg.radius == "pill" and math.huge or cfg.radius
+    round(f.bg, f.mask, radius, cfg.width, cfg.height)
+    local flags = cfg.outline and "OUTLINE" or ""
+    if not f.name:SetFont(cfg.font, cfg.fontSize, flags) then f.name:SetFont(FONTS[1][2], cfg.fontSize, flags) end
+    f.name:SetTextColor(unpack(cfg.nameColor))
+    local h = db.group.hover
+    f.hl:SetAllPoints()
+    f.hl:SetColorTexture(unpack(h.color))
+    round(f.hl, f.mask, radius, cfg.width, cfg.height)
+    f.hlBorder:ClearAllPoints()
+    f.hlBorder:SetPoint("TOPLEFT", -1, 1)
+    f.hlBorder:SetPoint("BOTTOMRIGHT", 1, -1)
+    f.hlBorder:SetColorTexture(unpack(h.borderColor))
+    f.role:SetSize(cfg.roleSize, cfg.roleSize)
+    f.role:ClearAllPoints()
+    f.role:SetPoint("CENTER", f, "CENTER", cfg.roleX, cfg.roleY)
+end
+
+-- Where frame number i sits: along `grow`, wrapping to a new line every `perLine`.
+function gf.spot(cfg, i)
+    local line, at = math.floor((i - 1) / cfg.perLine), (i - 1) % cfg.perLine
+    local dx, dy = cfg.width + cfg.gap, cfg.height + cfg.gap
+    if cfg.grow == "right" then return at * dx, -line * dy end
+    if cfg.grow == "left" then return -at * dx, -line * dy end
+    if cfg.grow == "down" then return line * dx, -at * dy end
+    return line * dx, at * dy -- "up"
+end
+
+function gf.place()
+    local cfg = db.group[gf.bucket]
+    gf.anchor:ClearAllPoints()
+    gf.anchor:SetPoint("CENTER", UIParent, "CENTER", cfg.x, cfg.y)
+end
+
+-- Builds, styles and fills every frame of the layout in use.
+function gf.refresh()
+    local key = gf.pick()
+    gf.bucket = key
+    local cfg = db.group[key]
+    local preview = ns.previewing() or cfg.test
+    local on = cfg.show and (IsInGroup() or preview) and true or false
+    gf.anchor:SetShown(on)
+    local dragging = not db.group.locked
+    gf.anchor:EnableMouse(dragging)
+    if not on then return end
+    gf.place()
+    local units = gf.units(key)
+    for i = 1, BUCKET_SIZE[key] do
+        local f = gf.frames[i] or gf.make(gf.anchor)
+        gf.frames[i] = f
+        gf.style(f, cfg)
+        f:EnableMouse(not dragging) -- while unlocked the whole block drags instead
+        if dragging then gf.hover(f, false) end
+        f:ClearAllPoints()
+        local x, y = gf.spot(cfg, i)
+        f:SetPoint("TOPLEFT", gf.anchor, "TOPLEFT", x, y)
+        local unit = units[i]
+        if cfg.test and not UnitExists(unit) then unit = "player" end -- so they can be placed
+        gf.update(f, cfg, unit)
+    end
+    for i = BUCKET_SIZE[key] + 1, #gf.frames do gf.frames[i]:Hide() end
+    -- Pets hang under the group as their own block.
+    local rows = math.ceil(BUCKET_SIZE[key] / cfg.perLine)
+    for i = 1, BUCKET_SIZE[key] do
+        local f = gf.pets[i]
+        if cfg.pets then
+            f = f or gf.make(gf.anchor)
+            gf.pets[i] = f
+            local petCfg = setmetatable({ height = math.max(cfg.petHeight, 6), powerHeight = 0 }, { __index = cfg })
+            gf.style(f, petCfg)
+            f:ClearAllPoints()
+            local x, y = gf.spot(cfg, i)
+            f:SetPoint("TOPLEFT", gf.anchor, "TOPLEFT", x, y - rows * (cfg.height + cfg.gap) - cfg.gap)
+            gf.update(f, petCfg, gf.petUnit(key, i))
+        elseif f then
+            f:Hide()
+        end
+    end
+end
+
+-- Group events come in for units we do not show, so the cheap move is a full refresh.
+local gfEv = CreateFrame("Frame")
+gfEv:SetScript("OnEvent", function() safe(gf.refresh) end)
+for _, e in ipairs({ "GROUP_ROSTER_UPDATE", "UNIT_HEALTH", "UNIT_MAXHEALTH", "UNIT_POWER_UPDATE",
+    "UNIT_MAXPOWER", "UNIT_AURA", "UNIT_NAME_UPDATE", "UNIT_PET", "PLAYER_ROLES_ASSIGNED" }) do
+    pcall(gfEv.RegisterEvent, gfEv, e)
 end
 
 ------------------------------------------------------------------------------------------
@@ -2027,6 +2326,15 @@ local function sanitize(src, template)
             for _, e in ipairs(HOVER_FRAMES) do
                 if type(v) == "table" and v[e[1]] == true then out.hover[e[1]] = true end
             end
+        elseif k == "spells" then -- a list of { id, corner, show }
+            out.spells = {}
+            for _, sp in ipairs(type(v) == "table" and v or {}) do
+                local id, corner = type(sp) == "table" and sp.id, type(sp) == "table" and sp.corner
+                if type(id) == "number" and id == id and id > 0 and CORNER_BY_KEY[corner] then
+                    out.spells[#out.spells + 1] = { id = math.floor(id), corner = corner,
+                        show = sp.show ~= false }
+                end
+            end
         elseif k == "slots" then -- a permutation of the totem slots, no gaps, no repeats
             local seen = {}
             out.slots = {}
@@ -2344,7 +2652,7 @@ local function buildConfig()
 
     -- Sidebar: one entry per module
     local SIDEBAR = { { "combat", "Combat Display", "regular" }, { "nameplates", "Nameplates", "nameplate" },
-        { "other", "Other", "regular" } }
+        { "group", "Group frames", "regular" }, { "other", "Other", "regular" } }
     for i, e in ipairs(SIDEBAR) do
         local b = button(cfg, e[2], 118, 12, -104 - (i - 1) * 26, function()
             section, mode = e[1], e[3]
@@ -2366,6 +2674,8 @@ local function buildConfig()
     questPage:SetAllPoints(barsPage)
     local otherPage = CreateFrame("Frame", nil, cfg)
     otherPage:SetAllPoints(barsPage)
+    local groupPage = CreateFrame("Frame", nil, cfg)
+    groupPage:SetAllPoints(barsPage)
 
     local title = label(cfg, "Combat Display", "GameFontNormalLarge")
     title:SetPoint("TOPLEFT", 150, -72)
@@ -2377,11 +2687,13 @@ local function buildConfig()
     onRefresh(function()
         local np = section == "nameplates"
         title:SetShown(not np)
-        title:SetText(section == "other" and "Other" or "Combat Display")
+        title:SetText(section == "other" and "Other"
+            or section == "group" and "Group frames" or "Combat Display")
         for _, t in ipairs(tabs) do t:SetShown(np) end
         barsPage:SetShown(section == "combat" or (np and sub == "bars"))
         questPage:SetShown(np and sub == "quest")
         otherPage:SetShown(section == "other")
+        groupPage:SetShown(section == "group")
     end)
 
     local tabNote = label(barsPage, "", "GameFontDisableSmall")
@@ -2782,6 +3094,174 @@ local function buildConfig()
     mmNote:SetWidth(182)
     mmNote:SetJustifyH("LEFT")
     mm:close()
+
+    ----------------------------------------------------------------------------------
+    -- Group frames page: one set of settings per group size, plus the aura list
+    ----------------------------------------------------------------------------------
+    ns.groupEdit = "party"
+    local G = function() return db.group[ns.groupEdit] end
+    local sizes = group(groupPage, COL[1], TOP, 202, "Group size")
+    for _, e in ipairs({ { "party", "Party (5)" }, { "raid10", "Raid (10)" }, { "raid20", "Raid (20)" },
+        { "raid40", "Raid (40)" } }) do
+        local b = button(groupPage, e[2], 186, sizes.x, sizes:row(BUTTON), function()
+            ns.groupEdit = e[1]
+            changed()
+        end)
+        onRefresh(function()
+            if ns.groupEdit == e[1] then b:LockHighlight() else b:UnlockHighlight() end
+        end)
+    end
+    check(groupPage, "Show these frames", sizes.x, sizes:row(ROW), function() return G().show end,
+        function(v) G().show = v end)
+    check(groupPage, "Show without a group", sizes.x, sizes:row(ROW), function() return G().test end,
+        function(v) G().test = v end)
+    local glock = button(groupPage, "", 186, sizes.x, sizes:row(BUTTON), function()
+        db.group.locked = not db.group.locked
+        changed()
+    end)
+    onRefresh(function()
+        glock:SetText(db.group.locked and "Locked (click to unlock)" or "Unlocked - drag them")
+    end)
+    slider(groupPage, "X (left / right)", sizes.x, sizes:row(SLIDER), -1200, 1200,
+        function() return G().x end, function(v) G().x = v end)
+    slider(groupPage, "Y (down / up)", sizes.x, sizes:row(SLIDER), -800, 800,
+        function() return G().y end, function(v) G().y = v end)
+    sizes:close()
+
+    local shape = group(groupPage, COL[2], TOP, 202, "Frame shape")
+    slider(groupPage, "Width", shape.x, shape:row(SLIDER), 30, 300, function() return G().width end,
+        function(v) G().width = v end)
+    slider(groupPage, "Height", shape.x, shape:row(SLIDER), 12, 200, function() return G().height end,
+        function(v) G().height = v end)
+    slider(groupPage, "Power bar height", shape.x, shape:row(SLIDER), 0, 30,
+        function() return G().powerHeight end, function(v) G().powerHeight = v end)
+    slider(groupPage, "Gap", shape.x, shape:row(SLIDER), 0, 30, function() return G().gap end,
+        function(v) G().gap = v end)
+    slider(groupPage, "Per row / column", shape.x, shape:row(SLIDER), 1, 40,
+        function() return G().perLine end, function(v) G().perLine = v end)
+    dropdown(groupPage, "Grows", shape.x, shape:row(DROP), { { "Right, then down", "right" },
+        { "Left, then down", "left" }, { "Down, then right", "down" }, { "Up, then right", "up" } },
+        function() return G().grow end, function(v) G().grow = v end, textPreview)
+    check(groupPage, "Pet frames below", shape.x, shape:row(ROW), function() return G().pets end,
+        function(v) G().pets = v end)
+    slider(groupPage, "Pet frame height", shape.x, shape:row(SLIDER), 4, 40,
+        function() return G().petHeight end, function(v) G().petHeight = v end)
+    shape:close()
+
+    local nm = group(groupPage, COL[1], sizes.cursor - 20, 202, "Name")
+    dropdown(groupPage, "Name font", nm.x, nm:row(DROP), FONTS, function() return G().font end,
+        function(v) G().font = v end, fontPreview)
+    slider(groupPage, "Name size", nm.x, nm:row(SLIDER), 6, 24, function() return G().fontSize end,
+        function(v) G().fontSize = v end)
+    check(groupPage, "Outline", nm.x, nm:row(ROW), function() return G().outline end,
+        function(v) G().outline = v end)
+    swatch(groupPage, "Name color", nm.x, nm:row(SWATCH), function() return G().nameColor end)
+    nm:close()
+
+    local look3 = group(groupPage, COL[3], TOP, 202, "Colors and border")
+    dropdown(groupPage, "Texture", look3.x, look3:row(DROP), TEXTURES, function() return G().texture end,
+        function(v) G().texture = v end, texturePreview)
+    check(groupPage, "Class colors", look3.x, look3:row(ROW), function() return G().classColor end,
+        function(v) G().classColor = v end)
+    swatch(groupPage, "Health color", look3.x, look3:row(SWATCH), function() return G().color end)
+    swatch(groupPage, "Background", look3.x, look3:row(SWATCH), function() return G().bgColor end)
+    slider(groupPage, "Border thickness", look3.x, look3:row(SLIDER), 0, 8,
+        function() return G().borderSize end, function(v) G().borderSize = v end)
+    swatch(groupPage, "Border color", look3.x, look3:row(SWATCH), function() return G().borderColor end)
+    dropdown(groupPage, "Corner radius", look3.x, look3:row(DROP), { { "None (square)", 0 }, { "2 px", 2 },
+        { "4 px", 4 }, { "8 px", 8 }, { "16 px", 16 }, { "Pill", "pill" } },
+        function() return G().radius end, function(v) G().radius = v end, textPreview)
+    look3:close()
+
+    local hov = group(groupPage, COL[3], look3.cursor - 20, 202, "Under the cursor")
+    local GH = function() return db.group.hover end
+    check(groupPage, "Highlight overlay", hov.x, hov:row(ROW), function() return GH().show end,
+        function(v) GH().show = v end)
+    swatch(groupPage, "Overlay color", hov.x, hov:row(SWATCH), function() return GH().color end)
+    slider(groupPage, "Overlay opacity (%)", hov.x, hov:row(SLIDER), 0, 100,
+        function() return math.floor(GH().color[4] * 100 + 0.5) end,
+        function(v) GH().color[4] = v / 100 end)
+    check(groupPage, "Border", hov.x, hov:row(ROW), function() return GH().border end,
+        function(v) GH().border = v end)
+    swatch(groupPage, "Border color", hov.x, hov:row(SWATCH), function() return GH().borderColor end)
+    hov:close()
+
+    -- Column 4: which of your own auras show on the frames, and in which corner
+    local aur = group(groupPage, COL[4], TOP, 202, "Your auras on the frames")
+    slider(groupPage, "Icon size", aur.x, aur:row(SLIDER), 6, 40, function() return G().auraSize end,
+        function(v) G().auraSize = v end)
+    local addBox = CreateFrame("EditBox", nil, groupPage, "InputBoxTemplate")
+    addBox:SetSize(120, 20)
+    addBox:SetPoint("TOPLEFT", aur.x + 6, aur:row(ROW) - 2)
+    addBox:SetAutoFocus(false)
+    label(groupPage, "Spell ID", "GameFontNormalSmall"):SetPoint("BOTTOMLEFT", addBox, "TOPLEFT", -4, 2)
+    button(groupPage, "Add", 46, aur.x + 134, aur.cursor + ROW - 2, function()
+        local id = tonumber(addBox:GetText())
+        if id and id > 0 then
+            table.insert(db.group.spells, { id = math.floor(id), corner = "topleft", show = true })
+            addBox:SetText("")
+            addBox:ClearFocus()
+            changed()
+        end
+    end)
+    for i = 1, 8 do
+        local y = aur:row(ROW)
+        local nameLbl = label(groupPage, "", "GameFontHighlightSmall")
+        nameLbl:SetPoint("TOPLEFT", aur.x + 2, y - 6)
+        nameLbl:SetWidth(84)
+        nameLbl:SetJustifyH("LEFT")
+        local onBtn = check(groupPage, "", aur.x + 88, y, function()
+            local sp = db.group.spells[i]
+            return sp and sp.show
+        end, function(v)
+            local sp = db.group.spells[i]
+            if sp then sp.show = v end
+        end)
+        local cornerBtn = button(groupPage, "", 56, aur.x + 112, y, function()
+            local sp = db.group.spells[i]
+            if not sp then return end
+            for k, c in ipairs(CORNERS) do
+                if c[1] == sp.corner then
+                    sp.corner = CORNERS[k % #CORNERS + 1][1]
+                    break
+                end
+            end
+            changed()
+        end)
+        local delBtn = button(groupPage, "X", 22, aur.x + 170, y, function()
+            table.remove(db.group.spells, i)
+            changed()
+        end)
+        onRefresh(function()
+            local sp = db.group.spells[i]
+            for _, w in ipairs({ onBtn, cornerBtn, delBtn }) do w:SetShown(sp ~= nil) end
+            if not sp then
+                nameLbl:SetText("")
+                return
+            end
+            local info = C_Spell and C_Spell.GetSpellInfo and C_Spell.GetSpellInfo(sp.id)
+            nameLbl:SetText((type(info) == "table" and info.name) or ("#" .. sp.id))
+            cornerBtn:SetText(({ topleft = "Top L", topright = "Top R", bottomleft = "Bot L",
+                bottomright = "Bot R" })[sp.corner])
+        end)
+    end
+    local aurNote = label(groupPage, "Your own buffs only, and only the ones listed here. A spell the "
+        .. "client keeps secret can't be read at all.", "GameFontDisableSmall")
+    aurNote:SetPoint("TOPLEFT", aur.x, aur:row(30))
+    aurNote:SetWidth(182)
+    aurNote:SetJustifyH("LEFT")
+    aur:close()
+
+    local rl = group(groupPage, COL[4], aur.cursor - 20, 202, "Role icon")
+    check(groupPage, "Show role icon", rl.x, rl:row(ROW), function() return G().role end,
+        function(v) G().role = v end)
+    slider(groupPage, "Size", rl.x, rl:row(SLIDER), 6, 40, function() return G().roleSize end,
+        function(v) G().roleSize = v end)
+    slider(groupPage, "X (from the center)", rl.x, rl:row(SLIDER), -100, 100,
+        function() return G().roleX end, function(v) G().roleX = v end)
+    slider(groupPage, "Y (from the center)", rl.x, rl:row(SLIDER), -100, 100,
+        function() return G().roleY end, function(v) G().roleY = v end)
+    rl:close()
 
     local FS = function() return db.other.fsr end
     local spin = group(otherPage, COL[4], mouse.cursor - 20, 202, "Mana regen spinner")
