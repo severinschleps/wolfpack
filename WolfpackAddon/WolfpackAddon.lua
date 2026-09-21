@@ -1903,6 +1903,9 @@ end
 -- used to vanish the moment a fight started. The name comes from our own list, so it is never
 -- secret, and nothing about the aura is read -- the icon comes from the spell and the duration
 -- object only gets passed on.
+-- Returns the aura, and whether the game answered at all. "It said no" and "it refused to
+-- say" are different: on a refusal the icons already on screen are left alone, because their
+-- timer bars keep draining in C without anyone reading them.
 function gf.auraFor(unit, name)
     local ok, data
     if C_UnitAuras.GetAuraDataBySpellName then -- ask for this one spell: nothing to read
@@ -1910,7 +1913,7 @@ function gf.auraFor(unit, name)
             local d = C_UnitAuras.GetAuraDataBySpellName(unit, name, "HELPFUL|PLAYER")
             if d then return d end
         end)
-        if ok and data then return data end
+        if ok then return data, true end
     end
     if C_UnitAuras.GetUnitAuras then -- the bulk list, which also answers in combat
         ok, data = pcall(function()
@@ -1918,7 +1921,7 @@ function gf.auraFor(unit, name)
                 if readable(d.name) and d.name == name then return d end
             end
         end)
-        if ok and data then return data end
+        if ok then return data, true end
     end
     ok, data = pcall(function() -- older builds: walk the list yourself
         for i = 1, 40 do
@@ -1927,14 +1930,19 @@ function gf.auraFor(unit, name)
             if readable(d.name) and d.name == name then return d end
         end
     end)
-    if ok then return data end
+    if ok then return data, true end
+    return nil, false
 end
 
 -- Your own helpful auras, in the corners you picked for them.
 function gf.auras(f, cfg, unit)
-    local used, n = { 0, 0, 0, 0 }, 0
+    local used, n, refused = { 0, 0, 0, 0 }, 0, false
     for _, sp in ipairs(db.group.spells) do
-        local data = sp.show and gf.auraFor(unit, sp.name)
+        local data, ok
+        if sp.show then
+            data, ok = gf.auraFor(unit, sp.name)
+            refused = refused or not ok
+        end
         if data then
             local c, ci = CORNER_BY_KEY[sp.corner], 0
             for k, v in ipairs(CORNERS) do if v[1] == sp.corner then ci = k end end
@@ -1951,6 +1959,7 @@ function gf.auras(f, cfg, unit)
             ic:Show()
         end
     end
+    if refused then return end -- the game would not say: keep what is on screen
     for i = n + 1, #f.icons do f.icons[i]:Hide() end
 end
 
@@ -3554,7 +3563,41 @@ WolfpackAddon_Toggle = ns.ToggleConfig -- addon compartment (retail only, Foreve
 SLASH_WOLFPACKADDON1 = "/wolfpack"
 SLASH_WOLFPACKADDON2 = "/wp"
 SLASH_WOLFPACKADDON3 = "/cpd" -- the old name still works
-SlashCmdList.WOLFPACKADDON = function() safe(ns.ToggleConfig) end
+-- /cpd auras: says which aura calls this client has and whether they answer right now, which
+-- is the only way to tell from inside the game why a buff icon is missing.
+function ns.AuraReport()
+    local function say(t) print("|cff88ccffWolfpack:|r " .. t) end
+    say("in combat: " .. tostring(InCombatLockdown()) .. ", issecretvalue: "
+        .. tostring(issecretvalue ~= nil))
+    local probes = {
+        { "GetAuraDataBySpellName", function(n) return C_UnitAuras.GetAuraDataBySpellName("player", n, "HELPFUL|PLAYER") end },
+        { "GetUnitAuras", function() return C_UnitAuras.GetUnitAuras("player", "HELPFUL|PLAYER", 40) end },
+        { "GetAuraDataByIndex", function() return C_UnitAuras.GetAuraDataByIndex("player", 1, "HELPFUL|PLAYER") end },
+        { "GetUnitAuras HARMFUL|RAID", function() return C_UnitAuras.GetUnitAuras("player", "HARMFUL|RAID", 8) end },
+    }
+    local name = (db.group.spells[1] and db.group.spells[1].name) or "Renew"
+    for _, p in ipairs(probes) do
+        if not C_UnitAuras[(p[1]:gsub(" .*", ""))] then
+            say(p[1] .. ": not on this client")
+        else
+            local ok, res = pcall(p[2], name)
+            if not ok then
+                say(p[1] .. ": refused (" .. tostring(res):sub(1, 80) .. ")")
+            else
+                local n = 0
+                pcall(function() for _ in ipairs(res) do n = n + 1 end end)
+                say(p[1] .. ": answered, " .. (res == nil and "nothing" or (n > 0 and (n .. " entries")
+                    or "a value")))
+            end
+        end
+    end
+    say("looking for: " .. name)
+end
+
+SlashCmdList.WOLFPACKADDON = function(msg)
+    if (msg or ""):lower():find("aura") then return safe(ns.AuraReport) end
+    safe(ns.ToggleConfig)
+end
 
 -- Minimap icon: left-click options, right-click lock/unlock, drag to move around the minimap.
 -- ponytail: assumes a round minimap; square minimap addons would need corner math.

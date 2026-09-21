@@ -1437,6 +1437,12 @@ C_UnitAuras.GetAuraDataBySpellName = nil -- a build without it falls back to the
 fire("UNIT_MAXPOWER")
 assert(gfr[1].icons[1]:IsShown(), "and again without the by-name lookup")
 C_UnitAuras.GetAuraDataBySpellName = byName
+-- a client that refuses every route keeps the icons that are already up, timers and all
+local bulk = C_UnitAuras.GetUnitAuras
+C_UnitAuras.GetAuraDataBySpellName, C_UnitAuras.GetUnitAuras = nil, nil
+fire("UNIT_MAXPOWER")
+assert(gfr[1].icons[1]:IsShown(), "a refusal leaves the icons alone")
+C_UnitAuras.GetAuraDataBySpellName, C_UnitAuras.GetUnitAuras = byName, bulk
 S.combat = false
 gp.spells[1].show = false
 fire("UNIT_MAXPOWER")
