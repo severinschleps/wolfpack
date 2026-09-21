@@ -216,6 +216,17 @@ local CLASS_BUFFS = {
     ROGUE = { { "Slice and Dice", 5171 }, { "Sprint", 2983 }, { "Evasion", 5277 }, { "Stealth", 1784 } },
 }
 
+-- What each class can take off someone, and the color the frame border turns when it can.
+local DISPELS = {
+    PRIEST = { Magic = true, Disease = true },
+    PALADIN = { Magic = true, Poison = true, Disease = true },
+    DRUID = { Curse = true, Poison = true },
+    MAGE = { Curse = true },
+    SHAMAN = { Poison = true, Disease = true },
+    WARLOCK = { Magic = true }, -- the felhunter's Devour Magic
+}
+local DISPEL_TYPES = { "Magic", "Curse", "Poison", "Disease" }
+
 -- One group-frame layout per group size. Frames grow in `grow`, wrapping after `perLine`.
 local function groupDefaults(perLine, w, h, ph, y)
     return {
@@ -263,6 +274,9 @@ DEFAULTS.group = {
     spells = {}, -- { id, corner, show }: which of your auras show, and where
     -- what a frame looks like under the cursor
     hover = { show = true, color = { 1, 1, 1, 0.15 }, border = true, borderColor = { 1, 1, 1, 0.8 } },
+    -- border color when the unit has something you can take off
+    dispel = { show = true, Magic = { 0.2, 0.5, 1, 1 }, Curse = { 0.65, 0.25, 0.95, 1 },
+        Poison = { 0.2, 0.85, 0.25, 1 }, Disease = { 0.95, 0.6, 0.15, 1 } },
 }
 
 DEFAULTS.regular.bars.health.target = false -- target health bar right of it (Combat Display only)
@@ -1814,6 +1828,8 @@ function gf.make(parent)
     f.name:SetPoint("CENTER")
     f.role = f:CreateTexture(nil, "OVERLAY")
     f.role:SetTexture("Interface\\LFGFrame\\UI-LFG-ICON-ROLES")
+    f.ring = f:CreateTexture(nil, "OVERLAY", nil, -8) -- dispel ring, for frames with no border
+    f.ring:Hide()
     f.hl = f:CreateTexture(nil, "OVERLAY", nil, -7)
     f.hlBorder = f:CreateTexture(nil, "OVERLAY", nil, -6)
     f.hl:Hide()
@@ -1909,6 +1925,35 @@ function gf.shortName(unit)
     return out
 end
 
+-- A debuff you can take off turns the border its color: blue for magic, purple for a curse,
+-- green for poison, orange for disease. Debuff data can be secret, so every read is wrapped.
+function gf.dispel(f, cfg, unit)
+    local can, found = DISPELS[class or ""], nil
+    if can and db.group.dispel.show then
+        for i = 1, 40 do
+            local ok, data = pcall(C_UnitAuras.GetAuraDataByIndex, unit, i, "HARMFUL")
+            if not ok or not data then break end
+            pcall(function()
+                local kind = data.dispelName
+                if kind and can[kind] then found = kind end
+            end)
+            if found then break end
+        end
+    end
+    local col = found and db.group.dispel[found]
+    local t = math.min(cfg.borderSize, (cfg.height - 1) / 2, (cfg.width - 1) / 2)
+    if col and t > 0 then -- there is a border already: recolor it
+        f.border:SetColorTexture(col[1], col[2], col[3], col[4])
+        f.ring:Hide()
+    elseif col then -- no border on this layout: a ring around the frame instead
+        f.ring:SetColorTexture(col[1], col[2], col[3], col[4])
+        f.ring:Show()
+    else
+        f.border:SetColorTexture(unpack(cfg.borderColor))
+        f.ring:Hide()
+    end
+end
+
 -- Health, power, name, role and auras for one unit.
 function gf.update(f, cfg, unit)
     if not UnitExists(unit) then
@@ -1937,6 +1982,7 @@ function gf.update(f, cfg, unit)
         f.role:Hide()
     end
     gf.auras(f, cfg, unit)
+    gf.dispel(f, cfg, unit)
 end
 
 -- Size, colors and border of one frame; the same shape the bars use.
@@ -1965,6 +2011,9 @@ function gf.style(f, cfg)
     local flags = cfg.outline and "OUTLINE" or ""
     if not f.name:SetFont(cfg.font, cfg.fontSize, flags) then f.name:SetFont(FONTS[1][2], cfg.fontSize, flags) end
     f.name:SetTextColor(unpack(cfg.nameColor))
+    f.ring:ClearAllPoints()
+    f.ring:SetPoint("TOPLEFT", -1, 1)
+    f.ring:SetPoint("BOTTOMRIGHT", 1, -1)
     local h = db.group.hover
     f.hl:SetAllPoints()
     f.hl:SetColorTexture(unpack(h.color))
@@ -3270,7 +3319,7 @@ local function buildConfig()
         function() return G().radius end, function(v) G().radius = v end, textPreview)
     look3:close()
 
-    local hov = group(groupPage, COL[3], look3.cursor - 20, 202, "Under the cursor")
+    local hov = group(groupPage, COL[3], look3.cursor - 20, 202, "Highlights")
     local GH = function() return db.group.hover end
     check(groupPage, "Highlight overlay", hov.x, hov:row(ROW), function() return GH().show end,
         function(v) GH().show = v end)
@@ -3281,7 +3330,15 @@ local function buildConfig()
     check(groupPage, "Border", hov.x, hov:row(ROW), function() return GH().border end,
         function(v) GH().border = v end)
     swatch(groupPage, "Border color", hov.x, hov:row(SWATCH), function() return GH().borderColor end)
+    -- The border also says what you could take off this unit, in the colors below.
+    local GD = function() return db.group.dispel end
+    check(groupPage, "Border on dispellable", hov.x, hov:row(ROW), function() return GD().show end,
+        function(v) GD().show = v end)
+    for _, kind in ipairs(DISPEL_TYPES) do
+        swatch(groupPage, kind, hov.x, hov:row(SWATCH), function() return GD()[kind] end)
+    end
     hov:close()
+
 
     -- Column 4: your class's buffs, ticked on or off, and the settings of the one you picked
     local aur = group(groupPage, COL[4], TOP, 202, "Your buffs")

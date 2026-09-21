@@ -175,7 +175,10 @@ GetNumGroupMembers = function() return S.members or 0 end
 UnitGroupRolesAssigned = function(unit) return (S.units or {})[unit] or "NONE" end
 GetTexCoordsForRoleSmallCircle = function() return 0, 0.5, 0, 0.5 end
 C_UnitAuras = {
-    GetAuraDataByIndex = function(unit, i) return (S.auras or {})[i] end,
+    GetAuraDataByIndex = function(unit, i, filter)
+        if filter == "HARMFUL" then return (S.debuffs or {})[i] end
+        return (S.auras or {})[i]
+    end,
     GetAuraDuration = function() return { IsZero = function() return false end } end,
 }
 S.time = 1000
@@ -1355,8 +1358,29 @@ assert(gfr[1].hl:IsShown(), "and so is the one under the cursor")
 gfr[1]._scripts.OnLeave(gfr[1])
 assert(not gfr[1].hl:IsShown(), "which goes out again")
 S.targetUnit = nil
--- the class list fills itself in, so a priest can just tick what they want
+-- a debuff the class can take off turns the border its color
 login("PRIEST", 0)
+prof().group.party.test, prof().group.hover.show = true, true
+prof().group.dispel.show = true
+S.debuffs = { { dispelName = "Curse" } }
+fire("UNIT_MAXPOWER")
+local pf = ns.gf.frames[1]
+assert(pf.border._color[1] == 0 and pf.border._color[3] == 0, "a curse is not a priest's problem")
+S.debuffs = { { dispelName = "Magic" } }
+fire("UNIT_MAXPOWER")
+assert(pf.border._color[3] == 1 and pf.border._color[1] == 0.2, "magic turns the border blue")
+S.debuffs = { { dispelName = "Disease" } }
+fire("UNIT_MAXPOWER")
+assert(pf.border._color[1] == 0.95, "disease turns it orange")
+prof().group.party.borderSize = 0
+fire("UNIT_MAXPOWER")
+assert(pf.ring:IsShown() and pf.ring._color[1] == 0.95, "no border on this layout: a ring instead")
+S.debuffs = nil
+fire("UNIT_MAXPOWER")
+assert(not pf.ring:IsShown(), "nothing to take off: back to normal")
+prof().group.party.borderSize = 1
+
+-- the class list fills itself in, so a priest can just tick what they want
 prof().group.party.test = true
 prof().group.hover.show = true
 fire("UNIT_MAXPOWER")
