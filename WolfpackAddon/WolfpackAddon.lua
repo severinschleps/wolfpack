@@ -1959,7 +1959,10 @@ function gf.auras(f, cfg, unit)
             ic:Show()
         end
     end
-    if refused then return end -- the game would not say: keep what is on screen
+    -- In combat this client answers "nothing" for every aura instead of refusing, so a rebuild
+    -- could only ever wipe icons. Either way, keep what is on screen: the timer bars go on
+    -- draining in C, and the next refresh out of combat sets it straight.
+    if refused or (n == 0 and InCombatLockdown()) then return end
     for i = n + 1, #f.icons do f.icons[i]:Hide() end
 end
 

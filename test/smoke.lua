@@ -1448,6 +1448,11 @@ local bulk = C_UnitAuras.GetUnitAuras
 C_UnitAuras.GetAuraDataBySpellName, C_UnitAuras.GetUnitAuras = nil, nil
 fire("UNIT_MAXPOWER")
 assert(gfr[1].icons[1]:IsShown(), "a refusal leaves the icons alone")
+-- and this client's actual behaviour: it answers "nothing" for everything while fighting
+C_UnitAuras.GetAuraDataBySpellName = function() return nil end
+C_UnitAuras.GetUnitAuras = function() return {} end
+fire("UNIT_MAXPOWER")
+assert(gfr[1].icons[1]:IsShown(), "an empty answer in combat leaves them alone too")
 C_UnitAuras.GetAuraDataBySpellName, C_UnitAuras.GetUnitAuras = byName, bulk
 S.combat = false
 gp.spells[1].show = false
