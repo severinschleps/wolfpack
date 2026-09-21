@@ -1420,6 +1420,34 @@ fire("UNIT_MAXPOWER")
 assert(not d.border:IsShown() and not d.hl:IsShown(), "switched off: their own look is back")
 gp.useBlizzard = true
 
+-- Buff reminders: an icon for each buff on the list you do not have
+login("PRIEST", 0)
+local bo = prof().buffs
+bo.show, bo.locked, bo.size, bo.perLine, bo.gap = true, true, 30, 2, 2
+prof().locked, ns.configOpen = true, false -- no preview row while we check the real answers
+S.auras = { { name = "Inner Fire", spellId = 588, auraInstanceID = 3 } }
+for _, e in ipairs(ns.bf.known()) do e.show = e.name == "Inner Fire" or e.name == "Power Word: Fortitude" end
+ns.bfEv._scripts.OnEvent(ns.bfEv, "UNIT_AURA")
+local bi = ns.bf.icons
+assert(ns.bf.anchor:IsShown() and bi[1]:IsShown(), "the missing one shows")
+assert(bi[1].tex._tex == 100 + 1243 and not (bi[2] and bi[2]:IsShown()), "only that one")
+S.auras = { { name = "Inner Fire" }, { name = "Power Word: Fortitude" } }
+ns.bfEv._scripts.OnEvent(ns.bfEv, "UNIT_AURA")
+assert(not bi[1]:IsShown(), "all buffed: nothing to show")
+-- in combat the game refuses, so the row keeps what it last knew
+S.auras = {}
+ns.bfEv._scripts.OnEvent(ns.bfEv, "UNIT_AURA")
+assert(bi[1]:IsShown() and bi[2]:IsShown(), "both missing now")
+S.combat = true
+C_UnitAuras.GetAuraDataBySpellName, C_UnitAuras.GetUnitAuras = nil, nil
+ns.bfEv._scripts.OnEvent(ns.bfEv, "UNIT_AURA")
+assert(bi[1]:IsShown(), "combat: the row holds its last answer")
+bo.hideInCombat = true
+ns.bfEv._scripts.OnEvent(ns.bfEv, "UNIT_AURA")
+assert(not ns.bf.anchor:IsShown(), "unless you would rather see nothing")
+bo.hideInCombat, S.combat = false, false
+login("ROGUE", 3)
+
 SlashCmdList.WOLFPACKADDON("blizz")
 SlashCmdList.WOLFPACKADDON("auras") -- the probe must not error, whatever the client has
 SlashCmdList.WOLFPACKADDON("")

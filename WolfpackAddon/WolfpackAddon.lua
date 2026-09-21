@@ -216,6 +216,13 @@ local DEFAULTS = {
     },
 }
 
+-- Buff reminders: an icon for each buff on the list you are missing.
+DEFAULTS.buffs = {
+    show = false, locked = true, x = 0, y = -180, size = 36, gap = 4, perLine = 8,
+    grow = "right", hideInCombat = false, desaturate = false,
+    list = {}, -- { name, id, show }
+}
+
 -- Blizzard's raid frames, restyled. Their layout is Edit Mode's; this is only the look.
 DEFAULTS.group = {
     useBlizzard = true,
@@ -253,7 +260,7 @@ end
 ------------------------------------------------------------------------------------------
 -- store = WolfpackAddonDB, account-wide: { profiles = { [name] = settings }, chars = { [char] = name } }
 -- db = the active profile's settings.
-local changed, placeMini, useProfile, bz -- defined further down
+local changed, placeMini, useProfile, bz, bf -- defined further down
 
 -- Bars that only show while they are doing something (cast, swing) stay visible while the bars
 -- are unlocked or the options are open, so they can be placed.
@@ -1662,6 +1669,7 @@ local function Refresh()
     syncGryphons()
     syncCombatIcon()
     bz.sync()
+    bf.refresh()
     fsr:sync()
     syncHover()
     syncBags()
@@ -1678,6 +1686,161 @@ local function safe(fn, ...)
         ns.errored = true
         print("|cffff5555Wolfpack Addon error:|r " .. tostring(err))
     end
+end
+
+------------------------------------------------------------------------------------------
+-- Buff reminders: an icon for every buff on your list that you are missing. Out of combat the
+-- game answers "do you have this aura", by name, with fields we may read. In combat it refuses
+-- every aura call, so the row keeps its last answer rather than making one up.
+------------------------------------------------------------------------------------------
+-- The buffs a class hands out, by name so every rank counts, with an id for the game's icon.
+local CLASS_BUFFS = {
+    PRIEST = { { "Power Word: Fortitude", 1243 }, { "Divine Spirit", 14752 },
+        { "Shadow Protection", 976 }, { "Inner Fire", 588 }, { "Prayer of Fortitude", 21562 },
+        { "Prayer of Spirit", 27681 }, { "Prayer of Shadow Protection", 27683 } },
+    DRUID = { { "Mark of the Wild", 1126 }, { "Gift of the Wild", 21849 }, { "Thorns", 467 },
+        { "Omen of Clarity", 16864 } },
+    PALADIN = { { "Blessing of Might", 19740 }, { "Blessing of Wisdom", 19742 },
+        { "Blessing of Kings", 20217 }, { "Blessing of Salvation", 1038 },
+        { "Blessing of Sanctuary", 20911 }, { "Devotion Aura", 465 } },
+    MAGE = { { "Arcane Intellect", 1459 }, { "Arcane Brilliance", 23028 }, { "Ice Barrier", 13031 },
+        { "Mana Shield", 1463 }, { "Dampen Magic", 604 }, { "Amplify Magic", 1008 } },
+    SHAMAN = { { "Lightning Shield", 324 }, { "Water Shield", 52127 }, { "Earth Shield", 974 } },
+    WARLOCK = { { "Demon Skin", 696 }, { "Demon Armor", 706 }, { "Unending Breath", 5697 },
+        { "Detect Invisibility", 132 } },
+    WARRIOR = { { "Battle Shout", 6673 } },
+    HUNTER = { { "Aspect of the Hawk", 13165 }, { "Trueshot Aura", 19506 } },
+    ROGUE = { { "Slice and Dice", 5171 } },
+}
+
+bf = { icons = {} }
+ns.bf = bf
+bf.anchor = CreateFrame("Frame", "WolfpackAddonBuffs", UIParent)
+bf.anchor:SetSize(10, 10)
+bf.anchor:SetMovable(true)
+bf.anchor:SetClampedToScreen(true)
+bf.anchor:RegisterForDrag("LeftButton")
+bf.anchor:SetScript("OnDragStart", function(a) a:StartMoving() end)
+bf.anchor:SetScript("OnDragStop", function(a)
+    a:StopMovingOrSizing()
+    local ux, uy = UIParent:GetCenter()
+    db.buffs.x = math.floor(a:GetCenter() - ux + 0.5)
+    db.buffs.y = math.floor(select(2, a:GetCenter()) - uy + 0.5)
+    changed()
+end)
+
+-- Your class's buffs, added to the list once so they can be ticked off.
+function bf.known()
+    local list, seen = db.buffs.list, {}
+    for _, e in ipairs(list) do
+        if e.name then seen[e.name] = e end
+    end
+    for _, e in ipairs(CLASS_BUFFS[class or ""] or {}) do
+        if not seen[e[1]] then
+            list[#list + 1] = { name = e[1], id = e[2], show = false }
+        end
+    end
+    return list
+end
+
+function bf.icon(sp)
+    bf.textures = bf.textures or {}
+    if bf.textures[sp.name] == nil then
+        local ok, tex = pcall(function()
+            return (C_Spell and C_Spell.GetSpellTexture and C_Spell.GetSpellTexture(sp.id))
+                or GetSpellTexture(sp.id)
+        end)
+        bf.textures[sp.name] = (ok and tex) or 134400
+    end
+    return bf.textures[sp.name]
+end
+
+-- Asks the game for one aura by name. Returns whether you have it, and whether it answered.
+function bf.has(name)
+    local ok, data
+    if C_UnitAuras.GetAuraDataBySpellName then
+        ok, data = pcall(function()
+            local d = C_UnitAuras.GetAuraDataBySpellName("player", name, "HELPFUL")
+            if d then return d end
+        end)
+        if ok then return data ~= nil, true end
+    end
+    ok, data = pcall(function()
+        for _, d in ipairs(C_UnitAuras.GetUnitAuras("player", "HELPFUL", 40)) do
+            if readable(d.name) and d.name == name then return d end
+        end
+    end)
+    if ok then return data ~= nil, true end
+    return false, false
+end
+
+function bf.slot(i)
+    local o = db.buffs
+    local ic = bf.icons[i]
+    if not ic then
+        ic = CreateFrame("Frame", nil, bf.anchor)
+        ic.tex = ic:CreateTexture(nil, "ARTWORK")
+        ic.tex:SetAllPoints()
+        ic.tex:SetTexCoord(0.08, 0.92, 0.08, 0.92)
+        bf.icons[i] = ic
+    end
+    local line, at = math.floor((i - 1) / o.perLine), (i - 1) % o.perLine
+    local dx, dy = o.size + o.gap, o.size + o.gap
+    local x, y = at * dx, -line * dy
+    if o.grow == "left" then x = -x end
+    if o.grow == "up" then x, y = line * dx, at * dy end
+    if o.grow == "down" then x, y = line * dx, -at * dy end
+    ic:SetSize(o.size, o.size)
+    ic:ClearAllPoints()
+    ic:SetPoint("TOPLEFT", bf.anchor, "TOPLEFT", x, y)
+    return ic
+end
+
+function bf.refresh()
+    local o = db.buffs
+    bf.anchor:ClearAllPoints()
+    bf.anchor:SetPoint("CENTER", UIParent, "CENTER", o.x, o.y)
+    bf.anchor:EnableMouse(not o.locked)
+    if not o.show or (o.hideInCombat and InCombatLockdown()) then
+        bf.anchor:Hide()
+        return
+    end
+    bf.anchor:Show()
+    bf.known()
+    local n, refused = 0, false
+    for _, sp in ipairs(o.list) do
+        if sp.show then
+            local has, answered = bf.has(sp.name)
+            if not answered then refused = true end
+            if answered and not has then
+                n = n + 1
+                local ic = bf.slot(n)
+                ic.tex:SetTexture(bf.icon(sp))
+                ic.tex:SetDesaturated(o.desaturate and true or false)
+                ic:Show()
+            end
+        end
+    end
+    if ns.previewing() and n == 0 then -- something to grab hold of while placing it
+        for i, sp in ipairs(o.list) do
+            if sp.show and n < o.perLine then
+                n = n + 1
+                local ic = bf.slot(n)
+                ic.tex:SetTexture(bf.icon(sp))
+                ic:Show()
+            end
+        end
+    end
+    if refused and n == 0 then return end -- in combat the game says nothing: keep the last row
+    for i = n + 1, #bf.icons do bf.icons[i]:Hide() end
+end
+
+local bfEv = CreateFrame("Frame")
+ns.bfEv = bfEv
+bfEv:SetScript("OnEvent", function() safe(bf.refresh) end)
+for _, e in ipairs({ "UNIT_AURA", "PLAYER_ENTERING_WORLD", "PLAYER_REGEN_ENABLED",
+    "PLAYER_REGEN_DISABLED", "PLAYER_ALIVE" }) do
+    pcall(bfEv.RegisterEvent, bfEv, e)
 end
 
 ------------------------------------------------------------------------------------------
@@ -2227,6 +2390,15 @@ local function sanitize(src, template)
             for _, e in ipairs(HOVER_FRAMES) do
                 if type(v) == "table" and v[e[1]] == true then out.hover[e[1]] = true end
             end
+        elseif k == "list" then -- buff reminders: { name, id, show }
+            out.list = {}
+            for _, e in ipairs(type(v) == "table" and v or {}) do
+                local name = type(e) == "table" and e.name
+                if type(name) == "string" and name ~= "" then
+                    out.list[#out.list + 1] = { name = name:sub(1, 64), id = tonumber(e.id) or 0,
+                        show = e.show == true }
+                end
+            end
         elseif k == "slots" then -- a permutation of the totem slots, no gaps, no repeats
             local seen = {}
             out.slots = {}
@@ -2544,7 +2716,8 @@ local function buildConfig()
 
     -- Sidebar: one entry per module
     local SIDEBAR = { { "combat", "Combat Display", "regular" }, { "nameplates", "Nameplates", "nameplate" },
-        { "group", "Group frames", "regular" }, { "other", "Other", "regular" } }
+        { "group", "Group frames", "regular" }, { "buffs", "Buffs", "regular" },
+        { "other", "Other", "regular" } }
     for i, e in ipairs(SIDEBAR) do
         local b = button(cfg, e[2], 118, 12, -104 - (i - 1) * 26, function()
             section, mode = e[1], e[3]
@@ -2568,6 +2741,8 @@ local function buildConfig()
     otherPage:SetAllPoints(barsPage)
     local groupPage = CreateFrame("Frame", nil, cfg)
     groupPage:SetAllPoints(barsPage)
+    local buffPage = CreateFrame("Frame", nil, cfg)
+    buffPage:SetAllPoints(barsPage)
 
     local title = label(cfg, "Combat Display", "GameFontNormalLarge")
     title:SetPoint("TOPLEFT", 150, -72)
@@ -2579,13 +2754,14 @@ local function buildConfig()
     onRefresh(function()
         local np = section == "nameplates"
         title:SetShown(not np)
-        title:SetText(section == "other" and "Other"
-            or section == "group" and "Group frames" or "Combat Display")
+        title:SetText(section == "other" and "Other" or section == "group" and "Group frames"
+            or section == "buffs" and "Buff reminders" or "Combat Display")
         for _, t in ipairs(tabs) do t:SetShown(np) end
         barsPage:SetShown(section == "combat" or (np and sub == "bars"))
         questPage:SetShown(np and sub == "quest")
         otherPage:SetShown(section == "other")
         groupPage:SetShown(section == "group")
+        buffPage:SetShown(section == "buffs")
     end)
 
     local tabNote = label(barsPage, "", "GameFontDisableSmall")
@@ -3048,6 +3224,92 @@ local function buildConfig()
     hovNote:SetWidth(182)
     hovNote:SetJustifyH("LEFT")
     hov:close()
+
+    ----------------------------------------------------------------------------------
+    -- Buffs page: which buffs to watch for, and where the missing ones show up
+    ----------------------------------------------------------------------------------
+    local B = function() return db.buffs end
+    local bset = group(buffPage, COL[1], TOP, 202, "Missing buff icons")
+    check(buffPage, "Show them", bset.x, bset:row(ROW), function() return B().show end,
+        function(v) B().show = v end)
+    check(buffPage, "Hide in combat", bset.x, bset:row(ROW), function() return B().hideInCombat end,
+        function(v) B().hideInCombat = v end)
+    check(buffPage, "Gray them out", bset.x, bset:row(ROW), function() return B().desaturate end,
+        function(v) B().desaturate = v end)
+    local blk = button(buffPage, "", 186, bset.x, bset:row(BUTTON), function()
+        B().locked = not B().locked
+        changed()
+    end)
+    onRefresh(function() blk:SetText(B().locked and "Locked (click to unlock)" or "Unlocked - drag them") end)
+    slider(buffPage, "Icon size", bset.x, bset:row(SLIDER), 12, 80, function() return B().size end,
+        function(v) B().size = v end)
+    slider(buffPage, "Gap", bset.x, bset:row(SLIDER), 0, 30, function() return B().gap end,
+        function(v) B().gap = v end)
+    slider(buffPage, "Per row / column", bset.x, bset:row(SLIDER), 1, 20,
+        function() return B().perLine end, function(v) B().perLine = v end)
+    dropdown(buffPage, "Grows", bset.x, bset:row(DROP), { { "Right, then down", "right" },
+        { "Left, then down", "left" }, { "Down, then right", "down" }, { "Up, then right", "up" } },
+        function() return B().grow end, function(v) B().grow = v end, textPreview)
+    bset:close()
+
+    local bpos = group(buffPage, COL[2], TOP, 202, "Where they sit")
+    slider(buffPage, "X (left / right)", bpos.x, bpos:row(SLIDER), -1200, 1200,
+        function() return B().x end, function(v) B().x = v end)
+    slider(buffPage, "Y (down / up)", bpos.x, bpos:row(SLIDER), -800, 800,
+        function() return B().y end, function(v) B().y = v end)
+    local bposNote = label(buffPage, "Out of combat the game answers which buffs you are missing. "
+        .. "In combat it refuses every aura question, so the row holds its last answer -- tick "
+        .. "\"Hide in combat\" if you would rather see nothing than something stale.",
+        "GameFontDisableSmall")
+    bposNote:SetPoint("TOPLEFT", bpos.x, bpos:row(60))
+    bposNote:SetWidth(182)
+    bposNote:SetJustifyH("LEFT")
+    bpos:close()
+
+    local blist = group(buffPage, COL[3], TOP, 202, "Buffs to watch")
+    local addBuff = CreateFrame("EditBox", nil, buffPage, "InputBoxTemplate")
+    addBuff:SetSize(120, 20)
+    addBuff:SetPoint("TOPLEFT", blist.x + 6, blist:row(ROW) - 2)
+    addBuff:SetAutoFocus(false)
+    label(buffPage, "Add by name", "GameFontNormalSmall"):SetPoint("BOTTOMLEFT", addBuff, "TOPLEFT", -4, 2)
+    button(buffPage, "Add", 46, blist.x + 134, blist.cursor + ROW - 2, function()
+        local name = strtrim(addBuff:GetText() or "")
+        if name ~= "" then
+            table.insert(db.buffs.list, { name = name, id = 0, show = true })
+            addBuff:SetText("")
+            addBuff:ClearFocus()
+            changed()
+        end
+    end)
+    for i = 1, 14 do
+        local y = blist:row(22)
+        local icon = buffPage:CreateTexture(nil, "ARTWORK")
+        icon:SetSize(16, 16)
+        icon:SetPoint("TOPLEFT", blist.x + 4, y - 2)
+        icon:SetTexCoord(0.08, 0.92, 0.08, 0.92)
+        local nameLbl = label(buffPage, "", "GameFontHighlightSmall")
+        nameLbl:SetPoint("TOPLEFT", blist.x + 26, y - 6)
+        nameLbl:SetWidth(120)
+        nameLbl:SetJustifyH("LEFT")
+        local onBtn = check(buffPage, "", blist.x + 154, y + 2, function()
+            local sp = ns.bf.known()[i]
+            return sp and sp.show
+        end, function(v)
+            local sp = ns.bf.known()[i]
+            if sp then sp.show = v end
+        end)
+        onRefresh(function()
+            local sp = ns.bf.known()[i]
+            icon:SetShown(sp ~= nil)
+            onBtn:SetShown(sp ~= nil)
+            nameLbl:SetText(sp and sp.name or "")
+            if sp then
+                icon:SetTexture(ns.bf.icon(sp))
+                nameLbl:SetTextColor(1, 1, 1, sp.show and 1 or 0.45)
+            end
+        end)
+    end
+    blist:close()
 
     local FS = function() return db.other.fsr end
     local spin = group(otherPage, COL[4], mouse.cursor - 20, 202, "Mana regen spinner")
