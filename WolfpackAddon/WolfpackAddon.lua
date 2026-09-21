@@ -114,6 +114,25 @@ end
 -- One bar per weapon; the Swing Timer bar shows the ones ticked here.
 local SWING_TYPES = { { "main", "Main hand", 0 }, { "off", "Off hand", 1 }, { "ranged", "Ranged", 2 } }
 
+-- Incoming heals come from a calculator object: it takes the secret numbers and hands the bar a
+-- value it can draw, so nothing is read here either. The cost of the spell being cast is read
+-- once per cast and only ever passed on.
+local healCalc = CreateUnitHealPredictionCalculator and CreateUnitHealPredictionCalculator()
+local castCost = { value = nil, have = false }
+
+-- Only the cost of the power the bar is showing counts, and the number itself may be secret:
+-- a plain flag says whether one was found.
+function castCost:track(event, spellID)
+    self.have = false
+    if event ~= "UNIT_SPELLCAST_START" and event ~= "UNIT_SPELLCAST_CHANNEL_START" then return end
+    local ptype = UnitPowerType("player")
+    pcall(function()
+        for _, cost in ipairs(C_Spell.GetSpellPowerCost(spellID) or {}) do
+            if cost.type == ptype then self.value, self.have = cost.cost, true end
+        end
+    end)
+end
+
 -- The Shield bar fills to the size the shield had when it landed. That size can't be computed
 -- from a secret, and the aura payload that would announce a new shield is secret through and
 -- through -- even its isFullUpdate flag. What is readable is the clock and our own casts, so an
@@ -155,6 +174,8 @@ local function layoutDefaults(show, x, y, gap, width, h1, h2, h3, h4, h5, h6, h7
     l.bars.power.colorMode = "power"
     l.bars.castbar.icon, l.bars.castbar.iconSide = true, "left"
     l.bars.swing.main, l.bars.swing.off, l.bars.swing.ranged = true, false, false
+    l.bars.health.heal, l.bars.health.healColor = false, { 0.4, 1, 0.5, 0.45 } -- incoming heals
+    l.bars.power.cost, l.bars.power.costColor = false, { 1, 1, 1, 0.35 } -- what the cast will take
     l.bars.totems.slots = { 1, 2, 3, 4 } -- left to right: which totem slot each segment shows
     l.bars.totems.slotColors = { { 1, 0.3, 0.1, 1 }, { 0.5, 0.35, 0.2, 1 }, -- by slot, so a color
         { 0.2, 0.5, 1, 1 }, { 0.6, 0.5, 0.9, 1 } }                          -- sticks to its element
@@ -566,6 +587,29 @@ local function layoutBar(f, n, width)
             s:Show()
         end
     end
+    -- Prediction overlay: incoming heals grow right from the health fill, a cast's cost grows
+    -- left from the power fill. Both hang off the fill texture, so no value is ever read to
+    -- place them, and the bar clips whatever runs past its edge.
+    local over = (f.key == "health" and c.heal) or (f.key == "power" and c.cost)
+    if over and n == 1 then
+        local seg = f.segs[1]
+        if not f.over then
+            f.over = CreateFrame("StatusBar", nil, f)
+            f:SetClipsChildren(true)
+        end
+        local o, col = f.over, f.key == "health" and c.healColor or c.costColor
+        o:SetFrameLevel(seg:GetFrameLevel() + 1)
+        o:SetStatusBarTexture(c.texture)
+        o:SetStatusBarColor(col[1], col[2], col[3], col[4])
+        o:SetSize(seg:GetWidth(), seg:GetHeight())
+        o:ClearAllPoints()
+        o:SetReverseFill(f.key == "power")
+        o:SetPoint(f.key == "power" and "RIGHT" or "LEFT", seg:GetStatusBarTexture(),
+            f.key == "power" and "RIGHT" or "RIGHT", 0, 0)
+        o:Show()
+    elseif f.over then
+        f.over:Hide()
+    end
     if not f.text then
         f.text = f.segs[1]:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
         f.text:SetPoint("CENTER") -- centered on the bar itself (not the cast bar's icon)
@@ -627,6 +671,25 @@ local function fillSwing(f)
     f.text:SetText(string.format("%.1f", st.duration - elapsed))
 end
 
+-- The overlay shares the bar's scale, so the same max goes in: incoming heals for health, the
+-- cost of the cast in flight for power.
+local function fillOverlay(f, max)
+    f.over:SetMinMaxValues(0, max)
+    if f.key == "power" then
+        if castCost.have then f.over:SetValue(castCost.value) else f.over:SetValue(0) end
+        return
+    end
+    if not healCalc then return f.over:SetValue(0) end
+    local ok = pcall(function()
+        healCalc:SetIncomingHealClampMode(0) -- 0 = stop at missing health, no overheal drawn
+        healCalc:SetIncomingHealOverflowPercent(1.0)
+        UnitGetDetailedHealPrediction(f.unit or "player", "player", healCalc)
+        f.over:SetMinMaxValues(0, healCalc:GetMaximumHealth())
+        f.over:SetValue(healCalc:GetIncomingHeals())
+    end)
+    if not ok then f.over:SetValue(0) end
+end
+
 local function fill(f)
     if f.key == "castbar" then return fillCast(f) end
     if f.key == "swing" then return fillSwing(f) end
@@ -647,6 +710,7 @@ local function fill(f)
     if f.n == 1 then
         f.segs[1]:SetMinMaxValues(0, max)
         f.segs[1]:SetValue(v)
+        if f.over and f.over:IsShown() then fillOverlay(f, max) end
         if f.text:IsShown() and not pcall(setText, f.text, v) then f.text:SetText("") end
     else
         for i = 1, f.n do f.segs[i]:SetValue(v) end
@@ -2425,6 +2489,15 @@ local function buildConfig()
             if cur().slots then sw.label:SetText(TOTEM_SLOTS[cur().slots[i]]) end
         end)
     end
+    -- Health and power each get a prediction overlay, on the same rows as the totem list
+    local healCheck = check(barsPage, "Show incoming heals", only.x, only:row(0), 
+        function() return cur().heal end, function(v) cur().heal = v end)
+    local healColor = swatch(barsPage, "Heal color", only.x, only:row(0) - ROW,
+        function() return cur().healColor or { 0, 0, 0, 1 } end)
+    local costCheck = check(barsPage, "Show the cast's cost", only.x, only:row(0),
+        function() return cur().cost end, function(v) cur().cost = v end)
+    local costColor = swatch(barsPage, "Cost color", only.x, only:row(0) - ROW,
+        function() return cur().costColor or { 0, 0, 0, 1 } end)
     local castIcon = check(barsPage, "Show spell icon", only.x, only:row(ROW),
         function() return cur().icon end, function(v) cur().icon = v end)
     local castSide = button(barsPage, "", 186, only.x, only:row(BUTTON), function()
@@ -2435,6 +2508,10 @@ local function buildConfig()
     onlyNote:SetPoint("TOPLEFT", only.x, only:row(16))
     onRefresh(function()
         target:SetShown(selected == "health" and mode == "regular")
+        healCheck:SetShown(selected == "health")
+        healColor:SetShown(selected == "health")
+        costCheck:SetShown(selected == "power")
+        costColor:SetShown(selected == "power")
         for _, w in ipairs(swingChecks) do w:SetShown(selected == "swing") end
         for _, row in ipairs(totemRows) do
             for _, w in ipairs(row) do w:SetShown(selected == "totems") end
@@ -2442,8 +2519,8 @@ local function buildConfig()
         castIcon:SetShown(selected == "castbar")
         castSide:SetShown(selected == "castbar" and cur().icon or false)
         castSide:SetText("Icon side: " .. (cur().iconSide == "right" and "Right" or "Left"))
-        local none = not (selected == "castbar" or selected == "swing"
-            or (selected == "health" and mode == "regular"))
+        local none = not (selected == "castbar" or selected == "swing" or selected == "power"
+            or selected == "health")
         onlyNote:SetText(selected ~= "totems" and none and "Nothing extra for this one." or "")
     end)
     only:row(28) -- room for the four totem rows, which sit over the other controls
@@ -2968,6 +3045,7 @@ ev:SetScript("OnEvent", function(_, event, unit, arg2, arg3)
         listen("UNIT_HEALTH", "player", "target")
         listen("UNIT_MAXHEALTH", "player", "target")
         listen("UNIT_ABSORB_AMOUNT_CHANGED", "player")
+        listen("UNIT_HEAL_PREDICTION", "player", "target")
         listen("UNIT_PET", "player") -- pet summoned, dismissed or swapped
         pcall(petEv.RegisterUnitEvent, petEv, "UNIT_HEALTH", "pet")
         pcall(petEv.RegisterUnitEvent, petEv, "UNIT_MAXHEALTH", "pet")
@@ -2985,6 +3063,9 @@ ev:SetScript("OnEvent", function(_, event, unit, arg2, arg3)
         local mine = store.chars[charKey]
         useProfile(store.profiles[mine or ""] and mine or classProfile)
         placeMini()
+    elseif event == "UNIT_HEAL_PREDICTION" then
+        fillShown("health")
+        if targetFrame:IsShown() then safe(fill, targetFrame) end
     elseif event == "UNIT_ABSORB_AMOUNT_CHANGED" then
         if GetTime() - absorb.castAt <= ABSORB_CAST_WINDOW then -- our cast just put a shield up
             local ok, points = pcall(UnitGetTotalAbsorbs, "player")
@@ -3000,6 +3081,7 @@ ev:SetScript("OnEvent", function(_, event, unit, arg2, arg3)
     elseif event:find("^UNIT_SPELLCAST_") then
         if unit == "player" then
             safe(fsr.cast, fsr, event, arg2, arg3)
+            safe(castCost.track, castCost, event, arg3)
             if event == "UNIT_SPELLCAST_SUCCEEDED" then absorb.castAt = GetTime() end
         end
         safe(Refresh) -- the cast bar joins or leaves the stack

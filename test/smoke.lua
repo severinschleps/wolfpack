@@ -45,6 +45,7 @@ function M:SetFont(path, size, flags) self._font = { path, size, flags }; return
 function M:GetFont() return self._font and self._font[1] or "Fonts\\FRIZQT__.TTF", 25, "OUTLINE" end
 function M:SetSwipeTexture(t) self._swipeTex = t end
 function M:SetReverse(v) self._reverse = v end
+function M:SetReverseFill(v) self._reverseFill = v end
 function M:SetFrameLevel(v) self._level = v end
 function M:GetFrameLevel() return self._level or 0 end
 function M:SetSwipeColor(...) self._swipe = { ... } end
@@ -173,6 +174,16 @@ GetTotemDuration = function(slot)
     return setmetatable({ slot = slot }, { __index = function() error("read a secret duration") end })
 end
 UnitGetTotalAbsorbs = function(unit) return unit == "player" and (S.absorb or 0) or 0 end
+-- The heal prediction calculator takes the secret numbers and hands back drawable values
+CreateUnitHealPredictionCalculator = function()
+    return {
+        SetIncomingHealClampMode = function() end,
+        SetIncomingHealOverflowPercent = function() end,
+        GetMaximumHealth = function() return 1000 end,
+        GetIncomingHeals = function() return S.incomingHeal or 0 end,
+    }
+end
+UnitGetDetailedHealPrediction = function() end
 UnitCastingInfo = function() if S.cast then return S.cast, "", 136116 end end
 UnitChannelInfo = function() if S.channel then return S.channel, "", 136197 end end
 UnitCastingDuration = function() return S.cast and "castDuration" end
@@ -1276,6 +1287,26 @@ assert(ab.segs[1]._value == 105 and ab.segs[1]._max == 420, "later changes are d
 S.absorb = 0; fire("UNIT_ABSORB_AMOUNT_CHANGED", "player")
 assert(ab.segs[1]._value == 0 and ab.segs[1]._max == 420, "shield gone: empty bar")
 prof().regular.bars.absorb.show = false
+
+-- Prediction overlays: incoming heals grow right from the health fill, a cast's cost grows left
+-- from the power fill (the bar clips whatever runs past its edge).
+local hb, pb = ns.frames.health, ns.frames.power
+prof().regular.bars.health.heal = true
+S.incomingHeal = 250
+fire("UNIT_MAXPOWER")
+assert(hb.over:IsShown() and hb.over._max == 1000 and hb.over._value == 250, "incoming heals drawn")
+assert(hb.over._reverseFill == false and hb.over._sbc[4] == 0.45, "grows right, in the heal color")
+S.incomingHeal = 0; fire("UNIT_HEAL_PREDICTION", "player")
+assert(hb.over._value == 0, "heals landed: nothing left to draw")
+prof().regular.bars.power.cost = true
+S.costs[8] = { { type = 3, cost = 35 } } -- an energy cost, for the rogue this test ends as
+fire("UNIT_SPELLCAST_START", "player", "c1", 8)
+assert(pb.over:IsShown() and pb.over._value == 35 and pb.over._reverseFill == true, "cost reserved")
+fire("UNIT_SPELLCAST_STOP", "player", "c1", 8)
+assert(pb.over._value == 0, "cast over: nothing reserved")
+prof().regular.bars.health.heal, prof().regular.bars.power.cost = false, false
+fire("UNIT_MAXPOWER")
+assert(not hb.over:IsShown() and not pb.over:IsShown(), "switched off: both overlays gone")
 
 SlashCmdList.WOLFPACKADDON("")
 realPrint("smoke ok")
