@@ -188,6 +188,34 @@ local CORNERS = { { "topleft", "TOPLEFT", 1, -1 }, { "topright", "TOPRIGHT", -1,
 local CORNER_BY_KEY = {}
 for _, c in ipairs(CORNERS) do CORNER_BY_KEY[c[1]] = c end
 
+-- The buffs each class can put on someone, listed by name so every rank matches, with one
+-- spell ID each for the game's own icon.
+local CLASS_BUFFS = {
+    PRIEST = { { "Power Word: Shield", 17 }, { "Renew", 139 }, { "Power Word: Fortitude", 1243 },
+        { "Divine Spirit", 14752 }, { "Shadow Protection", 976 }, { "Inner Fire", 588 },
+        { "Fear Ward", 6346 }, { "Prayer of Fortitude", 21562 }, { "Prayer of Spirit", 27681 },
+        { "Prayer of Shadow Protection", 27683 }, { "Levitate", 1706 }, { "Abolish Disease", 552 } },
+    DRUID = { { "Rejuvenation", 774 }, { "Regrowth", 8936 }, { "Mark of the Wild", 1126 },
+        { "Gift of the Wild", 21849 }, { "Thorns", 467 }, { "Abolish Poison", 2893 },
+        { "Innervate", 29166 }, { "Nature's Grasp", 16689 }, { "Barkskin", 22812 } },
+    PALADIN = { { "Blessing of Might", 19740 }, { "Blessing of Wisdom", 19742 },
+        { "Blessing of Kings", 20217 }, { "Blessing of Salvation", 1038 }, { "Blessing of Light", 19977 },
+        { "Blessing of Sanctuary", 20911 }, { "Blessing of Freedom", 1044 },
+        { "Blessing of Protection", 1022 }, { "Blessing of Sacrifice", 6940 }, { "Divine Shield", 642 } },
+    MAGE = { { "Arcane Intellect", 1459 }, { "Arcane Brilliance", 23028 }, { "Ice Barrier", 13031 },
+        { "Mana Shield", 1463 }, { "Dampen Magic", 604 }, { "Amplify Magic", 1008 },
+        { "Slow Fall", 130 }, { "Ice Block", 45438 } },
+    SHAMAN = { { "Lightning Shield", 324 }, { "Earth Shield", 974 }, { "Water Walking", 546 },
+        { "Water Breathing", 131 }, { "Stoneskin", 8071 }, { "Strength of Earth", 8075 } },
+    WARLOCK = { { "Unending Breath", 5697 }, { "Detect Invisibility", 132 }, { "Demon Skin", 696 },
+        { "Soulstone Resurrection", 20707 }, { "Shadow Ward", 6229 } },
+    WARRIOR = { { "Battle Shout", 6673 }, { "Shield Wall", 871 }, { "Last Stand", 12975 },
+        { "Berserker Rage", 18499 } },
+    HUNTER = { { "Aspect of the Hawk", 13165 }, { "Aspect of the Cheetah", 5118 },
+        { "Trueshot Aura", 19506 }, { "Mend Pet", 136 }, { "Rapid Fire", 3045 } },
+    ROGUE = { { "Slice and Dice", 5171 }, { "Sprint", 2983 }, { "Evasion", 5277 }, { "Stealth", 1784 } },
+}
+
 -- One group-frame layout per group size. Frames grow in `grow`, wrapping after `perLine`.
 local function groupDefaults(perLine, w, h, ph, y)
     return {
@@ -197,7 +225,7 @@ local function groupDefaults(perLine, w, h, ph, y)
         classColor = true, color = { 0.2, 0.6, 0.2, 1 }, bgColor = { 0, 0, 0, 0.6 },
         font = FONTS[1][2], fontSize = 10, outline = true, nameColor = { 1, 1, 1, 1 },
         role = true, roleSize = 12, roleX = 0, roleY = 0,
-        pets = false, petHeight = 8, auraSize = 14,
+        pets = false, petHeight = 8,
     }
 end
 
@@ -1714,6 +1742,36 @@ gf.anchor:SetScript("OnDragStop", function(a)
 end)
 ns.gf = gf
 
+-- Your class's buffs, added to the profile once so they can be ticked off in the options.
+function gf.knownSpells()
+    local list, seen = db.group.spells, {}
+    for _, sp in ipairs(list) do if sp.name then seen[sp.name] = sp end end
+    local mine = {}
+    for _, e in ipairs(CLASS_BUFFS[class or ""] or {}) do
+        local sp = seen[e[1]]
+        if not sp then
+            sp = { name = e[1], id = e[2], corner = "topleft", size = 14, show = false }
+            list[#list + 1] = sp
+        end
+        sp.id = sp.id ~= 0 and sp.id or e[2]
+        mine[#mine + 1] = sp
+    end
+    return mine
+end
+
+-- The icon the game uses for that spell, so it looks right even when the aura itself is secret.
+function gf.spellIcon(sp)
+    gf.icons = gf.icons or {}
+    if gf.icons[sp.name] == nil then
+        local ok, tex = pcall(function()
+            return (C_Spell and C_Spell.GetSpellTexture and C_Spell.GetSpellTexture(sp.id))
+                or GetSpellTexture(sp.id)
+        end)
+        gf.icons[sp.name] = (ok and tex) or 134400 -- a question mark, if the id is unknown here
+    end
+    return gf.icons[sp.name]
+end
+
 -- Which layout the current group calls for, and the units it holds.
 function gf.pick()
     if ns.groupEdit and ns.previewing() then return ns.groupEdit end
@@ -1799,7 +1857,7 @@ function gf.icon(f, i, size)
         ic.bar = CreateFrame("StatusBar", nil, ic)
         ic.bar:SetAllPoints()
         ic.bar:SetStatusBarTexture("Interface\\Buttons\\WHITE8X8")
-        ic.bar:SetStatusBarColor(0, 0, 0, 0.55)
+        ic.bar:SetStatusBarColor(0, 0, 0, 0.45) -- a see-through sweep, the icon stays readable
         ic.bar:SetOrientation("VERTICAL")
         ic.bar:SetFrameLevel(ic:GetFrameLevel() + 1)
         f.icons[i] = ic
@@ -1814,21 +1872,21 @@ end
 function gf.auras(f, cfg, unit)
     local want, used, n = {}, { 0, 0, 0, 0 }, 0
     for _, sp in ipairs(db.group.spells) do
-        if sp.show then want[sp.id] = sp.corner end
+        if sp.show then want[sp.name] = sp end -- by name, so every rank of it counts
     end
     for i = 1, 40 do
         local ok, data = pcall(C_UnitAuras.GetAuraDataByIndex, unit, i, "HELPFUL|PLAYER")
         if not ok or not data then break end
         pcall(function()
-            local corner = want[data.spellId]
-            if not corner then return end
-            local c, ci = CORNER_BY_KEY[corner], 0
-            for k, v in ipairs(CORNERS) do if v[1] == corner then ci = k end end
+            local sp = want[data.name]
+            if not sp then return end
+            local c, ci = CORNER_BY_KEY[sp.corner], 0
+            for k, v in ipairs(CORNERS) do if v[1] == sp.corner then ci = k end end
             n = n + 1
-            local ic = gf.icon(f, n, cfg.auraSize)
-            ic.tex:SetTexture(data.icon)
+            local ic = gf.icon(f, n, sp.size)
+            ic.tex:SetTexture(gf.spellIcon(sp))
             ic:ClearAllPoints()
-            ic:SetPoint(c[2], f, c[2], c[3] * (2 + used[ci] * (cfg.auraSize + 1)), c[4] * 2)
+            ic:SetPoint(c[2], f, c[2], c[3] * (2 + used[ci] * (sp.size + 1)), c[4] * 2)
             used[ci] = used[ci] + 1
             local dur = select(2, pcall(C_UnitAuras.GetAuraDuration, unit, data.auraInstanceID))
             if dur then ic.bar:SetTimerDuration(dur, 0, TIMER_REMAINING) end
@@ -1935,6 +1993,7 @@ function gf.refresh()
     gf.anchor:EnableMouse(dragging)
     if not on then return end
     gf.place()
+    gf.knownSpells()
     local units = gf.units(key)
     for i = 1, BUCKET_SIZE[key] do
         local f = gf.frames[i] or gf.make(gf.anchor)
@@ -2349,13 +2408,15 @@ local function sanitize(src, template)
             for _, e in ipairs(HOVER_FRAMES) do
                 if type(v) == "table" and v[e[1]] == true then out.hover[e[1]] = true end
             end
-        elseif k == "spells" then -- a list of { id, corner, show }
+        elseif k == "spells" then -- one entry per buff: { name, id, corner, size, show }
             out.spells = {}
             for _, sp in ipairs(type(v) == "table" and v or {}) do
-                local id, corner = type(sp) == "table" and sp.id, type(sp) == "table" and sp.corner
-                if type(id) == "number" and id == id and id > 0 and CORNER_BY_KEY[corner] then
-                    out.spells[#out.spells + 1] = { id = math.floor(id), corner = corner,
-                        show = sp.show ~= false }
+                local name = type(sp) == "table" and sp.name
+                local size = type(sp) == "table" and tonumber(sp.size) or 14
+                if type(name) == "string" and name ~= "" and CORNER_BY_KEY[sp.corner] then
+                    out.spells[#out.spells + 1] = { name = name:sub(1, 64), corner = sp.corner,
+                        id = tonumber(sp.id) or 0, show = sp.show == true,
+                        size = math.max(6, math.min(40, size == size and size or 14)) }
                 end
             end
         elseif k == "slots" then -- a permutation of the totem slots, no gaps, no repeats
@@ -3209,73 +3270,87 @@ local function buildConfig()
     swatch(groupPage, "Border color", hov.x, hov:row(SWATCH), function() return GH().borderColor end)
     hov:close()
 
-    -- Column 4: which of your own auras show on the frames, and in which corner
-    local aur = group(groupPage, COL[4], TOP, 202, "Your auras on the frames")
-    slider(groupPage, "Icon size", aur.x, aur:row(SLIDER), 6, 40, function() return G().auraSize end,
-        function(v) G().auraSize = v end)
-    local addBox = CreateFrame("EditBox", nil, groupPage, "InputBoxTemplate")
-    addBox:SetSize(120, 20)
-    addBox:SetPoint("TOPLEFT", aur.x + 6, aur:row(ROW) - 2)
-    addBox:SetAutoFocus(false)
-    label(groupPage, "Spell ID", "GameFontNormalSmall"):SetPoint("BOTTOMLEFT", addBox, "TOPLEFT", -4, 2)
-    button(groupPage, "Add", 46, aur.x + 134, aur.cursor + ROW - 2, function()
-        local id = tonumber(addBox:GetText())
-        if id and id > 0 then
-            table.insert(db.group.spells, { id = math.floor(id), corner = "topleft", show = true })
-            addBox:SetText("")
-            addBox:ClearFocus()
-            changed()
-        end
-    end)
-    for i = 1, 8 do
-        local y = aur:row(ROW)
-        local nameLbl = label(groupPage, "", "GameFontHighlightSmall")
-        nameLbl:SetPoint("TOPLEFT", aur.x + 2, y - 6)
-        nameLbl:SetWidth(84)
+    -- Column 4: your class's buffs, ticked on or off, and the settings of the one you picked
+    local aur = group(groupPage, COL[4], TOP, 202, "Your buffs")
+    local pickedSpell = 1
+    for i = 1, 12 do
+        local y = aur:row(22)
+        local row = CreateFrame("Button", nil, groupPage)
+        row:SetSize(122, 20)
+        row:SetPoint("TOPLEFT", aur.x + 26, y - 1)
+        row:SetHighlightTexture("Interface\\Buttons\\WHITE8X8")
+        row:GetHighlightTexture():SetVertexColor(1, 1, 1, 0.12)
+        local icon = groupPage:CreateTexture(nil, "ARTWORK")
+        icon:SetSize(16, 16)
+        icon:SetPoint("TOPLEFT", aur.x + 4, y - 2)
+        icon:SetTexCoord(0.08, 0.92, 0.08, 0.92)
+        local nameLbl = label(row, "", "GameFontHighlightSmall")
+        nameLbl:SetPoint("LEFT", 2, 0)
+        nameLbl:SetWidth(120)
         nameLbl:SetJustifyH("LEFT")
-        local onBtn = check(groupPage, "", aur.x + 88, y, function()
-            local sp = db.group.spells[i]
+        local onBtn = check(groupPage, "", aur.x + 154, y + 2, function()
+            local sp = ns.gf.knownSpells()[i]
             return sp and sp.show
         end, function(v)
-            local sp = db.group.spells[i]
+            local sp = ns.gf.knownSpells()[i]
             if sp then sp.show = v end
         end)
-        local cornerBtn = button(groupPage, "", 56, aur.x + 112, y, function()
-            local sp = db.group.spells[i]
-            if not sp then return end
-            for k, c in ipairs(CORNERS) do
-                if c[1] == sp.corner then
-                    sp.corner = CORNERS[k % #CORNERS + 1][1]
-                    break
-                end
-            end
-            changed()
-        end)
-        local delBtn = button(groupPage, "X", 22, aur.x + 170, y, function()
-            table.remove(db.group.spells, i)
-            changed()
-        end)
+        row:SetScript("OnClick", function() pickedSpell = i; changed() end)
         onRefresh(function()
-            local sp = db.group.spells[i]
-            for _, w in ipairs({ onBtn, cornerBtn, delBtn }) do w:SetShown(sp ~= nil) end
-            if not sp then
-                nameLbl:SetText("")
-                return
-            end
-            local info = C_Spell and C_Spell.GetSpellInfo and C_Spell.GetSpellInfo(sp.id)
-            nameLbl:SetText((type(info) == "table" and info.name) or ("#" .. sp.id))
-            cornerBtn:SetText(({ topleft = "Top L", topright = "Top R", bottomleft = "Bot L",
-                bottomright = "Bot R" })[sp.corner])
+            local sp = ns.gf.knownSpells()[i]
+            row:SetShown(sp ~= nil)
+            icon:SetShown(sp ~= nil)
+            onBtn:SetShown(sp ~= nil)
+            if not sp then return end
+            icon:SetTexture(ns.gf.spellIcon(sp))
+            nameLbl:SetText(sp.name)
+            nameLbl:SetTextColor(1, 1, 1, sp.show and 1 or 0.45)
+            if pickedSpell == i then row:LockHighlight() else row:UnlockHighlight() end
         end)
     end
-    local aurNote = label(groupPage, "Your own buffs only, and only the ones listed here. A spell the "
-        .. "client keeps secret can't be read at all.", "GameFontDisableSmall")
-    aurNote:SetPoint("TOPLEFT", aur.x, aur:row(30))
+    local aurNote = label(groupPage, "", "GameFontDisableSmall")
+    aurNote:SetPoint("TOPLEFT", aur.x, aur:row(26))
     aurNote:SetWidth(182)
     aurNote:SetJustifyH("LEFT")
+    onRefresh(function()
+        aurNote:SetText(#ns.gf.knownSpells() == 0 and "No buffs listed for your class yet."
+            or "Tick a buff to show it, click its name to set it up below.")
+    end)
     aur:close()
 
-    local rl = group(groupPage, COL[4], aur.cursor - 20, 202, "Role icon")
+    local one = group(groupPage, COL[4], aur.cursor - 20, 202, "The buff you picked")
+    local S1 = function() return ns.gf.knownSpells()[pickedSpell] end
+    local oneName = label(groupPage, "", "GameFontNormalSmall")
+    oneName:SetPoint("TOPLEFT", one.x, one:row(18))
+    local corner = button(groupPage, "", 186, one.x, one:row(BUTTON), function()
+        local sp = S1()
+        if not sp then return end
+        for k, c in ipairs(CORNERS) do
+            if c[1] == sp.corner then
+                sp.corner = CORNERS[k % #CORNERS + 1][1]
+                break
+            end
+        end
+        changed()
+    end)
+    slider(groupPage, "Icon size", one.x, one:row(SLIDER), 6, 40,
+        function() local sp = S1() return sp and sp.size or 14 end,
+        function(v) local sp = S1() if sp then sp.size = v end end)
+    onRefresh(function()
+        local sp = S1()
+        oneName:SetText(sp and sp.name or "")
+        corner:SetText("Corner: " .. (sp and ({ topleft = "Top left", topright = "Top right",
+            bottomleft = "Bottom left", bottomright = "Bottom right" })[sp.corner] or "-"))
+    end)
+    local oneNote = label(groupPage, "Several buffs in one corner line up away from it, and a spell "
+        .. "the client keeps secret can't be read at all.", "GameFontDisableSmall")
+    oneNote:SetPoint("TOPLEFT", one.x, one:row(30))
+    oneNote:SetWidth(182)
+    oneNote:SetJustifyH("LEFT")
+    one:close()
+
+
+    local rl = group(groupPage, COL[2], shape.cursor - 20, 202, "Role icon")
     check(groupPage, "Show role icon", rl.x, rl:row(ROW), function() return G().role end,
         function(v) G().role = v end)
     slider(groupPage, "Size", rl.x, rl:row(SLIDER), 6, 40, function() return G().roleSize end,

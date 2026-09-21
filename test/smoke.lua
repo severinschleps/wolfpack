@@ -182,7 +182,9 @@ S.time = 1000
 GetTime = function() return S.time end
 -- Duration objects stand in for the client's secret-safe ones: everything about them, IsZero
 -- included, is secret, so the addon may only pass them on. Reading one here fails the test.
-C_Spell = { GetSpellPowerCost = function(id) return S.costs and S.costs[id] or {} end }
+C_Spell = { GetSpellPowerCost = function(id) return S.costs and S.costs[id] or {} end,
+    GetSpellTexture = function(id) return id == 139 and 135953 or 100 + id end,
+    GetSpellInfo = function(id) return { name = "Spell" .. id } end }
 GetTotemDuration = function(slot)
     return setmetatable({ slot = slot }, { __index = function() error("read a secret duration") end })
 end
@@ -1329,8 +1331,8 @@ gp.party.test, gp.party.width, gp.party.height, gp.party.perLine = true, 100, 40
 gp.party.gap, gp.party.grow = 4, "right"
 gp.hover.show, gp.hover.border = true, true -- the control poking above turned these off
 S.units = { party1 = "HEALER", party2 = "TANK" }
-S.auras = { { spellId = 139, icon = 135953, auraInstanceID = 7 } }
-gp.spells = { { id = 139, corner = "topright", show = true } }
+S.auras = { { name = "Renew", spellId = 139, auraInstanceID = 7 } }
+gp.spells = { { name = "Renew", id = 139, corner = "topright", size = 12, show = true } }
 fire("UNIT_MAXPOWER")
 local gfr = ns.gf.frames
 assert(ns.gf.anchor:IsShown() and gfr[1]:IsShown(), "shown without a group while testing")
@@ -1338,7 +1340,8 @@ assert(gfr[1]._w == 100 and gfr[1]._h == 40, "frame size")
 assert(gfr[2]._point[4] == 104 and gfr[2]._point[5] == 0, "second frame sits right of the first")
 assert(gfr[3]._point[4] == 0 and gfr[3]._point[5] == -44, "third wraps to the next line")
 assert(gfr[1].icons[1] and gfr[1].icons[1]._point[1] == "TOPRIGHT", "own aura in its corner")
-assert(gfr[1].icons[1].tex._tex == 135953 and gfr[1].icons[1].bar._timer, "icon drains with the aura")
+assert(gfr[1].icons[1].tex._tex == 135953 and gfr[1].icons[1].bar._timer, "the game's icon, draining")
+assert(gfr[1].icons[1]._w == 12, "at the size set for that spell")
 -- clicks: the game does the targeting and the menu, and the target frame lights up
 assert(gfr[1]:GetAttribute("unit") == "player" and gfr[2]:GetAttribute("unit") == "party1", "units set")
 assert(gfr[1]:GetAttribute("type1") == "target" and gfr[1]:GetAttribute("type2") == "togglemenu",
@@ -1351,6 +1354,16 @@ assert(gfr[1].hl:IsShown(), "and so is the one under the cursor")
 gfr[1]._scripts.OnLeave(gfr[1])
 assert(not gfr[1].hl:IsShown(), "which goes out again")
 S.targetUnit = nil
+-- the class list fills itself in, so a priest can just tick what they want
+login("PRIEST", 0)
+prof().group.party.test = true
+prof().group.hover.show = true
+fire("UNIT_MAXPOWER")
+local known = ns.gf.knownSpells()
+assert(#known >= 10 and known[1].name == "Power Word: Shield", "priest buffs loaded")
+assert(known[1].show == false and known[1].corner == "topleft" and known[1].size == 14, "off until ticked")
+assert(ns.gf.spellIcon(known[1]) == 117, "the game's icon for that spell")
+login("ROGUE", 3)
 gp.spells[1].show = false
 fire("UNIT_MAXPOWER")
 assert(not gfr[1].icons[1]:IsShown(), "unticked spells stay off")
