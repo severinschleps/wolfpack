@@ -3570,53 +3570,57 @@ SLASH_WOLFPACKADDON1 = "/wolfpack"
 SLASH_WOLFPACKADDON2 = "/wp"
 SLASH_WOLFPACKADDON3 = "/cpd" -- the old name still works
 -- /cpd auras: says which aura calls this client has and whether they answer right now, which
--- is the only way to tell from inside the game why a buff icon is missing.
+-- is the only way to tell from inside the game why a buff icon is missing. Run it twice: once
+-- out of combat and once in combat, with the buff actually on you.
 function ns.AuraReport()
     local function say(t) print("|cff88ccffWolfpack:|r " .. t) end
-    say("in combat: " .. tostring(InCombatLockdown()) .. ", issecretvalue: "
-        .. tostring(issecretvalue ~= nil))
-    local probes = {
-        { "GetAuraDataBySpellName", function(n) return C_UnitAuras.GetAuraDataBySpellName("player", n, "HELPFUL|PLAYER") end },
-        { "GetUnitAuras", function() return C_UnitAuras.GetUnitAuras("player", "HELPFUL|PLAYER", 40) end },
-        { "GetAuraDataByIndex", function() return C_UnitAuras.GetAuraDataByIndex("player", 1, "HELPFUL|PLAYER") end },
-        { "GetUnitAuras HARMFUL|RAID", function() return C_UnitAuras.GetUnitAuras("player", "HARMFUL|RAID", 8) end },
-    }
-    local name = (db.group.spells[1] and db.group.spells[1].name) or "Renew"
-    for _, sp in ipairs(db.group.spells) do
-        if sp.show then name = sp.name break end -- a buff you actually use
+    local sp
+    for _, e in ipairs(db.group.spells) do
+        if e.show then sp = e break end
     end
-    for _, p in ipairs(probes) do
-        if not C_UnitAuras[(p[1]:gsub(" .*", ""))] then
-            say(p[1] .. ": not on this client")
+    sp = sp or db.group.spells[1] or { name = "Renew", id = 139 }
+    say(("combat %s, issecretvalue %s, looking for %s (#%d) -- have it on you when you run this")
+        :format(tostring(InCombatLockdown()), tostring(issecretvalue ~= nil), sp.name, sp.id or 0))
+
+    local function report(label, fn, ...)
+        local args = { ... }
+        local ok, res = pcall(function() return fn(unpack(args)) end)
+        if not ok then
+            say(label .. ": refused (" .. tostring(res):match("[^\n]*"):sub(1, 60) .. ")")
+        elseif res == nil then
+            say(label .. ": answered, nothing")
         else
-            local ok, res = pcall(p[2], name)
-            if not ok then
-                say(p[1] .. ": refused (" .. tostring(res):sub(1, 80) .. ")")
-            else
-                local n = 0
-                pcall(function() for _ in ipairs(res) do n = n + 1 end end)
-                say(p[1] .. ": answered, " .. (res == nil and "nothing" or (n > 0 and (n .. " entries")
-                    or "a value")))
-            end
+            local n = 0
+            pcall(function() for _ in ipairs(res) do n = n + 1 end end)
+            local extra = ""
+            pcall(function()
+                extra = ", instance " .. (readable(res.auraInstanceID) and "readable" or "secret")
+                    .. ", name " .. (readable(res.name) and "readable" or "secret")
+            end)
+            say(label .. ": ANSWERED" .. (n > 0 and (", " .. n .. " entries") or extra))
         end
     end
-    say("looking for: " .. name .. " (cast it on yourself first, or this says nothing)")
-    -- What the by-name answer actually contains, which decides whether an icon can be drawn.
-    if C_UnitAuras.GetAuraDataBySpellName then
-        for _, sp in ipairs(db.group.spells) do
-            if sp.show then
-                local ok, d = pcall(C_UnitAuras.GetAuraDataBySpellName, "player", sp.name, "HELPFUL|PLAYER")
-                local what = "no"
-                if ok and d then
-                    what = "yes, instance " .. (readable(d.auraInstanceID) and "readable" or "secret")
-                        .. ", name " .. (readable(d.name) and "readable" or "secret")
-                elseif not ok then
-                    what = "refused"
-                end
-                say("  " .. sp.name .. ": " .. what)
-            end
-        end
+
+    local A = C_UnitAuras
+    if A.GetAuraDataBySpellName then
+        report("byName(no filter)", A.GetAuraDataBySpellName, "player", sp.name)
+        report("byName(HELPFUL)", A.GetAuraDataBySpellName, "player", sp.name, "HELPFUL")
+        report("byName(HELPFUL|PLAYER)", A.GetAuraDataBySpellName, "player", sp.name, "HELPFUL|PLAYER")
+    else
+        say("byName: not on this client")
     end
+    if A.GetPlayerAuraBySpellID then
+        report("playerAuraBySpellID", A.GetPlayerAuraBySpellID, sp.id or 0)
+    else
+        say("playerAuraBySpellID: not on this client")
+    end
+    if AuraUtil and AuraUtil.FindAuraByName then
+        report("AuraUtil.FindAuraByName", AuraUtil.FindAuraByName, sp.name, "player", "HELPFUL")
+    end
+    if UnitBuff then report("UnitBuff(1)", UnitBuff, "player", 1) end
+    report("GetUnitAuras HELPFUL", function() return A.GetUnitAuras("player", "HELPFUL|PLAYER", 40) end)
+    report("GetUnitAuras HARMFUL|RAID", function() return A.GetUnitAuras("player", "HARMFUL|RAID", 8) end)
+    report("GetAuraDataByIndex(1)", A.GetAuraDataByIndex, "player", 1, "HELPFUL|PLAYER")
 end
 
 SlashCmdList.WOLFPACKADDON = function(msg)
