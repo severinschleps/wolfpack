@@ -1447,6 +1447,18 @@ for _, r in ipairs(rows) do
     if r:IsShown() and r.text._text:find("A blessing") then blessing = r.text._text end
 end
 assert(blessing == "A blessing: all set", "any single blessing satisfies it")
+-- nothing of Blizzard's is touched while in combat: that is what gets an addon blocked
+S.combat = true
+prof().group.useBlizzard, prof().group.texture = true, ns.TEXTURES[3][2]
+local bzf3 = _G.CompactRaidFrame1
+local wasTex = bzf3.healthBar._tex
+fire("UNIT_MAXPOWER")
+assert(bzf3.healthBar._tex == wasTex, "their bars are left alone in combat")
+assert(ns.bz.deco[bzf3].border:IsShown(), "but our own overlay still draws")
+S.combat = false
+fire("UNIT_MAXPOWER")
+assert(bzf3.healthBar._tex == ns.TEXTURES[3][2], "and it catches up afterwards")
+
 -- in combat the list steps aside rather than guessing
 S.combat = true
 ns.bfEv._scripts.OnEvent(ns.bfEv, "PLAYER_REGEN_DISABLED")

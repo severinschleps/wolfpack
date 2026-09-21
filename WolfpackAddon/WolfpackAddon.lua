@@ -1235,6 +1235,7 @@ local function syncBags()
     local bar = BagsBar
     local on = db.other.bagsOnOpen
     if not bar or not (on or bagsSaved) then return end
+    if InCombatLockdown() then return end -- reparenting their bar mid-fight is blocked
     if not bagsSaved then -- first use: remember where Edit Mode put it
         bagsSaved = { parent = bar:GetParent() }
         for i = 1, bar:GetNumPoints() do bagsSaved[i] = { bar:GetPoint(i) } end
@@ -1634,6 +1635,7 @@ end
 
 function mini.syncMinimap()
     if not Minimap then return end
+    if InCombatLockdown() then return end -- the cluster is theirs, and off limits in a fight
     mini.minimapShape()
     mini.minimapBorder()
     mini.trayUpdate()
@@ -1978,11 +1980,19 @@ function bz.skin(f)
     local cfg = db.group
     local d = bz.deco[f]
     if not d then
-        d = { border = f:CreateTexture(nil, "BACKGROUND", nil, -8), mask = f:CreateMaskTexture(),
-            hl = f:CreateTexture(nil, "OVERLAY", nil, 6),
-            hlBorder = f:CreateTexture(nil, "OVERLAY", nil, 7) }
-        d.mask:SetAllPoints(f)
-        d.hl:SetAllPoints(f)
+        -- Our decorations live on a frame of ours laid over theirs. Touching anything of
+        -- Blizzard's during combat is blocked, but our own frame is ours to move any time,
+        -- which is what keeps the highlight working in a fight.
+        local o = CreateFrame("Frame", nil, UIParent)
+        o:SetPoint("TOPLEFT", f, "TOPLEFT")
+        o:SetPoint("BOTTOMRIGHT", f, "BOTTOMRIGHT")
+        o:SetFrameStrata(f:GetFrameStrata())
+        o:SetFrameLevel((f:GetFrameLevel() or 1) + 5)
+        d = { overlay = o, border = o:CreateTexture(nil, "BACKGROUND", nil, -8),
+            mask = o:CreateMaskTexture(), hl = o:CreateTexture(nil, "OVERLAY", nil, 6),
+            hlBorder = o:CreateTexture(nil, "OVERLAY", nil, 7) }
+        d.mask:SetAllPoints(o)
+        d.hl:SetAllPoints(o)
         d.hl:Hide()
         d.hlBorder:Hide()
         bz.deco[f] = d
@@ -1997,21 +2007,25 @@ function bz.skin(f)
             safe(bz.light, self)
         end)
     end
-    local hb = f.healthBar
-    if hb then
-        hb:SetStatusBarTexture(cfg.texture)
-        local radius = cfg.radius == "pill" and math.huge or cfg.radius
-        round(hb:GetStatusBarTexture(), d.mask, radius, hb:GetWidth() or 1, hb:GetHeight() or 1)
-    end
-    if f.powerBar then f.powerBar:SetStatusBarTexture(cfg.texture) end
-    if f.name then
-        local flags = cfg.outline and "OUTLINE" or ""
-        if not f.name:SetFont(cfg.font, cfg.fontSize, flags) then
-            f.name:SetFont(FONTS[1][2], cfg.fontSize, flags)
+    local radius = cfg.radius == "pill" and math.huge or cfg.radius
+    -- Theirs: only out of combat, or the game blocks us and warns you about it.
+    if not InCombatLockdown() then
+        local hb = f.healthBar
+        if hb then
+            hb:SetStatusBarTexture(cfg.texture)
+            round(hb:GetStatusBarTexture(), d.mask, radius, hb:GetWidth() or 1, hb:GetHeight() or 1)
         end
-        f.name:SetTextColor(unpack(cfg.nameColor))
-        f.name:SetShown(cfg.name)
+        if f.powerBar then f.powerBar:SetStatusBarTexture(cfg.texture) end
+        if f.name then
+            local flags = cfg.outline and "OUTLINE" or ""
+            if not f.name:SetFont(cfg.font, cfg.fontSize, flags) then
+                f.name:SetFont(FONTS[1][2], cfg.fontSize, flags)
+            end
+            f.name:SetTextColor(unpack(cfg.nameColor))
+            f.name:SetShown(cfg.name)
+        end
     end
+    -- Ours: any time.
     local t = cfg.borderSize
     d.border:ClearAllPoints()
     d.border:SetPoint("TOPLEFT", -t, t)
@@ -2020,7 +2034,6 @@ function bz.skin(f)
     d.border:SetShown(t > 0)
     local h = db.group.hover
     d.hl:SetColorTexture(unpack(h.color))
-    local radius = cfg.radius == "pill" and math.huge or cfg.radius
     round(d.hl, d.mask, radius, f:GetWidth() or 1, f:GetHeight() or 1)
     d.hlBorder:ClearAllPoints()
     d.hlBorder:SetPoint("TOPLEFT", -h.borderSize, h.borderSize)
@@ -2033,8 +2046,10 @@ end
 function bz.unskin(f)
     local d = bz.deco[f]
     if not d then return end
-    if f.healthBar then f.healthBar:SetStatusBarTexture(BLIZZ_BAR) end
-    if f.powerBar then f.powerBar:SetStatusBarTexture(BLIZZ_BAR) end
+    if not InCombatLockdown() then -- their frames are off limits mid-fight
+        if f.healthBar then f.healthBar:SetStatusBarTexture(BLIZZ_BAR) end
+        if f.powerBar then f.powerBar:SetStatusBarTexture(BLIZZ_BAR) end
+    end
     d.border:Hide()
     d.hl:Hide()
     d.hlBorder:Hide()
