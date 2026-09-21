@@ -227,6 +227,10 @@ local DISPELS = {
 }
 local DISPEL_TYPES = { "Magic", "Curse", "Poison", "Disease" }
 
+-- Corners of Interface/LFGFrame/UI-LFG-ICON-ROLES, in case the client has no helper for them.
+local ROLE_COORDS = { TANK = { 0, 0.5, 0.5, 1 }, HEALER = { 0.5, 1, 0, 0.5 },
+    DAMAGER = { 0.5, 1, 0.5, 1 } }
+
 -- One group-frame layout per group size. Frames grow in `grow`, wrapping after `perLine`.
 local function groupDefaults(perLine, w, h, ph, y)
     return {
@@ -1977,11 +1981,13 @@ function gf.update(f, cfg, unit)
         f.health:SetStatusBarColor(cfg.color[1], cfg.color[2], cfg.color[3])
     end
     local role = cfg.role and UnitGroupRolesAssigned and UnitGroupRolesAssigned(unit)
-    if cfg.role and ns.previewing() and not (role == "TANK" or role == "HEALER") then
-        role = "DAMAGER" -- a stand-in while the options are open, so you can place it
-    end
-    if role == "TANK" or role == "HEALER" or role == "DAMAGER" then
-        f.role:SetTexCoord(GetTexCoordsForRoleSmallCircle(role))
+    -- While the options are open, or the layout is in test mode, everyone gets a stand-in role
+    -- so the icon can be placed even when nobody in the group has one.
+    if cfg.role and (ns.previewing() or cfg.test) and not ROLE_COORDS[role] then role = "DAMAGER" end
+    if ROLE_COORDS[role] then
+        if not pcall(function() f.role:SetTexCoord(GetTexCoordsForRoleSmallCircle(role)) end) then
+            f.role:SetTexCoord(unpack(ROLE_COORDS[role])) -- no helper on this client
+        end
         f.role:Show()
     else
         f.role:Hide()

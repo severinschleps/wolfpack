@@ -1331,7 +1331,7 @@ assert(not hb.over:IsShown() and not pb.over:IsShown(), "switched off: both over
 -- Group frames: a layout per group size, own auras in the corners, test mode without a group
 ns.groupEdit = "party" -- the options above left the dropdown somewhere else
 local gp = prof().group
-gp.party.show, gp.party.test = true, true -- the control poking above turned these off
+gp.party.show, gp.party.test, gp.party.role = true, true, true -- control poking turned these off
 gp.party.width, gp.party.height, gp.party.perLine = 100, 40, 2
 gp.party.gap, gp.party.grow = 4, "right"
 gp.hover.show, gp.hover.border = true, true -- the control poking above turned these off
@@ -1343,6 +1343,7 @@ local gfr = ns.gf.frames
 assert(ns.gf.anchor:IsShown() and gfr[1]:IsShown(), "shown without a group while testing")
 assert(gfr[1]._w == 100 and gfr[1]._h == 40, "frame size")
 assert(gfr[1].name._text == "ROGUECha", "first name, eight letters")
+assert(gfr[1].role:IsShown(), "role icon stands in while testing, even with no roles about")
 gp.party.radius, gp.party.borderSize = 8, 1
 fire("UNIT_MAXPOWER")
 assert(gfr[1].bg.cpdMask == gfr[1].mask and gfr[1].border.cpdMask == gfr[1].borderMask,
