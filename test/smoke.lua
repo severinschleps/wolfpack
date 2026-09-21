@@ -207,7 +207,7 @@ GetTime = function() return S.time end
 -- included, is secret, so the addon may only pass them on. Reading one here fails the test.
 C_Spell = { GetSpellPowerCost = function(id) return S.costs and S.costs[id] or {} end,
     GetSpellTexture = function(id) return id == 139 and 135953 or 100 + id end,
-    GetSpellInfo = function(id) return { name = "Spell" .. id } end }
+    GetSpellInfo = function(id) return { name = (S.spellNames or {})[id] or ("Spell" .. id) } end }
 GetTotemDuration = function(slot)
     return setmetatable({ slot = slot }, { __index = function() error("read a secret duration") end })
 end
@@ -1439,6 +1439,7 @@ S.auras = {}
 ns.bfEv._scripts.OnEvent(ns.bfEv, "UNIT_AURA")
 assert(bi[1]:IsShown() and bi[2]:IsShown(), "both missing now")
 S.combat = true
+local byName2, bulk2b = C_UnitAuras.GetAuraDataBySpellName, C_UnitAuras.GetUnitAuras
 C_UnitAuras.GetAuraDataBySpellName, C_UnitAuras.GetUnitAuras = nil, nil
 ns.bfEv._scripts.OnEvent(ns.bfEv, "UNIT_AURA")
 assert(bi[1]:IsShown(), "combat: the row holds its last answer")
@@ -1446,6 +1447,27 @@ bo.hideInCombat = true
 ns.bfEv._scripts.OnEvent(ns.bfEv, "UNIT_AURA")
 assert(not ns.bf.anchor:IsShown(), "unless you would rather see nothing")
 bo.hideInCombat, S.combat = false, false
+C_UnitAuras.GetAuraDataBySpellName, C_UnitAuras.GetUnitAuras = byName2, bulk2b
+
+-- Target debuffs: the game answers out of combat, our own casts are timed in combat
+local dof = prof().debuffs
+dof.show, dof.locked, dof.hideNoTarget = true, true, true
+S.targetHP, S.npc = 500, "Creature-0-1-2-3-99-0001"
+for _, e in ipairs(ns.bf.knownDebuffs()) do e.show = e.name == "Shadow Word: Pain" end
+S.time = 5000
+S.auras = {}
+S.spellNames = { [589] = "Shadow Word: Pain" }
+ns.bfEv._scripts.OnEvent(ns.bfEv, "PLAYER_TARGET_CHANGED")
+assert(ns.bf.danchor:IsShown() and ns.bf.dicons[1]:IsShown(), "missing on the target: icon shows")
+-- casting it starts our own timer, which counts even when the game says nothing
+fire("UNIT_SPELLCAST_SUCCEEDED", "player", "c9", 589)
+ns.bfEv._scripts.OnEvent(ns.bfEv, "PLAYER_TARGET_CHANGED")
+assert(not ns.bf.dicons[1]:IsShown(), "cast landed: nothing missing")
+S.time = 5019 -- eighteen seconds later it has run out
+ns.bf.tick._scripts.OnUpdate(ns.bf.tick, 2)
+assert(ns.bf.dicons[1]:IsShown(), "it ran out: the icon is back")
+dof.show = false
+S.targetHP, S.npc = nil, nil
 login("ROGUE", 3)
 
 SlashCmdList.WOLFPACKADDON("blizz")

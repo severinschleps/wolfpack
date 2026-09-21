@@ -223,6 +223,13 @@ DEFAULTS.buffs = {
     list = {}, -- { name, id, show }
 }
 
+-- The same, for debuffs you put on your target.
+DEFAULTS.debuffs = {
+    show = false, locked = true, x = 0, y = -240, size = 36, gap = 4, perLine = 8,
+    grow = "right", hideNoTarget = true, desaturate = false,
+    list = {}, -- { name, id, duration, show }
+}
+
 -- Blizzard's raid frames, restyled. Their layout is Edit Mode's; this is only the look.
 DEFAULTS.group = {
     useBlizzard = true,
@@ -1670,6 +1677,7 @@ local function Refresh()
     syncCombatIcon()
     bz.sync()
     bf.refresh()
+    bf.refreshDebuffs()
     fsr:sync()
     syncHover()
     syncBags()
@@ -1729,6 +1737,21 @@ bf.anchor:SetScript("OnDragStop", function(a)
     changed()
 end)
 
+bf.dicons = {}
+bf.danchor = CreateFrame("Frame", "WolfpackAddonDebuffs", UIParent)
+bf.danchor:SetSize(10, 10)
+bf.danchor:SetMovable(true)
+bf.danchor:SetClampedToScreen(true)
+bf.danchor:RegisterForDrag("LeftButton")
+bf.danchor:SetScript("OnDragStart", function(a) a:StartMoving() end)
+bf.danchor:SetScript("OnDragStop", function(a)
+    a:StopMovingOrSizing()
+    local ux, uy = UIParent:GetCenter()
+    db.debuffs.x = math.floor(a:GetCenter() - ux + 0.5)
+    db.debuffs.y = math.floor(select(2, a:GetCenter()) - uy + 0.5)
+    changed()
+end)
+
 -- Your class's buffs, added to the list once so they can be ticked off.
 function bf.known()
     local list, seen = db.buffs.list, {}
@@ -1774,15 +1797,15 @@ function bf.has(name)
     return false, false
 end
 
-function bf.slot(i)
-    local o = db.buffs
-    local ic = bf.icons[i]
+function bf.slot(i, o, icons, anchor)
+    o, icons, anchor = o or db.buffs, icons or bf.icons, anchor or bf.anchor
+    local ic = icons[i]
     if not ic then
-        ic = CreateFrame("Frame", nil, bf.anchor)
+        ic = CreateFrame("Frame", nil, anchor)
         ic.tex = ic:CreateTexture(nil, "ARTWORK")
         ic.tex:SetAllPoints()
         ic.tex:SetTexCoord(0.08, 0.92, 0.08, 0.92)
-        bf.icons[i] = ic
+        icons[i] = ic
     end
     local line, at = math.floor((i - 1) / o.perLine), (i - 1) % o.perLine
     local dx, dy = o.size + o.gap, o.size + o.gap
@@ -1792,7 +1815,7 @@ function bf.slot(i)
     if o.grow == "down" then x, y = line * dx, -at * dy end
     ic:SetSize(o.size, o.size)
     ic:ClearAllPoints()
-    ic:SetPoint("TOPLEFT", bf.anchor, "TOPLEFT", x, y)
+    ic:SetPoint("TOPLEFT", anchor, "TOPLEFT", x, y)
     return ic
 end
 
@@ -1835,11 +1858,128 @@ function bf.refresh()
     for i = n + 1, #bf.icons do bf.icons[i]:Hide() end
 end
 
+-- The debuffs a class puts on a target, with how long they last, because in combat the game
+-- will not say whether one is up: your own casts are readable, so we time them ourselves.
+local CLASS_DEBUFFS = {
+    WARLOCK = { { "Corruption", 172, 18 }, { "Curse of Agony", 980, 24 }, { "Immolate", 348, 15 },
+        { "Siphon Life", 18265, 30 }, { "Curse of the Elements", 1490, 300 } },
+    PRIEST = { { "Shadow Word: Pain", 589, 18 }, { "Devouring Plague", 2944, 24 },
+        { "Vampiric Embrace", 15286, 60 }, { "Holy Fire", 14914, 10 } },
+    DRUID = { { "Moonfire", 8921, 12 }, { "Insect Swarm", 5570, 12 }, { "Faerie Fire", 770, 40 },
+        { "Rip", 1079, 12 }, { "Rake", 1822, 9 } },
+    HUNTER = { { "Serpent Sting", 1978, 15 }, { "Hunter's Mark", 1130, 120 } },
+    ROGUE = { { "Rupture", 1943, 12 }, { "Garrote", 703, 18 }, { "Expose Armor", 8647, 30 } },
+    WARRIOR = { { "Rend", 772, 21 }, { "Sunder Armor", 7386, 30 }, { "Demoralizing Shout", 1160, 30 },
+        { "Thunder Clap", 6343, 30 } },
+    MAGE = { { "Frostbolt", 116, 9 }, { "Fire Vulnerability", 22959, 30 } },
+    PALADIN = { { "Judgement of Wisdom", 20186, 10 }, { "Judgement of Light", 20185, 10 } },
+    SHAMAN = { { "Flame Shock", 8050, 12 }, { "Frost Shock", 8056, 8 } },
+}
+
+-- Your class's debuffs, added to the list once so they can be ticked off.
+function bf.knownDebuffs()
+    local list, seen = db.debuffs.list, {}
+    for _, e in ipairs(list) do
+        if e.name then seen[e.name] = e end
+    end
+    for _, e in ipairs(CLASS_DEBUFFS[class or ""] or {}) do
+        if not seen[e[1]] then
+            list[#list + 1] = { name = e[1], id = e[2], duration = e[3], show = false }
+        end
+    end
+    return list
+end
+
+-- Our own casts are the only thing readable in a fight, so a landed cast starts a timer on
+-- whatever we had targeted. Nothing here is secret: a spell id, a GUID and the clock.
+bf.applied = {}
+function bf.cast(spellID)
+    if not spellID then return end
+    local ok, info = pcall(C_Spell.GetSpellInfo, spellID)
+    local name = ok and type(info) == "table" and info.name
+    if not name then return end
+    for _, e in ipairs(db.debuffs.list) do
+        if e.name == name and e.show then
+            local guid = UnitGUID("target")
+            if guid then
+                bf.applied[guid] = bf.applied[guid] or {}
+                bf.applied[guid][name] = GetTime() + (e.duration or 18)
+            end
+        end
+    end
+end
+
+-- Is it on the target? A timer of ours counts, and so does the game's answer when it gives one.
+function bf.hasDebuff(name)
+    local guid = UnitGUID("target")
+    local mine = guid and bf.applied[guid] and bf.applied[guid][name]
+    if mine and mine > GetTime() then return true, true end
+    local ok, data
+    if C_UnitAuras.GetAuraDataBySpellName then
+        ok, data = pcall(function()
+            local d = C_UnitAuras.GetAuraDataBySpellName("target", name, "HARMFUL|PLAYER")
+            if d then return d end
+        end)
+        if ok then return data ~= nil, true end
+    end
+    ok, data = pcall(function()
+        for _, d in ipairs(C_UnitAuras.GetUnitAuras("target", "HARMFUL|PLAYER", 40)) do
+            if readable(d.name) and d.name == name then return d end
+        end
+    end)
+    if ok then return data ~= nil, true end
+    return false, false
+end
+
+-- Our own timers run down on their own, so the row re-checks itself once a second, but only
+-- while it is switched on.
+bf.tick = CreateFrame("Frame")
+bf.tick.since = 0
+local function debuffTick(self, elapsed)
+    self.since = self.since + elapsed
+    if self.since >= 1 then
+        self.since = 0
+        safe(bf.refreshDebuffs)
+    end
+end
+
+function bf.refreshDebuffs()
+    local o = db.debuffs
+    bf.tick:SetScript("OnUpdate", o.show and debuffTick or nil)
+    bf.danchor:ClearAllPoints()
+    bf.danchor:SetPoint("CENTER", UIParent, "CENTER", o.x, o.y)
+    bf.danchor:EnableMouse(not o.locked)
+    local preview = ns.previewing()
+    if not o.show or (o.hideNoTarget and not UnitExists("target") and not preview) then
+        bf.danchor:Hide()
+        return
+    end
+    bf.danchor:Show()
+    bf.knownDebuffs()
+    local n = 0
+    for _, sp in ipairs(o.list) do
+        if sp.show then
+            local has = bf.hasDebuff(sp.name)
+            if preview or not has then
+                n = n + 1
+                local ic = bf.slot(n, o, bf.dicons, bf.danchor)
+                ic.tex:SetTexture(bf.icon(sp))
+                ic.tex:SetDesaturated(o.desaturate and true or false)
+                ic:Show()
+            end
+        end
+    end
+    for i = n + 1, #bf.dicons do bf.dicons[i]:Hide() end
+end
+
 local bfEv = CreateFrame("Frame")
 ns.bfEv = bfEv
-bfEv:SetScript("OnEvent", function() safe(bf.refresh) end)
+bfEv:SetScript("OnEvent", function()
+    safe(bf.refresh)
+    safe(bf.refreshDebuffs)
+end)
 for _, e in ipairs({ "UNIT_AURA", "PLAYER_ENTERING_WORLD", "PLAYER_REGEN_ENABLED",
-    "PLAYER_REGEN_DISABLED", "PLAYER_ALIVE" }) do
+    "PLAYER_REGEN_DISABLED", "PLAYER_ALIVE", "PLAYER_TARGET_CHANGED" }) do
     pcall(bfEv.RegisterEvent, bfEv, e)
 end
 
@@ -2395,8 +2535,9 @@ local function sanitize(src, template)
             for _, e in ipairs(type(v) == "table" and v or {}) do
                 local name = type(e) == "table" and e.name
                 if type(name) == "string" and name ~= "" then
+                    local dur = tonumber(e.duration) or 18
                     out.list[#out.list + 1] = { name = name:sub(1, 64), id = tonumber(e.id) or 0,
-                        show = e.show == true }
+                        show = e.show == true, duration = math.max(1, math.min(600, dur)) }
                 end
             end
         elseif k == "slots" then -- a permutation of the totem slots, no gaps, no repeats
@@ -2743,6 +2884,8 @@ local function buildConfig()
     groupPage:SetAllPoints(barsPage)
     local buffPage = CreateFrame("Frame", nil, cfg)
     buffPage:SetAllPoints(barsPage)
+    local debuffPage = CreateFrame("Frame", nil, cfg)
+    debuffPage:SetAllPoints(barsPage)
 
     local title = label(cfg, "Combat Display", "GameFontNormalLarge")
     title:SetPoint("TOPLEFT", 150, -72)
@@ -2751,9 +2894,17 @@ local function buildConfig()
         tabs[i] = button(cfg, t[2], 110, 150 + (i - 1) * 116, -68, function() sub = t[1]; changed() end)
         onRefresh(function() if sub == t[1] then tabs[i]:LockHighlight() else tabs[i]:UnlockHighlight() end end)
     end
+    local btabs = {}
+    for i, t in ipairs({ { "mine", "My buffs" }, { "target", "Target debuffs" } }) do
+        btabs[i] = button(cfg, t[2], 120, 150 + (i - 1) * 126, -68, function() sub = t[1]; changed() end)
+        onRefresh(function()
+            btabs[i]:SetShown(section == "buffs")
+            if sub == t[1] then btabs[i]:LockHighlight() else btabs[i]:UnlockHighlight() end
+        end)
+    end
     onRefresh(function()
         local np = section == "nameplates"
-        title:SetShown(not np)
+        title:SetShown(not np and section ~= "buffs")
         title:SetText(section == "other" and "Other" or section == "group" and "Group frames"
             or section == "buffs" and "Buff reminders" or "Combat Display")
         for _, t in ipairs(tabs) do t:SetShown(np) end
@@ -2761,7 +2912,8 @@ local function buildConfig()
         questPage:SetShown(np and sub == "quest")
         otherPage:SetShown(section == "other")
         groupPage:SetShown(section == "group")
-        buffPage:SetShown(section == "buffs")
+        buffPage:SetShown(section == "buffs" and sub ~= "target")
+        debuffPage:SetShown(section == "buffs" and sub == "target")
     end)
 
     local tabNote = label(barsPage, "", "GameFontDisableSmall")
@@ -3311,6 +3463,102 @@ local function buildConfig()
     end
     blist:close()
 
+    ----------------------------------------------------------------------------------
+    -- Debuffs page: the ones you put on your target, and the icon when one is missing
+    ----------------------------------------------------------------------------------
+    local D = function() return db.debuffs end
+    local dset = group(debuffPage, COL[1], TOP, 202, "Missing debuff icons")
+    check(debuffPage, "Show them", dset.x, dset:row(ROW), function() return D().show end,
+        function(v) D().show = v end)
+    check(debuffPage, "Only with a target", dset.x, dset:row(ROW), function() return D().hideNoTarget end,
+        function(v) D().hideNoTarget = v end)
+    check(debuffPage, "Gray them out", dset.x, dset:row(ROW), function() return D().desaturate end,
+        function(v) D().desaturate = v end)
+    local dlk = button(debuffPage, "", 186, dset.x, dset:row(BUTTON), function()
+        D().locked = not D().locked
+        changed()
+    end)
+    onRefresh(function() dlk:SetText(D().locked and "Locked (click to unlock)" or "Unlocked - drag them") end)
+    slider(debuffPage, "Icon size", dset.x, dset:row(SLIDER), 12, 80, function() return D().size end,
+        function(v) D().size = v end)
+    slider(debuffPage, "Gap", dset.x, dset:row(SLIDER), 0, 30, function() return D().gap end,
+        function(v) D().gap = v end)
+    slider(debuffPage, "Per row / column", dset.x, dset:row(SLIDER), 1, 20,
+        function() return D().perLine end, function(v) D().perLine = v end)
+    dropdown(debuffPage, "Grows", dset.x, dset:row(DROP), { { "Right, then down", "right" },
+        { "Left, then down", "left" }, { "Down, then right", "down" }, { "Up, then right", "up" } },
+        function() return D().grow end, function(v) D().grow = v end, textPreview)
+    dset:close()
+
+    local dpos = group(debuffPage, COL[2], TOP, 202, "Where they sit")
+    slider(debuffPage, "X (left / right)", dpos.x, dpos:row(SLIDER), -1200, 1200,
+        function() return D().x end, function(v) D().x = v end)
+    slider(debuffPage, "Y (down / up)", dpos.x, dpos:row(SLIDER), -800, 800,
+        function() return D().y end, function(v) D().y = v end)
+    local dposNote = label(debuffPage, "In combat the game refuses to say what is on your target, "
+        .. "so your own casts are timed instead: a landed cast counts as applied for the seconds "
+        .. "set below. Out of combat the game is asked directly.", "GameFontDisableSmall")
+    dposNote:SetPoint("TOPLEFT", dpos.x, dpos:row(60))
+    dposNote:SetWidth(182)
+    dposNote:SetJustifyH("LEFT")
+    dpos:close()
+
+    local dlist = group(debuffPage, COL[3], TOP, 202, "Debuffs to watch")
+    local pickedDebuff = 1
+    for i = 1, 12 do
+        local y = dlist:row(22)
+        local row = CreateFrame("Button", nil, debuffPage)
+        row:SetSize(122, 20)
+        row:SetPoint("TOPLEFT", dlist.x + 26, y - 1)
+        row:SetHighlightTexture("Interface\\Buttons\\WHITE8X8")
+        row:GetHighlightTexture():SetVertexColor(1, 1, 1, 0.12)
+        local icon = debuffPage:CreateTexture(nil, "ARTWORK")
+        icon:SetSize(16, 16)
+        icon:SetPoint("TOPLEFT", dlist.x + 4, y - 2)
+        icon:SetTexCoord(0.08, 0.92, 0.08, 0.92)
+        local nameLbl = label(row, "", "GameFontHighlightSmall")
+        nameLbl:SetPoint("LEFT", 2, 0)
+        nameLbl:SetWidth(120)
+        nameLbl:SetJustifyH("LEFT")
+        local onBtn = check(debuffPage, "", dlist.x + 154, y + 2, function()
+            local sp = ns.bf.knownDebuffs()[i]
+            return sp and sp.show
+        end, function(v)
+            local sp = ns.bf.knownDebuffs()[i]
+            if sp then sp.show = v end
+        end)
+        row:SetScript("OnClick", function() pickedDebuff = i; changed() end)
+        onRefresh(function()
+            local sp = ns.bf.knownDebuffs()[i]
+            row:SetShown(sp ~= nil)
+            icon:SetShown(sp ~= nil)
+            onBtn:SetShown(sp ~= nil)
+            if not sp then return end
+            icon:SetTexture(ns.bf.icon(sp))
+            nameLbl:SetText(sp.name)
+            nameLbl:SetTextColor(1, 1, 1, sp.show and 1 or 0.45)
+            if pickedDebuff == i then row:LockHighlight() else row:UnlockHighlight() end
+        end)
+    end
+    dlist:close()
+
+    local dpick = group(debuffPage, COL[4], TOP, 202, "The one you picked")
+    local dName = label(debuffPage, "", "GameFontNormalSmall")
+    dName:SetPoint("TOPLEFT", dpick.x, dpick:row(18))
+    slider(debuffPage, "Lasts (seconds)", dpick.x, dpick:row(SLIDER), 1, 300,
+        function() local sp = ns.bf.knownDebuffs()[pickedDebuff] return sp and sp.duration or 18 end,
+        function(v) local sp = ns.bf.knownDebuffs()[pickedDebuff] if sp then sp.duration = v end end)
+    onRefresh(function()
+        local sp = ns.bf.knownDebuffs()[pickedDebuff]
+        dName:SetText(sp and sp.name or "")
+    end)
+    local dpickNote = label(debuffPage, "How long your cast of it counts as applied while the game "
+        .. "will not say. Click a debuff on the left to set its own.", "GameFontDisableSmall")
+    dpickNote:SetPoint("TOPLEFT", dpick.x, dpick:row(30))
+    dpickNote:SetWidth(182)
+    dpickNote:SetJustifyH("LEFT")
+    dpick:close()
+
     local FS = function() return db.other.fsr end
     local spin = group(otherPage, COL[4], mouse.cursor - 20, 202, "Mana regen spinner")
     check(otherPage, "Show", spin.x, spin:row(ROW), function() return FS().show end,
@@ -3680,7 +3928,10 @@ ev:SetScript("OnEvent", function(_, event, unit, arg2, arg3)
         if unit == "player" then
             safe(fsr.cast, fsr, event, arg2, arg3)
             safe(castCost.track, castCost, event, arg3)
-            if event == "UNIT_SPELLCAST_SUCCEEDED" then absorb.castAt = GetTime() end
+            if event == "UNIT_SPELLCAST_SUCCEEDED" then
+                absorb.castAt = GetTime()
+                safe(bf.cast, arg3)
+            end
         end
         safe(Refresh) -- the cast bar joins or leaves the stack
     elseif event == "PLAYER_SWING" then -- unit, arg2 = duration, swing type
