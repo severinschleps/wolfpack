@@ -1979,7 +1979,7 @@ end
 -- A debuff you can take off turns the border its color: blue for magic, purple for a curse,
 -- green for poison, orange for disease. Debuff data can be secret, so every read is wrapped.
 function gf.dispel(f, cfg, unit)
-    local found
+    local found, refused = nil, false
     if db.group.dispel.show then
         -- "HARMFUL|RAID" is the game's own list of what you can take off this unit, so no class
         -- table is needed, and it answers in combat where walking the aura list throws. The type
@@ -1991,7 +1991,9 @@ function gf.dispel(f, cfg, unit)
                 else found = found or "Other" end
             end
         end)
+        refused = not ok
         if not ok and C_UnitAuras.GetUnitAuras == nil then -- older build: walk it ourselves
+            refused = false
             local can = DISPELS[class or ""]
             for i = 1, can and 40 or 0 do
                 local got, data = pcall(C_UnitAuras.GetAuraDataByIndex, unit, i, "HARMFUL")
@@ -2001,7 +2003,11 @@ function gf.dispel(f, cfg, unit)
                 if found then break end
             end
         end
+        if not ok and C_UnitAuras.GetUnitAuras ~= nil then refused = true end
     end
+    -- A refusal is not an answer: keep the last thing we knew, because gf.style has already
+    -- reset the border to its plain color by the time we get here.
+    if refused then found = f.dispelKind else f.dispelKind = found end
     local col = found and db.group.dispel[found]
     local t = math.min(cfg.borderSize, (cfg.height - 1) / 2, (cfg.width - 1) / 2)
     if col and t > 0 then -- there is a border already: recolor it
@@ -3576,6 +3582,9 @@ function ns.AuraReport()
         { "GetUnitAuras HARMFUL|RAID", function() return C_UnitAuras.GetUnitAuras("player", "HARMFUL|RAID", 8) end },
     }
     local name = (db.group.spells[1] and db.group.spells[1].name) or "Renew"
+    for _, sp in ipairs(db.group.spells) do
+        if sp.show then name = sp.name break end -- a buff you actually use
+    end
     for _, p in ipairs(probes) do
         if not C_UnitAuras[(p[1]:gsub(" .*", ""))] then
             say(p[1] .. ": not on this client")
@@ -3591,7 +3600,23 @@ function ns.AuraReport()
             end
         end
     end
-    say("looking for: " .. name)
+    say("looking for: " .. name .. " (cast it on yourself first, or this says nothing)")
+    -- What the by-name answer actually contains, which decides whether an icon can be drawn.
+    if C_UnitAuras.GetAuraDataBySpellName then
+        for _, sp in ipairs(db.group.spells) do
+            if sp.show then
+                local ok, d = pcall(C_UnitAuras.GetAuraDataBySpellName, "player", sp.name, "HELPFUL|PLAYER")
+                local what = "no"
+                if ok and d then
+                    what = "yes, instance " .. (readable(d.auraInstanceID) and "readable" or "secret")
+                        .. ", name " .. (readable(d.name) and "readable" or "secret")
+                elseif not ok then
+                    what = "refused"
+                end
+                say("  " .. sp.name .. ": " .. what)
+            end
+        end
+    end
 end
 
 SlashCmdList.WOLFPACKADDON = function(msg)

@@ -1414,6 +1414,12 @@ prof().group.party.borderSize = 0
 S.curable = { { dispelName = "Disease" } }
 fire("UNIT_MAXPOWER")
 assert(pf.ring:IsShown() and pf.ring._color[1] == 0.95, "no border on this layout: a ring instead")
+-- a client that refuses the list keeps the last border it knew
+local bulk2 = C_UnitAuras.GetUnitAuras
+C_UnitAuras.GetUnitAuras = function() error("Auras cannot be accessed when secret while tainted") end
+fire("UNIT_MAXPOWER")
+assert(pf.ring:IsShown() and pf.ring._color[1] == 0.95, "refused: the border stays as it was")
+C_UnitAuras.GetUnitAuras = bulk2
 S.curable = nil
 fire("UNIT_MAXPOWER")
 assert(not pf.ring:IsShown(), "nothing to take off: back to normal")
