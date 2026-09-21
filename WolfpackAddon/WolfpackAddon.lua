@@ -1719,8 +1719,22 @@ function bz.light(f)
     d.hlBorder:SetShown((lit and h.border and h.borderSize > 0) and true or false)
 end
 
+-- Nameplates run through the same CompactUnitFrame code as the raid frames, so the hooks fire
+-- for them too. Only the group's own frames may be touched, or the target's nameplate ends up
+-- wearing the highlight.
+function bz.isGroupFrame(f)
+    local name = f and f.GetName and f:GetName()
+    if type(name) ~= "string" then return false end
+    return (name:find("^CompactRaidFrame") or name:find("^CompactPartyFrame")
+        or name:find("^CompactRaidGroup")) and true or false
+end
+
 function bz.skin(f)
     if not db or not db.group.useBlizzard then return end
+    if not bz.isGroupFrame(f) then
+        if bz.deco[f] then bz.unskin(f) end -- skinned before this rule existed
+        return
+    end
     local cfg = db.group
     local d = bz.deco[f]
     if not d then

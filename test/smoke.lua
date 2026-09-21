@@ -15,6 +15,7 @@ function M:SetShown(v) assert(v == nil or type(v) == "boolean", "SetShown got " 
 function M:IsShown() return self._shown end
 function M:SetScript(k, fn) self._scripts[k] = fn end
 M.HookScript = M.SetScript
+function M:GetName() return self._name end
 function M:GetText() return self._text end
 function M:SetText(t) self._text = t end
 function M:HasFocus() return false end
@@ -294,9 +295,14 @@ CombatTextFont = new() -- the scrolling combat text's font object
 -- Blizzard's raid frames: two of them, with the pieces the skinning touches
 for i = 1, 2 do
     local f = new()
+    f._name = "CompactRaidFrame" .. i
     f.healthBar, f.powerBar, f.name = new(), new(), new()
-    _G["CompactRaidFrame" .. i] = f
+    _G[f._name] = f
 end
+-- a nameplate: the same CompactUnitFrame code drives it, so the hooks fire for it as well
+NamePlate1 = new()
+NamePlate1._name, NamePlate1.unit = "NamePlate1", "target"
+NamePlate1.healthBar, NamePlate1.name = new(), new()
 CompactRaidFrameContainer = new()
 S.cvars = {}
 SetCVar = function(k, v) S.cvars[k] = v end
@@ -1377,6 +1383,9 @@ assert(not d.hl:IsShown(), "and unlights it")
 S.targetUnit = "party2"
 ns.bzEv._scripts.OnEvent(ns.bzEv, "PLAYER_TARGET_CHANGED")
 assert(ns.bz.deco[bzf2].hl:IsShown() and not d.hl:IsShown(), "your target stays lit")
+-- a nameplate must be left alone, even though it goes through the same code
+CompactUnitFrame_UpdateAll(NamePlate1)
+assert(not ns.bz.deco[NamePlate1] and NamePlate1.healthBar._tex == nil, "nameplates are not ours")
 S.targetUnit = nil
 gp.hover.show, gp.hover.border = false, false
 ns.bzEv._scripts.OnEvent(ns.bzEv, "PLAYER_TARGET_CHANGED")
