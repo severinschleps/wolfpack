@@ -1702,23 +1702,29 @@ end
 -- every aura call, so the row keeps its last answer rather than making one up.
 ------------------------------------------------------------------------------------------
 -- The buffs a class hands out, by name so every rank counts, with an id for the game's icon.
+-- name, spell id for the icon, and how long it lasts. The duration is what a cast of ours
+-- stands on while the game refuses to answer; 0 means "never time it", for things with no
+-- duration at all, like a paladin aura.
 local CLASS_BUFFS = {
-    PRIEST = { { "Power Word: Fortitude", 1243 }, { "Divine Spirit", 14752 },
-        { "Shadow Protection", 976 }, { "Inner Fire", 588 }, { "Prayer of Fortitude", 21562 },
-        { "Prayer of Spirit", 27681 }, { "Prayer of Shadow Protection", 27683 } },
-    DRUID = { { "Mark of the Wild", 1126 }, { "Gift of the Wild", 21849 }, { "Thorns", 467 },
-        { "Omen of Clarity", 16864 } },
-    PALADIN = { { "Blessing of Might", 19740 }, { "Blessing of Wisdom", 19742 },
-        { "Blessing of Kings", 20217 }, { "Blessing of Salvation", 1038 },
-        { "Blessing of Sanctuary", 20911 }, { "Devotion Aura", 465 } },
-    MAGE = { { "Arcane Intellect", 1459 }, { "Arcane Brilliance", 23028 }, { "Ice Barrier", 13031 },
-        { "Mana Shield", 1463 }, { "Dampen Magic", 604 }, { "Amplify Magic", 1008 } },
-    SHAMAN = { { "Lightning Shield", 324 }, { "Water Shield", 52127 }, { "Earth Shield", 974 } },
-    WARLOCK = { { "Demon Skin", 696 }, { "Demon Armor", 706 }, { "Unending Breath", 5697 },
-        { "Detect Invisibility", 132 } },
-    WARRIOR = { { "Battle Shout", 6673 } },
-    HUNTER = { { "Aspect of the Hawk", 13165 }, { "Trueshot Aura", 19506 } },
-    ROGUE = { { "Slice and Dice", 5171 } },
+    PRIEST = { { "Power Word: Fortitude", 1243, 1800 }, { "Divine Spirit", 14752, 1800 },
+        { "Shadow Protection", 976, 600 }, { "Inner Fire", 588, 600 },
+        { "Prayer of Fortitude", 21562, 3600 }, { "Prayer of Spirit", 27681, 3600 },
+        { "Prayer of Shadow Protection", 27683, 1200 } },
+    DRUID = { { "Mark of the Wild", 1126, 1800 }, { "Gift of the Wild", 21849, 3600 },
+        { "Thorns", 467, 600 }, { "Omen of Clarity", 16864, 1800 } },
+    PALADIN = { { "Blessing of Might", 19740, 300 }, { "Blessing of Wisdom", 19742, 300 },
+        { "Blessing of Kings", 20217, 300 }, { "Blessing of Salvation", 1038, 300 },
+        { "Blessing of Sanctuary", 20911, 300 }, { "Devotion Aura", 465, 0 } },
+    MAGE = { { "Arcane Intellect", 1459, 1800 }, { "Arcane Brilliance", 23028, 3600 },
+        { "Ice Barrier", 13031, 60 }, { "Mana Shield", 1463, 600 }, { "Dampen Magic", 604, 600 },
+        { "Amplify Magic", 1008, 600 } },
+    SHAMAN = { { "Lightning Shield", 324, 600 }, { "Water Shield", 52127, 600 },
+        { "Earth Shield", 974, 600 } },
+    WARLOCK = { { "Demon Skin", 696, 1800 }, { "Demon Armor", 706, 1800 },
+        { "Unending Breath", 5697, 600 }, { "Detect Invisibility", 132, 600 } },
+    WARRIOR = { { "Battle Shout", 6673, 120 } },
+    HUNTER = { { "Aspect of the Hawk", 13165, 0 }, { "Trueshot Aura", 19506, 0 } },
+    ROGUE = { { "Slice and Dice", 5171, 15 } },
 }
 
 bf = { icons = {} }
@@ -1760,7 +1766,9 @@ function bf.known()
     end
     for _, e in ipairs(CLASS_BUFFS[class or ""] or {}) do
         if not seen[e[1]] then
-            list[#list + 1] = { name = e[1], id = e[2], show = false }
+            list[#list + 1] = { name = e[1], id = e[2], duration = e[3], show = false }
+        elseif seen[e[1]].duration == nil then
+            seen[e[1]].duration = e[3]
         end
     end
     return list
@@ -1794,6 +1802,9 @@ function bf.has(name)
         end
     end)
     if ok then return data ~= nil, true end
+    -- The game would not say, so our own cast decides: still running, or run out.
+    local mine = bf.selfTimers[name]
+    if mine then return mine > GetTime(), true end
     return false, false
 end
 
@@ -1830,12 +1841,12 @@ function bf.refresh()
     end
     bf.anchor:Show()
     bf.known()
-    local n, refused = 0, false
+    local n, answered = 0, false
     for _, sp in ipairs(o.list) do
         if sp.show then
-            local has, answered = bf.has(sp.name)
-            if not answered then refused = true end
-            if answered and not has then
+            local has, ok = bf.has(sp.name)
+            answered = answered or ok
+            if ok and not has then
                 n = n + 1
                 local ic = bf.slot(n)
                 ic.tex:SetTexture(bf.icon(sp))
@@ -1854,7 +1865,8 @@ function bf.refresh()
             end
         end
     end
-    if refused and n == 0 then return end -- in combat the game says nothing: keep the last row
+    -- Only freeze when nothing at all could be answered: one timer of ours is enough to redraw.
+    if not answered then return end
     for i = n + 1, #bf.icons do bf.icons[i]:Hide() end
 end
 
@@ -1893,11 +1905,18 @@ end
 -- Our own casts are the only thing readable in a fight, so a landed cast starts a timer on
 -- whatever we had targeted. Nothing here is secret: a spell id, a GUID and the clock.
 bf.applied = {}
+bf.selfTimers = {} -- buffs of ours, by name: when the cast stops counting
+
 function bf.cast(spellID)
     if not spellID then return end
     local ok, info = pcall(C_Spell.GetSpellInfo, spellID)
     local name = ok and type(info) == "table" and info.name
     if not name then return end
+    for _, e in ipairs(db.buffs.list) do -- a buff you just cast counts until it runs out
+        if e.name == name and e.show and (e.duration or 0) > 0 then
+            bf.selfTimers[name] = GetTime() + e.duration
+        end
+    end
     for _, e in ipairs(db.debuffs.list) do
         if e.name == name and e.show then
             local guid = UnitGUID("target")
@@ -1911,9 +1930,6 @@ end
 
 -- Is it on the target? A timer of ours counts, and so does the game's answer when it gives one.
 function bf.hasDebuff(name)
-    local guid = UnitGUID("target")
-    local mine = guid and bf.applied[guid] and bf.applied[guid][name]
-    if mine and mine > GetTime() then return true, true end
     local ok, data
     if C_UnitAuras.GetAuraDataBySpellName then
         ok, data = pcall(function()
@@ -1928,6 +1944,10 @@ function bf.hasDebuff(name)
         end
     end)
     if ok then return data ~= nil, true end
+    -- In a fight the game says nothing, so our own cast on this target decides.
+    local guid = UnitGUID("target")
+    local mine = guid and bf.applied[guid] and bf.applied[guid][name]
+    if mine then return mine > GetTime(), true end
     return false, false
 end
 
@@ -1940,12 +1960,13 @@ local function debuffTick(self, elapsed)
     if self.since >= 1 then
         self.since = 0
         safe(bf.refreshDebuffs)
+        safe(bf.refresh)
     end
 end
 
 function bf.refreshDebuffs()
     local o = db.debuffs
-    bf.tick:SetScript("OnUpdate", o.show and debuffTick or nil)
+    bf.tick:SetScript("OnUpdate", (o.show or db.buffs.show) and debuffTick or nil)
     bf.danchor:ClearAllPoints()
     bf.danchor:SetPoint("CENTER", UIParent, "CENTER", o.x, o.y)
     bf.danchor:EnableMouse(not o.locked)
@@ -1978,8 +1999,17 @@ bfEv:SetScript("OnEvent", function()
     safe(bf.refresh)
     safe(bf.refreshDebuffs)
 end)
+bfEv:SetScript("OnEvent", function(_, event)
+    -- Dying takes every buff off, which is a fact the game need not confirm: the timers are
+    -- marked run out rather than forgotten, so the reminders come back.
+    if event == "PLAYER_DEAD" then
+        for k in pairs(bf.selfTimers) do bf.selfTimers[k] = 0 end
+    end
+    safe(bf.refresh)
+    safe(bf.refreshDebuffs)
+end)
 for _, e in ipairs({ "UNIT_AURA", "PLAYER_ENTERING_WORLD", "PLAYER_REGEN_ENABLED",
-    "PLAYER_REGEN_DISABLED", "PLAYER_ALIVE", "PLAYER_TARGET_CHANGED" }) do
+    "PLAYER_REGEN_DISABLED", "PLAYER_ALIVE", "PLAYER_TARGET_CHANGED", "PLAYER_DEAD" }) do
     pcall(bfEv.RegisterEvent, bfEv, e)
 end
 
@@ -3409,15 +3439,16 @@ local function buildConfig()
         function() return B().x end, function(v) B().x = v end)
     slider(buffPage, "Y (down / up)", bpos.x, bpos:row(SLIDER), -800, 800,
         function() return B().y end, function(v) B().y = v end)
-    local bposNote = label(buffPage, "Out of combat the game answers which buffs you are missing. "
-        .. "In combat it refuses every aura question, so the row holds its last answer -- tick "
-        .. "\"Hide in combat\" if you would rather see nothing than something stale.",
+    local bposNote = label(buffPage, "Out of combat the game says which buffs you are missing. In "
+        .. "combat it refuses, so a buff you cast counts for as long as it lasts, and anything "
+        .. "else holds its last answer.",
         "GameFontDisableSmall")
     bposNote:SetPoint("TOPLEFT", bpos.x, bpos:row(60))
     bposNote:SetWidth(182)
     bposNote:SetJustifyH("LEFT")
     bpos:close()
 
+    local pickedBuff = 1
     local blist = group(buffPage, COL[3], TOP, 202, "Buffs to watch")
     local addBuff = CreateFrame("EditBox", nil, buffPage, "InputBoxTemplate")
     addBuff:SetSize(120, 20)
@@ -3439,8 +3470,14 @@ local function buildConfig()
         icon:SetSize(16, 16)
         icon:SetPoint("TOPLEFT", blist.x + 4, y - 2)
         icon:SetTexCoord(0.08, 0.92, 0.08, 0.92)
-        local nameLbl = label(buffPage, "", "GameFontHighlightSmall")
-        nameLbl:SetPoint("TOPLEFT", blist.x + 26, y - 6)
+        local row = CreateFrame("Button", nil, buffPage)
+        row:SetSize(122, 20)
+        row:SetPoint("TOPLEFT", blist.x + 26, y - 1)
+        row:SetHighlightTexture("Interface\\Buttons\\WHITE8X8")
+        row:GetHighlightTexture():SetVertexColor(1, 1, 1, 0.12)
+        row:SetScript("OnClick", function() pickedBuff = i; changed() end)
+        local nameLbl = label(row, "", "GameFontHighlightSmall")
+        nameLbl:SetPoint("LEFT", 2, 0)
         nameLbl:SetWidth(120)
         nameLbl:SetJustifyH("LEFT")
         local onBtn = check(buffPage, "", blist.x + 154, y + 2, function()
@@ -3454,14 +3491,34 @@ local function buildConfig()
             local sp = ns.bf.known()[i]
             icon:SetShown(sp ~= nil)
             onBtn:SetShown(sp ~= nil)
+            row:SetShown(sp ~= nil)
             nameLbl:SetText(sp and sp.name or "")
             if sp then
                 icon:SetTexture(ns.bf.icon(sp))
                 nameLbl:SetTextColor(1, 1, 1, sp.show and 1 or 0.45)
+                if pickedBuff == i then row:LockHighlight() else row:UnlockHighlight() end
             end
         end)
     end
     blist:close()
+
+    local bpick = group(buffPage, COL[4], TOP, 202, "The one you picked")
+    local bName = label(buffPage, "", "GameFontNormalSmall")
+    bName:SetPoint("TOPLEFT", bpick.x, bpick:row(18))
+    slider(buffPage, "Lasts (seconds)", bpick.x, bpick:row(SLIDER), 0, 3600,
+        function() local sp = ns.bf.known()[pickedBuff] return sp and sp.duration or 0 end,
+        function(v) local sp = ns.bf.known()[pickedBuff] if sp then sp.duration = v end end)
+    onRefresh(function()
+        local sp = ns.bf.known()[pickedBuff]
+        bName:SetText(sp and sp.name or "")
+    end)
+    local bpickNote = label(buffPage, "In combat the game will not say which buffs you have, so a "
+        .. "cast of yours counts for this long. 0 means never assume it. Click a buff on the "
+        .. "left to set its own.", "GameFontDisableSmall")
+    bpickNote:SetPoint("TOPLEFT", bpick.x, bpick:row(30))
+    bpickNote:SetWidth(182)
+    bpickNote:SetJustifyH("LEFT")
+    bpick:close()
 
     ----------------------------------------------------------------------------------
     -- Debuffs page: the ones you put on your target, and the icon when one is missing

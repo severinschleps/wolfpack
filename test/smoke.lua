@@ -1443,6 +1443,18 @@ local byName2, bulk2b = C_UnitAuras.GetAuraDataBySpellName, C_UnitAuras.GetUnitA
 C_UnitAuras.GetAuraDataBySpellName, C_UnitAuras.GetUnitAuras = nil, nil
 ns.bfEv._scripts.OnEvent(ns.bfEv, "UNIT_AURA")
 assert(bi[1]:IsShown(), "combat: the row holds its last answer")
+-- and a buff you cast in combat counts, the same way a debuff does
+S.spellNames = { [1243] = "Power Word: Fortitude" }
+S.time = 6000
+fire("UNIT_SPELLCAST_SUCCEEDED", "player", "cbuff", 1243)
+ns.bfEv._scripts.OnEvent(ns.bfEv, "UNIT_AURA")
+assert(not bi[1]:IsShown(), "cast in combat: that reminder goes away")
+S.time = 6000 + 1801 -- half an hour later it has run out
+ns.bf.tick._scripts.OnUpdate(ns.bf.tick, 2)
+assert(bi[1]:IsShown(), "it ran out: the reminder is back")
+fire("UNIT_SPELLCAST_SUCCEEDED", "player", "cbuff", 1243)
+ns.bfEv._scripts.OnEvent(ns.bfEv, "PLAYER_DEAD")
+assert(bi[1]:IsShown(), "dying takes them all off")
 bo.hideInCombat = true
 ns.bfEv._scripts.OnEvent(ns.bfEv, "UNIT_AURA")
 assert(not ns.bf.anchor:IsShown(), "unless you would rather see nothing")
@@ -1459,13 +1471,21 @@ S.auras = {}
 S.spellNames = { [589] = "Shadow Word: Pain" }
 ns.bfEv._scripts.OnEvent(ns.bfEv, "PLAYER_TARGET_CHANGED")
 assert(ns.bf.danchor:IsShown() and ns.bf.dicons[1]:IsShown(), "missing on the target: icon shows")
--- casting it starts our own timer, which counts even when the game says nothing
+-- in combat the game says nothing, so our own cast is what counts
+local byName3, bulk3 = C_UnitAuras.GetAuraDataBySpellName, C_UnitAuras.GetUnitAuras
+S.combat = true
+C_UnitAuras.GetAuraDataBySpellName, C_UnitAuras.GetUnitAuras = nil, nil
 fire("UNIT_SPELLCAST_SUCCEEDED", "player", "c9", 589)
 ns.bfEv._scripts.OnEvent(ns.bfEv, "PLAYER_TARGET_CHANGED")
 assert(not ns.bf.dicons[1]:IsShown(), "cast landed: nothing missing")
 S.time = 5019 -- eighteen seconds later it has run out
 ns.bf.tick._scripts.OnUpdate(ns.bf.tick, 2)
 assert(ns.bf.dicons[1]:IsShown(), "it ran out: the icon is back")
+C_UnitAuras.GetAuraDataBySpellName, C_UnitAuras.GetUnitAuras = byName3, bulk3
+S.auras = { { name = "Shadow Word: Pain" } } -- out of combat the game is believed, not us
+S.combat = false
+ns.bfEv._scripts.OnEvent(ns.bfEv, "PLAYER_TARGET_CHANGED")
+assert(not ns.bf.dicons[1]:IsShown(), "the game's answer wins when it gives one")
 dof.show = false
 S.targetHP, S.npc = nil, nil
 login("ROGUE", 3)
