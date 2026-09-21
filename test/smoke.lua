@@ -175,9 +175,16 @@ GetNumGroupMembers = function() return S.members or 0 end
 UnitGroupRolesAssigned = function(unit) return (S.units or {})[unit] or "NONE" end
 GetTexCoordsForRoleSmallCircle = function() return 0, 0.5, 0, 0.5 end
 C_UnitAuras = {
+    -- in combat this client throws instead of answering, like the live one does
     GetAuraDataByIndex = function(unit, i, filter)
+        assert(not S.combat, "aura data is secret in combat")
         if filter == "HARMFUL" then return (S.debuffs or {})[i] end
         return (S.auras or {})[i]
+    end,
+    GetAuraDataBySpellName = function(unit, name)
+        for _, a in ipairs(S.auras or {}) do
+            if a.name == name then return a end
+        end
     end,
     GetAuraDuration = function() return { IsZero = function() return false end } end,
 }
@@ -1407,6 +1414,11 @@ assert(#known >= 10 and known[1].name == "Power Word: Shield", "priest buffs loa
 assert(known[1].show == false and known[1].corner == "topleft" and known[1].size == 14, "off until ticked")
 assert(ns.gf.spellIcon(known[1]) == 117, "the game's icon for that spell")
 login("ROGUE", 3)
+-- combat makes the aura list unreadable, but asking for a spell by name still answers
+S.combat = true
+fire("UNIT_MAXPOWER")
+assert(gfr[1].icons[1]:IsShown() and gfr[1].icons[1].tex._tex == 135953, "buffs stay up in combat")
+S.combat = false
 gp.spells[1].show = false
 fire("UNIT_MAXPOWER")
 assert(not gfr[1].icons[1]:IsShown(), "unticked spells stay off")

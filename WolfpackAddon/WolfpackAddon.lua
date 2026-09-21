@@ -1889,19 +1889,32 @@ function gf.icon(f, i, size)
     return ic
 end
 
--- Your own helpful auras, in the corners you picked for them. Every read is wrapped: on this
--- client an aura that is not whitelisted is secret, and touching its fields throws.
+-- Asking for one spell by name beats walking the unit's aura list: in combat this client makes
+-- aura data secret and GetAuraDataByIndex throws instead of answering, which is why the icons
+-- used to vanish the moment a fight started. The name comes from our own list, so it is never
+-- secret, and nothing about the aura is read -- the icon comes from the spell and the duration
+-- object only gets passed on.
+function gf.auraFor(unit, name)
+    local ok, data = pcall(function()
+        if C_UnitAuras.GetAuraDataBySpellName then
+            local d = C_UnitAuras.GetAuraDataBySpellName(unit, name, "HELPFUL|PLAYER")
+            if d then return d end
+        end
+        for i = 1, 40 do -- older builds: walk the list and match the name
+            local d = C_UnitAuras.GetAuraDataByIndex(unit, i, "HELPFUL|PLAYER")
+            if not d then return nil end
+            if d.name == name then return d end
+        end
+    end)
+    if ok then return data end
+end
+
+-- Your own helpful auras, in the corners you picked for them.
 function gf.auras(f, cfg, unit)
-    local want, used, n = {}, { 0, 0, 0, 0 }, 0
+    local used, n = { 0, 0, 0, 0 }, 0
     for _, sp in ipairs(db.group.spells) do
-        if sp.show then want[sp.name] = sp end -- by name, so every rank of it counts
-    end
-    for i = 1, 40 do
-        local ok, data = pcall(C_UnitAuras.GetAuraDataByIndex, unit, i, "HELPFUL|PLAYER")
-        if not ok or not data then break end
-        pcall(function()
-            local sp = want[data.name]
-            if not sp then return end
+        local data = sp.show and gf.auraFor(unit, sp.name)
+        if data then
             local c, ci = CORNER_BY_KEY[sp.corner], 0
             for k, v in ipairs(CORNERS) do if v[1] == sp.corner then ci = k end end
             n = n + 1
@@ -1910,10 +1923,12 @@ function gf.auras(f, cfg, unit)
             ic:ClearAllPoints()
             ic:SetPoint(c[2], f, c[2], c[3] * (2 + used[ci] * (sp.size + 1)), c[4] * 2)
             used[ci] = used[ci] + 1
-            local dur = select(2, pcall(C_UnitAuras.GetAuraDuration, unit, data.auraInstanceID))
+            local dur = select(2, pcall(function()
+                return C_UnitAuras.GetAuraDuration(unit, data.auraInstanceID)
+            end))
             if dur then ic.bar:SetTimerDuration(dur, 0, TIMER_REMAINING) end
             ic:Show()
-        end)
+        end
     end
     for i = n + 1, #f.icons do f.icons[i]:Hide() end
 end
