@@ -180,6 +180,9 @@ issecretvalue = function(v) return v == SECRET end
 UnitIsUnit = function(a, b) return a == b or (b == "target" and a == S.targetUnit) end
 RegisterUnitWatch = function(f) f._watched = true end
 GetNumGroupMembers = function() return S.members or 0 end
+UnitIsDeadOrGhost = function() return false end
+GetWeaponEnchantInfo = function() return S.mainEnchant or false, S.mainMs or 0, 0, 0,
+    S.offEnchant or false, S.offMs or 0 end
 UnitGroupRolesAssigned = function(unit) return (S.units or {})[unit] or "NONE" end
 GetTexCoordsForRoleSmallCircle = function() return 0, 0.5, 0, 0.5 end
 C_UnitAuras = {
@@ -340,7 +343,7 @@ C_QuestLog = {
     GetQuestObjectives = function(id) for _, q in ipairs(S.quests) do if q.info.questID == id then return q.objectives end end end,
 }
 UnitClass = function(unit) -- "Rogue", "ROGUE"
-    local token = unit == "target" and S.targetClass or S.class
+    local token = (S.unitClasses or {})[unit] or (unit == "target" and S.targetClass) or S.class
     return token:sub(1, 1) .. token:sub(2):lower(), token
 end
 UnitIsPlayer = function(unit) return unit == "player" or (unit == "target" and S.targetIsPlayer) end
@@ -1420,93 +1423,40 @@ fire("UNIT_MAXPOWER")
 assert(not d.border:IsShown() and not d.hl:IsShown(), "switched off: their own look is back")
 gp.useBlizzard = true
 
--- Buff reminders: an icon for each buff on the list you do not have
+-- Buff check: who in the group is missing a buff somebody here can give
 login("PRIEST", 0)
 local bo = prof().buffs
-bo.show, bo.locked, bo.size, bo.perLine, bo.gap = true, true, 30, 2, 2
-prof().locked, ns.configOpen = true, false -- no preview row while we check the real answers
-S.auras = { { name = "Inner Fire", spellId = 588, auraInstanceID = 3 } }
-for _, e in ipairs(ns.bf.known()) do e.show = e.name == "Inner Fire" or e.name == "Power Word: Fortitude" end
+bo.show, bo.locked, bo.onlyMissing, bo.skip = true, true, false, {}
+prof().locked, ns.configOpen = true, false
+S.group, S.members, S.raid = true, 3, false
+S.units = { party1 = "DAMAGER", party2 = "DAMAGER" }
+S.unitClasses = { player = "PRIEST", party1 = "PALADIN", party2 = "MAGE" }
+S.auras = {} -- nobody is buffed yet
+ns.bfEv._scripts.OnEvent(ns.bfEv, "GROUP_ROSTER_UPDATE")
+local rows, texts = ns.bf.rows, {}
+for i, r in ipairs(rows) do if r:IsShown() then texts[#texts + 1] = r.text._text end end
+assert(#texts >= 3, "a row per buff this group can hand out")
+assert(table.concat(texts, "|"):find("Stamina"), "the priest's stamina is checked")
+assert(table.concat(texts, "|"):find("A blessing"), "and the paladin's blessing")
+assert(not table.concat(texts, "|"):find("Thorns"), "no druid here, no thorns row")
+-- one blessing is enough, whichever it is
+S.auras = { { name = "Blessing of Kings" } }
 ns.bfEv._scripts.OnEvent(ns.bfEv, "UNIT_AURA")
-local bi = ns.bf.icons
-assert(ns.bf.anchor:IsShown() and bi[1]:IsShown(), "the missing one shows")
-assert(bi[1].tex._tex == 100 + 1243 and not (bi[2] and bi[2]:IsShown()), "only that one")
-S.auras = { { name = "Inner Fire" }, { name = "Power Word: Fortitude" } }
-ns.bfEv._scripts.OnEvent(ns.bfEv, "UNIT_AURA")
-assert(not bi[1]:IsShown(), "all buffed: nothing to show")
--- in combat the game refuses, so the row keeps what it last knew
-S.auras = {}
-ns.bfEv._scripts.OnEvent(ns.bfEv, "UNIT_AURA")
-assert(bi[1]:IsShown() and bi[2]:IsShown(), "both missing now")
+local blessing
+for _, r in ipairs(rows) do
+    if r:IsShown() and r.text._text:find("A blessing") then blessing = r.text._text end
+end
+assert(blessing == "A blessing: all set", "any single blessing satisfies it")
+-- in combat the list steps aside rather than guessing
 S.combat = true
-local byName2, bulk2b = C_UnitAuras.GetAuraDataBySpellName, C_UnitAuras.GetUnitAuras
-C_UnitAuras.GetAuraDataBySpellName, C_UnitAuras.GetUnitAuras = nil, nil
-ns.bfEv._scripts.OnEvent(ns.bfEv, "UNIT_AURA")
-assert(bi[1]:IsShown(), "combat: the row holds its last answer")
--- this client answers "nothing" in combat rather than refusing, which must not read as "missing"
-C_UnitAuras.GetAuraDataBySpellName, C_UnitAuras.GetUnitAuras = byName2, bulk2b
-S.auras = { { name = "Inner Fire" }, { name = "Power Word: Fortitude" } }
+ns.bfEv._scripts.OnEvent(ns.bfEv, "PLAYER_REGEN_DISABLED")
+assert(not ns.bf.panel:IsShown(), "combat: out of the way")
 S.combat = false
-ns.bfEv._scripts.OnEvent(ns.bfEv, "UNIT_AURA")
-assert(not bi[1]:IsShown(), "out of combat, buffed: nothing to show")
-S.combat = true
-S.auras = {} -- in combat every question comes back empty, buffs or not
-ns.bfEv._scripts.OnEvent(ns.bfEv, "UNIT_AURA")
-assert(not bi[1]:IsShown(), "combat: an empty answer is not an answer")
-C_UnitAuras.GetAuraDataBySpellName, C_UnitAuras.GetUnitAuras = nil, nil
-
--- and a buff you cast in combat counts, the same way a debuff does
-S.spellNames = { [1243] = "Power Word: Fortitude" }
-S.time = 6000
-fire("UNIT_SPELLCAST_SUCCEEDED", "player", "cbuff", 1243)
-ns.bfEv._scripts.OnEvent(ns.bfEv, "UNIT_AURA")
-assert(not bi[1]:IsShown(), "cast in combat: that reminder goes away")
-S.time = 6000 + 1801 -- half an hour later it has run out
-ns.bf.tick._scripts.OnUpdate(ns.bf.tick, 2)
-assert(bi[1]:IsShown(), "it ran out: the reminder is back")
-fire("UNIT_SPELLCAST_SUCCEEDED", "player", "cbuff", 1243)
-ns.bfEv._scripts.OnEvent(ns.bfEv, "PLAYER_DEAD")
-assert(bi[1]:IsShown(), "dying takes them all off")
-bo.hideInCombat = true
-ns.bfEv._scripts.OnEvent(ns.bfEv, "UNIT_AURA")
-assert(not ns.bf.anchor:IsShown(), "unless you would rather see nothing")
-bo.hideInCombat, S.combat = false, false
-C_UnitAuras.GetAuraDataBySpellName, C_UnitAuras.GetUnitAuras = byName2, bulk2b
-
--- Target debuffs: the game answers out of combat, our own casts are timed in combat
-local dof = prof().debuffs
-dof.show, dof.locked, dof.hideNoTarget = true, true, true
-S.targetHP, S.npc = 500, "Creature-0-1-2-3-99-0001"
-for _, e in ipairs(ns.bf.knownDebuffs()) do e.show = e.name == "Shadow Word: Pain" end
-S.time = 5000
-S.auras = {}
-S.spellNames = { [589] = "Shadow Word: Pain" }
-ns.bfEv._scripts.OnEvent(ns.bfEv, "PLAYER_TARGET_CHANGED")
-assert(ns.bf.danchor:IsShown() and ns.bf.dicons[1]:IsShown(), "missing on the target: icon shows")
--- in combat the game says nothing, so our own cast is what counts
-local byName3, bulk3 = C_UnitAuras.GetAuraDataBySpellName, C_UnitAuras.GetUnitAuras
-S.combat = true
-C_UnitAuras.GetAuraDataBySpellName, C_UnitAuras.GetUnitAuras = nil, nil
-fire("UNIT_SPELLCAST_SUCCEEDED", "player", "c9", 589)
-ns.bfEv._scripts.OnEvent(ns.bfEv, "PLAYER_TARGET_CHANGED")
-assert(not ns.bf.dicons[1]:IsShown(), "cast landed: nothing missing")
-S.time = 5019 -- eighteen seconds later it has run out
-ns.bf.tick._scripts.OnUpdate(ns.bf.tick, 2)
-assert(ns.bf.dicons[1]:IsShown(), "it ran out: the icon is back")
-C_UnitAuras.GetAuraDataBySpellName, C_UnitAuras.GetUnitAuras = byName3, bulk3
-S.auras = { { name = "Shadow Word: Pain" } } -- out of combat the game is believed, not us
-S.combat = false
-ns.bfEv._scripts.OnEvent(ns.bfEv, "PLAYER_TARGET_CHANGED")
-assert(not ns.bf.dicons[1]:IsShown(), "the game's answer wins when it gives one")
-dof.show = false
-S.targetHP, S.npc = nil, nil
+ns.bfEv._scripts.OnEvent(ns.bfEv, "PLAYER_REGEN_ENABLED")
+assert(ns.bf.panel:IsShown(), "and back afterwards")
+S.group, S.members = false, 0
 login("ROGUE", 3)
 
--- the log probe counts whatever arrives, and survives a client with no combat log at all
-ns.logEv._scripts.OnEvent(ns.logEv, "CHAT_MSG_SPELL_AURA_GONE_SELF", "Your Renew fades.")
-assert(ns.logSeen.counts.CHAT_MSG_SPELL_AURA_GONE_SELF == 1, "chat aura events are counted")
-assert(ns.logSeen.samples.CHAT_MSG_SPELL_AURA_GONE_SELF:find("Renew"), "with what was said")
-SlashCmdList.WOLFPACKADDON("log")
 SlashCmdList.WOLFPACKADDON("blizz")
 SlashCmdList.WOLFPACKADDON("auras") -- the probe must not error, whatever the client has
 SlashCmdList.WOLFPACKADDON("")
