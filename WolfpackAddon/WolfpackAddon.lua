@@ -1896,6 +1896,19 @@ function gf.auras(f, cfg, unit)
     for i = n + 1, #f.icons do f.icons[i]:Hide() end
 end
 
+-- First name only, at most eight letters, counted in characters so an accented one isn't
+-- cut in half.
+function gf.shortName(unit)
+    local name = UnitName(unit) or ""
+    name = name:match("^[^%s%-]+") or name
+    local out, n = "", 0
+    for ch in name:gmatch("[%z\1-\127\194-\244][\128-\191]*") do
+        if n >= 8 then break end
+        out, n = out .. ch, n + 1
+    end
+    return out
+end
+
 -- Health, power, name, role and auras for one unit.
 function gf.update(f, cfg, unit)
     if not UnitExists(unit) then
@@ -1908,7 +1921,7 @@ function gf.update(f, cfg, unit)
     local ptype = UnitPowerType(unit)
     f.power:SetMinMaxValues(0, UnitPowerMax(unit, ptype))
     f.power:SetValue(UnitPower(unit, ptype))
-    f.name:SetText(UnitName(unit) or "")
+    f.name:SetText(gf.shortName(unit))
     local _, token = UnitClass(unit)
     local col = cfg.classColor and token and C_ClassColor.GetClassColor(token)
     if col then

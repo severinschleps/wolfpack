@@ -1337,6 +1337,7 @@ fire("UNIT_MAXPOWER")
 local gfr = ns.gf.frames
 assert(ns.gf.anchor:IsShown() and gfr[1]:IsShown(), "shown without a group while testing")
 assert(gfr[1]._w == 100 and gfr[1]._h == 40, "frame size")
+assert(gfr[1].name._text == "ROGUECha", "first name, eight letters")
 assert(gfr[2]._point[4] == 104 and gfr[2]._point[5] == 0, "second frame sits right of the first")
 assert(gfr[3]._point[4] == 0 and gfr[3]._point[5] == -44, "third wraps to the next line")
 assert(gfr[1].icons[1] and gfr[1].icons[1]._point[1] == "TOPRIGHT", "own aura in its corner")
