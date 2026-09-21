@@ -171,6 +171,11 @@ AcknowledgeAutoAcceptQuest, StaticPopup_Hide = record("ack"), record("hidepopup"
 IsShiftKeyDown = function() return S.shift end
 IsInGroup = function() return S.group end
 IsInRaid = function() return S.raid or false end
+CanMerchantRepair = function() return S.canRepair end
+GetRepairAllCost = function() return S.repairCost or 0, S.canRepair or false end
+RepairAllItems = function() S.repaired = (S.repaired or 0) + 1 end
+GetMoney = function() return S.money or 0 end
+GetCoinTextureString = function(c) return c .. "c" end
 issecretvalue = function(v) return v == SECRET end
 UnitIsUnit = function(a, b) return a == b or (b == "target" and a == S.targetUnit) end
 RegisterUnitWatch = function(f) f._watched = true end
@@ -1030,6 +1035,21 @@ tick.fn(tick.obj)
 fire("MERCHANT_CLOSED")
 assert(#S.sold == 1 and tick.obj.cancelled, "closing stops it")
 prof().other.sellJunk = false
+
+-- Auto-repair: only when asked, only when the merchant can, only when you can afford it
+S.canRepair, S.repairCost, S.money = true, 500, 1000
+fire("MERCHANT_SHOW")
+assert(not S.repaired, "off by default")
+prof().other.autoRepair = true
+fire("MERCHANT_SHOW")
+assert(S.repaired == 1, "repaired")
+S.money = 100
+fire("MERCHANT_SHOW")
+assert(S.repaired == 1, "too poor: left alone")
+S.money, S.canRepair = 1000, false
+fire("MERCHANT_SHOW")
+assert(S.repaired == 1, "a merchant who cannot repair is left alone")
+prof().other.autoRepair = false
 
 -- Gradient points dialog: add, edit percent, delete
 prof().regular.bars.health.gradient = true

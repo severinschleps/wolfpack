@@ -204,6 +204,7 @@ local DEFAULTS = {
     },
     other = {
         hideGryphons = false, autoAccept = false, autoComplete = false, sellJunk = false,
+        autoRepair = false,
         hover = {},         -- [key from HOVER_FRAMES] = true: that Blizzard element shows only on mouseover
         bagsOnOpen = false, -- bag bar only while bags are open, attached to them
         combatFont = "",    -- damage-number font; "" = WoW's own, picked on purpose
@@ -2851,6 +2852,8 @@ local function buildConfig()
     local merch = group(otherPage, COL[1], quests.cursor - 20, 202, "Merchants")
     check(otherPage, "Auto-sell junk (gray items)", merch.x, merch:row(ROW),
         function() return db.other.sellJunk end, function(v) db.other.sellJunk = v end)
+    check(otherPage, "Auto-repair", merch.x, merch:row(ROW),
+        function() return db.other.autoRepair end, function(v) db.other.autoRepair = v end)
     merch:close()
 
 
@@ -3297,6 +3300,21 @@ local petEv = CreateFrame("Frame") -- same handler as ev, for pet unit events
 -- Auto-sell junk: gray items that have a sell price, one every 0.2 s while the merchant window
 -- is open. Nothing else is ever sold, and closing the window stops it.
 local sellTicker
+-- Repairs everything at a merchant that can, out of your own money, and says what it cost.
+local function autoRepair()
+    if not db.other.autoRepair then return end
+    if not (CanMerchantRepair and CanMerchantRepair()) then return end
+    local ok, cost, canRepair = pcall(GetRepairAllCost)
+    if not ok or not canRepair or (cost or 0) <= 0 then return end
+    if GetMoney() < cost then
+        print("|cffff5555Wolfpack Addon:|r not enough money to repair (" ..
+            GetCoinTextureString(cost) .. ")")
+        return
+    end
+    RepairAllItems()
+    print("|cff88ccffWolfpack Addon:|r repaired for " .. GetCoinTextureString(cost))
+end
+
 local function sellJunk()
     if sellTicker or not db.other.sellJunk then return end
     local poor = (Enum.ItemQuality and Enum.ItemQuality.Poor) or 0
@@ -3411,6 +3429,7 @@ ev:SetScript("OnEvent", function(_, event, unit, arg2, arg3)
         fillShown("totems")
     elseif event == "MERCHANT_SHOW" then
         safe(sellJunk)
+        safe(autoRepair)
     elseif event == "MERCHANT_CLOSED" then
         stopSelling()
     elseif event == "QUEST_DETAIL" or event == "QUEST_ACCEPT_CONFIRM" then
