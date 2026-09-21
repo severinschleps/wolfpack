@@ -1502,6 +1502,11 @@ dof.show = false
 S.targetHP, S.npc = nil, nil
 login("ROGUE", 3)
 
+-- the log probe counts whatever arrives, and survives a client with no combat log at all
+ns.logEv._scripts.OnEvent(ns.logEv, "CHAT_MSG_SPELL_AURA_GONE_SELF", "Your Renew fades.")
+assert(ns.logSeen.counts.CHAT_MSG_SPELL_AURA_GONE_SELF == 1, "chat aura events are counted")
+assert(ns.logSeen.samples.CHAT_MSG_SPELL_AURA_GONE_SELF:find("Renew"), "with what was said")
+SlashCmdList.WOLFPACKADDON("log")
 SlashCmdList.WOLFPACKADDON("blizz")
 SlashCmdList.WOLFPACKADDON("auras") -- the probe must not error, whatever the client has
 SlashCmdList.WOLFPACKADDON("")
