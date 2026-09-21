@@ -1740,8 +1740,12 @@ function gf.petUnit(key, i)
     return i == 1 and "pet" or ("partypet" .. (i - 1))
 end
 
+-- Secure unit buttons: the game turns the click into a target or the unit menu itself, and
+-- @mouseover macros find them the same way they find Blizzard's raid frames. Attributes can
+-- only be set out of combat, so anything set in combat waits for the fight to end.
 function gf.make(parent)
-    local f = CreateFrame("Frame", nil, parent)
+    local f = CreateFrame("Button", nil, parent, "SecureUnitButtonTemplate")
+    f:RegisterForClicks("AnyUp")
     f.bg = f:CreateTexture(nil, "BACKGROUND")
     f.bg:SetAllPoints()
     f.border = f:CreateTexture(nil, "BACKGROUND", nil, -8)
@@ -1762,11 +1766,28 @@ function gf.make(parent)
     return f
 end
 
--- Under the cursor: an overlay in the chosen color, and a border around the frame.
+-- Under the cursor, or your current target: an overlay in the chosen color and a border.
 function gf.hover(f, on)
     local h = db.group.hover
-    f.hl:SetShown((on and h.show) and true or false)
-    f.hlBorder:SetShown((on and h.border) and true or false)
+    local lit = on or (f.unit and UnitIsUnit(f.unit, "target")) or false
+    f.hl:SetShown((lit and h.show) and true or false)
+    f.hlBorder:SetShown((lit and h.border) and true or false)
+end
+
+-- Hands the frame to the game: which unit it is, what a left and a right click do.
+function gf.secure(f, unit)
+    f.unit = unit
+    if InCombatLockdown() then
+        gf.pending = true -- attributes are locked down; PLAYER_REGEN_ENABLED picks this up
+        return
+    end
+    f:SetAttribute("unit", unit)
+    f:SetAttribute("type1", "target")
+    f:SetAttribute("type2", "togglemenu")
+    if not f.watched then
+        pcall(RegisterUnitWatch, f) -- the game shows and hides it with the unit
+        f.watched = true
+    end
 end
 
 -- One aura icon: the spell's icon with a bar over it that drains with the aura.
@@ -1921,14 +1942,15 @@ function gf.refresh()
         local f = gf.frames[i] or gf.make(gf.anchor)
         gf.frames[i] = f
         gf.style(f, cfg)
-        f:EnableMouse(not dragging) -- while unlocked the whole block drags instead
-        if dragging then gf.hover(f, false) end
+        if not InCombatLockdown() then f:EnableMouse(not dragging) end -- unlocked: the block drags
         f:ClearAllPoints()
         local x, y = gf.spot(cfg, i)
         f:SetPoint("TOPLEFT", gf.anchor, "TOPLEFT", x, y)
         local unit = units[i]
         if cfg.test and not UnitExists(unit) then unit = "player" end -- so they can be placed
+        gf.secure(f, unit)
         gf.update(f, cfg, unit)
+        gf.hover(f, false) -- re-lights it if this is the unit you have targeted
     end
     for i = BUCKET_SIZE[key] + 1, #gf.frames do gf.frames[i]:Hide() end
     -- Pets hang under the group as their own block.
@@ -1940,6 +1962,7 @@ function gf.refresh()
             gf.pets[i] = f
             local petCfg = setmetatable({ height = math.max(cfg.petHeight, 6), powerHeight = 0 }, { __index = cfg })
             gf.style(f, petCfg)
+            gf.secure(f, gf.petUnit(key, i))
             f:ClearAllPoints()
             local x, y = gf.spot(cfg, i)
             f:SetPoint("TOPLEFT", gf.anchor, "TOPLEFT", x, y - rows * (cfg.height + cfg.gap) - cfg.gap)
@@ -1952,9 +1975,11 @@ end
 
 -- Group events come in for units we do not show, so the cheap move is a full refresh.
 local gfEv = CreateFrame("Frame")
+ns.gfEv = gfEv
 gfEv:SetScript("OnEvent", function() safe(gf.refresh) end)
 for _, e in ipairs({ "GROUP_ROSTER_UPDATE", "UNIT_HEALTH", "UNIT_MAXHEALTH", "UNIT_POWER_UPDATE",
-    "UNIT_MAXPOWER", "UNIT_AURA", "UNIT_NAME_UPDATE", "UNIT_PET", "PLAYER_ROLES_ASSIGNED" }) do
+    "UNIT_MAXPOWER", "UNIT_AURA", "UNIT_NAME_UPDATE", "UNIT_PET", "PLAYER_ROLES_ASSIGNED",
+    "PLAYER_TARGET_CHANGED", "PLAYER_REGEN_ENABLED" }) do
     pcall(gfEv.RegisterEvent, gfEv, e)
 end
 

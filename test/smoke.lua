@@ -41,6 +41,9 @@ function M:SetAtlas(a) self._atlas = a end
 function M:SetTexCoord(...) self._coords = { ... } end
 function M:SetStatusBarColor(...) self._sbc = { ... } end
 function M:SetCooldown(start, dur) self._cd = { start, dur } end
+function M:SetAttribute(k, v) self._attr = self._attr or {}; self._attr[k] = v end
+function M:GetAttribute(k) return (self._attr or {})[k] end
+function M:RegisterForClicks(...) self._clicks = { ... } end
 function M:SetFont(path, size, flags) self._font = { path, size, flags }; return true end
 function M:GetFont() return self._font and self._font[1] or "Fonts\\FRIZQT__.TTF", 25, "OUTLINE" end
 function M:SetSwipeTexture(t) self._swipeTex = t end
@@ -166,6 +169,8 @@ AcknowledgeAutoAcceptQuest, StaticPopup_Hide = record("ack"), record("hidepopup"
 IsShiftKeyDown = function() return S.shift end
 IsInGroup = function() return S.group end
 IsInRaid = function() return S.raid or false end
+UnitIsUnit = function(a, b) return a == b or (b == "target" and a == S.targetUnit) end
+RegisterUnitWatch = function(f) f._watched = true end
 GetNumGroupMembers = function() return S.members or 0 end
 UnitGroupRolesAssigned = function(unit) return (S.units or {})[unit] or "NONE" end
 GetTexCoordsForRoleSmallCircle = function() return 0, 0.5, 0, 0.5 end
@@ -1322,6 +1327,7 @@ assert(not hb.over:IsShown() and not pb.over:IsShown(), "switched off: both over
 local gp = prof().group
 gp.party.test, gp.party.width, gp.party.height, gp.party.perLine = true, 100, 40, 2
 gp.party.gap, gp.party.grow = 4, "right"
+gp.hover.show, gp.hover.border = true, true -- the control poking above turned these off
 S.units = { party1 = "HEALER", party2 = "TANK" }
 S.auras = { { spellId = 139, icon = 135953, auraInstanceID = 7 } }
 gp.spells = { { id = 139, corner = "topright", show = true } }
@@ -1333,6 +1339,18 @@ assert(gfr[2]._point[4] == 104 and gfr[2]._point[5] == 0, "second frame sits rig
 assert(gfr[3]._point[4] == 0 and gfr[3]._point[5] == -44, "third wraps to the next line")
 assert(gfr[1].icons[1] and gfr[1].icons[1]._point[1] == "TOPRIGHT", "own aura in its corner")
 assert(gfr[1].icons[1].tex._tex == 135953 and gfr[1].icons[1].bar._timer, "icon drains with the aura")
+-- clicks: the game does the targeting and the menu, and the target frame lights up
+assert(gfr[1]:GetAttribute("unit") == "player" and gfr[2]:GetAttribute("unit") == "party1", "units set")
+assert(gfr[1]:GetAttribute("type1") == "target" and gfr[1]:GetAttribute("type2") == "togglemenu",
+    "left targets, right opens the menu")
+assert(gfr[1]._watched and gfr[1]._clicks[1] == "AnyUp", "the game shows and hides them")
+S.targetUnit = "party1"; ns.gfEv._scripts.OnEvent(ns.gfEv, "PLAYER_TARGET_CHANGED")
+assert(gfr[2].hl:IsShown() and not gfr[1].hl:IsShown(), "the targeted frame is lit")
+gfr[1]._scripts.OnEnter(gfr[1])
+assert(gfr[1].hl:IsShown(), "and so is the one under the cursor")
+gfr[1]._scripts.OnLeave(gfr[1])
+assert(not gfr[1].hl:IsShown(), "which goes out again")
+S.targetUnit = nil
 gp.spells[1].show = false
 fire("UNIT_MAXPOWER")
 assert(not gfr[1].icons[1]:IsShown(), "unticked spells stay off")
