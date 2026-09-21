@@ -2282,6 +2282,27 @@ function bz.sync()
     end
 end
 
+-- Blizzard's own setting for showing a party with raid frames. It is a CVar, so it can only
+-- be set out of combat.
+function bz.raidStyleParty(on)
+    if InCombatLockdown() then return end
+    pcall(SetCVar, "useCompactPartyFrames", on and "1" or "0")
+end
+
+function bz.raidStyleOn()
+    local ok, v = pcall(GetCVarBool, "useCompactPartyFrames")
+    return ok and v or false
+end
+
+-- Their frames only exist for real units, so the way to see them on your own is Edit Mode,
+-- which draws a full set of placeholders -- and our restyling lands on those too.
+function bz.editMode()
+    if InCombatLockdown() then return end
+    if not pcall(function() ShowUIPanel(EditModeManagerFrame) end) then
+        pcall(function() EditModeManagerFrame:Show() end)
+    end
+end
+
 -- /cpd blizz: what of Blizzard's raid frame machinery this client actually has.
 function ns.BlizzReport()
     local function say(t) print("|cff88ccffWolfpack:|r " .. t) end
@@ -3455,14 +3476,20 @@ local function buildConfig()
     onRefresh(function()
         glock:SetText(db.group.locked and "Locked (click to unlock)" or "Unlocked - drag them")
     end)
+    check(groupPage, "Party uses raid frames", sizes.x, sizes:row(ROW),
+        bz.raidStyleOn, function(v) bz.raidStyleParty(v) end)
+    button(groupPage, "Show them: Edit Mode", 186, sizes.x, sizes:row(BUTTON), function()
+        safe(bz.editMode)
+    end)
     local blizzNote = label(groupPage, "", "GameFontDisableSmall")
     blizzNote:SetPoint("TOPLEFT", sizes.x, sizes:row(30))
     blizzNote:SetWidth(182)
     blizzNote:SetJustifyH("LEFT")
     onRefresh(function()
         blizzNote:SetText(db.group.useBlizzard
-            and "Blizzard's frames, restyled with the settings on this page. Their buffs and "
-                .. "dispels keep working in combat; their size and spacing come from Edit Mode."
+            and "Restyled with the look settings on this page. Their buffs and dispels keep "
+                .. "working in combat; size, spacing and position come from Edit Mode, which is "
+                .. "also where you see them without a group."
             or "")
     end)
     slider(groupPage, "X (left / right)", sizes.x, sizes:row(SLIDER), -1200, 1200,

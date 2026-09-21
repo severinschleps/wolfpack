@@ -298,6 +298,11 @@ for i = 1, 2 do
     _G["CompactRaidFrame" .. i] = f
 end
 CompactRaidFrameContainer = new()
+S.cvars = {}
+SetCVar = function(k, v) S.cvars[k] = v end
+GetCVarBool = function(k) return S.cvars[k] == "1" end
+EditModeManagerFrame = EditModeManagerFrame or new()
+ShowUIPanel = function(f) S.shownPanel = f end
 function CompactUnitFrame_UpdateAll() end
 PlayerFrame = new()
 PlayerFrame._parent = UIParent
@@ -1487,6 +1492,10 @@ assert(bzf.name._font[1] == prof().group.party.font, "and our name font")
 prof().group.useBlizzard = false
 fire("UNIT_MAXPOWER")
 assert(not ns.bz.deco[bzf].border:IsShown(), "switched off: their own look is back")
+ns.bz.raidStyleParty(true)
+assert(ns.bz.raidStyleOn(), "a party can wear raid frames, which is Blizzard's own setting")
+ns.bz.editMode()
+assert(S.shownPanel == EditModeManagerFrame, "and Edit Mode shows them without a group")
 SlashCmdList.WOLFPACKADDON("blizz")
 SlashCmdList.WOLFPACKADDON("auras") -- the probe must not error, whatever the client has
 SlashCmdList.WOLFPACKADDON("")
