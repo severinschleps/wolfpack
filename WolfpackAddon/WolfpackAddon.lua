@@ -3151,50 +3151,6 @@ WolfpackAddon_Toggle = ns.ToggleConfig -- addon compartment (retail only, Foreve
 SLASH_WOLFPACKADDON1 = "/wolfpack"
 SLASH_WOLFPACKADDON2 = "/wp"
 SLASH_WOLFPACKADDON3 = "/cpd" -- the old name still works
--- Watches, quietly and from login, whether anything still tells an addon that an aura came or
--- went: the combat log, or the old vanilla chat events. /cpd log says what has arrived.
-ns.logSeen = { counts = {}, samples = {} }
-local logEv = CreateFrame("Frame")
-ns.logEv = logEv
-local LOG_EVENTS = { "COMBAT_LOG_EVENT_UNFILTERED", "CHAT_MSG_SPELL_AURA_GONE_SELF",
-    "CHAT_MSG_SPELL_AURA_GONE_OTHER", "CHAT_MSG_SPELL_AURA_GONE_PARTY", "CHAT_MSG_SPELL_BREAK_AURA",
-    "CHAT_MSG_SPELL_SELF_BUFF", "CHAT_MSG_SPELL_PERIODIC_SELF_DAMAGE",
-    "CHAT_MSG_SPELL_PERIODIC_HOSTILEPLAYER_DAMAGE", "CHAT_MSG_COMBAT_HOSTILE_DEATH" }
-logEv:SetScript("OnEvent", function(_, event, ...)
-    local seen = ns.logSeen
-    seen.counts[event] = (seen.counts[event] or 0) + 1
-    if seen.samples[event] then return end
-    if event == "COMBAT_LOG_EVENT_UNFILTERED" then
-        local ok, _, sub = pcall(CombatLogGetCurrentEventInfo)
-        if not ok then
-            seen.samples[event] = "refused"
-        elseif readable(sub) then
-            seen.samples[event] = "readable: " .. tostring(sub)
-        else
-            seen.samples[event] = "secret"
-        end
-    else
-        local msg = ...
-        seen.samples[event] = type(msg) == "string" and msg:sub(1, 60) or type(msg)
-    end
-end)
-for _, e in ipairs(LOG_EVENTS) do pcall(logEv.RegisterEvent, logEv, e) end
-
-function ns.LogReport()
-    local function say(t) print("|cff88ccffWolfpack:|r " .. t) end
-    say("what has reached the addon since login (fight a bit, then run this again):")
-    local any = false
-    for _, e in ipairs(LOG_EVENTS) do
-        local n = ns.logSeen.counts[e]
-        if n then
-            any = true
-            say(("  %s: %d  %s"):format(e, n, ns.logSeen.samples[e] or ""))
-        end
-    end
-    if not any then say("  nothing at all -- no combat log, no aura chat events") end
-    say("CombatLogGetCurrentEventInfo: " .. (CombatLogGetCurrentEventInfo and "exists" or "gone"))
-end
-
 -- /cpd auras: says which aura calls this client has and whether they answer right now, which
 -- is the only way to tell from inside the game why a buff icon is missing. Run it twice: once
 -- out of combat and once in combat, with the buff actually on you.
@@ -3248,7 +3204,6 @@ end
 SlashCmdList.WOLFPACKADDON = function(msg)
     msg = (msg or ""):lower()
     if msg:find("aura") then return safe(ns.AuraReport, (msg:gsub("^%s*auras?%s*", ""))) end
-    if msg:find("log") then return safe(ns.LogReport) end
     safe(ns.ToggleConfig)
 end
 
