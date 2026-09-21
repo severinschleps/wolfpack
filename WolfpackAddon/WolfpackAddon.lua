@@ -223,16 +223,6 @@ DEFAULTS.buffs = {
     skip = {}, -- [check key] = true: leave that one out
 }
 
--- Blizzard's raid frames, restyled. Their layout is Edit Mode's; this is only the look.
-DEFAULTS.group = {
-    useBlizzard = true,
-    texture = TEXTURES[1][2], borderSize = 1, borderColor = { 0, 0, 0, 1 }, radius = 0,
-    name = true, font = FONTS[1][2], fontSize = 10, outline = true, nameColor = { 1, 1, 1, 1 },
-    -- under the cursor, and on the one you have targeted
-    hover = { show = true, color = { 1, 1, 1, 0.15 }, border = true, borderSize = 1,
-        borderColor = { 1, 1, 1, 0.8 } },
-}
-
 DEFAULTS.regular.bars.health.target = false -- target health bar right of it (Combat Display only)
 DEFAULTS.regular.hidePlayerFrame = false -- hide Blizzard's player unit frame
 DEFAULTS.regular.hideBlizzCastbar = false -- hide Blizzard's player cast bar
@@ -260,7 +250,7 @@ end
 ------------------------------------------------------------------------------------------
 -- store = WolfpackAddonDB, account-wide: { profiles = { [name] = settings }, chars = { [char] = name } }
 -- db = the active profile's settings.
-local changed, placeMini, useProfile, bz, bf -- defined further down
+local changed, placeMini, useProfile, bf -- defined further down
 
 -- Bars that only show while they are doing something (cast, swing) stay visible while the bars
 -- are unlocked or the options are open, so they can be placed.
@@ -1670,7 +1660,6 @@ local function Refresh()
     syncProtected()
     syncGryphons()
     syncCombatIcon()
-    bz.sync()
     bf.refresh()
     fsr:sync()
     syncHover()
@@ -1919,198 +1908,6 @@ for _, e in ipairs({ "UNIT_AURA", "PLAYER_ENTERING_WORLD", "PLAYER_REGEN_ENABLED
     "PLAYER_REGEN_DISABLED", "PLAYER_ALIVE", "GROUP_ROSTER_UPDATE", "PLAYER_DEAD",
     "UNIT_INVENTORY_CHANGED" }) do
     pcall(bfEv.RegisterEvent, bfEv, e)
-end
-
-------------------------------------------------------------------------------------------
--- Blizzard's own raid frames, restyled. Their code is not tainted, so their buff, debuff and
--- dispel displays keep working in combat, where an addon's own aura reads are refused. We only
--- change how they look: textures, colors, border, corners and the name font. Their layout stays
--- Edit Mode's business, and nothing of ours is ever written onto their frames -- decorations
--- live in bz.deco, keyed by frame.
-------------------------------------------------------------------------------------------
-bz = { deco = {}, hooked = false }
-ns.bz = bz
-local BLIZZ_BAR = "Interface\\RaidFrame\\Raid-Bar-Hp-Fill"
-
--- Every compact frame we can find: the raid ones, the party ones, and their pets.
-function bz.each(fn)
-    for i = 1, 40 do
-        local f = _G["CompactRaidFrame" .. i]
-        if f then fn(f) end
-        local p = _G["CompactPartyFrameMember" .. i]
-        if p then fn(p) end
-        local pet = _G["CompactRaidFramePet" .. i] or _G["CompactPartyFramePet" .. i]
-        if pet then fn(pet) end
-    end
-    for g = 1, 8 do -- raid groups, when frames are kept separate
-        for i = 1, 5 do
-            local f = _G["CompactRaidGroup" .. g .. "Member" .. i]
-            if f then fn(f) end
-        end
-    end
-end
-
--- Lights a frame while the cursor is on it, and while it is your target. Their own frames have
--- no such thing, so these are our textures, kept in bz.deco rather than on their frame.
-function bz.light(f)
-    local d, h = bz.deco[f], db.group.hover
-    if not d then return end
-    local unit = f.unit or f.displayedUnit
-    local lit = d.over or (unit and UnitIsUnit(unit, "target")) or false
-    d.hl:SetShown((lit and h.show) and true or false)
-    d.hlBorder:SetShown((lit and h.border and h.borderSize > 0) and true or false)
-end
-
--- Nameplates run through the same CompactUnitFrame code as the raid frames, so the hooks fire
--- for them too. Only the group's own frames may be touched, or the target's nameplate ends up
--- wearing the highlight.
-function bz.isGroupFrame(f)
-    local name = f and f.GetName and f:GetName()
-    if type(name) ~= "string" then return false end
-    return (name:find("^CompactRaidFrame") or name:find("^CompactPartyFrame")
-        or name:find("^CompactRaidGroup")) and true or false
-end
-
-function bz.skin(f)
-    if not db or not db.group.useBlizzard then return end
-    if not bz.isGroupFrame(f) then
-        if bz.deco[f] then bz.unskin(f) end -- skinned before this rule existed
-        return
-    end
-    local cfg = db.group
-    local d = bz.deco[f]
-    if not d then
-        -- Our decorations live on a frame of ours laid over theirs. Touching anything of
-        -- Blizzard's during combat is blocked, but our own frame is ours to move any time,
-        -- which is what keeps the highlight working in a fight.
-        local o = CreateFrame("Frame", nil, UIParent)
-        o:SetPoint("TOPLEFT", f, "TOPLEFT")
-        o:SetPoint("BOTTOMRIGHT", f, "BOTTOMRIGHT")
-        o:SetFrameStrata(f:GetFrameStrata())
-        o:SetFrameLevel((f:GetFrameLevel() or 1) + 5)
-        d = { overlay = o, border = o:CreateTexture(nil, "BACKGROUND", nil, -8),
-            mask = o:CreateMaskTexture(), hl = o:CreateTexture(nil, "OVERLAY", nil, 6),
-            hlBorder = o:CreateTexture(nil, "OVERLAY", nil, 7) }
-        d.mask:SetAllPoints(o)
-        d.hl:SetAllPoints(o)
-        d.hl:Hide()
-        d.hlBorder:Hide()
-        bz.deco[f] = d
-        f:HookScript("OnEnter", function(self) -- additive, so their own handler still runs
-            local dd = bz.deco[self]
-            if dd then dd.over = true end
-            safe(bz.light, self)
-        end)
-        f:HookScript("OnLeave", function(self)
-            local dd = bz.deco[self]
-            if dd then dd.over = nil end
-            safe(bz.light, self)
-        end)
-    end
-    local radius = cfg.radius == "pill" and math.huge or cfg.radius
-    -- Theirs: only out of combat, or the game blocks us and warns you about it.
-    if not InCombatLockdown() then
-        local hb = f.healthBar
-        if hb then
-            hb:SetStatusBarTexture(cfg.texture)
-            round(hb:GetStatusBarTexture(), d.mask, radius, hb:GetWidth() or 1, hb:GetHeight() or 1)
-        end
-        if f.powerBar then f.powerBar:SetStatusBarTexture(cfg.texture) end
-        if f.name then
-            local flags = cfg.outline and "OUTLINE" or ""
-            if not f.name:SetFont(cfg.font, cfg.fontSize, flags) then
-                f.name:SetFont(FONTS[1][2], cfg.fontSize, flags)
-            end
-            f.name:SetTextColor(unpack(cfg.nameColor))
-            f.name:SetShown(cfg.name)
-        end
-    end
-    -- Ours: any time.
-    local t = cfg.borderSize
-    d.border:ClearAllPoints()
-    d.border:SetPoint("TOPLEFT", -t, t)
-    d.border:SetPoint("BOTTOMRIGHT", t, -t)
-    d.border:SetColorTexture(unpack(cfg.borderColor))
-    d.border:SetShown(t > 0)
-    local h = db.group.hover
-    d.hl:SetColorTexture(unpack(h.color))
-    round(d.hl, d.mask, radius, f:GetWidth() or 1, f:GetHeight() or 1)
-    d.hlBorder:ClearAllPoints()
-    d.hlBorder:SetPoint("TOPLEFT", -h.borderSize, h.borderSize)
-    d.hlBorder:SetPoint("BOTTOMRIGHT", h.borderSize, -h.borderSize)
-    d.hlBorder:SetColorTexture(unpack(h.borderColor))
-    bz.light(f)
-end
-
--- Puts back what we changed, as far as a texture swap can be put back.
-function bz.unskin(f)
-    local d = bz.deco[f]
-    if not d then return end
-    if not InCombatLockdown() then -- their frames are off limits mid-fight
-        if f.healthBar then f.healthBar:SetStatusBarTexture(BLIZZ_BAR) end
-        if f.powerBar then f.powerBar:SetStatusBarTexture(BLIZZ_BAR) end
-    end
-    d.border:Hide()
-    d.hl:Hide()
-    d.hlBorder:Hide()
-end
-
-function bz.sync()
-    if db.group.useBlizzard then
-        if not bz.hooked then -- restyle again whenever Blizzard rebuilds a frame
-            for _, name in ipairs({ "CompactUnitFrame_UpdateAll", "CompactUnitFrame_SetUnit",
-                "CompactUnitFrame_UpdateName", "DefaultCompactUnitFrameSetup" }) do
-                if type(_G[name]) == "function" then
-                    hooksecurefunc(name, function(frame) safe(bz.skin, frame) end)
-                    bz.hooked = true
-                end
-            end
-        end
-        bz.each(function(f) safe(bz.skin, f) end)
-    elseif next(bz.deco) then
-        bz.each(function(f) safe(bz.unskin, f) end)
-    end
-end
-
-local bzEv = CreateFrame("Frame")
-ns.bzEv = bzEv
-bzEv:SetScript("OnEvent", function() safe(bz.sync) end)
-for _, e in ipairs({ "GROUP_ROSTER_UPDATE", "PLAYER_TARGET_CHANGED", "PLAYER_REGEN_ENABLED",
-    "PLAYER_ENTERING_WORLD", "RAID_ROSTER_UPDATE" }) do
-    pcall(bzEv.RegisterEvent, bzEv, e)
-end
-
--- Blizzard's own setting for showing a party with raid frames. It is a CVar, so it can only
--- be set out of combat.
-function bz.raidStyleParty(on)
-    if InCombatLockdown() then return end
-    pcall(SetCVar, "useCompactPartyFrames", on and "1" or "0")
-end
-
-function bz.raidStyleOn()
-    local ok, v = pcall(GetCVarBool, "useCompactPartyFrames")
-    return ok and v or false
-end
-
--- Their frames only exist for real units, so the way to see them on your own is Edit Mode,
--- which draws a full set of placeholders -- and our restyling lands on those too.
-function bz.editMode()
-    if InCombatLockdown() then return end
-    if not pcall(function() ShowUIPanel(EditModeManagerFrame) end) then
-        pcall(function() EditModeManagerFrame:Show() end)
-    end
-end
-
--- /cpd blizz: what of Blizzard's raid frame machinery this client actually has.
-function ns.BlizzReport()
-    local function say(t) print("|cff88ccffWolfpack:|r " .. t) end
-    local n = 0
-    bz.each(function() n = n + 1 end)
-    say("compact frames found: " .. n .. ", skinning " .. (db.group.useBlizzard and "on" or "off"))
-    for _, name in ipairs({ "CompactRaidFrameContainer", "CompactPartyFrame", "CompactRaidFrame1",
-        "CompactUnitFrame_UpdateAll", "CompactUnitFrame_SetUnit", "DefaultCompactUnitFrameSetup" }) do
-        say(name .. ": " .. (_G[name] and "yes" or "no"))
-    end
 end
 
 ------------------------------------------------------------------------------------------
@@ -2808,7 +2605,7 @@ local function buildConfig()
 
     -- Sidebar: one entry per module
     local SIDEBAR = { { "combat", "Combat Display", "regular" }, { "nameplates", "Nameplates", "nameplate" },
-        { "group", "Group frames", "regular" }, { "buffs", "Buffs", "regular" },
+        { "buffs", "Buffs", "regular" },
         { "other", "Other", "regular" } }
     for i, e in ipairs(SIDEBAR) do
         local b = button(cfg, e[2], 118, 12, -104 - (i - 1) * 26, function()
@@ -2831,8 +2628,6 @@ local function buildConfig()
     questPage:SetAllPoints(barsPage)
     local otherPage = CreateFrame("Frame", nil, cfg)
     otherPage:SetAllPoints(barsPage)
-    local groupPage = CreateFrame("Frame", nil, cfg)
-    groupPage:SetAllPoints(barsPage)
     local buffPage = CreateFrame("Frame", nil, cfg)
     buffPage:SetAllPoints(barsPage)
 
@@ -2846,13 +2641,12 @@ local function buildConfig()
     onRefresh(function()
         local np = section == "nameplates"
         title:SetShown(not np)
-        title:SetText(section == "other" and "Other" or section == "group" and "Group frames"
+        title:SetText(section == "other" and "Other"
             or section == "buffs" and "Buff check" or "Combat Display")
         for _, t in ipairs(tabs) do t:SetShown(np) end
         barsPage:SetShown(section == "combat" or (np and sub == "bars"))
         questPage:SetShown(np and sub == "quest")
         otherPage:SetShown(section == "other")
-        groupPage:SetShown(section == "group")
         buffPage:SetShown(section == "buffs")
     end)
 
@@ -3258,66 +3052,6 @@ local function buildConfig()
     mm:close()
 
     ----------------------------------------------------------------------------------
-    -- Group frames page: Blizzard's raid frames, restyled. Their layout is Edit Mode's.
-    ----------------------------------------------------------------------------------
-    local G = function() return db.group end
-    local sizes = group(groupPage, COL[1], TOP, 202, "Blizzard's raid frames")
-    check(groupPage, "Restyle them", sizes.x, sizes:row(ROW), function() return G().useBlizzard end,
-        function(v) G().useBlizzard = v end)
-    check(groupPage, "Party uses raid frames", sizes.x, sizes:row(ROW),
-        bz.raidStyleOn, function(v) bz.raidStyleParty(v) end)
-    button(groupPage, "Show them: Edit Mode", 186, sizes.x, sizes:row(BUTTON), function()
-        safe(bz.editMode)
-    end)
-    local blizzNote = label(groupPage, "Buffs, debuffs and dispels on these keep working in "
-        .. "combat, where an addon's own aura reads are refused. Size, spacing and position are "
-        .. "Edit Mode's; everything here is the look.", "GameFontDisableSmall")
-    blizzNote:SetPoint("TOPLEFT", sizes.x, sizes:row(46))
-    blizzNote:SetWidth(182)
-    blizzNote:SetJustifyH("LEFT")
-    sizes:close()
-
-    local look3 = group(groupPage, COL[2], TOP, 202, "Bars and border")
-    dropdown(groupPage, "Texture", look3.x, look3:row(DROP), TEXTURES, function() return G().texture end,
-        function(v) G().texture = v end, texturePreview)
-    slider(groupPage, "Border thickness", look3.x, look3:row(SLIDER), 0, 8,
-        function() return G().borderSize end, function(v) G().borderSize = v end)
-    swatch(groupPage, "Border color", look3.x, look3:row(SWATCH), function() return G().borderColor end)
-    dropdown(groupPage, "Corner radius", look3.x, look3:row(DROP), { { "None (square)", 0 }, { "2 px", 2 },
-        { "4 px", 4 }, { "8 px", 8 }, { "16 px", 16 }, { "Pill", "pill" } },
-        function() return G().radius end, function(v) G().radius = v end, textPreview)
-    look3:close()
-
-    local nm = group(groupPage, COL[3], TOP, 202, "Name")
-    check(groupPage, "Show the name", nm.x, nm:row(ROW), function() return G().name end,
-        function(v) G().name = v end)
-    dropdown(groupPage, "Font", nm.x, nm:row(DROP), FONTS, function() return G().font end,
-        function(v) G().font = v end, fontPreview)
-    slider(groupPage, "Size", nm.x, nm:row(SLIDER), 6, 24, function() return G().fontSize end,
-        function(v) G().fontSize = v end)
-    check(groupPage, "Outline", nm.x, nm:row(ROW), function() return G().outline end,
-        function(v) G().outline = v end)
-    swatch(groupPage, "Color", nm.x, nm:row(SWATCH), function() return G().nameColor end)
-    nm:close()
-
-    local hov = group(groupPage, COL[4], TOP, 202, "Cursor and target")
-    local GH = function() return db.group.hover end
-    check(groupPage, "Highlight overlay", hov.x, hov:row(ROW), function() return GH().show end,
-        function(v) GH().show = v end)
-    swatch(groupPage, "Overlay color", hov.x, hov:row(SWATCH), function() return GH().color end)
-    check(groupPage, "Border", hov.x, hov:row(ROW), function() return GH().border end,
-        function(v) GH().border = v end)
-    slider(groupPage, "Border thickness", hov.x, hov:row(SLIDER), 0, 8,
-        function() return GH().borderSize end, function(v) GH().borderSize = v end)
-    swatch(groupPage, "Border color", hov.x, hov:row(SWATCH), function() return GH().borderColor end)
-    local hovNote = label(groupPage, "The frame under the cursor and the one you have targeted "
-        .. "both wear this.", "GameFontDisableSmall")
-    hovNote:SetPoint("TOPLEFT", hov.x, hov:row(30))
-    hovNote:SetWidth(182)
-    hovNote:SetJustifyH("LEFT")
-    hov:close()
-
-    ----------------------------------------------------------------------------------
     -- Buffs page: the out-of-combat check of who is missing what
     ----------------------------------------------------------------------------------
     local B = function() return db.buffs end
@@ -3514,7 +3248,6 @@ end
 SlashCmdList.WOLFPACKADDON = function(msg)
     msg = (msg or ""):lower()
     if msg:find("aura") then return safe(ns.AuraReport, (msg:gsub("^%s*auras?%s*", ""))) end
-    if msg:find("blizz") then return safe(ns.BlizzReport) end
     if msg:find("log") then return safe(ns.LogReport) end
     safe(ns.ToggleConfig)
 end

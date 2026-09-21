@@ -300,24 +300,11 @@ EditModeManagerFrame = { GetActiveLayoutInfo = function() return { layoutName = 
     IsEditModeActive = function() return S.editMode end }
 ChatFontNormal = new()
 CombatTextFont = new() -- the scrolling combat text's font object
--- Blizzard's raid frames: two of them, with the pieces the skinning touches
-for i = 1, 2 do
-    local f = new()
-    f._name = "CompactRaidFrame" .. i
-    f.healthBar, f.powerBar, f.name = new(), new(), new()
-    _G[f._name] = f
-end
--- a nameplate: the same CompactUnitFrame code drives it, so the hooks fire for it as well
-NamePlate1 = new()
-NamePlate1._name, NamePlate1.unit = "NamePlate1", "target"
-NamePlate1.healthBar, NamePlate1.name = new(), new()
-CompactRaidFrameContainer = new()
 S.cvars = {}
 SetCVar = function(k, v) S.cvars[k] = v end
 GetCVarBool = function(k) return S.cvars[k] == "1" end
 EditModeManagerFrame = EditModeManagerFrame or new()
 ShowUIPanel = function(f) S.shownPanel = f end
-function CompactUnitFrame_UpdateAll() end
 PlayerFrame = new()
 PlayerFrame._parent = UIParent
 GetRealmName = function() return "Realm" end
@@ -1385,44 +1372,6 @@ prof().regular.bars.health.heal, prof().regular.bars.power.cost = false, false
 fire("UNIT_MAXPOWER")
 assert(not hb.over:IsShown() and not pb.over:IsShown(), "switched off: both overlays gone")
 
--- Blizzard's raid frames, restyled: their look is ours, their auras stay theirs
-local gp = prof().group
-gp.useBlizzard, gp.name, gp.borderSize, gp.radius = true, true, 2, 4
-gp.hover.show, gp.hover.border, gp.hover.borderSize = true, true, 3
-gp.texture = ns.TEXTURES[2][2]
-local bzf, bzf2 = _G.CompactRaidFrame1, _G.CompactRaidFrame2
-bzf.unit, bzf2.unit = "party1", "party2"
-fire("UNIT_MAXPOWER")
-local d = ns.bz.deco[bzf]
-assert(bzf.healthBar._tex == ns.TEXTURES[2][2], "their health bar wears our texture")
-assert(d.border:IsShown() and bzf.name._font[1] == gp.font, "our border and name font")
-assert(bzf.healthBar:GetStatusBarTexture().cpdMask == d.mask, "corners rounded")
--- the cursor and the target light a frame up, which their frames do not do on their own
-assert(not d.hl:IsShown(), "nothing lit to start with")
-bzf._scripts.OnEnter(bzf)
-assert(d.hl:IsShown() and d.hlBorder:IsShown(), "cursor lights it")
-bzf._scripts.OnLeave(bzf)
-assert(not d.hl:IsShown(), "and unlights it")
-S.targetUnit = "party2"
-ns.bzEv._scripts.OnEvent(ns.bzEv, "PLAYER_TARGET_CHANGED")
-assert(ns.bz.deco[bzf2].hl:IsShown() and not d.hl:IsShown(), "your target stays lit")
--- a nameplate must be left alone, even though it goes through the same code
-CompactUnitFrame_UpdateAll(NamePlate1)
-assert(not ns.bz.deco[NamePlate1] and NamePlate1.healthBar._tex == nil, "nameplates are not ours")
-S.targetUnit = nil
-gp.hover.show, gp.hover.border = false, false
-ns.bzEv._scripts.OnEvent(ns.bzEv, "PLAYER_TARGET_CHANGED")
-assert(not ns.bz.deco[bzf2].hl:IsShown(), "switched off: nothing lights up")
-gp.hover.show, gp.hover.border = true, true
-ns.bz.raidStyleParty(true)
-assert(ns.bz.raidStyleOn(), "a party can wear raid frames, which is Blizzard's own setting")
-ns.bz.editMode()
-assert(S.shownPanel == EditModeManagerFrame, "and Edit Mode shows them without a group")
-gp.useBlizzard = false
-fire("UNIT_MAXPOWER")
-assert(not d.border:IsShown() and not d.hl:IsShown(), "switched off: their own look is back")
-gp.useBlizzard = true
-
 -- Buff check: who in the group is missing a buff somebody here can give
 login("PRIEST", 0)
 local bo = prof().buffs
@@ -1447,18 +1396,6 @@ for _, r in ipairs(rows) do
     if r:IsShown() and r.text._text:find("A blessing") then blessing = r.text._text end
 end
 assert(blessing == "A blessing: all set", "any single blessing satisfies it")
--- nothing of Blizzard's is touched while in combat: that is what gets an addon blocked
-S.combat = true
-prof().group.useBlizzard, prof().group.texture = true, ns.TEXTURES[3][2]
-local bzf3 = _G.CompactRaidFrame1
-local wasTex = bzf3.healthBar._tex
-fire("UNIT_MAXPOWER")
-assert(bzf3.healthBar._tex == wasTex, "their bars are left alone in combat")
-assert(ns.bz.deco[bzf3].border:IsShown(), "but our own overlay still draws")
-S.combat = false
-fire("UNIT_MAXPOWER")
-assert(bzf3.healthBar._tex == ns.TEXTURES[3][2], "and it catches up afterwards")
-
 -- in combat the list steps aside rather than guessing
 S.combat = true
 ns.bfEv._scripts.OnEvent(ns.bfEv, "PLAYER_REGEN_DISABLED")
@@ -1469,7 +1406,6 @@ assert(ns.bf.panel:IsShown(), "and back afterwards")
 S.group, S.members = false, 0
 login("ROGUE", 3)
 
-SlashCmdList.WOLFPACKADDON("blizz")
 SlashCmdList.WOLFPACKADDON("auras") -- the probe must not error, whatever the client has
 SlashCmdList.WOLFPACKADDON("")
 realPrint("smoke ok")
