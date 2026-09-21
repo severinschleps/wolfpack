@@ -40,6 +40,7 @@ function M:SetDesaturated(v) self._desat = v end
 function M:SetAtlas(a) self._atlas = a end
 function M:SetTexCoord(...) self._coords = { ... } end
 function M:SetStatusBarColor(...) self._sbc = { ... } end
+function M:SetStatusBarTexture(t) self._tex = t end
 function M:SetCooldown(start, dur) self._cd = { start, dur } end
 function M:SetAttribute(k, v) self._attr = self._attr or {}; self._attr[k] = v end
 function M:GetAttribute(k) return (self._attr or {})[k] end
@@ -241,6 +242,7 @@ UnitGUID = function() return S.npc end
 GossipFrame, QuestFrame = new(), new()
 GossipFrame._shown, QuestFrame._shown = false, false
 hooksecurefunc = function(t, name, fn)
+    if type(t) == "string" then t, name, fn = _G, t, name end -- the global-function form
     local orig = t[name]
     t[name] = function(...) orig(...); fn(...) end
 end
@@ -289,6 +291,14 @@ EditModeManagerFrame = { GetActiveLayoutInfo = function() return { layoutName = 
     IsEditModeActive = function() return S.editMode end }
 ChatFontNormal = new()
 CombatTextFont = new() -- the scrolling combat text's font object
+-- Blizzard's raid frames: two of them, with the pieces the skinning touches
+for i = 1, 2 do
+    local f = new()
+    f.healthBar, f.powerBar, f.name = new(), new(), new()
+    _G["CompactRaidFrame" .. i] = f
+end
+CompactRaidFrameContainer = new()
+function CompactUnitFrame_UpdateAll() end
 PlayerFrame = new()
 PlayerFrame._parent = UIParent
 GetRealmName = function() return "Realm" end
@@ -1465,6 +1475,19 @@ gp.party.test = false
 fire("UNIT_MAXPOWER")
 assert(not ns.gf.anchor:IsShown(), "no group, no test: hidden")
 
+-- Blizzard's frames, restyled: ours step aside, theirs take our look
+local bzf = _G.CompactRaidFrame1
+prof().group.useBlizzard = true
+prof().group.party.texture = ns.TEXTURES[2][2]
+fire("UNIT_MAXPOWER")
+assert(not ns.gf.anchor:IsShown(), "our own frames step aside")
+assert(bzf.healthBar._tex == ns.TEXTURES[2][2], "their health bar wears our texture")
+assert(ns.bz.deco[bzf].border:IsShown(), "and our border")
+assert(bzf.name._font[1] == prof().group.party.font, "and our name font")
+prof().group.useBlizzard = false
+fire("UNIT_MAXPOWER")
+assert(not ns.bz.deco[bzf].border:IsShown(), "switched off: their own look is back")
+SlashCmdList.WOLFPACKADDON("blizz")
 SlashCmdList.WOLFPACKADDON("auras") -- the probe must not error, whatever the client has
 SlashCmdList.WOLFPACKADDON("")
 realPrint("smoke ok")

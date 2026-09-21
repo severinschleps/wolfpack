@@ -30,6 +30,7 @@ local FONTS = {
     { "Anton (bold)", FONT_DIR .. "Anton-Regular.ttf" },
 }
 ns.FONTS = FONTS
+ns.TEXTURES = TEXTURES
 
 -- Combat text (damage numbers) fonts, all free (SIL OFL or Apache 2.0, license files next to
 -- them). Setting DAMAGE_TEXT_FONT and the CombatTextFont object covers the scrolling text the UI
@@ -320,7 +321,7 @@ end
 ------------------------------------------------------------------------------------------
 -- store = WolfpackAddonDB, account-wide: { profiles = { [name] = settings }, chars = { [char] = name } }
 -- db = the active profile's settings.
-local changed, placeMini, useProfile, gf -- defined further down
+local changed, placeMini, useProfile, gf, bz -- defined further down
 
 -- Bars that only show while they are doing something (cast, swing) stay visible while the bars
 -- are unlocked or the options are open, so they can be placed.
@@ -1729,6 +1730,7 @@ local function Refresh()
     syncGryphons()
     syncCombatIcon()
     gf.refresh()
+    bz.sync()
     fsr:sync()
     syncHover()
     syncBags()
@@ -2139,7 +2141,8 @@ function gf.refresh()
     gf.bucket = key
     local cfg = db.group[key]
     local preview = ns.previewing() or cfg.test
-    local on = cfg.show and (IsInGroup() or preview) and true or false
+    -- Blizzard's frames take over when asked: ours can't read auras in combat, theirs can.
+    local on = cfg.show and not db.group.useBlizzard and (IsInGroup() or preview) and true or false
     gf.anchor:SetShown(on)
     local dragging = not db.group.locked
     gf.anchor:EnableMouse(dragging)
@@ -2190,6 +2193,105 @@ for _, e in ipairs({ "GROUP_ROSTER_UPDATE", "UNIT_HEALTH", "UNIT_MAXHEALTH", "UN
     "UNIT_MAXPOWER", "UNIT_AURA", "UNIT_NAME_UPDATE", "UNIT_PET", "PLAYER_ROLES_ASSIGNED",
     "PLAYER_TARGET_CHANGED", "PLAYER_REGEN_ENABLED" }) do
     pcall(gfEv.RegisterEvent, gfEv, e)
+end
+
+------------------------------------------------------------------------------------------
+-- Blizzard's own raid frames, restyled. Their code is not tainted, so their buff, debuff and
+-- dispel displays keep working in combat, where an addon's own aura reads are refused. We only
+-- change how they look: textures, colors, border, corners and the name font. Their layout stays
+-- Edit Mode's business, and nothing of ours is ever written onto their frames -- decorations
+-- live in bz.deco, keyed by frame.
+------------------------------------------------------------------------------------------
+bz = { deco = {}, hooked = false }
+ns.bz = bz
+local BLIZZ_BAR = "Interface\\RaidFrame\\Raid-Bar-Hp-Fill"
+
+-- Every compact frame we can find: the raid ones, the party ones, and their pets.
+function bz.each(fn)
+    for i = 1, 40 do
+        local f = _G["CompactRaidFrame" .. i]
+        if f then fn(f) end
+        local p = _G["CompactPartyFrameMember" .. i]
+        if p then fn(p) end
+        local pet = _G["CompactRaidFramePet" .. i] or _G["CompactPartyFramePet" .. i]
+        if pet then fn(pet) end
+    end
+    for g = 1, 8 do -- raid groups, when frames are kept separate
+        for i = 1, 5 do
+            local f = _G["CompactRaidGroup" .. g .. "Member" .. i]
+            if f then fn(f) end
+        end
+    end
+end
+
+function bz.skin(f)
+    if not db or not db.group.useBlizzard then return end
+    local cfg = db.group[gf.pick()]
+    local d = bz.deco[f]
+    if not d then
+        d = { border = f:CreateTexture(nil, "BACKGROUND", nil, -8), mask = f:CreateMaskTexture() }
+        d.mask:SetAllPoints(f)
+        bz.deco[f] = d
+    end
+    local hb = f.healthBar
+    if hb then
+        hb:SetStatusBarTexture(cfg.texture)
+        local radius = cfg.radius == "pill" and math.huge or cfg.radius
+        round(hb:GetStatusBarTexture(), d.mask, radius, hb:GetWidth() or 1, hb:GetHeight() or 1)
+    end
+    if f.powerBar then f.powerBar:SetStatusBarTexture(cfg.texture) end
+    if f.name then
+        local flags = cfg.outline and "OUTLINE" or ""
+        if not f.name:SetFont(cfg.font, cfg.fontSize, flags) then
+            f.name:SetFont(FONTS[1][2], cfg.fontSize, flags)
+        end
+        f.name:SetTextColor(unpack(cfg.nameColor))
+        f.name:SetShown(cfg.name)
+    end
+    local t = cfg.borderSize
+    d.border:ClearAllPoints()
+    d.border:SetPoint("TOPLEFT", -t, t)
+    d.border:SetPoint("BOTTOMRIGHT", t, -t)
+    d.border:SetColorTexture(unpack(cfg.borderColor))
+    d.border:SetShown(t > 0)
+end
+
+-- Puts back what we changed, as far as a texture swap can be put back.
+function bz.unskin(f)
+    local d = bz.deco[f]
+    if not d then return end
+    if f.healthBar then f.healthBar:SetStatusBarTexture(BLIZZ_BAR) end
+    if f.powerBar then f.powerBar:SetStatusBarTexture(BLIZZ_BAR) end
+    d.border:Hide()
+end
+
+function bz.sync()
+    if db.group.useBlizzard then
+        if not bz.hooked then -- restyle again whenever Blizzard rebuilds a frame
+            for _, name in ipairs({ "CompactUnitFrame_UpdateAll", "CompactUnitFrame_SetUnit",
+                "CompactUnitFrame_UpdateName", "DefaultCompactUnitFrameSetup" }) do
+                if type(_G[name]) == "function" then
+                    hooksecurefunc(name, function(frame) safe(bz.skin, frame) end)
+                    bz.hooked = true
+                end
+            end
+        end
+        bz.each(function(f) safe(bz.skin, f) end)
+    elseif next(bz.deco) then
+        bz.each(function(f) safe(bz.unskin, f) end)
+    end
+end
+
+-- /cpd blizz: what of Blizzard's raid frame machinery this client actually has.
+function ns.BlizzReport()
+    local function say(t) print("|cff88ccffWolfpack:|r " .. t) end
+    local n = 0
+    bz.each(function() n = n + 1 end)
+    say("compact frames found: " .. n .. ", skinning " .. (db.group.useBlizzard and "on" or "off"))
+    for _, name in ipairs({ "CompactRaidFrameContainer", "CompactPartyFrame", "CompactRaidFrame1",
+        "CompactUnitFrame_UpdateAll", "CompactUnitFrame_SetUnit", "DefaultCompactUnitFrameSetup" }) do
+        say(name .. ": " .. (_G[name] and "yes" or "no"))
+    end
 end
 
 ------------------------------------------------------------------------------------------
@@ -3342,6 +3444,8 @@ local function buildConfig()
         function() return ns.groupEdit end, function(v) ns.groupEdit = v end, textPreview)
     check(groupPage, "Show these frames", sizes.x, sizes:row(ROW), function() return G().show end,
         function(v) G().show = v end)
+    check(groupPage, "Use Blizzard's frames", sizes.x, sizes:row(ROW),
+        function() return db.group.useBlizzard end, function(v) db.group.useBlizzard = v end)
     check(groupPage, "Show without a group", sizes.x, sizes:row(ROW), function() return G().test end,
         function(v) G().test = v end)
     local glock = button(groupPage, "", 186, sizes.x, sizes:row(BUTTON), function()
@@ -3350,6 +3454,16 @@ local function buildConfig()
     end)
     onRefresh(function()
         glock:SetText(db.group.locked and "Locked (click to unlock)" or "Unlocked - drag them")
+    end)
+    local blizzNote = label(groupPage, "", "GameFontDisableSmall")
+    blizzNote:SetPoint("TOPLEFT", sizes.x, sizes:row(30))
+    blizzNote:SetWidth(182)
+    blizzNote:SetJustifyH("LEFT")
+    onRefresh(function()
+        blizzNote:SetText(db.group.useBlizzard
+            and "Blizzard's frames, restyled with the settings on this page. Their buffs and "
+                .. "dispels keep working in combat; their size and spacing come from Edit Mode."
+            or "")
     end)
     slider(groupPage, "X (left / right)", sizes.x, sizes:row(SLIDER), -1200, 1200,
         function() return G().x end, function(v) G().x = v end)
@@ -3409,9 +3523,6 @@ local function buildConfig()
     check(groupPage, "Highlight overlay", hov.x, hov:row(ROW), function() return GH().show end,
         function(v) GH().show = v end)
     swatch(groupPage, "Overlay color", hov.x, hov:row(SWATCH), function() return GH().color end)
-    slider(groupPage, "Overlay opacity (%)", hov.x, hov:row(SLIDER), 0, 100,
-        function() return math.floor(GH().color[4] * 100 + 0.5) end,
-        function(v) GH().color[4] = v / 100 end)
     check(groupPage, "Border", hov.x, hov:row(ROW), function() return GH().border end,
         function(v) GH().border = v end)
     slider(groupPage, "Border thickness", hov.x, hov:row(SLIDER), 0, 8,
@@ -3420,7 +3531,7 @@ local function buildConfig()
     hov:close()
 
     -- The border also says what you could take off this unit.
-    local dsp = group(groupPage, COL[1], nm.cursor - 20, 202, "Dispel border")
+    local dsp = group(groupPage, COL[3], hov.cursor - 20, 202, "Dispel border")
     local GD = function() return db.group.dispel end
     check(groupPage, "Color what you can cure", dsp.x, dsp:row(ROW), function() return GD().show end,
         function(v) GD().show = v end)
@@ -3627,7 +3738,9 @@ function ns.AuraReport()
 end
 
 SlashCmdList.WOLFPACKADDON = function(msg)
-    if (msg or ""):lower():find("aura") then return safe(ns.AuraReport) end
+    msg = (msg or ""):lower()
+    if msg:find("aura") then return safe(ns.AuraReport) end
+    if msg:find("blizz") then return safe(ns.BlizzReport) end
     safe(ns.ToggleConfig)
 end
 
