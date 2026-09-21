@@ -1460,5 +1460,6 @@ gp.party.test = false
 fire("UNIT_MAXPOWER")
 assert(not ns.gf.anchor:IsShown(), "no group, no test: hidden")
 
+SlashCmdList.WOLFPACKADDON("auras") -- the probe must not error, whatever the client has
 SlashCmdList.WOLFPACKADDON("")
 realPrint("smoke ok")
