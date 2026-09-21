@@ -1904,12 +1904,24 @@ end
 -- secret, and nothing about the aura is read -- the icon comes from the spell and the duration
 -- object only gets passed on.
 function gf.auraFor(unit, name)
-    local ok, data = pcall(function()
-        if C_UnitAuras.GetAuraDataBySpellName then
+    local ok, data
+    if C_UnitAuras.GetAuraDataBySpellName then -- ask for this one spell: nothing to read
+        ok, data = pcall(function()
             local d = C_UnitAuras.GetAuraDataBySpellName(unit, name, "HELPFUL|PLAYER")
             if d then return d end
-        end
-        for i = 1, 40 do -- older builds: walk the list and match the name
+        end)
+        if ok and data then return data end
+    end
+    if C_UnitAuras.GetUnitAuras then -- the bulk list, which also answers in combat
+        ok, data = pcall(function()
+            for _, d in ipairs(C_UnitAuras.GetUnitAuras(unit, "HELPFUL|PLAYER", 40)) do
+                if readable(d.name) and d.name == name then return d end
+            end
+        end)
+        if ok and data then return data end
+    end
+    ok, data = pcall(function() -- older builds: walk the list yourself
+        for i = 1, 40 do
             local d = C_UnitAuras.GetAuraDataByIndex(unit, i, "HELPFUL|PLAYER")
             if not d then return nil end
             if readable(d.name) and d.name == name then return d end

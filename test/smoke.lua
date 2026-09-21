@@ -184,8 +184,8 @@ C_UnitAuras = {
     end,
     -- the game's own list of what you can take off; its entries may hold secret fields
     GetUnitAuras = function(unit, filter)
-        if filter ~= "HARMFUL|RAID" then return {} end
-        return S.curable or {}
+        if filter == "HARMFUL|RAID" then return S.curable or {} end
+        return S.auras or {}
     end,
     GetAuraDataBySpellName = function(unit, name)
         for _, a in ipairs(S.auras or {}) do
@@ -1428,10 +1428,15 @@ assert(#known >= 10 and known[1].name == "Power Word: Shield", "priest buffs loa
 assert(known[1].show == false and known[1].corner == "topleft" and known[1].size == 14, "off until ticked")
 assert(ns.gf.spellIcon(known[1]) == 117, "the game's icon for that spell")
 login("ROGUE", 3)
--- combat makes the aura list unreadable, but asking for a spell by name still answers
+-- combat makes the aura list unreadable, but the by-name lookup and the bulk list still answer
 S.combat = true
 fire("UNIT_MAXPOWER")
 assert(gfr[1].icons[1]:IsShown() and gfr[1].icons[1].tex._tex == 135953, "buffs stay up in combat")
+local byName = C_UnitAuras.GetAuraDataBySpellName
+C_UnitAuras.GetAuraDataBySpellName = nil -- a build without it falls back to the bulk list
+fire("UNIT_MAXPOWER")
+assert(gfr[1].icons[1]:IsShown(), "and again without the by-name lookup")
+C_UnitAuras.GetAuraDataBySpellName = byName
 S.combat = false
 gp.spells[1].show = false
 fire("UNIT_MAXPOWER")
