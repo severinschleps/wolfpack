@@ -238,7 +238,7 @@ local function groupDefaults(perLine, w, h, ph, y)
         gap = 2, perLine = perLine, grow = "right", -- "left", "down", "up"
         texture = TEXTURES[1][2], borderSize = 1, borderColor = { 0, 0, 0, 1 }, radius = 0,
         classColor = true, color = { 0.2, 0.6, 0.2, 1 }, bgColor = { 0, 0, 0, 0.6 },
-        font = FONTS[1][2], fontSize = 10, outline = true, nameColor = { 1, 1, 1, 1 },
+        name = true, font = FONTS[1][2], fontSize = 10, outline = true, nameColor = { 1, 1, 1, 1 },
         role = true, roleSize = 12, roleX = 0, roleY = 0,
         pets = false, petHeight = 8,
     }
@@ -2034,6 +2034,7 @@ function gf.style(f, cfg)
     local flags = cfg.outline and "OUTLINE" or ""
     if not f.name:SetFont(cfg.font, cfg.fontSize, flags) then f.name:SetFont(FONTS[1][2], cfg.fontSize, flags) end
     f.name:SetTextColor(unpack(cfg.nameColor))
+    f.name:SetShown(cfg.name)
     f.ring:ClearAllPoints()
     f.ring:SetPoint("TOPLEFT", -1, 1)
     f.ring:SetPoint("BOTTOMRIGHT", 1, -1)
@@ -3312,6 +3313,8 @@ local function buildConfig()
     shape:close()
 
     local nm = group(groupPage, COL[1], sizes.cursor - 20, 202, "Name")
+    check(groupPage, "Show the name", nm.x, nm:row(ROW), function() return G().name end,
+        function(v) G().name = v end)
     dropdown(groupPage, "Name font", nm.x, nm:row(DROP), FONTS, function() return G().font end,
         function(v) G().font = v end, fontPreview)
     slider(groupPage, "Name size", nm.x, nm:row(SLIDER), 6, 24, function() return G().fontSize end,
@@ -3356,8 +3359,14 @@ local function buildConfig()
     local GD = function() return db.group.dispel end
     check(groupPage, "Color what you can cure", dsp.x, dsp:row(ROW), function() return GD().show end,
         function(v) GD().show = v end)
-    for _, kind in ipairs(DISPEL_TYPES) do
-        swatch(groupPage, kind, dsp.x, dsp:row(SWATCH), function() return GD()[kind] end)
+    for i = 1, #DISPEL_TYPES, 2 do -- two colors per row, the names are short enough
+        local y = dsp:row(SWATCH)
+        for k = 0, 1 do
+            local kind = DISPEL_TYPES[i + k]
+            if kind then
+                swatch(groupPage, kind, dsp.x + k * 92, y, function() return GD()[kind] end)
+            end
+        end
     end
     dsp:close()
 

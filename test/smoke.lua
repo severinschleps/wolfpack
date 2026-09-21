@@ -1342,7 +1342,13 @@ fire("UNIT_MAXPOWER")
 local gfr = ns.gf.frames
 assert(ns.gf.anchor:IsShown() and gfr[1]:IsShown(), "shown without a group while testing")
 assert(gfr[1]._w == 100 and gfr[1]._h == 40, "frame size")
-assert(gfr[1].name._text == "ROGUECha", "first name, eight letters")
+gp.party.name = true
+fire("UNIT_MAXPOWER")
+assert(gfr[1].name._text == "ROGUECha" and gfr[1].name:IsShown(), "first name, eight letters")
+gp.party.name = false
+fire("UNIT_MAXPOWER")
+assert(not gfr[1].name:IsShown(), "names can be turned off")
+gp.party.name = true
 assert(gfr[1].role:IsShown(), "role icon stands in while testing, even with no roles about")
 gp.party.radius, gp.party.borderSize = 8, 1
 fire("UNIT_MAXPOWER")
