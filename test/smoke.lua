@@ -175,7 +175,7 @@ CanMerchantRepair = function() return S.canRepair end
 GetRepairAllCost = function() return S.repairCost or 0, S.canRepair or false end
 RepairAllItems = function() S.repaired = (S.repaired or 0) + 1 end
 GetMoney = function() return S.money or 0 end
-GetCoinTextureString = function(c) return c .. "c" end
+-- this client has no GetCoinTextureString at all, which is what broke the repair message
 issecretvalue = function(v) return v == SECRET end
 UnitIsUnit = function(a, b) return a == b or (b == "target" and a == S.targetUnit) end
 RegisterUnitWatch = function(f) f._watched = true end
@@ -1033,6 +1033,7 @@ assert(not S.repaired, "off by default")
 prof().other.autoRepair = true
 fire("MERCHANT_SHOW")
 assert(S.repaired == 1, "repaired")
+assert(table.concat(S.printed, "|"):find("repaired for"), "and said what it cost, without erroring")
 S.money = 100
 fire("MERCHANT_SHOW")
 assert(S.repaired == 1, "too poor: left alone")

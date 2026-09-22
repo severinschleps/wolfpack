@@ -3438,6 +3438,12 @@ local petEv = CreateFrame("Frame") -- same handler as ev, for pet unit events
 -- Auto-sell junk: gray items that have a sell price, one every 0.2 s while the merchant window
 -- is open. Nothing else is ever sold, and closing the window stops it.
 local sellTicker
+-- GetMoneyString is what this client has; GetCoinTextureString is not here at all.
+local function money(c)
+    local ok, text = pcall(GetMoneyString, c)
+    return (ok and text) or tostring(math.floor((c or 0) / 10000)) .. "g"
+end
+
 -- Repairs everything at a merchant that can, out of your own money, and says what it cost.
 local function autoRepair()
     if not db.other.autoRepair then return end
@@ -3445,12 +3451,11 @@ local function autoRepair()
     local ok, cost, canRepair = pcall(GetRepairAllCost)
     if not ok or not canRepair or (cost or 0) <= 0 then return end
     if GetMoney() < cost then
-        print("|cffff5555Wolfpack Addon:|r not enough money to repair (" ..
-            GetCoinTextureString(cost) .. ")")
+        print("|cffff5555Wolfpack Addon:|r not enough money to repair (" .. money(cost) .. ")")
         return
     end
     RepairAllItems()
-    print("|cff88ccffWolfpack Addon:|r repaired for " .. GetCoinTextureString(cost))
+    print("|cff33ff99Wolfpack Addon|r repaired for " .. money(cost))
 end
 
 local function sellJunk()
@@ -3478,7 +3483,7 @@ local function sellJunk()
         sellTicker = nil
         C_Timer.After(0.5, function() -- the money arrives a moment after the last sale
             local earned = GetMoney() - before
-            if earned > 0 then print("|cff33ff99Wolfpack Addon|r sold junk for " .. GetMoneyString(earned)) end
+            if earned > 0 then print("|cff33ff99Wolfpack Addon|r sold junk for " .. money(earned)) end
         end)
     end, #queue + 1)
 end
