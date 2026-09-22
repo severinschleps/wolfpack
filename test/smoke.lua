@@ -1259,6 +1259,16 @@ local bakedFont = ns.COMBAT_FONTS[5][2]
 blobs[#blobs + 1] = { profile = {}, combatFont = bakedFont }
 bakedStub = "zblob" .. #blobs
 assert(ns.freshProfile("Alpha").other.combatFont == bakedFont, "new profiles carry the baked font")
+-- an empty account is filled from the baked bundle, classes and all
+blobs[#blobs + 1] = { profile = {}, profiles = { ["Alpha Warrior"] = { regular = { gap = 5 } } },
+    classes = { WARRIOR = "Alpha Warrior" } }
+bakedStub = "zblob" .. #blobs
+local keptProfiles, keptClasses = WolfpackAddonDB.profiles, WolfpackAddonDB.classProfiles
+WolfpackAddonDB.profiles, WolfpackAddonDB.classProfiles = {}, {}
+ns.seedFromBaked()
+assert(WolfpackAddonDB.profiles["Alpha Warrior"], "the baked bundle fills an empty account")
+assert(WolfpackAddonDB.classProfiles.WARRIOR == "Alpha Warrior", "with each class on its own")
+WolfpackAddonDB.profiles, WolfpackAddonDB.classProfiles = keptProfiles, keptClasses
 -- new profiles start from it, or the plain defaults if it can't be read
 local fresh = ns.freshProfile()
 assert(fresh.regular and fresh.nameplate and fresh.other and fresh.quest, "a complete profile either way")

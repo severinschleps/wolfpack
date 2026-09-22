@@ -64,7 +64,7 @@ ns.COMBAT_FONTS = COMBAT_FONTS
 
 -- The layout new profiles start from: an export string, read through the same checks as one you
 -- paste in. `decodeExport` is defined with the import code; until then DEFAULTS are used.
-local DEFAULT_PROFILE = "WPA1:7VlbaBxVGJ6JrZQgKtKHbZBiH5Q+2D54gTy0WTc7s5tZU5O2KUZZKCc7Z3aHzM6ZnjnTdINClQg+iH0TFIVetQpWBMH4IqXFavFuvSD0RQSltI87xU4e9Jy57WRmJ3sxhRIyD5uzM+f855/v+y/n25wqGhgpqgbPSDqoQ0MDBL6ba2zLHeFEhGWIXxUNNAdxoQaBRmpiBdVnkCRjS5XrQAfFCjDJDMCSAYk/w5xT9WqBIALrpkAfmWf9L4tbisgimqrDpiSrGFaIinQRq9UaEU2CDPPlk9S8hvDCUvbPx90rOeDzBjK51sTvFvdef2XrYnLgTszIXVgUTQ0Rc4EfuGtDcaaad+dzHHdrmCvNuBDsV+ch97Q3Dh/zJbbM/WouLPBL2SuB3c/eZNdb/AK1sJT9VXGvpezl4HY4pM95vuWaO/3GN+z6li8SeIRYGE4/LOkEYgVUYHkK4CokDF1MqSofkHbsJ4BY5ijA9I6sWiYnGUAeRYSgOie5b74HybBQsSi+dcGsobmmwAw3cw1OnFNlUsvoBbpkChkcZXxMQTphbzsosNG+Av0wy4V90vN7pw4e3Dk1VaBhwPjaOFZlG0KdNH2MIvtIbAcPJ55eXkAsDlEX9SqUm61NkktDtq55CEUG1322eqEogkYiwtJ3iEXYz/N/FM9tfjEy+OXCsfJ2+6IfYT0ylaAlpC6WE2GyUK480vJIUZpx2tKYEupA1W1KapIyLxBiNPkJ/mn3OXo5gWAQ4jEEP3GBeyGCoH8nnqPpFldgPUJySMVQi4pRiz7SzfKzY9KUODw97MO9KRkscWKS4RnPndf6yZ27Y0TY8Xxx623XPPBh4LYqTwz/3wM0/cBdyp5uhz/nZLedOMmvJaw3dMC61bZ6iPuw0P8VlPYr7SvH50FL+pH92XsjvBOP+3SLPXLRW7NYDVr+b/toW4uCU0X3JwY+xI5LjX6fBW45+tGV3aEtqBWk2z1iPsYW7VdlKGhQIakMJAEPqr/tIdVt+W9x0WoBm1qwJ5iOJ0Z4wuunIVz1DzGpjeDLwd3Gqd8GQ3JSG0FoaW0mQrw+xRPBO2730gsSp9C0bAiLU9te0M7S2qQg3o7jFOSrwBgQqhjNCTKa04sYVi0N4A9btyaoaGowxywTosMQ21KNGtaY8ZNe1wlA5flbT7SVVRH5FBNY3uk5KIi+kmI+bcw1hm/RFx33dvcgtidqtMRMundcrO0SswcIRVOnso4ik3mDBk1DgyIgGjAFk0KU2eq5mWc7eG6sC7c7TbjZ8Wi/2k+0D64Lt6RwW+EEm6bWMg/1JNe28I/2qtcGOhxd/URdzKTm5gos9SO0Bpax5IwcPfoS730WiBvfzV4kwUoMr5qwTGbS8hyK0NJLEmW238ESbue5j5aflpzsAx98HOVxVUSck7339WNOdvKHn7ru1HYn3O9zcZ9+suVLTpYnmCtIUwxQmaVfkV72eMnhw2jHPq8Z7yRECbgZWkuSz8k+duC51ebOGbl06SsnW/37mjvq46TVZ95s6kBNUvbZt032ObueOn/BGbl58x9n9/nzF2Kobz0wnYK6K/66qnRtFV+MiV3Hj59wstLlr52RB99+p6P6s9t3kz4zJuRtc6vrREvbukZcZYHSZ9p0/MFwXSTedg7u6cBBydeAULfsSabBRjV1fj7v1TO7oKHKLJRt8ZAFTXLG1WGcMKtq2ulQIFo6TXJWMoY4/t8vXF22uWjSHKaIDAgaQiRl7vfeXBHRtobPijUmQU+IdbWCkV2sq7paB8b7BfOQBTBsCgSDRrPgodT0HBln/gqg8Qx70eY4m+F6D7DcLKq6gigDzaB+jQOLoDyqGxok0HaXFnHDqNHKZ5fYs1ylAg1i5xUTv+c5TDXnI4JCXzaig3lW2Jjf9zPR6Z2XSjOgak5QOQ11e8yEmlay9NlAwDJmpotd1bm8u6A8CTGtTZSxPQDPQhytfAL7V6cATFn5Dw=="
+local DEFAULT_PROFILE = "WPA1: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"
 -- Ready-made profiles, listed in the profile dropdown even before they exist.
 local PRESETS = { { "Alpha", DEFAULT_PROFILE } }
 local decodeExport
@@ -250,7 +250,7 @@ end
 ------------------------------------------------------------------------------------------
 -- store = WolfpackAddonDB, account-wide: { profiles = { [name] = settings }, chars = { [char] = name } }
 -- db = the active profile's settings.
-local changed, placeMini, useProfile, bf -- defined further down
+local changed, placeMini, useProfile, bf, seedFromBaked -- defined further down
 
 -- Bars that only show while they are doing something (cast, swing) stay visible while the bars
 -- are unlocked or the options are open, so they can be placed.
@@ -2359,11 +2359,30 @@ function ns.freshProfile(name)
         if preset[1] == name then from = preset[2] end
     end
     local data = decodeExport(from)
-    local prof = merge(data and sanitize(data.profile, DEFAULTS) or {}, DEFAULTS)
+    local mine = data and type(data.profiles) == "table" and data.profiles[name or ""]
+    local prof = merge(data and sanitize(mine or data.profile, DEFAULTS) or {}, DEFAULTS)
     for _, f in ipairs(COMBAT_FONTS) do -- strings from before the font moved into the profile
         if data and data.combatFont == f[2] and f[2] ~= "" then prof.other.combatFont = f[2] end
     end
     return prof
+end
+
+-- A fresh account (or this beta, which forgets everything) starts from the bundle baked into
+-- the addon: every profile in it, and which class each one belongs to.
+seedFromBaked = function()
+    if next(store.profiles) then return end -- there is already something here
+    local data = decodeExport(DEFAULT_PROFILE)
+    if not data or type(data.profiles) ~= "table" then return end
+    for pname, prof in pairs(data.profiles) do
+        if type(pname) == "string" and pname ~= "" and type(prof) == "table" then
+            store.profiles[pname] = sanitize(prof, DEFAULTS)
+        end
+    end
+    if type(data.classes) == "table" then
+        for token, pname in pairs(data.classes) do
+            if store.profiles[pname] then store.classProfiles[token] = pname end
+        end
+    end
 end
 
 -- Returns the new profile's name (and the Edit Mode layout older combined strings carried), or
@@ -2419,6 +2438,7 @@ local function importString(text)
     return name, type(data.editMode) == "string" and data.editMode or nil
 end
 ns.exportString, ns.editModeString, ns.importString = exportString, editModeString, importString
+ns.seedFromBaked = function() return seedFromBaked() end
 ns.useProfile = useProfile
 
 StaticPopupDialogs.WOLFPACKADDON_DELETE = {
@@ -3488,6 +3508,7 @@ ev:SetScript("OnEvent", function(_, event, unit, arg2, arg3)
         WolfpackAddonDB = store
         store.minimapAngle = store.minimapAngle or 220
         store.classProfiles = store.classProfiles or {} -- [class token] = profile name
+        seedFromBaked()
         classProfile, class = UnitClass("player")
         playerName = UnitName("player")
         charKey = playerName .. " - " .. GetRealmName()
