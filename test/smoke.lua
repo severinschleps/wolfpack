@@ -1160,6 +1160,26 @@ assert(prof().other.minimap.square == true and prof().other.minimap.radius == "r
 assert(prof().other.combatFont == ns.COMBAT_FONTS[4][2], "combat font carried along")
 prof().regular.gap = 3
 assert(store.profiles[before].regular.gap == 9, "copy is independent")
+-- One string, every profile: each class lands on the one named after it
+store.profiles["Alpha Priest"] = ns.freshProfile("Alpha Priest")
+store.profiles["Alpha Priest"].regular.gap = 7
+store.profiles["Alpha Warrior"] = ns.freshProfile("Alpha Warrior")
+store.profiles["Alpha Warrior"].regular.gap = 11
+local bundle = ns.exportString(true)
+store.profiles["Alpha Priest"] = nil
+store.profiles["Alpha Warrior"] = nil
+local got, _, count = ns.importString(bundle)
+assert(count and count >= 3, "every profile travelled: " .. tostring(count))
+assert(store.profiles["Alpha Priest"].regular.gap == 7, "the priest one came back whole")
+assert(store.profiles["Alpha Warrior"].regular.gap == 11, "and the warrior one")
+assert(store.classProfiles.PRIEST == "Alpha Priest" and store.classProfiles.WARRIOR == "Alpha Warrior",
+    "each class knows its own")
+assert(got == store.chars[S.name .. " - Realm"], "and this character is on one of them")
+login("PRIEST", 0)
+assert(store.chars["PRIESTChar - Realm"] == "Alpha Priest", "a priest logs in on the priest profile")
+assert(prof().regular.gap == 7, "with its settings")
+login("ROGUE", 3)
+
 local _, why = ns.importString("EDITMODE:MyLayout")
 assert(why:find("Edit Mode"), "WoW UI string recognized and redirected")
 assert(not ns.importString("hello"), "not ours")

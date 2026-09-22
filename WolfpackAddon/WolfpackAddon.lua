@@ -2242,8 +2242,31 @@ end
 ------------------------------------------------------------------------------------------
 local E = C_EncodingUtil
 
-local function exportString()
+-- A profile whose name holds a class name belongs to that class, so one string can carry
+-- "Alpha Priest", "Alpha Warrior" and the rest, and each character lands on its own.
+local CLASS_NAMES = { "Warrior", "Paladin", "Hunter", "Rogue", "Priest", "Shaman", "Mage",
+    "Warlock", "Druid" }
+
+local function classOfProfile(name)
+    local low, best = name:lower(), nil
+    for _, cls in ipairs(CLASS_NAMES) do
+        if low:find(cls:lower(), 1, true) then best = cls:upper() end
+    end
+    return best
+end
+
+-- `all` packs every profile you have into the one string, instead of only the one in use.
+local function exportString(all)
     local data = { name = store.chars[charKey], profile = db, combatFont = db.other.combatFont }
+    if all then
+        data.profiles, data.classes = {}, {}
+        for name, prof in pairs(store.profiles) do
+            data.profiles[name] = prof
+            local token = classOfProfile(name)
+            -- the most specific name wins, so "Alpha Priest" beats a plain "Priest"
+            if token and #name > #(data.classes[token] or "") then data.classes[token] = name end
+        end
+    end
     return "WPA1:" .. E.EncodeBase64(E.CompressString(E.SerializeCBOR(data)))
 end
 
@@ -2360,6 +2383,31 @@ local function importString(text)
     if not ok or type(data) ~= "table" or type(data.profile) ~= "table" then
         return nil, "The string is damaged or incomplete. Copy it again in full."
     end
+    -- A bundle: every profile in it lands under its own name, replacing one of the same name,
+    -- and each class is remembered so its characters start on the right one.
+    if type(data.profiles) == "table" then
+        local first, count = nil, 0
+        for pname, prof in pairs(data.profiles) do
+            local clean = type(pname) == "string" and strtrim(pname):sub(1, 32) or ""
+            if clean ~= "" and type(prof) == "table" then
+                store.profiles[clean] = sanitize(prof, DEFAULTS)
+                first, count = first or clean, count + 1
+            end
+        end
+        store.classProfiles = {}
+        if type(data.classes) == "table" then
+            for token, pname in pairs(data.classes) do
+                if type(pname) == "string" and store.profiles[pname] then
+                    store.classProfiles[token] = pname
+                end
+            end
+        end
+        if count == 0 then return nil, "The string holds no profiles. Copy it again in full." end
+        local mine = store.classProfiles[class or ""]
+        if not (mine and store.profiles[mine]) then mine = data.name end
+        useProfile(store.profiles[mine or ""] and mine or first)
+        return store.chars[charKey], nil, count
+    end
     local base = type(data.name) == "string" and strtrim(data.name):sub(1, 32) or ""
     if base == "" then base = "Imported" end
     local name = freeName(base)
@@ -2425,6 +2473,14 @@ local function openIO(mode)
         f.title:SetPoint("TOP", 0, -5)
         f.label1 = label(f, "", "GameFontNormal")
         f.label1:SetPoint("TOPLEFT", 16, -32)
+        f.all = CreateFrame("CheckButton", nil, f, "UICheckButtonTemplate")
+        f.all:SetSize(24, 24)
+        f.all:SetPoint("TOPLEFT", 300, -26)
+        label(f.all, "All profiles in one string"):SetPoint("LEFT", f.all, "RIGHT", 2, 1)
+        f.all:SetScript("OnClick", function(self)
+            f.area1.box:SetText(exportString(self:GetChecked()))
+            f.area1.box:SetFocus()
+        end)
         f.area1 = textArea(f, -50, 110)
         f.label2 = label(f, "2. WoW UI layout (Edit Mode). Import it in Edit Mode: Layout dropdown, Import.",
             "GameFontNormal")
@@ -2439,12 +2495,14 @@ local function openIO(mode)
         f.import:SetPoint("BOTTOMRIGHT", -16, 14)
         f.import:SetText("Import")
         f.import:SetScript("OnClick", function()
-            local name, extra = importString(f.area1.box:GetText())
+            local name, extra, count = importString(f.area1.box:GetText())
             if not name then
                 f.note:SetText("|cffff5555" .. extra .. "|r")
             else
                 f.area1.box:SetText("")
-                f.note:SetText("Imported as profile \"" .. name .. "\" and switched to it."
+                f.note:SetText((count and ("Imported " .. count .. " profiles; this character is on \""
+                        .. tostring(name) .. "\". Others start on the one named after their class.")
+                    or ("Imported as profile \"" .. name .. "\" and switched to it."))
                     .. (extra and " This older string also held a WoW UI layout: it's in the box below, "
                         .. "for Edit Mode's Import." or ""))
                 f.area2:SetShown(extra ~= nil)
@@ -2457,19 +2515,23 @@ local function openIO(mode)
     local export = mode == "export"
     f.title:SetText(export and "Export" or "Import profile")
     f.import:SetShown(not export)
+    f.all:SetShown(export)
     f.area2:SetShown(export)
     f.label2:SetShown(export)
     if export then
         f.label1:SetText("1. Addon profile. Import it here with Import (profile row).")
-        f.area1.box:SetText(exportString())
+        f.area1.box:SetText(exportString(f.all:GetChecked()))
         f.area2.box:SetText(editModeString() or "(The WoW UI layout isn't available right now.)")
         f.note:SetText("Click a box, then Ctrl+C. Keep the profile string somewhere safe: the beta forgets "
-            .. "addon settings when the game restarts, and it brings them back.")
+            .. "addon settings when the game restarts, and it brings them back. Tick \"All profiles\" to "
+            .. "pack every one you have into the same string -- name them after a class, like \"Alpha "
+            .. "Priest\", and each character starts on its own.")
         f.area1.box:SetFocus()
     else
         f.label1:SetText("Paste an addon profile string (starts with WPA1:), then click Import.")
         f.area1.box:SetText("")
-        f.note:SetText("It becomes a new profile. WoW UI layout strings go into Edit Mode's own Import.")
+        f.note:SetText("A single profile becomes a new one. A string with several replaces the profiles "
+            .. "of the same name. WoW UI layout strings go into Edit Mode's own Import.")
         f.area1.box:SetFocus()
     end
     f:Show()
@@ -3425,6 +3487,7 @@ ev:SetScript("OnEvent", function(_, event, unit, arg2, arg3)
             or { profiles = {}, chars = {} }
         WolfpackAddonDB = store
         store.minimapAngle = store.minimapAngle or 220
+        store.classProfiles = store.classProfiles or {} -- [class token] = profile name
         classProfile, class = UnitClass("player")
         playerName = UnitName("player")
         charKey = playerName .. " - " .. GetRealmName()
@@ -3453,6 +3516,9 @@ ev:SetScript("OnEvent", function(_, event, unit, arg2, arg3)
         end
         inCombat = InCombatLockdown() -- a /reload mid-fight
         local mine = store.chars[charKey]
+        if not (mine and store.profiles[mine]) then
+            mine = store.classProfiles and store.classProfiles[class or ""]
+        end
         useProfile(store.profiles[mine or ""] and mine or classProfile)
         placeMini()
     elseif event == "UNIT_HEAL_PREDICTION" then
