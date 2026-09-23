@@ -1179,6 +1179,20 @@ assert(prof().other.minimap.square == true and prof().other.minimap.radius == "r
 assert(prof().other.combatFont == ns.COMBAT_FONTS[4][2], "combat font carried along")
 prof().regular.gap = 3
 assert(store.profiles[before].regular.gap == 9, "copy is independent")
+-- Profiles must not share tables: a color set in one stays in that one
+store.profiles["ColorA"] = ns.freshProfile("ColorA")
+store.profiles["ColorB"] = ns.freshProfile("ColorB")
+local A, B = store.profiles.ColorA.regular.bars.power, store.profiles.ColorB.regular.bars.power
+assert(A ~= B and A.color ~= B.color, "each profile has tables of its own")
+A.color[1], A.color[2], A.color[3] = 0.1, 0.2, 0.3
+assert(B.color[1] ~= 0.1, "changing one leaves the other alone")
+ns.useProfile("ColorA")
+ns.useProfile("ColorB")
+assert(store.profiles.ColorA.regular.bars.power.color[1] == 0.1
+    and store.profiles.ColorB.regular.bars.power.color[1] ~= 0.1,
+    "and switching between them keeps each one's own")
+store.profiles.ColorA, store.profiles.ColorB = nil, nil
+
 -- One string, every profile: each class lands on the one named after it
 store.profiles["Alpha Priest"] = ns.freshProfile("Alpha Priest")
 store.profiles["Alpha Priest"].regular.gap = 7
