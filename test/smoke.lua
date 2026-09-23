@@ -1573,7 +1573,7 @@ assert(ns.critSeen.samples["UNIT_COMBAT CRIT"]:find("CRITICAL"), "and a critical
 UnitDistanceSquared = function() return 361 end
 CheckInteractDistance = function(_, i) return i > 2 end
 -- a hunter's book: a melee swing, a shot with a minimum range, and a long shot
-S.book = { { "Raptor Strike", 0, 5 }, { "Arcane Shot", 8, 35 }, { "Auto Shot", 8, 35 } }
+S.book = { { "Raptor Strike", 0, 0 }, { "Arcane Shot", 8, 35 }, { "Auto Shot", 8, 35 } }
 C_SpellBook = { GetSpellBookItemName = function(i) return S.book[i] and S.book[i][1] or nil end }
 C_Spell.GetSpellInfo = function(name)
     for _, sp in ipairs(S.book or {}) do
@@ -1584,8 +1584,8 @@ end
 C_Spell.IsSpellInRange = function(name, unit)
     for _, sp in ipairs(S.book or {}) do
         if sp[1] == name then
-            local d = S.distance or 3
-            return d >= sp[2] and d <= sp[3]
+            local d, max = S.distance or 3, sp[3] > 0 and sp[3] or 5
+            return d >= sp[2] and d <= max
         end
     end
 end
@@ -1626,6 +1626,18 @@ assert(rbar.text._text == "8 - 35 yd", "with the numbers")
 S.targetHP = nil
 fire("UNIT_MAXPOWER")
 assert(not rbar:IsShown(), "no target, no bar")
+-- nothing to ask, nothing to show
+S.targetHP, S.distance = 500, 20
+local keptBook = S.book
+S.book = {}
+ns.rg.spells, ns.rg.answered = {}, nil
+fire("UNIT_MAXPOWER")
+assert(not rbar:IsShown(), "no spell with a range: the bar stays away")
+S.book = keptBook
+ns.rg.spells, ns.rg.answered = {}, nil
+fire("UNIT_MAXPOWER")
+assert(rbar:IsShown(), "and comes back when there is something to ask")
+S.targetHP = nil
 rb.show = false
 
 -- Prediction overlays: incoming heals grow right from the health fill, a cast's cost grows left
@@ -1750,23 +1762,6 @@ assert((ns.critSeen.counts.UNIT_COMBAT or 0) >= 1, "hits are counted")
 assert(ns.critSeen.samples["UNIT_COMBAT CRIT"]:find("CRITICAL"), "and a critical one is kept apart")
 UnitDistanceSquared = function() return 361 end
 CheckInteractDistance = function(_, i) return i > 2 end
--- a hunter's book: a melee swing, a shot with a minimum range, and a long shot
-S.book = { { "Raptor Strike", 0, 5 }, { "Arcane Shot", 8, 35 }, { "Auto Shot", 8, 35 } }
-C_SpellBook = { GetSpellBookItemName = function(i) return S.book[i] and S.book[i][1] or nil end }
-C_Spell.GetSpellInfo = function(name)
-    for _, sp in ipairs(S.book or {}) do
-        if sp[1] == name then return { name = name, minRange = sp[2], maxRange = sp[3] } end
-    end
-    return { name = name }
-end
-C_Spell.IsSpellInRange = function(name, unit)
-    for _, sp in ipairs(S.book or {}) do
-        if sp[1] == name then
-            local d = S.distance or 3
-            return d >= sp[2] and d <= sp[3]
-        end
-    end
-end
 IsActionInRange = function(slot) return slot <= 2 end
 
 

@@ -319,6 +319,8 @@ function rg.build()
                 minR, maxR = tonumber(mn) or 0, tonumber(mx)
             end
         end)
+        -- Melee is range 0 in the game's data, which is five yards on the ground.
+        if maxR == 0 and minR == 0 then maxR = 5 end
         local key = minR .. ":" .. tostring(maxR)
         if maxR and maxR > 0 and not seen[key] then
             seen[key] = true
@@ -350,6 +352,12 @@ function rg.bounds(max)
     return out
 end
 
+-- Whether this is worth drawing at all: spells with ranges, and a game willing to answer.
+function rg.usable()
+    if #rg.spells == 0 then rg.build() end
+    return #rg.spells > 0 and rg.answered ~= false
+end
+
 function rg.band()
     if #rg.spells == 0 then rg.build() end
     local answers, close = {}, false
@@ -363,6 +371,7 @@ function rg.band()
             if res and sp.min == 0 then close = true end
         end
     end
+    rg.answered = #answers > 0
     local low, high = 0, nil
     for _, a in ipairs(answers) do
         local sp, yes = a[1], a[2]
@@ -421,8 +430,11 @@ local BARS = {
     },
     range = {
         label = "Range",
-        -- only with a target, like the cast bar only while casting
-        state = function() return (UnitExists("target") or ns.previewing()) and true or false, 1 end,
+        -- only with a target, and only when your spells can actually answer the question
+        state = function()
+            if ns.previewing() then return true, 1 end
+            return (UnitExists("target") and rg.usable()) and true or false, 1
+        end,
     },
     absorb = {
         label = "Shield",
@@ -697,6 +709,7 @@ local function layoutBar(f, n, width)
             -- The border sits inside the bar's size (like CSS border-box); the bar is inset by it.
             local t = math.min(c.borderSize, (c.height - 1) / 2, (w - 1) / 2)
             local iw, ih = w - 2 * t, c.height - 2 * t
+            f.segWidth = iw
             s:SetSize(iw, ih)
             s:SetPoint("LEFT", f, "LEFT", lead + (i - 1) * (w + PIP_GAP) + t, 0)
             s:SetMinMaxValues(i - 1, i) -- pip range; single bars get their real max in fill()
@@ -837,7 +850,7 @@ local function fill(f)
         seg:SetMinMaxValues(0, 1)
         seg:SetValue(0) -- the sections below do the drawing
         f.sections, f.lit = f.sections or {}, {}
-        local w = f.width or c.width
+        local w = f.segWidth or f.width or c.width
         for i = 1, #bounds - 1 do
             local from, to = bounds[i], bounds[i + 1]
             local t = f.sections[i]
@@ -4239,6 +4252,9 @@ ev:SetScript("OnEvent", function(_, event, unit, arg2, arg3)
         listen("UNIT_HEALTH", "player", "target")
         listen("UNIT_MAXHEALTH", "player", "target")
         listen("UNIT_ABSORB_AMOUNT_CHANGED", "player")
+        for _, e in ipairs({ "SPELLS_CHANGED", "LEARNED_SPELL_IN_TAB", "PLAYER_LEVEL_UP" }) do
+            listen(e)
+        end
         listen("UNIT_HEAL_PREDICTION", "player", "target")
         listen("UNIT_PET", "player") -- pet summoned, dismissed or swapped
         pcall(petEv.RegisterUnitEvent, petEv, "UNIT_HEALTH", "pet")
@@ -4263,6 +4279,9 @@ ev:SetScript("OnEvent", function(_, event, unit, arg2, arg3)
     elseif event == "UNIT_HEAL_PREDICTION" then
         fillShown("health")
         if targetFrame:IsShown() then safe(fill, targetFrame) end
+    elseif event == "SPELLS_CHANGED" or event == "LEARNED_SPELL_IN_TAB"
+        or event == "PLAYER_LEVEL_UP" then
+        rg.spells, rg.answered = {}, nil -- new ranges: work them out again
     elseif event == "UNIT_ABSORB_AMOUNT_CHANGED" then
         if GetTime() - absorb.castAt <= ABSORB_CAST_WINDOW then -- our cast just put a shield up
             local ok, points = pcall(UnitGetTotalAbsorbs, "player")
