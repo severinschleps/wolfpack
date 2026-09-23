@@ -1524,6 +1524,11 @@ assert(food.icon._desat == true, "and it is grayed out")
 mo.radius = 8
 ns.mgEv._scripts.OnEvent(ns.mgEv, "BAG_UPDATE")
 assert(food.icon.cpdMask == food.mask, "the mage icons round off too")
+assert(food.icon._coords[1] == 0 and food.icon._coords[2] == 1,
+    "and are shown whole, because a mask ignores a crop and shrinks the art")
+mo.radius = 0
+ns.mgEv._scripts.OnEvent(ns.mgEv, "BAG_UPDATE")
+assert(food.icon._coords[1] == 0.08, "square again: the icon border is trimmed as before")
 S.level = 10
 ns.mgEv._scripts.OnEvent(ns.mgEv, "BAG_UPDATE")
 assert(food.icon._tex == 1000 + 1113, "at level 10 it is Conjured Bread")

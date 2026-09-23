@@ -1934,6 +1934,19 @@ end
 ------------------------------------------------------------------------------------------
 mg = { entries = {} }
 ns.mg = mg
+
+-- A mask maps onto the whole texture, not onto the part SetTexCoord kept, so a cropped icon
+-- comes out shrunken. With a radius the icon is therefore shown whole and the mask rounds it;
+-- without one it keeps the usual trim of the icon's own border.
+function ns.iconCorners(tex, mask, radius, size, coords)
+    local r = radius == "pill" and math.huge or radius
+    if (r or 0) > 0 then
+        tex:SetTexCoord(unpack(coords or { 0, 1, 0, 1 }))
+    else
+        tex:SetTexCoord(unpack(coords or { 0.08, 0.92, 0.08, 0.92 }))
+    end
+    round(tex, mask, r, size, size)
+end
 -- Item id and the level it starts at, lowest rank first.
 mg.ranks = {
     food = { { 5349, 1 }, { 1113, 5 }, { 1114, 15 }, { 1487, 25 }, { 8075, 35 }, { 8076, 45 },
@@ -2001,7 +2014,6 @@ function mg.entry(i)
     if not e then
         e = CreateFrame("Frame", nil, mg.panel)
         e.icon = e:CreateTexture(nil, "ARTWORK")
-        e.icon:SetTexCoord(0.08, 0.92, 0.08, 0.92)
         e.icon:SetAllPoints()
         e.mask = e:CreateMaskTexture()
         e.mask:SetAllPoints(e)
@@ -2036,7 +2048,7 @@ function mg.refresh()
         end
         e.icon:SetTexture(mg.icon(id))
         e.icon:SetDesaturated(count == 0)
-        round(e.icon, e.mask, o.radius == "pill" and math.huge or o.radius, o.size, o.size)
+        ns.iconCorners(e.icon, e.mask, o.radius, o.size)
         if not e.text:SetFont(o.font, o.fontSize, flags) then
             e.text:SetFont(FONTS[1][2], o.fontSize, flags)
         end
@@ -2144,8 +2156,7 @@ function hn.refresh()
                 e:SetPoint("TOPLEFT", hn.panel, "TOPLEFT", (n - 1) * step, 0)
             end
             e.icon:SetTexture(icon)
-            e.icon:SetTexCoord(unpack(coords or { 0.08, 0.92, 0.08, 0.92 }))
-            round(e.icon, e.mask, o.radius == "pill" and math.huge or o.radius, o.size, o.size)
+            ns.iconCorners(e.icon, e.mask, o.radius, o.size, coords)
             if not e.text:SetFont(o.font, o.fontSize, flags) then
                 e.text:SetFont(FONTS[1][2], o.fontSize, flags)
             end
