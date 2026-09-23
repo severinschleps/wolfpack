@@ -216,10 +216,19 @@ local DEFAULTS = {
     },
 }
 
+-- Hunter: ammunition left, and how the pet feels.
+DEFAULTS.hunter = {
+    show = true, locked = true, x = 0, y = -180, size = 32, gap = 4, grow = "right", radius = 0,
+    ammo = true, pet = true, countAt = "corner", showCount = true, low = 200,
+    font = FONTS[1][2], fontSize = 12, outline = true,
+    color = { 1, 1, 1, 1 }, lowColor = { 1, 0.4, 0.4, 1 },
+}
+
 -- Mage: the conjured food and water in your bags, best rank only.
 DEFAULTS.mage = {
     show = true, locked = true, x = 0, y = -140, size = 32, gap = 4, grow = "right",
-    countAt = "corner", showCount = true, low = 5, font = FONTS[1][2], fontSize = 12, outline = true,
+    countAt = "corner", showCount = true, low = 5, radius = 0,
+    font = FONTS[1][2], fontSize = 12, outline = true,
     color = { 1, 1, 1, 1 }, lowColor = { 1, 0.4, 0.4, 1 },
 }
 
@@ -257,7 +266,7 @@ end
 ------------------------------------------------------------------------------------------
 -- store = WolfpackAddonDB, account-wide: { profiles = { [name] = settings }, chars = { [char] = name } }
 -- db = the active profile's settings.
-local changed, placeMini, useProfile, bf, mg, seedFromBaked -- defined further down
+local changed, placeMini, useProfile, bf, mg, hn, seedFromBaked -- defined further down
 
 -- Bars that only show while they are doing something (cast, swing) stay visible while the bars
 -- are unlocked or the options are open, so they can be placed.
@@ -1669,6 +1678,7 @@ local function Refresh()
     syncCombatIcon()
     bf.refresh()
     mg.refresh()
+    hn.refresh()
     fsr:sync()
     syncHover()
     syncBags()
@@ -1922,16 +1932,16 @@ end
 ------------------------------------------------------------------------------------------
 -- Mage: how much conjured food and water is in the bags, always the best rank you carry.
 ------------------------------------------------------------------------------------------
+mg = { entries = {} }
+ns.mg = mg
 -- Item id and the level it starts at, lowest rank first.
-local CONJURED = {
+mg.ranks = {
     food = { { 5349, 1 }, { 1113, 5 }, { 1114, 15 }, { 1487, 25 }, { 8075, 35 }, { 8076, 45 },
         { 22895, 55 } },
     water = { { 5350, 1 }, { 2288, 5 }, { 2136, 15 }, { 3772, 25 }, { 8077, 35 }, { 8078, 45 },
         { 8079, 55 } },
 }
 
-mg = { entries = {} }
-ns.mg = mg
 mg.panel = CreateFrame("Frame", "WolfpackAddonMage", UIParent)
 mg.panel:SetSize(80, 32)
 mg.panel:SetMovable(true)
@@ -1974,7 +1984,7 @@ end
 
 -- The best rank you carry, or, carrying none, the rank your level can conjure.
 function mg.best(kind, totals)
-    local ranks = CONJURED[kind]
+    local ranks = mg.ranks[kind]
     for i = #ranks, 1, -1 do
         local id = ranks[i][1]
         if (totals[id] or 0) > 0 then return id, totals[id] end
@@ -1993,6 +2003,8 @@ function mg.entry(i)
         e.icon = e:CreateTexture(nil, "ARTWORK")
         e.icon:SetTexCoord(0.08, 0.92, 0.08, 0.92)
         e.icon:SetAllPoints()
+        e.mask = e:CreateMaskTexture()
+        e.mask:SetAllPoints(e)
         e.text = e:CreateFontString(nil, "OVERLAY")
         mg.entries[i] = e
     end
@@ -2024,6 +2036,7 @@ function mg.refresh()
         end
         e.icon:SetTexture(mg.icon(id))
         e.icon:SetDesaturated(count == 0)
+        round(e.icon, e.mask, o.radius == "pill" and math.huge or o.radius, o.size, o.size)
         if not e.text:SetFont(o.font, o.fontSize, flags) then
             e.text:SetFont(FONTS[1][2], o.fontSize, flags)
         end
@@ -2050,6 +2063,116 @@ mgEv:SetScript("OnEvent", function() safe(mg.refresh) end)
 for _, e in ipairs({ "BAG_UPDATE", "BAG_UPDATE_DELAYED", "PLAYER_ENTERING_WORLD",
     "PLAYER_LEVEL_UP", "PLAYER_LOGIN" }) do
     pcall(mgEv.RegisterEvent, mgEv, e)
+end
+
+------------------------------------------------------------------------------------------
+-- Hunter: how much ammunition is left, and how the pet feels about you.
+------------------------------------------------------------------------------------------
+-- Blizzard's own happiness art: three faces side by side in one texture. Kept on the module
+-- rather than as a local, because this file is at Lua's limit of 200 of them.
+hn = { entries = {}, happyArt = "Interface\\PetPaperDollFrame\\UI-PetHappiness" }
+ns.hn = hn
+hn.panel = CreateFrame("Frame", "WolfpackAddonHunter", UIParent)
+hn.panel:SetSize(80, 32)
+hn.panel:SetMovable(true)
+hn.panel:SetClampedToScreen(true)
+hn.panel:RegisterForDrag("LeftButton")
+hn.panel:SetScript("OnDragStart", function(a) a:StartMoving() end)
+hn.panel:SetScript("OnDragStop", function(a)
+    a:StopMovingOrSizing()
+    local ux, uy = UIParent:GetCenter()
+    db.hunter.x = math.floor(a:GetCenter() - ux + 0.5)
+    db.hunter.y = math.floor(select(2, a:GetCenter()) - uy + 0.5)
+    changed()
+end)
+
+-- What is in the ammo slot, and how much of it you are carrying in total.
+function hn.ammo()
+    local slot = 0 -- the ammo slot; GetInventorySlotInfo knows it by name on clients that have it
+    pcall(function() slot = GetInventorySlotInfo("AmmoSlot") or slot end)
+    local id = select(2, pcall(GetInventoryItemID, "player", slot))
+    local count = select(2, pcall(GetInventoryItemCount, "player", slot)) or 0
+    local icon = select(2, pcall(GetInventoryItemTexture, "player", slot))
+    if not id then return nil, 0, nil end
+    return id, count or 0, icon
+end
+
+function hn.entry(i)
+    local e = hn.entries[i]
+    if not e then
+        e = CreateFrame("Frame", nil, hn.panel)
+        e.icon = e:CreateTexture(nil, "ARTWORK")
+        e.icon:SetAllPoints()
+        e.mask = e:CreateMaskTexture()
+        e.mask:SetAllPoints(e)
+        e.text = e:CreateFontString(nil, "OVERLAY")
+        hn.entries[i] = e
+    end
+    return e
+end
+
+function hn.refresh()
+    local o = db.hunter
+    hn.panel:ClearAllPoints()
+    hn.panel:SetPoint("CENTER", UIParent, "CENTER", o.x, o.y)
+    hn.panel:EnableMouse(not o.locked)
+    if not o.show or class ~= "HUNTER" then
+        hn.panel:Hide()
+        return
+    end
+    hn.panel:Show()
+    local flags = o.outline and "OUTLINE" or ""
+    local step, n = o.size + o.gap, 0
+    local id, count, tex = hn.ammo()
+    local happy = select(2, pcall(GetPetHappiness))
+    for _, what in ipairs({ "ammo", "pet" }) do
+        local show, icon, text, coords = false, nil, nil, nil
+        if what == "ammo" and o.ammo and id then
+            show, icon, text = true, tex or 132382, o.showCount and count or nil
+        elseif what == "pet" and o.pet and happy and UnitExists("pet") then
+            show, icon = true, hn.happyArt
+            coords = { (happy - 1) * 0.1875, happy * 0.1875, 0, 0.359375 }
+        end
+        if show then
+            n = n + 1
+            local e = hn.entry(n)
+            e:SetSize(o.size, o.size)
+            e:ClearAllPoints()
+            if o.grow == "down" then
+                e:SetPoint("TOPLEFT", hn.panel, "TOPLEFT", 0, -(n - 1) * step)
+            else
+                e:SetPoint("TOPLEFT", hn.panel, "TOPLEFT", (n - 1) * step, 0)
+            end
+            e.icon:SetTexture(icon)
+            e.icon:SetTexCoord(unpack(coords or { 0.08, 0.92, 0.08, 0.92 }))
+            round(e.icon, e.mask, o.radius == "pill" and math.huge or o.radius, o.size, o.size)
+            if not e.text:SetFont(o.font, o.fontSize, flags) then
+                e.text:SetFont(FONTS[1][2], o.fontSize, flags)
+            end
+            e.text:ClearAllPoints()
+            local at = o.countAt == "center" and "CENTER" or "BOTTOMRIGHT"
+            e.text:SetPoint(at, e, at, 0, 0)
+            e.text:SetText(text or "")
+            e.text:SetShown(text ~= nil)
+            if text and count <= o.low then
+                e.text:SetTextColor(unpack(o.lowColor))
+            else
+                e.text:SetTextColor(unpack(o.color))
+            end
+            e:Show()
+        end
+    end
+    for i = n + 1, #hn.entries do hn.entries[i]:Hide() end
+    hn.panel:SetSize(o.grow == "down" and o.size or math.max(n * step - o.gap, o.size),
+        o.grow == "down" and math.max(n * step - o.gap, o.size) or o.size)
+end
+
+local hnEv = CreateFrame("Frame")
+ns.hnEv = hnEv
+hnEv:SetScript("OnEvent", function() safe(hn.refresh) end)
+for _, e in ipairs({ "BAG_UPDATE", "BAG_UPDATE_DELAYED", "PLAYER_ENTERING_WORLD", "UNIT_PET",
+    "UNIT_HAPPINESS", "PLAYER_LOGIN", "UNIT_INVENTORY_CHANGED" }) do
+    pcall(hnEv.RegisterEvent, hnEv, e)
 end
 
 ------------------------------------------------------------------------------------------
@@ -2830,6 +2953,7 @@ local function buildConfig()
     -- Sidebar: one entry per module
     local SIDEBAR = { { "combat", "Combat Display", "regular" }, { "nameplates", "Nameplates", "nameplate" },
         { "buffs", "Buffs", "regular" }, { "mage", "Mage", "regular" },
+        { "hunter", "Hunter", "regular" },
         { "other", "Other", "regular" } }
     for i, e in ipairs(SIDEBAR) do
         local b = button(cfg, e[2], 118, 12, -104 - (i - 1) * 26, function()
@@ -2856,6 +2980,8 @@ local function buildConfig()
     buffPage:SetAllPoints(barsPage)
     local magePage = CreateFrame("Frame", nil, cfg)
     magePage:SetAllPoints(barsPage)
+    local hunterPage = CreateFrame("Frame", nil, cfg)
+    hunterPage:SetAllPoints(barsPage)
 
     local title = label(cfg, "Combat Display", "GameFontNormalLarge")
     title:SetPoint("TOPLEFT", 150, -72)
@@ -2869,13 +2995,15 @@ local function buildConfig()
         title:SetShown(not np)
         title:SetText(section == "other" and "Other"
             or section == "buffs" and "Buff check"
-            or section == "mage" and "Mage: food and water" or "Combat Display")
+            or section == "mage" and "Mage: food and water"
+            or section == "hunter" and "Hunter: ammo and pet" or "Combat Display")
         for _, t in ipairs(tabs) do t:SetShown(np) end
         barsPage:SetShown(section == "combat" or (np and sub == "bars"))
         questPage:SetShown(np and sub == "quest")
         otherPage:SetShown(section == "other")
         buffPage:SetShown(section == "buffs")
         magePage:SetShown(section == "mage")
+        hunterPage:SetShown(section == "hunter")
     end)
 
     local tabNote = label(barsPage, "", "GameFontDisableSmall")
@@ -3311,6 +3439,9 @@ local function buildConfig()
     dropdown(magePage, "Side by side or stacked", mlook.x, mlook:row(DROP),
         { { "Side by side", "right" }, { "Stacked", "down" } },
         function() return M().grow end, function(v) M().grow = v end, textPreview)
+    dropdown(magePage, "Corner radius", mlook.x, mlook:row(DROP), { { "None (square)", 0 },
+        { "2 px", 2 }, { "4 px", 4 }, { "8 px", 8 }, { "16 px", 16 }, { "Round", "pill" } },
+        function() return M().radius end, function(v) M().radius = v end, textPreview)
     dropdown(magePage, "Count sits", mlook.x, mlook:row(DROP), { { "In the corner", "corner" },
         { "In the middle", "center" } }, function() return M().countAt end,
         function(v) M().countAt = v end, textPreview)
@@ -3330,6 +3461,64 @@ local function buildConfig()
     slider(magePage, "Low is under", mtext.x, mtext:row(SLIDER), 1, 40, function() return M().low end,
         function(v) M().low = v end)
     mtext:close()
+
+    ----------------------------------------------------------------------------------
+    -- Hunter page: ammunition and the pet's mood
+    ----------------------------------------------------------------------------------
+    local H = function() return db.hunter end
+    local hset = group(hunterPage, COL[1], TOP, 202, "Ammo and pet")
+    check(hunterPage, "Show it", hset.x, hset:row(ROW), function() return H().show end,
+        function(v) H().show = v end)
+    check(hunterPage, "Ammunition", hset.x, hset:row(ROW), function() return H().ammo end,
+        function(v) H().ammo = v end)
+    check(hunterPage, "Pet happiness", hset.x, hset:row(ROW), function() return H().pet end,
+        function(v) H().pet = v end)
+    local hlk = button(hunterPage, "", 186, hset.x, hset:row(BUTTON), function()
+        H().locked = not H().locked
+        changed()
+    end)
+    onRefresh(function() hlk:SetText(H().locked and "Locked (click to unlock)" or "Unlocked - drag it") end)
+    slider(hunterPage, "X (left / right)", hset.x, hset:row(SLIDER), -1200, 1200,
+        function() return H().x end, function(v) H().x = v end)
+    slider(hunterPage, "Y (down / up)", hset.x, hset:row(SLIDER), -800, 800,
+        function() return H().y end, function(v) H().y = v end)
+    local hNote = label(hunterPage, "The ammo in your ammo slot, with how many you carry, and the "
+        .. "face your pet is pulling. Both only for hunters.", "GameFontDisableSmall")
+    hNote:SetPoint("TOPLEFT", hset.x, hset:row(40))
+    hNote:SetWidth(182)
+    hNote:SetJustifyH("LEFT")
+    hset:close()
+
+    local hlook = group(hunterPage, COL[2], TOP, 202, "Icons")
+    slider(hunterPage, "Icon size", hlook.x, hlook:row(SLIDER), 12, 80, function() return H().size end,
+        function(v) H().size = v end)
+    slider(hunterPage, "Gap", hlook.x, hlook:row(SLIDER), 0, 30, function() return H().gap end,
+        function(v) H().gap = v end)
+    dropdown(hunterPage, "Corner radius", hlook.x, hlook:row(DROP), { { "None (square)", 0 },
+        { "2 px", 2 }, { "4 px", 4 }, { "8 px", 8 }, { "16 px", 16 }, { "Round", "pill" } },
+        function() return H().radius end, function(v) H().radius = v end, textPreview)
+    dropdown(hunterPage, "Side by side or stacked", hlook.x, hlook:row(DROP),
+        { { "Side by side", "right" }, { "Stacked", "down" } },
+        function() return H().grow end, function(v) H().grow = v end, textPreview)
+    dropdown(hunterPage, "Count sits", hlook.x, hlook:row(DROP), { { "In the corner", "corner" },
+        { "In the middle", "center" } }, function() return H().countAt end,
+        function(v) H().countAt = v end, textPreview)
+    check(hunterPage, "Show the count", hlook.x, hlook:row(ROW), function() return H().showCount end,
+        function(v) H().showCount = v end)
+    hlook:close()
+
+    local htext = group(hunterPage, COL[3], TOP, 202, "The count")
+    dropdown(hunterPage, "Font", htext.x, htext:row(DROP), FONTS, function() return H().font end,
+        function(v) H().font = v end, fontPreview)
+    slider(hunterPage, "Font size", htext.x, htext:row(SLIDER), 6, 30, function() return H().fontSize end,
+        function(v) H().fontSize = v end)
+    check(hunterPage, "Outline", htext.x, htext:row(ROW), function() return H().outline end,
+        function(v) H().outline = v end)
+    swatch(hunterPage, "Color", htext.x, htext:row(SWATCH), function() return H().color end)
+    swatch(hunterPage, "Color when low", htext.x, htext:row(SWATCH), function() return H().lowColor end)
+    slider(hunterPage, "Low is under", htext.x, htext:row(SLIDER), 1, 2000,
+        function() return H().low end, function(v) H().low = v end)
+    htext:close()
 
     ----------------------------------------------------------------------------------
     -- Buffs page: the out-of-combat check of who is missing what
