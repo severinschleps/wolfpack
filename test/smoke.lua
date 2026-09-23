@@ -1592,7 +1592,8 @@ end
 IsActionInRange = function(slot) return slot <= 2 end
 -- Range: a bar whose width is a stretch of yards, with the band your target is in lit up
 local rb = prof().regular.bars.range
-rb.show, rb.text, rb.yards, rb.flash, rb.dim = true, true, 50, true, 0.3
+rb.show, rb.text, rb.yards, rb.flash, rb.dim = true, true, 41, true, 0.3
+rb.deadColor = { 0.45, 0.45, 0.45, 1 }
 rb.sectionColors = { { 0.9, 0.3, 0.2, 1 }, { 1, 0.75, 0.2, 1 }, { 0.4, 0.9, 0.4, 1 },
     { 0.3, 0.6, 1, 1 }, { 0.7, 0.5, 0.9, 1 } } -- the control poking above recolors them
 S.targetHP = 500 -- something to target
@@ -1611,7 +1612,10 @@ local rbar = ns.frames.range
 assert(rbar:IsShown() and #rbar.sections >= 3, "a section per step your spells mark out")
 -- 0-5, 5-8, 8-35, 35-50: past everything, only the last is lit
 assert(rbar.lit[4] == true and rbar.lit[1] == false, "the far section is the lit one")
-assert(rbar.sections[1]._vertex[1] == 0.9 and rbar.sections[2]._vertex[2] == 0.75,
+-- 0-5 melee, 5-8 nothing reaches, 8-35 the shots, 35-41 too far: the dead zone is grey
+assert(rbar.sections[2]._vertex[1] == 0.45 and rbar.sections[2]._vertex[2] == 0.45,
+    "the 5 to 8 stretch is the dead zone, in its own color")
+assert(rbar.sections[1]._vertex[1] == 0.9 and rbar.sections[3]._vertex[2] == 0.9,
     "each section wears its own color")
 assert(rbar.sections[1]._alpha == 0.3 and rbar.sections[4]._alpha == 1, "the rest are dimmed")
 assert(rbar.text._text == "over 35 yd", "and it says where you are")

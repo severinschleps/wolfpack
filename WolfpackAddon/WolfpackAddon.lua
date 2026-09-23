@@ -178,7 +178,9 @@ local function layoutDefaults(show, x, y, gap, width, h1, h2, h3, h4, h5, h6, h7
     l.bars.swing.main, l.bars.swing.off, l.bars.swing.ranged = true, false, false
     l.bars.health.heal, l.bars.health.healColor = false, { 0.4, 1, 0.5, 0.45 } -- incoming heals
     l.bars.power.cost, l.bars.power.costColor = false, { 1, 1, 1, 0.35 } -- what the cast will take
-    l.bars.range.yards, l.bars.range.flash, l.bars.range.dim = 50, true, 0.3
+    l.bars.range.yards, l.bars.range.flash, l.bars.range.dim = 41, true, 0.3
+    -- the stretch nothing of yours reaches: past melee, inside a shot's minimum
+    l.bars.range.deadColor = { 0.45, 0.45, 0.45, 1 }
     -- one color per stretch of the bar, in order; past the list a section wears the bar's own
     l.bars.range.sectionColors = { { 0.9, 0.3, 0.2, 1 }, { 1, 0.75, 0.2, 1 }, { 0.4, 0.9, 0.4, 1 },
         { 0.3, 0.6, 1, 1 }, { 0.7, 0.5, 0.9, 1 } }
@@ -844,7 +846,13 @@ local function fill(f)
                 f.sections[i] = t
             end
             t:SetTexture(c.texture)
-            local col = (c.sectionColors and c.sectionColors[i]) or c.color
+            -- A stretch no spell of yours covers is a dead zone, and wears its own color.
+            local covered = false
+            for _, sp in ipairs(rg.spells) do
+                if from >= sp.min and to <= sp.max then covered = true end
+            end
+            local col = (not covered and c.deadColor)
+                or (c.sectionColors and c.sectionColors[i]) or c.color
             t:SetVertexColor(col[1], col[2], col[3], col[4] or 1)
             t:ClearAllPoints()
             t:SetPoint("TOPLEFT", seg, "TOPLEFT", from / max * w, 0)
@@ -3306,6 +3314,8 @@ local function buildConfig()
                 return (c.sectionColors and c.sectionColors[i]) or { 0, 0, 0, 1 }
             end)
     end
+    rangeBits[9] = swatch(barsPage, "Dead zone", only.x + 96, only:row(0) - 160,
+        function() return cur().deadColor or { 0, 0, 0, 1 } end)
     local castIcon = check(barsPage, "Show spell icon", only.x, only:row(ROW),
         function() return cur().icon end, function(v) cur().icon = v end)
     local castSide = button(barsPage, "", 186, only.x, only:row(BUTTON), function()
@@ -4196,7 +4206,7 @@ rg.ticker:SetScript("OnUpdate", function(self, elapsed)
     if not db or not frames.range:IsShown() then return end
     local c, f = db.regular.bars.range, frames.range
     self.t = (self.t or 0) + elapsed
-    local a = c.flash and (0.55 + 0.45 * math.sin(self.t * 4)) or 1
+    local a = c.flash and (0.55 + 0.45 * math.sin(self.t * 1.4)) or 1 -- a slow breath
     for i, t in ipairs(f.sections or {}) do
         if (f.lit or {})[i] then t:SetAlpha(a) end
     end
