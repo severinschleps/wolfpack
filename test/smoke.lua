@@ -1563,6 +1563,8 @@ assert(ns.critSeen.counts.UNIT_COMBAT == 1, "hits are counted")
 assert(ns.critSeen.samples["UNIT_COMBAT CRIT"]:find("CRITICAL"), "and a critical one is kept apart")
 UnitDistanceSquared = function() return 361 end
 CheckInteractDistance = function(_, i) return i > 2 end
+C_SpellBook = { GetSpellBookItemName = function(i) return i <= 3 and ("Spell" .. i) or nil end }
+IsActionInRange = function(slot) return slot <= 2 end
 SlashCmdList.WOLFPACKADDON("range") -- must not error, whatever the client answers
 SlashCmdList.WOLFPACKADDON("crit")
 SlashCmdList.WOLFPACKADDON("auras") -- the probe must not error, whatever the client has

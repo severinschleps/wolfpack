@@ -3722,6 +3722,35 @@ function ns.RangeReport()
         end
     end
     say("item range checks answering: " .. (#bands > 0 and table.concat(bands, " ") or "none"))
+
+    -- Your own spells are the likely route: each has a range the game will check for you.
+    local answered, examples = 0, {}
+    for i = 1, 60 do
+        local name = select(2, pcall(function()
+            if C_SpellBook and C_SpellBook.GetSpellBookItemName then
+                return (C_SpellBook.GetSpellBookItemName(i, 0))
+            end
+            return (GetSpellBookItemName and GetSpellBookItemName(i, "spell"))
+        end))
+        if type(name) == "string" and name ~= "" then
+            local got, res = pcall(function()
+                if C_Spell and C_Spell.IsSpellInRange then return C_Spell.IsSpellInRange(name, "target") end
+                return IsSpellInRange(name, "target")
+            end)
+            if got and res ~= nil and readable(res) then
+                answered = answered + 1
+                if #examples < 4 then examples[#examples + 1] = name .. "=" .. tostring(res) end
+            end
+        end
+    end
+    say("spells answering a range check: " .. answered
+        .. (#examples > 0 and ("  e.g. " .. table.concat(examples, ", ")) or ""))
+    local act = 0
+    for slot = 1, 24 do
+        local got, res = pcall(IsActionInRange, slot)
+        if got and res ~= nil and readable(res) then act = act + 1 end
+    end
+    say("action bar slots answering: " .. act)
 end
 
 -- /cpd auras: says which aura calls this client has and whether they answer right now, which
