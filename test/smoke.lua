@@ -1456,14 +1456,14 @@ S.unitClasses = nil -- the group test above left everyone else's class behind
 login("HUNTER", 2)
 local ho = prof().hunter
 ho.show, ho.locked, ho.ammo, ho.pet, ho.size, ho.gap = true, true, true, true, 30, 4
-ho.grow, ho.radius, ho.low, ho.showCount = "right", 8, 200, true
+ho.grow, ho.radius, ho.low, ho.showCount = "right", 25, 200, true
 S.ammoID, S.ammoCount, S.ammoIcon, S.happiness, S.petHP = 2512, 143, 4321, 3, 400
 ns.hnEv._scripts.OnEvent(ns.hnEv, "BAG_UPDATE")
 local ammo, pet = ns.hn.entries[1], ns.hn.entries[2]
 assert(ns.hn.panel:IsShown() and ammo:IsShown() and pet:IsShown(), "both icons up for a hunter")
 assert(ammo.icon._tex == 4321 and ammo.text._text == 143, "the ammo, with how many you carry")
 assert(ammo.text._color[1] == 1 and ammo.text._color[2] == 0.4, "143 is under 200, so it reads low")
-assert(ammo.icon.cpdMask == ammo.mask, "and its corners are rounded")
+assert(ammo.icon.iconMask and ammo.mask._tex:find("i25"), "and its corners are rounded")
 assert(pet.icon._tex:find("Happiness") and pet.icon._coords[1] == 2 * 0.1875, "a happy pet's face")
 S.happiness = 1
 ns.hnEv._scripts.OnEvent(ns.hnEv, "UNIT_HAPPINESS")
@@ -1521,9 +1521,9 @@ S.bags = { [0] = {} }
 ns.mgEv._scripts.OnEvent(ns.mgEv, "BAG_UPDATE")
 assert(food.text._text == 0 and food.icon._tex == 1000 + 22895, "level 60 conjures Cinnamon Rolls")
 assert(food.icon._desat == true, "and it is grayed out")
-mo.radius = 8
+mo.radius = 50
 ns.mgEv._scripts.OnEvent(ns.mgEv, "BAG_UPDATE")
-assert(food.icon.cpdMask == food.mask, "the mage icons round off too")
+assert(food.icon.iconMask and food.mask._tex:find("i50"), "the mage icons round off too")
 assert(food.icon._coords[1] == 0 and food.icon._coords[2] == 1,
     "and are shown whole, because a mask ignores a crop and shrinks the art")
 mo.radius = 0

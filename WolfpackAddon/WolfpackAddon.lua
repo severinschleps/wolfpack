@@ -1935,17 +1935,30 @@ end
 mg = { entries = {} }
 ns.mg = mg
 
--- A mask maps onto the whole texture, not onto the part SetTexCoord kept, so a cropped icon
--- comes out shrunken. With a radius the icon is therefore shown whole and the mask rounds it;
--- without one it keeps the usual trim of the icon's own border.
-function ns.iconCorners(tex, mask, radius, size, coords)
-    local r = radius == "pill" and math.huge or radius
-    if (r or 0) > 0 then
-        tex:SetTexCoord(unpack(coords or { 0, 1, 0, 1 }))
-    else
-        tex:SetTexCoord(unpack(coords or { 0.08, 0.92, 0.08, 0.92 }))
+-- Rounded icons use a mask of their own, scaled to the icon: the bars' nine-slice masks are
+-- cut for long bars and collapse at icon size, which is what squeezed the art into a corner.
+-- The radius is a share of the icon, so 12 and 25 are gentle and 50 is a circle.
+ns.ICON_MASKS = { [12] = "i12", [25] = "i25", [50] = "i50" }
+
+function ns.iconCorners(tex, mask, radius, coords)
+    local file = ns.ICON_MASKS[radius]
+    -- A mask covers the whole texture, not the part SetTexCoord kept, so a rounded icon is
+    -- shown whole; a square one keeps the usual trim of its own border.
+    tex:SetTexCoord(unpack(coords or (file and { 0, 1, 0, 1 }) or { 0.08, 0.92, 0.08, 0.92 }))
+    if file then
+        if mask.icon ~= file then
+            mask:SetTexture("Interface\\AddOns\\WolfpackAddon\\Media\\Icon\\" .. file .. ".tga",
+                "CLAMPTOBLACKADDITIVE", "CLAMPTOBLACKADDITIVE")
+            mask.icon = file
+        end
+        if not tex.iconMask then
+            tex:AddMaskTexture(mask)
+            tex.iconMask = true
+        end
+    elseif tex.iconMask then
+        tex:RemoveMaskTexture(mask)
+        tex.iconMask = nil
     end
-    round(tex, mask, r, size, size)
 end
 -- Item id and the level it starts at, lowest rank first.
 mg.ranks = {
@@ -2048,7 +2061,7 @@ function mg.refresh()
         end
         e.icon:SetTexture(mg.icon(id))
         e.icon:SetDesaturated(count == 0)
-        ns.iconCorners(e.icon, e.mask, o.radius, o.size)
+        ns.iconCorners(e.icon, e.mask, o.radius)
         if not e.text:SetFont(o.font, o.fontSize, flags) then
             e.text:SetFont(FONTS[1][2], o.fontSize, flags)
         end
@@ -2156,7 +2169,7 @@ function hn.refresh()
                 e:SetPoint("TOPLEFT", hn.panel, "TOPLEFT", (n - 1) * step, 0)
             end
             e.icon:SetTexture(icon)
-            ns.iconCorners(e.icon, e.mask, o.radius, o.size, coords)
+            ns.iconCorners(e.icon, e.mask, o.radius, coords)
             if not e.text:SetFont(o.font, o.fontSize, flags) then
                 e.text:SetFont(FONTS[1][2], o.fontSize, flags)
             end
@@ -3451,8 +3464,9 @@ local function buildConfig()
         { { "Side by side", "right" }, { "Stacked", "down" } },
         function() return M().grow end, function(v) M().grow = v end, textPreview)
     dropdown(magePage, "Corner radius", mlook.x, mlook:row(DROP), { { "None (square)", 0 },
-        { "2 px", 2 }, { "4 px", 4 }, { "8 px", 8 }, { "16 px", 16 }, { "Round", "pill" } },
-        function() return M().radius end, function(v) M().radius = v end, textPreview)
+        { "Slightly rounded", 12 }, { "Rounded", 25 }, { "Circle", 50 } },
+        function() return ns.ICON_MASKS[M().radius] and M().radius or 0 end,
+        function(v) M().radius = v end, textPreview)
     dropdown(magePage, "Count sits", mlook.x, mlook:row(DROP), { { "In the corner", "corner" },
         { "In the middle", "center" } }, function() return M().countAt end,
         function(v) M().countAt = v end, textPreview)
@@ -3506,8 +3520,9 @@ local function buildConfig()
     slider(hunterPage, "Gap", hlook.x, hlook:row(SLIDER), 0, 30, function() return H().gap end,
         function(v) H().gap = v end)
     dropdown(hunterPage, "Corner radius", hlook.x, hlook:row(DROP), { { "None (square)", 0 },
-        { "2 px", 2 }, { "4 px", 4 }, { "8 px", 8 }, { "16 px", 16 }, { "Round", "pill" } },
-        function() return H().radius end, function(v) H().radius = v end, textPreview)
+        { "Slightly rounded", 12 }, { "Rounded", 25 }, { "Circle", 50 } },
+        function() return ns.ICON_MASKS[H().radius] and H().radius or 0 end,
+        function(v) H().radius = v end, textPreview)
     dropdown(hunterPage, "Side by side or stacked", hlook.x, hlook:row(DROP),
         { { "Side by side", "right" }, { "Stacked", "down" } },
         function() return H().grow end, function(v) H().grow = v end, textPreview)
