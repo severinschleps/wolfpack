@@ -1557,6 +1557,11 @@ ns.mgEv._scripts.OnEvent(ns.mgEv, "BAG_UPDATE")
 assert(not ns.mg.panel:IsShown(), "and nothing at all for anyone else")
 
 
+-- the crit probe records what a hit looks like, and survives a client that sends nothing
+ns.critEv._scripts.OnEvent(ns.critEv, "UNIT_COMBAT", "target", "WOUND", "CRITICAL", 412, 1)
+assert(ns.critSeen.counts.UNIT_COMBAT == 1, "hits are counted")
+assert(ns.critSeen.samples["UNIT_COMBAT CRIT"]:find("CRITICAL"), "and a critical one is kept apart")
+SlashCmdList.WOLFPACKADDON("crit")
 SlashCmdList.WOLFPACKADDON("auras") -- the probe must not error, whatever the client has
 SlashCmdList.WOLFPACKADDON("")
 realPrint("smoke ok")

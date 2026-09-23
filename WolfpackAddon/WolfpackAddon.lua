@@ -3649,6 +3649,44 @@ WolfpackAddon_Toggle = ns.ToggleConfig -- addon compartment (retail only, Foreve
 SLASH_WOLFPACKADDON1 = "/wolfpack"
 SLASH_WOLFPACKADDON2 = "/wp"
 SLASH_WOLFPACKADDON3 = "/cpd" -- the old name still works
+-- Watches, from login, whether anything still says "that was a critical hit". The combat log
+-- is gone here and registering it is itself blocked, so only ordinary events are tried:
+-- UNIT_COMBAT, which vanilla used for exactly this, and the scrolling combat text feed.
+-- /cpd crit says what has arrived.
+ns.critSeen = { counts = {}, samples = {} }
+ns.critEv = CreateFrame("Frame")
+ns.critEv:SetScript("OnEvent", function(_, event, ...)
+    local seen = ns.critSeen
+    seen.counts[event] = (seen.counts[event] or 0) + 1
+    local bits = {}
+    for i = 1, select("#", ...) do
+        local v = select(i, ...)
+        bits[#bits + 1] = readable(v) and tostring(v):sub(1, 20) or "<secret>"
+    end
+    local line = table.concat(bits, " ")
+    if line:find("CRIT") then
+        seen.samples[event .. " CRIT"] = line
+    elseif not seen.samples[event] then
+        seen.samples[event] = line
+    end
+end)
+pcall(ns.critEv.RegisterUnitEvent, ns.critEv, "UNIT_COMBAT", "player", "target")
+pcall(ns.critEv.RegisterEvent, ns.critEv, "COMBAT_TEXT_UPDATE")
+
+function ns.CritReport()
+    local function say(t) print("|cff88ccffWolfpack:|r " .. t) end
+    say("what has arrived since login (hit something a few times first):")
+    local any = false
+    for event, n in pairs(ns.critSeen.counts) do
+        any = true
+        say(("  %s: %d  %s"):format(event, n, ns.critSeen.samples[event] or ""))
+    end
+    for key, sample in pairs(ns.critSeen.samples) do
+        if key:find("CRIT") then say("  |cff55ff55" .. key .. ":|r " .. sample) end
+    end
+    if not any then say("  nothing at all: no crit is visible to an addon here") end
+end
+
 -- /cpd auras: says which aura calls this client has and whether they answer right now, which
 -- is the only way to tell from inside the game why a buff icon is missing. Run it twice: once
 -- out of combat and once in combat, with the buff actually on you.
@@ -3702,6 +3740,7 @@ end
 SlashCmdList.WOLFPACKADDON = function(msg)
     msg = (msg or ""):lower()
     if msg:find("aura") then return safe(ns.AuraReport, (msg:gsub("^%s*auras?%s*", ""))) end
+    if msg:find("crit") then return safe(ns.CritReport) end
     safe(ns.ToggleConfig)
 end
 
