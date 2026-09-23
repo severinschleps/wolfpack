@@ -1881,6 +1881,7 @@ function bf.check()
 end
 
 function bf.refresh()
+    if not db then return end
     local o = db.buffs
     bf.panel:ClearAllPoints()
     bf.panel:SetPoint("CENTER", UIParent, "CENTER", o.x, o.y)
@@ -2037,6 +2038,7 @@ function mg.entry(i)
 end
 
 function mg.refresh()
+    if not db then return end -- our events can arrive before the profile is loaded
     local o = db.mage
     mg.panel:ClearAllPoints()
     mg.panel:SetPoint("CENTER", UIParent, "CENTER", o.x, o.y)
@@ -2137,6 +2139,7 @@ function hn.entry(i)
 end
 
 function hn.refresh()
+    if not db then return end
     local o = db.hunter
     hn.panel:ClearAllPoints()
     hn.panel:SetPoint("CENTER", UIParent, "CENTER", o.x, o.y)

@@ -376,6 +376,11 @@ local fr = ns.frames
 
 -- Rogue, secret values: 5 pips, each lit when points >= i; stack = health 18, power 14, combo 12,
 -- cast bar and swing rows only join the stack while they run
+-- the panels hear about the world before a profile exists, and must sit that out quietly
+for _, evf in ipairs({ ns.mgEv, ns.hnEv, ns.bfEv }) do
+    evf._scripts.OnEvent(evf, "PLAYER_ENTERING_WORLD")
+end
+
 login("ROGUE", 3)
 fire("UNIT_POWER_FREQUENT"); fire("UNIT_HEALTH")
 assert(fr.combo:IsShown() and fr.combo.n == 5, "rogue combo pips")
