@@ -337,16 +337,22 @@ end
 -- Which of them the game will actually answer for the unit in front of you. A self-buff says
 -- nothing about an enemy, so it drops out here -- otherwise one of those would sit in the melee
 -- slot and the bar would never see you standing next to something. One spell per range.
+function rg.limit()
+    local c = db and db.regular and db.regular.bars.range
+    return math.max((c and c.yards) or 41, 5)
+end
+
 function rg.qualify()
     if not rg.candidates then rg.build() end
     if not UnitExists("target") then return rg.spells end
-    local seen, list = {}, {}
+    local seen, list, max = {}, {}, rg.limit()
     for _, sp in ipairs(rg.candidates) do
         local ok, res = pcall(function()
             if C_Spell and C_Spell.IsSpellInRange then return C_Spell.IsSpellInRange(sp.name, "target") end
             return IsSpellInRange(sp.name, "target")
         end)
         local key = sp.min .. ":" .. sp.max
+        if sp.max > max or sp.min >= max then ok = false end -- further than the bar goes
         if ok and res ~= nil and readable(res) and not seen[key] then
             seen[key] = true
             list[#list + 1] = sp
@@ -3352,7 +3358,10 @@ local function buildConfig()
     -- section -- they run from you outwards, as many as your spells' ranges make.
     local rangeBits = {}
     rangeBits[1] = slider(barsPage, "Bar is this many yards", only.x, only:row(0) + 4, 10, 100,
-        function() return cur().yards or 50 end, function(v) cur().yards = v end)
+        function() return cur().yards or 41 end, function(v)
+            cur().yards = v
+            ns.rg.spells, ns.rg.lastGood = {}, nil -- the cut-off moved: ask again
+        end)
     rangeBits[3] = swatch(barsPage, "In melee", only.x, only:row(0) - 70,
         function() return cur().meleeColor or { 0, 0, 0, 1 } end)
     rangeBits[6] = swatch(barsPage, "In range", only.x + 96, only:row(0) - 70,

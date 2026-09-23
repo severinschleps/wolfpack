@@ -1575,8 +1575,9 @@ CheckInteractDistance = function(_, i) return i > 2 end
 -- a hunter's book: a melee swing, a shot with a minimum range, and a long shot
 -- Aspect of the Hawk comes first and has no range at all, like melee does: it must not take
 -- the melee slot, because the game says nothing about it when an enemy is targeted.
+-- Eagle Eye reaches a hundred yards and would swamp the reading, so it must be left out
 S.book = { { "Aspect of the Hawk", 0, 0, "self" }, { "Raptor Strike", 0, 0 },
-    { "Arcane Shot", 8, 35 }, { "Auto Shot", 8, 35 } }
+    { "Arcane Shot", 8, 35 }, { "Auto Shot", 8, 35 }, { "Eagle Eye", 10, 100 } }
 C_SpellBook = { GetSpellBookItemName = function(i) return S.book[i] and S.book[i][1] or nil end }
 C_Spell.GetSpellInfo = function(name)
     for _, sp in ipairs(S.book or {}) do
@@ -1606,7 +1607,8 @@ S.distance = 3
 S.targetHP = 500
 ns.rg.spells, ns.rg.candidates = {}, nil
 local low, high = ns.rg.band()
-assert(#ns.rg.spells == 2, "one spell per range, and only ones the game answers for")
+assert(#ns.rg.spells == 2, "one spell per range, answered for, and no further than the bar")
+for _, sp in ipairs(ns.rg.spells) do assert(sp.name ~= "Eagle Eye", "nothing past the bar's end") end
 assert(ns.rg.spells[1].name == "Raptor Strike", "melee is the raptor strike, not the aspect")
 assert(low == 0 and high == 5, "inside melee: nothing longer reaches, the shot's minimum caps it")
 S.distance = 20
