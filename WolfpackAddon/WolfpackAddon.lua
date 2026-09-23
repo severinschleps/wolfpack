@@ -216,6 +216,13 @@ local DEFAULTS = {
     },
 }
 
+-- Mage: the conjured food and water in your bags, best rank only.
+DEFAULTS.mage = {
+    show = true, locked = true, x = 0, y = -140, size = 32, gap = 4, grow = "right",
+    countAt = "corner", showCount = true, low = 5, font = FONTS[1][2], fontSize = 12, outline = true,
+    color = { 1, 1, 1, 1 }, lowColor = { 1, 0.4, 0.4, 1 },
+}
+
 -- Buff check: who in the group is missing a buff somebody here can hand out.
 DEFAULTS.buffs = {
     show = false, locked = true, x = -300, y = 0, size = 18, fontSize = 12, outline = true,
@@ -250,7 +257,7 @@ end
 ------------------------------------------------------------------------------------------
 -- store = WolfpackAddonDB, account-wide: { profiles = { [name] = settings }, chars = { [char] = name } }
 -- db = the active profile's settings.
-local changed, placeMini, useProfile, bf, seedFromBaked -- defined further down
+local changed, placeMini, useProfile, bf, mg, seedFromBaked -- defined further down
 
 -- Bars that only show while they are doing something (cast, swing) stay visible while the bars
 -- are unlocked or the options are open, so they can be placed.
@@ -1661,6 +1668,7 @@ local function Refresh()
     syncGryphons()
     syncCombatIcon()
     bf.refresh()
+    mg.refresh()
     fsr:sync()
     syncHover()
     syncBags()
@@ -1727,42 +1735,6 @@ bf.panel:SetScript("OnDragStop", function(a)
     db.buffs.y = math.floor(select(2, a:GetCenter()) - uy + 0.5)
     changed()
 end)
-
--- A mage's conjured food and water. Ranks are told apart by the level they need, so a new rank
--- counts without anyone adding it here, and only the best one you carry is reported.
-function bf.conjured()
-    local best = {}
-    local totals, seen = {}, {}
-    for bag = 0, (NUM_BAG_SLOTS or 4) do
-        for slot = 1, (C_Container.GetContainerNumSlots(bag) or 0) do
-            local info = C_Container.GetContainerItemInfo(bag, slot)
-            local id = info and info.itemID
-            if id then
-                if seen[id] == nil then
-                    local ok, name, _, _, level = pcall(C_Item.GetItemInfo, id)
-                    if ok and type(name) == "string" and name:find("Conjured") then
-                        seen[id] = { name = name, level = tonumber(level) or 0,
-                            kind = name:find("Water") and "water" or "food",
-                            icon = info.iconFileID }
-                    else
-                        seen[id] = false
-                    end
-                end
-                if seen[id] then totals[id] = (totals[id] or 0) + (info.stackCount or 1) end
-            end
-        end
-    end
-    for id, item in pairs(seen) do
-        if item and totals[id] then
-            local cur = best[item.kind]
-            if not cur or item.level > cur.level then
-                best[item.kind] = { name = item.name, level = item.level, icon = item.icon,
-                    count = totals[id] }
-            end
-        end
-    end
-    return best
-end
 
 function bf.icon(id)
     if not id then return 134400 end -- a question mark, for anything the client won't name
@@ -1881,22 +1853,6 @@ function bf.check()
             lines[#lines + 1] = { icon = chk.icon, text = text, ok = #missing == 0 }
         end
     end
-    -- A mage's food and water: how much of the best rank you carry.
-    if class == "MAGE" and not o.skip.conjured then
-        local best = bf.conjured()
-        for _, kind in ipairs({ "food", "water" }) do
-            local it = best[kind]
-            local label = kind == "food" and "Food" or "Water"
-            local fallback = kind == "food" and 134062 or 132805
-            if it then
-                lines[#lines + 1] = { icon = it.icon or fallback, text = label .. ": " .. it.count
-                    .. " (" .. it.name .. ")", ok = it.count >= (o.lowCount or 5) }
-            else
-                lines[#lines + 1] = { icon = fallback, text = label .. ": none", ok = false }
-            end
-        end
-    end
-
     -- Your weapon: a rogue's poison or a shaman's enchant, with what is left on it.
     if WEAPON_CLASSES[class or ""] and not o.skip.weapon then
         local ok, hasMain, mainMs, _, _, hasOff, offMs = pcall(GetWeaponEnchantInfo)
@@ -1961,6 +1917,139 @@ for _, e in ipairs({ "UNIT_AURA", "PLAYER_ENTERING_WORLD", "PLAYER_REGEN_ENABLED
     "PLAYER_REGEN_DISABLED", "PLAYER_ALIVE", "GROUP_ROSTER_UPDATE", "PLAYER_DEAD",
     "UNIT_INVENTORY_CHANGED" }) do
     pcall(bfEv.RegisterEvent, bfEv, e)
+end
+
+------------------------------------------------------------------------------------------
+-- Mage: how much conjured food and water is in the bags, always the best rank you carry.
+------------------------------------------------------------------------------------------
+-- Item id and the level it starts at, lowest rank first.
+local CONJURED = {
+    food = { { 5349, 1 }, { 1113, 5 }, { 1114, 15 }, { 1487, 25 }, { 8075, 35 }, { 8076, 45 },
+        { 22895, 55 } },
+    water = { { 5350, 1 }, { 2288, 5 }, { 2136, 15 }, { 3772, 25 }, { 8077, 35 }, { 8078, 45 },
+        { 8079, 55 } },
+}
+
+mg = { entries = {} }
+ns.mg = mg
+mg.panel = CreateFrame("Frame", "WolfpackAddonMage", UIParent)
+mg.panel:SetSize(80, 32)
+mg.panel:SetMovable(true)
+mg.panel:SetClampedToScreen(true)
+mg.panel:RegisterForDrag("LeftButton")
+mg.panel:SetScript("OnDragStart", function(a) a:StartMoving() end)
+mg.panel:SetScript("OnDragStop", function(a)
+    a:StopMovingOrSizing()
+    local ux, uy = UIParent:GetCenter()
+    db.mage.x = math.floor(a:GetCenter() - ux + 0.5)
+    db.mage.y = math.floor(select(2, a:GetCenter()) - uy + 0.5)
+    changed()
+end)
+
+-- The item's own icon, asked for by id so it is right even with empty bags.
+function mg.icon(id)
+    mg.icons = mg.icons or {}
+    if mg.icons[id] == nil then
+        local ok, tex = pcall(function()
+            return (C_Item and C_Item.GetItemIconByID and C_Item.GetItemIconByID(id))
+                or (GetItemIcon and GetItemIcon(id))
+        end)
+        mg.icons[id] = (ok and tex) or 134062
+    end
+    return mg.icons[id]
+end
+
+-- How many of each conjured item are in the bags, by item id.
+function mg.counts()
+    local totals = {}
+    for bag = 0, (NUM_BAG_SLOTS or 4) do
+        for slot = 1, (C_Container.GetContainerNumSlots(bag) or 0) do
+            local info = C_Container.GetContainerItemInfo(bag, slot)
+            local id = info and info.itemID
+            if id then totals[id] = (totals[id] or 0) + (info.stackCount or 1) end
+        end
+    end
+    return totals
+end
+
+-- The best rank you carry, or, carrying none, the rank your level can conjure.
+function mg.best(kind, totals)
+    local ranks = CONJURED[kind]
+    for i = #ranks, 1, -1 do
+        local id = ranks[i][1]
+        if (totals[id] or 0) > 0 then return id, totals[id] end
+    end
+    local level, id = (UnitLevel and UnitLevel("player")) or 1, ranks[1][1]
+    for _, rank in ipairs(ranks) do
+        if level >= rank[2] then id = rank[1] end
+    end
+    return id, 0
+end
+
+function mg.entry(i)
+    local e = mg.entries[i]
+    if not e then
+        e = CreateFrame("Frame", nil, mg.panel)
+        e.icon = e:CreateTexture(nil, "ARTWORK")
+        e.icon:SetTexCoord(0.08, 0.92, 0.08, 0.92)
+        e.icon:SetAllPoints()
+        e.text = e:CreateFontString(nil, "OVERLAY")
+        mg.entries[i] = e
+    end
+    return e
+end
+
+function mg.refresh()
+    local o = db.mage
+    mg.panel:ClearAllPoints()
+    mg.panel:SetPoint("CENTER", UIParent, "CENTER", o.x, o.y)
+    mg.panel:EnableMouse(not o.locked)
+    if not o.show or class ~= "MAGE" then
+        mg.panel:Hide()
+        return
+    end
+    mg.panel:Show()
+    local totals = mg.counts()
+    local flags = o.outline and "OUTLINE" or ""
+    for i, kind in ipairs({ "food", "water" }) do
+        local id, count = mg.best(kind, totals)
+        local e = mg.entry(i)
+        e:SetSize(o.size, o.size)
+        e:ClearAllPoints()
+        local step = o.size + o.gap
+        if o.grow == "down" then
+            e:SetPoint("TOPLEFT", mg.panel, "TOPLEFT", 0, -(i - 1) * step)
+        else
+            e:SetPoint("TOPLEFT", mg.panel, "TOPLEFT", (i - 1) * step, 0)
+        end
+        e.icon:SetTexture(mg.icon(id))
+        e.icon:SetDesaturated(count == 0)
+        if not e.text:SetFont(o.font, o.fontSize, flags) then
+            e.text:SetFont(FONTS[1][2], o.fontSize, flags)
+        end
+        e.text:ClearAllPoints()
+        e.text:SetPoint(o.countAt == "center" and "CENTER" or "BOTTOMRIGHT", e, 
+            o.countAt == "center" and "CENTER" or "BOTTOMRIGHT", 0, 0)
+        e.text:SetText(count)
+        e.text:SetShown(o.showCount)
+        if count <= o.low then
+            e.text:SetTextColor(unpack(o.lowColor))
+        else
+            e.text:SetTextColor(unpack(o.color))
+        end
+        e:Show()
+    end
+    local step = o.size + o.gap
+    mg.panel:SetSize(o.grow == "down" and o.size or (step + o.size),
+        o.grow == "down" and (step + o.size) or o.size)
+end
+
+local mgEv = CreateFrame("Frame")
+ns.mgEv = mgEv
+mgEv:SetScript("OnEvent", function() safe(mg.refresh) end)
+for _, e in ipairs({ "BAG_UPDATE", "BAG_UPDATE_DELAYED", "PLAYER_ENTERING_WORLD",
+    "PLAYER_LEVEL_UP", "PLAYER_LOGIN" }) do
+    pcall(mgEv.RegisterEvent, mgEv, e)
 end
 
 ------------------------------------------------------------------------------------------
@@ -2740,7 +2829,7 @@ local function buildConfig()
 
     -- Sidebar: one entry per module
     local SIDEBAR = { { "combat", "Combat Display", "regular" }, { "nameplates", "Nameplates", "nameplate" },
-        { "buffs", "Buffs", "regular" },
+        { "buffs", "Buffs", "regular" }, { "mage", "Mage", "regular" },
         { "other", "Other", "regular" } }
     for i, e in ipairs(SIDEBAR) do
         local b = button(cfg, e[2], 118, 12, -104 - (i - 1) * 26, function()
@@ -2765,6 +2854,8 @@ local function buildConfig()
     otherPage:SetAllPoints(barsPage)
     local buffPage = CreateFrame("Frame", nil, cfg)
     buffPage:SetAllPoints(barsPage)
+    local magePage = CreateFrame("Frame", nil, cfg)
+    magePage:SetAllPoints(barsPage)
 
     local title = label(cfg, "Combat Display", "GameFontNormalLarge")
     title:SetPoint("TOPLEFT", 150, -72)
@@ -2777,12 +2868,14 @@ local function buildConfig()
         local np = section == "nameplates"
         title:SetShown(not np)
         title:SetText(section == "other" and "Other"
-            or section == "buffs" and "Buff check" or "Combat Display")
+            or section == "buffs" and "Buff check"
+            or section == "mage" and "Mage: food and water" or "Combat Display")
         for _, t in ipairs(tabs) do t:SetShown(np) end
         barsPage:SetShown(section == "combat" or (np and sub == "bars"))
         questPage:SetShown(np and sub == "quest")
         otherPage:SetShown(section == "other")
         buffPage:SetShown(section == "buffs")
+        magePage:SetShown(section == "mage")
     end)
 
     local tabNote = label(barsPage, "", "GameFontDisableSmall")
@@ -3187,6 +3280,58 @@ local function buildConfig()
     mm:close()
 
     ----------------------------------------------------------------------------------
+    -- Mage page: the conjured food and water counter
+    ----------------------------------------------------------------------------------
+    local M = function() return db.mage end
+    local mset = group(magePage, COL[1], TOP, 202, "Food and water")
+    check(magePage, "Show it", mset.x, mset:row(ROW), function() return M().show end,
+        function(v) M().show = v end)
+    local mlk = button(magePage, "", 186, mset.x, mset:row(BUTTON), function()
+        M().locked = not M().locked
+        changed()
+    end)
+    onRefresh(function() mlk:SetText(M().locked and "Locked (click to unlock)" or "Unlocked - drag it") end)
+    slider(magePage, "X (left / right)", mset.x, mset:row(SLIDER), -1200, 1200,
+        function() return M().x end, function(v) M().x = v end)
+    slider(magePage, "Y (down / up)", mset.x, mset:row(SLIDER), -800, 800,
+        function() return M().y end, function(v) M().y = v end)
+    local mNote = label(magePage, "Counts the conjured food and water in your bags and shows only "
+        .. "the best rank you carry. With none of it, the icon is the rank your level conjures.",
+        "GameFontDisableSmall")
+    mNote:SetPoint("TOPLEFT", mset.x, mset:row(46))
+    mNote:SetWidth(182)
+    mNote:SetJustifyH("LEFT")
+    mset:close()
+
+    local mlook = group(magePage, COL[2], TOP, 202, "Icons")
+    slider(magePage, "Icon size", mlook.x, mlook:row(SLIDER), 12, 80, function() return M().size end,
+        function(v) M().size = v end)
+    slider(magePage, "Gap", mlook.x, mlook:row(SLIDER), 0, 30, function() return M().gap end,
+        function(v) M().gap = v end)
+    dropdown(magePage, "Side by side or stacked", mlook.x, mlook:row(DROP),
+        { { "Side by side", "right" }, { "Stacked", "down" } },
+        function() return M().grow end, function(v) M().grow = v end, textPreview)
+    dropdown(magePage, "Count sits", mlook.x, mlook:row(DROP), { { "In the corner", "corner" },
+        { "In the middle", "center" } }, function() return M().countAt end,
+        function(v) M().countAt = v end, textPreview)
+    check(magePage, "Show the count", mlook.x, mlook:row(ROW), function() return M().showCount end,
+        function(v) M().showCount = v end)
+    mlook:close()
+
+    local mtext = group(magePage, COL[3], TOP, 202, "The count")
+    dropdown(magePage, "Font", mtext.x, mtext:row(DROP), FONTS, function() return M().font end,
+        function(v) M().font = v end, fontPreview)
+    slider(magePage, "Font size", mtext.x, mtext:row(SLIDER), 6, 30, function() return M().fontSize end,
+        function(v) M().fontSize = v end)
+    check(magePage, "Outline", mtext.x, mtext:row(ROW), function() return M().outline end,
+        function(v) M().outline = v end)
+    swatch(magePage, "Color", mtext.x, mtext:row(SWATCH), function() return M().color end)
+    swatch(magePage, "Color when low", mtext.x, mtext:row(SWATCH), function() return M().lowColor end)
+    slider(magePage, "Low is under", mtext.x, mtext:row(SLIDER), 1, 40, function() return M().low end,
+        function(v) M().low = v end)
+    mtext:close()
+
+    ----------------------------------------------------------------------------------
     -- Buffs page: the out-of-combat check of who is missing what
     ----------------------------------------------------------------------------------
     local B = function() return db.buffs end
@@ -3233,11 +3378,6 @@ local function buildConfig()
     check(buffPage, "Weapon (rogue, shaman)", bwhat.x, bwhat:row(ROW),
         function() return not B().skip.weapon end,
         function(v) B().skip.weapon = (not v) or nil end)
-    check(buffPage, "Food and water (mage)", bwhat.x, bwhat:row(ROW),
-        function() return not B().skip.conjured end,
-        function(v) B().skip.conjured = (not v) or nil end)
-    slider(buffPage, "Warn under", bwhat.x, bwhat:row(SLIDER), 1, 40,
-        function() return B().lowCount end, function(v) B().lowCount = v end)
     local bwhatNote = label(buffPage, "A row shows only when somebody in the group can actually "
         .. "give that buff. A paladin keeps one blessing per person, so any one of them counts.",
         "GameFontDisableSmall")

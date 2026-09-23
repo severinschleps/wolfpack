@@ -47,6 +47,7 @@ function M:SetAttribute(k, v) self._attr = self._attr or {}; self._attr[k] = v e
 function M:GetAttribute(k) return (self._attr or {})[k] end
 function M:RegisterForClicks(...) self._clicks = { ... } end
 function M:SetFont(path, size, flags) self._font = { path, size, flags }; return true end
+function M:SetTextColor(...) self._color = { ... } end
 function M:GetFont() return self._font and self._font[1] or "Fonts\\FRIZQT__.TTF", 25, "OUTLINE" end
 function M:SetSwipeTexture(t) self._swipeTex = t end
 function M:SetReverse(v) self._reverse = v end
@@ -186,6 +187,8 @@ UnitIsUnit = function(a, b) return a == b or (b == "target" and a == S.targetUni
 RegisterUnitWatch = function(f) f._watched = true end
 GetNumGroupMembers = function() return S.members or 0 end
 UnitIsDeadOrGhost = function() return false end
+UnitLevel = function() return S.level or 60 end
+GetItemIcon = function(id) return 1000 + id end
 GetWeaponEnchantInfo = function() return S.mainEnchant or false, S.mainMs or 0, 0, 0,
     S.offEnchant or false, S.offMs or 0 end
 UnitGroupRolesAssigned = function(unit) return (S.units or {})[unit] or "NONE" end
@@ -1439,40 +1442,59 @@ assert(not ns.bf.panel:IsShown(), "combat: out of the way")
 S.combat = false
 ns.bfEv._scripts.OnEvent(ns.bfEv, "PLAYER_REGEN_ENABLED")
 assert(ns.bf.panel:IsShown(), "and back afterwards")
+
 S.group, S.members = false, 0
 login("ROGUE", 3)
 
--- a mage sees how much of the best food and water is in the bags
+-- Mage: the conjured food and water in the bags, best rank only, on its own panel
 S.unitClasses = nil -- the group test above left everyone else's class behind
 login("MAGE", 0)
-prof().buffs.show, prof().buffs.lowCount, prof().buffs.skip = true, 5, {}
+local mo = prof().mage
+mo.show, mo.locked, mo.size, mo.gap, mo.grow, mo.low = true, true, 30, 4, "right", 5
 local keptBags = S.bags
-S.items = {
-    [1] = { name = "Conjured Muffin", level = 6 },
-    [2] = { name = "Conjured Sweet Roll", level = 52 },
-    [4] = { name = "Conjured Crystal Water", level = 55 },
-}
+S.level = 60
 S.bags = { [0] = {
-    { itemID = 1, stackCount = 20, quality = 1 },
-    { itemID = 2, stackCount = 12, quality = 1 },
-    { itemID = 2, stackCount = 8, quality = 1 },
-    { itemID = 4, stackCount = 3, quality = 1 },
+    { itemID = 5349, stackCount = 20, quality = 1 }, -- Conjured Muffin, the lowest rank
+    { itemID = 8076, stackCount = 12, quality = 1 }, -- Conjured Sweet Roll
+    { itemID = 8076, stackCount = 8, quality = 1 },
+    { itemID = 8079, stackCount = 3, quality = 1 },  -- Conjured Crystal Water
 } }
-local function buffLines()
-    local t = {}
-    for _, r in ipairs(ns.bf.rows) do if r:IsShown() then t[#t + 1] = r.text._text end end
-    return table.concat(t, "|")
-end
-ns.bfEv._scripts.OnEvent(ns.bfEv, "UNIT_AURA")
-local joined = buffLines()
-assert(joined:find("Food: 20 %(Conjured Sweet Roll%)"), "the best food, counted across stacks")
-assert(joined:find("Water: 3 %(Conjured Crystal Water%)"), "and the best water")
-assert(not joined:find("Muffin"), "the lower rank is not mentioned")
+ns.mgEv._scripts.OnEvent(ns.mgEv, "BAG_UPDATE")
+local food, water = ns.mg.entries[1], ns.mg.entries[2]
+assert(ns.mg.panel:IsShown() and food:IsShown(), "the panel shows for a mage")
+assert(food.text._text == 20, "the best food, counted across its stacks")
+assert(food.icon._tex == 1000 + 8076, "with the Sweet Roll icon, not the Muffin's")
+assert(water.text._text == 3 and water.icon._tex == 1000 + 8079, "and the best water")
+assert(water.text._color and water.text._color[1] == 1 and water.text._color[2] == 0.4,
+    "three is low, so it is colored that way")
+-- the number can be put in the middle of the icon, or hidden altogether
+mo.countAt, mo.showCount = "center", true
+ns.mgEv._scripts.OnEvent(ns.mgEv, "BAG_UPDATE")
+assert(food.text._point[1] == "CENTER" and food.text:IsShown(), "the count sits in the icon")
+mo.showCount = false
+ns.mgEv._scripts.OnEvent(ns.mgEv, "BAG_UPDATE")
+assert(not food.text:IsShown(), "or not at all")
+mo.showCount, mo.countAt = true, "corner"
+-- stacked instead of side by side
+mo.grow = "down"
+ns.mgEv._scripts.OnEvent(ns.mgEv, "BAG_UPDATE")
+assert(water._point[4] == 0 and water._point[5] == -34, "stacked, one under the other")
+mo.grow = "right"
+ns.mgEv._scripts.OnEvent(ns.mgEv, "BAG_UPDATE")
+assert(water._point[4] == 34 and water._point[5] == 0, "or side by side")
+
+-- empty bags still show the rank your level conjures, grayed out
 S.bags = { [0] = {} }
-ns.bfEv._scripts.OnEvent(ns.bfEv, "UNIT_AURA")
-assert(buffLines():find("Food: none"), "empty bags say so")
-S.bags, S.items = keptBags, nil
+ns.mgEv._scripts.OnEvent(ns.mgEv, "BAG_UPDATE")
+assert(food.text._text == 0 and food.icon._tex == 1000 + 22895, "level 60 conjures Cinnamon Rolls")
+assert(food.icon._desat == true, "and it is grayed out")
+S.level = 10
+ns.mgEv._scripts.OnEvent(ns.mgEv, "BAG_UPDATE")
+assert(food.icon._tex == 1000 + 1113, "at level 10 it is Conjured Bread")
+S.bags, S.level = keptBags, 60
 login("ROGUE", 3)
+ns.mgEv._scripts.OnEvent(ns.mgEv, "BAG_UPDATE")
+assert(not ns.mg.panel:IsShown(), "and nothing at all for anyone else")
 
 
 SlashCmdList.WOLFPACKADDON("auras") -- the probe must not error, whatever the client has
