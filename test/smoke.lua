@@ -896,8 +896,8 @@ dds[7]:GenerateMenu(); dds[8]:GenerateMenu()
 assert(#dds[7]._items == 4 and #dds[8]._items == 4, "icon choices")
 for _, it in ipairs(dds[7]._items) do assert(type(it.init(menuButton())) == "number", "icon preview") end
 dds[7]._items[3].set()
-boxes[18]._text = "32"; boxes[18]._scripts.OnEnterPressed(boxes[18]) -- kill size
-boxes[15]._text = "-5"; boxes[15]._scripts.OnEnterPressed(boxes[15]) -- row X
+boxes[17]._text = "32"; boxes[17]._scripts.OnEnterPressed(boxes[17]) -- kill size
+boxes[14]._text = "-5"; boxes[14]._scripts.OnEnterPressed(boxes[14]) -- row X
 local Q = prof().quest
 assert(Q.kill.icon == 135274 and Q.kill.size == 32 and Q.loot.size == 20 and Q.x == -5, "quest page edits")
 assert(h.kill._tex == 135274 and h.kill._w == 32 and h.box._w == 54 and h.box._point[4] == -5, "live plate row restyled")
@@ -914,7 +914,7 @@ prof().other.hideGryphons = true; fire("UNIT_MAXPOWER")
 assert(caps.LeftEndCap.Texture._alpha == 0 and caps.RightEndCap.Texture._alpha == 0, "hidden")
 prof().other.hideGryphons = false; fire("UNIT_MAXPOWER")
 assert(caps.LeftEndCap.Texture._alpha == 1, "shown again")
-local opBox = boxes[20] -- highlight opacity (%)
+local opBox = boxes[19] -- highlight opacity (%)
 opBox._text = "60"; opBox._scripts.OnEnterPressed(opBox)
 assert(math.abs(prof().regular.highlight.color[4] - 0.6) < 1e-9 and opBox._text == "60", "opacity typed")
 byText("Combat Display")._scripts.OnClick(byText("Combat Display"), "LeftButton")
@@ -1598,9 +1598,9 @@ IsActionInRange = function(slot) return slot <= 2 end
 -- Range: a bar whose width is a stretch of yards, with the band your target is in lit up
 local rb = prof().regular.bars.range
 rb.show, rb.text, rb.yards, rb.flash, rb.dim = true, true, 41, true, 0.3
-rb.deadColor = { 0.45, 0.45, 0.45, 1 }
-rb.sectionColors = { { 0.9, 0.3, 0.2, 1 }, { 1, 0.75, 0.2, 1 }, { 0.4, 0.9, 0.4, 1 },
-    { 0.3, 0.6, 1, 1 }, { 0.7, 0.5, 0.9, 1 } } -- the control poking above recolors them
+-- the control poking above recolors things, so pin them
+rb.meleeColor, rb.inColor = { 0.3, 0.55, 1, 1 }, { 0.3, 0.85, 0.3, 1 }
+rb.deadColor, rb.farColor = { 0.5, 0.5, 0.5, 1 }, { 0.85, 0.2, 0.2, 1 }
 S.targetHP = 500 -- something to target
 S.distance = 3
 S.targetHP = 500
@@ -1617,20 +1617,26 @@ low, high = ns.rg.band()
 assert(low == 35 and high == nil, "beyond everything: over 35")
 fire("UNIT_MAXPOWER")
 local rbar = ns.frames.range
-assert(rbar:IsShown() and #rbar.sections >= 3, "a section per step your spells mark out")
--- 0-5, 5-8, 8-35, 35-50: past everything, only the last is lit
-assert(rbar.lit[4] == true and rbar.lit[1] == false, "the far section is the lit one")
--- 0-5 melee, 5-8 nothing reaches, 8-35 the shots, 35-41 too far: the dead zone is grey
-assert(rbar.sections[2]._vertex[1] == 0.45 and rbar.sections[2]._vertex[2] == 0.45,
-    "the 5 to 8 stretch is the dead zone, in its own color")
-assert(rbar.sections[1]._vertex[1] == 0.9 and rbar.sections[3]._vertex[2] == 0.9,
-    "each section wears its own color")
-assert(rbar.sections[1]._alpha == 0.3 and rbar.sections[4]._alpha == 1, "the rest are dimmed")
-assert(rbar.text._text == "over 35 yd", "and it says where you are")
+assert(rbar:IsShown() and rbar.zone == "far", "past everything: the far zone")
+assert(rbar.segs[1]._sbc[1] == 0.85 and rbar.segs[1]._sbc[2] == 0.2, "and the bar is red")
+assert(rbar.text._text == "Too far - over 35 yd", "with the reason spelled out")
 S.distance = 20
 fire("UNIT_MAXPOWER")
-assert(rbar.lit[3] == true and rbar.lit[4] == false, "8 to 35 is the lit stretch now")
-assert(rbar.text._text == "8 - 35 yd", "with the numbers")
+assert(rbar.zone == "in" and rbar.segs[1]._sbc[2] == 0.85, "in reach of a shot: green")
+assert(rbar.text._text == "In range - 8 to 35 yd", "and it says so")
+-- walking out of melee into the gap: the same answers as "miles away", told apart by where
+-- you just were
+S.distance = 3
+fire("UNIT_MAXPOWER")
+S.distance = 6
+fire("UNIT_MAXPOWER")
+assert(rbar.zone == "dead" and rbar.segs[1]._sbc[1] == 0.5, "the gap nothing covers: grey")
+assert(rbar.text._text == "Dead zone - 5 to 8 yd", "named as such")
+S.distance = 3
+fire("UNIT_MAXPOWER")
+assert(rbar.zone == "melee" and rbar.segs[1]._sbc[3] == 1, "next to it: blue")
+assert(rbar.text._text == "Melee - 0 to 5 yd", "and named")
+
 -- a neutral mob the game is stingier about: the set that worked before is kept
 S.neutral, S.distance = true, 20
 fire("UNIT_MAXPOWER")

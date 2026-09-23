@@ -178,12 +178,12 @@ local function layoutDefaults(show, x, y, gap, width, h1, h2, h3, h4, h5, h6, h7
     l.bars.swing.main, l.bars.swing.off, l.bars.swing.ranged = true, false, false
     l.bars.health.heal, l.bars.health.healColor = false, { 0.4, 1, 0.5, 0.45 } -- incoming heals
     l.bars.power.cost, l.bars.power.costColor = false, { 1, 1, 1, 0.35 } -- what the cast will take
-    l.bars.range.yards, l.bars.range.flash, l.bars.range.dim = 41, true, 0.3
-    -- the stretch nothing of yours reaches: past melee, inside a shot's minimum
-    l.bars.range.deadColor = { 0.45, 0.45, 0.45, 1 }
-    -- one color per stretch of the bar, in order; past the list a section wears the bar's own
-    l.bars.range.sectionColors = { { 0.9, 0.3, 0.2, 1 }, { 1, 0.75, 0.2, 1 }, { 0.4, 0.9, 0.4, 1 },
-        { 0.3, 0.6, 1, 1 }, { 0.7, 0.5, 0.9, 1 } }
+    l.bars.range.yards, l.bars.range.flash = 41, true
+    -- where the target stands: next to you, in the gap nothing reaches, or past everything
+    l.bars.range.meleeColor = { 0.3, 0.55, 1, 1 }
+    l.bars.range.inColor = { 0.3, 0.85, 0.3, 1 } -- within reach of something
+    l.bars.range.deadColor = { 0.5, 0.5, 0.5, 1 }
+    l.bars.range.farColor = { 0.85, 0.2, 0.2, 1 }
     l.bars.totems.slots = { 1, 2, 3, 4 } -- left to right: which totem slot each segment shows
     l.bars.totems.slotColors = { { 1, 0.3, 0.1, 1 }, { 0.5, 0.35, 0.2, 1 }, -- by slot, so a color
         { 0.2, 0.5, 1, 1 }, { 0.6, 0.5, 0.9, 1 } }                          -- sticks to its element
@@ -380,6 +380,17 @@ function rg.bounds(max)
     table.sort(out)
     out[#out + 1] = max
     return out
+end
+
+-- The gap between what melee reaches and the closest a ranged attack of yours will fire, if
+-- your class has one at all.
+function rg.gap()
+    local meleeMax, rangedMin
+    for _, sp in ipairs(rg.spells) do
+        if sp.min == 0 and (not meleeMax or sp.max < meleeMax) then meleeMax = sp.max end
+        if sp.min > 0 and (not rangedMin or sp.min < rangedMin) then rangedMin = sp.min end
+    end
+    if meleeMax and rangedMin and rangedMin > meleeMax then return meleeMax, rangedMin end
 end
 
 -- Whether this is worth drawing at all: spells with ranges, and a game willing to answer.
@@ -871,45 +882,42 @@ end
 local function fill(f)
     if f.key == "castbar" then return fillCast(f) end
     if f.key == "swing" then return fillSwing(f) end
-    if f.key == "range" then -- one section per stretch of yards your spells mark out
+    if f.key == "range" then -- the whole bar wears the color of where your target stands
         local c = db[f.mode].bars.range
-        local max = math.max(c.yards or 50, 5)
+        local max = math.max(c.yards or 41, 5)
         local low, high = 0, nil
         if UnitExists("target") then low, high = rg.band() end
-        local seg, bounds = f.segs[1], rg.bounds(max)
+        local seg = f.segs[1]
         seg:SetMinMaxValues(0, 1)
-        seg:SetValue(0) -- the sections below do the drawing
-        f.sections, f.lit = f.sections or {}, {}
-        local w = f.segWidth or f.width or c.width
-        for i = 1, #bounds - 1 do
-            local from, to = bounds[i], bounds[i + 1]
-            local t = f.sections[i]
-            if not t then
-                t = seg:CreateTexture(nil, "ARTWORK")
-                f.sections[i] = t
-            end
-            t:SetTexture(c.texture)
-            -- A stretch no spell of yours covers is a dead zone, and wears its own color.
+        seg:SetValue(1)
+        local zone, col = "far", c.farColor
+        -- Standing in the gap looks exactly like standing beyond everything: melee says no and
+        -- so does the shot. You can only get into the gap from melee or from range, so the last
+        -- answer settles it.
+        if not high then
+            local gapLow, gapHigh = rg.gap()
+            if gapLow and (f.zone == "melee" or f.zone == "dead") then low, high = gapLow, gapHigh end
+        end
+        if high then
             local covered = false
             for _, sp in ipairs(rg.spells) do
-                if from >= sp.min and to <= sp.max then covered = true end
+                if low >= sp.min and high <= sp.max then covered = true end
             end
-            local col = (not covered and c.deadColor)
-                or (c.sectionColors and c.sectionColors[i]) or c.color
-            t:SetVertexColor(col[1], col[2], col[3], col[4] or 1)
-            t:ClearAllPoints()
-            t:SetPoint("TOPLEFT", seg, "TOPLEFT", from / max * w, 0)
-            t:SetPoint("BOTTOMLEFT", seg, "BOTTOMLEFT", from / max * w, 0)
-            t:SetWidth(math.max((to - from) / max * w, 1))
-            local here = from >= low and to <= (high or max)
-            f.lit[i] = here
-            t:SetAlpha(here and 1 or (c.dim or 0.3))
-            t:Show()
+            if covered and high <= 5 then
+                zone, col = "melee", c.meleeColor
+            elseif covered then
+                zone, col = "in", c.inColor or c.color
+            else
+                zone, col = "dead", c.deadColor
+            end
         end
-        for i = #bounds, #f.sections do f.sections[i]:Hide() end
+        f.zone = zone
+        seg:SetStatusBarColor(col[1], col[2], col[3], col[4] or 1)
         if f.text:IsShown() then
-            f.text:SetText(high and (low .. " - " .. high .. " yd")
-                or (low > 0 and ("over " .. low .. " yd") or "?"))
+            local where = (zone == "melee" and "Melee") or (zone == "dead" and "Dead zone")
+                or (zone == "far" and "Too far") or "In range"
+            f.text:SetText(where .. " - " .. (high and (low .. " to " .. high .. " yd")
+                or ("over " .. low .. " yd")))
         end
         return
     end
@@ -3347,18 +3355,14 @@ local function buildConfig()
         function() return cur().yards or 50 end, function(v) cur().yards = v end)
     rangeBits[2] = check(barsPage, "Flash the stretch you are in", only.x, only:row(0) - 44,
         function() return cur().flash end, function(v) cur().flash = v end)
-    rangeBits[3] = slider(barsPage, "The rest, in %", only.x, only:row(0) - 68, 0, 100,
-        function() return math.floor((cur().dim or 0.3) * 100 + 0.5) end,
-        function(v) cur().dim = v / 100 end)
-    for i = 1, 5 do
-        rangeBits[3 + i] = swatch(barsPage, "Section " .. i, only.x + (i > 3 and 96 or 0),
-            only:row(0) - 112 - ((i - 1) % 3) * 24, function()
-                local c = cur()
-                return (c.sectionColors and c.sectionColors[i]) or { 0, 0, 0, 1 }
-            end)
-    end
-    rangeBits[9] = swatch(barsPage, "Dead zone", only.x + 96, only:row(0) - 160,
+    rangeBits[3] = swatch(barsPage, "In melee", only.x, only:row(0) - 70,
+        function() return cur().meleeColor or { 0, 0, 0, 1 } end)
+    rangeBits[6] = swatch(barsPage, "In range", only.x + 96, only:row(0) - 70,
+        function() return cur().inColor or { 0, 0, 0, 1 } end)
+    rangeBits[4] = swatch(barsPage, "Dead zone", only.x, only:row(0) - 94,
         function() return cur().deadColor or { 0, 0, 0, 1 } end)
+    rangeBits[5] = swatch(barsPage, "Too far", only.x, only:row(0) - 118,
+        function() return cur().farColor or { 0, 0, 0, 1 } end)
     local castIcon = check(barsPage, "Show spell icon", only.x, only:row(ROW),
         function() return cur().icon end, function(v) cur().icon = v end)
     local castSide = button(barsPage, "", 186, only.x, only:row(BUTTON), function()
@@ -3384,8 +3388,9 @@ local function buildConfig()
         local none = not (selected == "castbar" or selected == "swing" or selected == "power"
             or selected == "health")
         if selected == "range" then
-            onlyNote:SetText("Asks your own spells whether they would reach, and lights the stretch "
-                .. "your target is in. Only with a target.")
+            onlyNote:SetText("Asks your own spells whether they would reach. The whole bar takes "
+                .. "the color of where your target stands, and says so: in melee, in the gap "
+                .. "nothing covers, in range, or too far.")
         else
             onlyNote:SetText(selected ~= "totems" and none and "Nothing extra for this one." or "")
         end
@@ -3717,8 +3722,15 @@ local function buildConfig()
         function(v) H().show = v end)
     check(hunterPage, "Ammunition", hset.x, hset:row(ROW), function() return H().ammo end,
         function(v) H().ammo = v end)
-    check(hunterPage, "Pet happiness", hset.x, hset:row(ROW), function() return H().pet end,
-        function(v) H().pet = v end)
+    local petTick = check(hunterPage, "Pet happiness", hset.x, hset:row(ROW),
+        function() return H().pet end, function(v) H().pet = v end)
+    local petNote = label(hunterPage, "", "GameFontDisableSmall")
+    petNote:SetPoint("TOPLEFT", hset.x + 24, hset:row(14))
+    onRefresh(function()
+        local has = GetPetHappiness ~= nil
+        petTick:SetEnabled(has)
+        petNote:SetText(has and "" or "|cffff8888not in this client|r")
+    end)
     local hlk = button(hunterPage, "", 186, hset.x, hset:row(BUTTON), function()
         H().locked = not H().locked
         changed()
@@ -3729,7 +3741,8 @@ local function buildConfig()
     slider(hunterPage, "Y (down / up)", hset.x, hset:row(SLIDER), -800, 800,
         function() return H().y end, function(v) H().y = v end)
     local hNote = label(hunterPage, "The ammo in your ammo slot, with how many you carry, and the "
-        .. "face your pet is pulling. Both only for hunters.", "GameFontDisableSmall")
+        .. "face your pet is pulling -- if this client still has pet happiness at all. Hunters "
+        .. "only.", "GameFontDisableSmall")
     hNote:SetPoint("TOPLEFT", hset.x, hset:row(40))
     hNote:SetWidth(182)
     hNote:SetJustifyH("LEFT")
@@ -4249,10 +4262,8 @@ rg.ticker:SetScript("OnUpdate", function(self, elapsed)
     if not db or not frames.range:IsShown() then return end
     local c, f = db.regular.bars.range, frames.range
     self.t = (self.t or 0) + elapsed
-    local a = c.flash and (0.55 + 0.45 * math.sin(self.t * 1.4)) or 1 -- a slow breath
-    for i, t in ipairs(f.sections or {}) do
-        if (f.lit or {})[i] then t:SetAlpha(a) end
-    end
+    -- a slow breath, so the eye catches a change of zone
+    f.segs[1]:SetAlpha(c.flash and (0.55 + 0.45 * math.sin(self.t * 1.4)) or 1)
     self.since = self.since + elapsed
     if self.since < 0.2 then return end
     self.since = 0
