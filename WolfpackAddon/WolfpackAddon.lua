@@ -155,11 +155,11 @@ local function totemDuration(slot)
     if ok then return d end
 end
 
-local function layoutDefaults(show, x, y, gap, width, h1, h2, h3, h4, h5, h6, h7, h8, h9, h10)
+local function layoutDefaults(show, x, y, gap, width, h1, h2, h3, h4, h5, h6, h7, h8, h9)
     local l = {
         x = x, y = y, gap = gap, grow = "down", -- "up": the group's bottom edge stays put instead
         order = { "health", "power", "combo", "druidmana", "castbar", "pethealth", "swing", "totems",
-            "absorb", "range" },
+            "absorb" },
         bars = {
             health = barDefaults(show, width, h1, 0.2, 0.8, 0.2, show),
             power = barDefaults(show, width, h2, 1, 0.85, 0.1, show),
@@ -170,7 +170,6 @@ local function layoutDefaults(show, x, y, gap, width, h1, h2, h3, h4, h5, h6, h7
             swing = barDefaults(show, width, h7, 0.8, 0.8, 0.85, show), -- text = seconds left
             totems = barDefaults(show, width, h8, 0.6, 0.6, 0.6, false), -- colored per element instead
             absorb = barDefaults(false, width, h9, 0.9, 0.9, 0.7, true), -- text = points left
-            range = barDefaults(false, width, h10, 1, 0.75, 0.2, true), -- text = the band, in yards
         },
     }
     l.bars.power.colorMode = "power"
@@ -178,12 +177,6 @@ local function layoutDefaults(show, x, y, gap, width, h1, h2, h3, h4, h5, h6, h7
     l.bars.swing.main, l.bars.swing.off, l.bars.swing.ranged = true, false, false
     l.bars.health.heal, l.bars.health.healColor = false, { 0.4, 1, 0.5, 0.45 } -- incoming heals
     l.bars.power.cost, l.bars.power.costColor = false, { 1, 1, 1, 0.35 } -- what the cast will take
-    l.bars.range.yards = 41
-    -- where the target stands: next to you, in the gap nothing reaches, or past everything
-    l.bars.range.meleeColor = { 0.3, 0.55, 1, 1 }
-    l.bars.range.inColor = { 0.3, 0.85, 0.3, 1 } -- within reach of something
-    l.bars.range.deadColor = { 0.5, 0.5, 0.5, 1 }
-    l.bars.range.farColor = { 0.85, 0.2, 0.2, 1 }
     l.bars.totems.slots = { 1, 2, 3, 4 } -- left to right: which totem slot each segment shows
     l.bars.totems.slotColors = { { 1, 0.3, 0.1, 1 }, { 0.5, 0.35, 0.2, 1 }, -- by slot, so a color
         { 0.2, 0.5, 1, 1 }, { 0.6, 0.5, 0.9, 1 } }                          -- sticks to its element
@@ -202,8 +195,8 @@ end
 -- top-right corner plus x/y. Icons are file IDs.
 local DEFAULTS = {
     locked = true,
-    regular = layoutDefaults(true, 0, -120, 2, 220, 18, 14, 12, 6, 14, 10, 10, 10, 10, 12),
-    nameplate = layoutDefaults(false, 0, -2, 1, 110, 8, 6, 6, 4, 8, 5, 5, 5, 5, 6),
+    regular = layoutDefaults(true, 0, -120, 2, 220, 18, 14, 12, 6, 14, 10, 10, 10, 10),
+    nameplate = layoutDefaults(false, 0, -2, 1, 110, 8, 6, 6, 4, 8, 5, 5, 5, 5),
     quest = {
         x = 0, y = 0, spacing = 2,
         kill = { show = true, icon = 131013, size = 20, count = false },
@@ -273,7 +266,7 @@ end
 ------------------------------------------------------------------------------------------
 -- store = WolfpackAddonDB, account-wide: { profiles = { [name] = settings }, chars = { [char] = name } }
 -- db = the active profile's settings.
-local changed, placeMini, useProfile, bf, mg, hn, rg, seedFromBaked -- defined further down
+local changed, placeMini, useProfile, bf, mg, hn, seedFromBaked -- defined further down
 
 -- Bars that only show while they are doing something (cast, swing) stay visible while the bars
 -- are unlocked or the options are open, so they can be placed.
@@ -289,152 +282,6 @@ local function classPower()
 end
 
 -- state() -> shown, segment count. value(unit) -> current, max (both possibly secret).
-------------------------------------------------------------------------------------------
--- Range to the target. No call gives the distance to an arbitrary unit, but the game will say
--- whether a spell of yours would reach, and every spell carries its range -- so a handful of
--- yes/no answers pins the target between two numbers.
-------------------------------------------------------------------------------------------
-rg = { spells = {} }
-ns.rg = rg
-
--- Every spell you know that has a range, once per distinct pair of numbers.
-function rg.build()
-    local seen, list = {}, {}
-    for i = 1, 200 do
-        local name = select(2, pcall(function()
-            if C_SpellBook and C_SpellBook.GetSpellBookItemName then
-                return (C_SpellBook.GetSpellBookItemName(i, 0))
-            end
-            return (GetSpellBookItemName and GetSpellBookItemName(i, "spell"))
-        end))
-        if type(name) ~= "string" or name == "" then break end
-        local minR, maxR = 0, nil
-        pcall(function()
-            local info = C_Spell and C_Spell.GetSpellInfo and C_Spell.GetSpellInfo(name)
-            if type(info) == "table" then
-                minR, maxR = tonumber(info.minRange) or 0, tonumber(info.maxRange)
-            end
-            if not maxR and GetSpellInfo then
-                local _, _, _, _, mn, mx = GetSpellInfo(name)
-                minR, maxR = tonumber(mn) or 0, tonumber(mx)
-            end
-        end)
-        -- Melee is range 0 in the game's data, which is five yards on the ground. Plenty of
-        -- spells with no range at all look the same here, so every candidate is kept: the ones
-        -- that cannot be pointed at an enemy are weeded out in rg.qualify.
-        if maxR == 0 and minR == 0 then maxR = 5 end
-        local key = name
-        if maxR and maxR > 0 and not seen[key] then
-            seen[key] = true
-            list[#list + 1] = { name = name, min = minR, max = maxR }
-        end
-    end
-    table.sort(list, function(a, b) return a.max < b.max end)
-    rg.candidates = list
-    return list
-end
-
--- Which of them the game will actually answer for the unit in front of you. A self-buff says
--- nothing about an enemy, so it drops out here -- otherwise one of those would sit in the melee
--- slot and the bar would never see you standing next to something. One spell per range.
-function rg.limit()
-    local c = db and db.regular and db.regular.bars.range
-    return math.max((c and c.yards) or 41, 5)
-end
-
-function rg.qualify()
-    if not rg.candidates then rg.build() end
-    if not UnitExists("target") then return rg.spells end
-    local seen, list, max = {}, {}, rg.limit()
-    for _, sp in ipairs(rg.candidates) do
-        local ok, res = pcall(function()
-            if C_Spell and C_Spell.IsSpellInRange then return C_Spell.IsSpellInRange(sp.name, "target") end
-            return IsSpellInRange(sp.name, "target")
-        end)
-        local key = sp.min .. ":" .. sp.max
-        if sp.max > max or sp.min >= max then ok = false end -- further than the bar goes
-        if ok and res ~= nil and readable(res) and not seen[key] then
-            seen[key] = true
-            list[#list + 1] = sp
-        end
-    end
-    -- A neutral mob may answer for fewer spells than a hostile one, so a set that once worked
-    -- is kept and reused rather than leaving the bar with nothing to ask.
-    if #list > 0 then
-        rg.spells, rg.lastGood = list, list
-    else
-        rg.spells = rg.lastGood or {}
-    end
-    return rg.spells
-end
-
--- Asks the game about each of them and works out what is left. A "no" from a spell with a
--- minimum range means two different things -- too close, or too far -- so it only counts as
--- "too close" when something with no minimum says yes.
--- The steps your spells put on the bar: 0, every range they have, and the far end.
-function rg.bounds(max)
-    if #rg.spells == 0 then rg.qualify() end
-    local seen, out = { [0] = true }, { 0 }
-    for _, sp in ipairs(rg.spells) do
-        for _, yards in ipairs({ sp.min, sp.max }) do
-            if yards and yards > 0 and yards < max and not seen[yards] then
-                seen[yards] = true
-                out[#out + 1] = yards
-            end
-        end
-    end
-    table.sort(out)
-    out[#out + 1] = max
-    return out
-end
-
--- The gap between what melee reaches and the closest a ranged attack of yours will fire, if
--- your class has one at all.
-function rg.gap()
-    local meleeMax, rangedMin
-    for _, sp in ipairs(rg.spells) do
-        if sp.min == 0 and (not meleeMax or sp.max < meleeMax) then meleeMax = sp.max end
-        if sp.min > 0 and (not rangedMin or sp.min < rangedMin) then rangedMin = sp.min end
-    end
-    if meleeMax and rangedMin and rangedMin > meleeMax then return meleeMax, rangedMin end
-end
-
--- Whether this is worth drawing at all: spells with ranges, and a game willing to answer.
-function rg.usable()
-    if #rg.spells == 0 then rg.qualify() end
-    return #rg.spells > 0
-end
-
-function rg.band()
-    if #rg.spells == 0 then rg.qualify() end
-    local answers, close = {}, false
-    for _, sp in ipairs(rg.spells) do
-        local ok, res = pcall(function()
-            if C_Spell and C_Spell.IsSpellInRange then return C_Spell.IsSpellInRange(sp.name, "target") end
-            return IsSpellInRange(sp.name, "target")
-        end)
-        if ok and res ~= nil and readable(res) then
-            answers[#answers + 1] = { sp, res and true or false }
-            if res and sp.min == 0 then close = true end
-        end
-    end
-    rg.answered = #answers > 0
-    local low, high = 0, nil
-    for _, a in ipairs(answers) do
-        local sp, yes = a[1], a[2]
-        if yes then
-            if not high or sp.max < high then high = sp.max end
-            if sp.min > low then low = sp.min end
-        elseif sp.min > 0 and close then
-            if not high or sp.min < high then high = sp.min end
-        elseif sp.max > low then
-            low = sp.max
-        end
-    end
-    return low, high
-end
-
-
 local BARS = {
     health = {
         label = "Health",
@@ -473,14 +320,6 @@ local BARS = {
         -- the bars are unlocked or the options are open, for placing it.
         state = function()
             return (ns.previewing() or UnitCastingInfo("player") or UnitChannelInfo("player")) and true or false, 1
-        end,
-    },
-    range = {
-        label = "Range",
-        -- only with a target, and only when your spells can actually answer the question
-        state = function()
-            if ns.previewing() then return true, 1 end
-            return (UnitExists("target") and rg.usable()) and true or false, 1
         end,
     },
     absorb = {
@@ -888,45 +727,6 @@ end
 local function fill(f)
     if f.key == "castbar" then return fillCast(f) end
     if f.key == "swing" then return fillSwing(f) end
-    if f.key == "range" then -- the whole bar wears the color of where your target stands
-        local c = db[f.mode].bars.range
-        local max = math.max(c.yards or 41, 5)
-        local low, high = 0, nil
-        if UnitExists("target") then low, high = rg.band() end
-        local seg = f.segs[1]
-        seg:SetMinMaxValues(0, 1)
-        seg:SetValue(1)
-        local zone, col = "far", c.farColor
-        -- Standing in the gap looks exactly like standing beyond everything: melee says no and
-        -- so does the shot. You can only get into the gap from melee or from range, so the last
-        -- answer settles it.
-        if not high then
-            local gapLow, gapHigh = rg.gap()
-            if gapLow and (f.zone == "melee" or f.zone == "dead") then low, high = gapLow, gapHigh end
-        end
-        if high then
-            local covered = false
-            for _, sp in ipairs(rg.spells) do
-                if low >= sp.min and high <= sp.max then covered = true end
-            end
-            if covered and high <= 5 then
-                zone, col = "melee", c.meleeColor
-            elseif covered then
-                zone, col = "in", c.inColor or c.color
-            else
-                zone, col = "dead", c.deadColor
-            end
-        end
-        f.zone = zone
-        seg:SetStatusBarColor(col[1], col[2], col[3], col[4] or 1)
-        if f.text:IsShown() then
-            local where = (zone == "melee" and "Melee") or (zone == "dead" and "Dead zone")
-                or (zone == "far" and "Too far") or "In range"
-            f.text:SetText(where .. " - " .. (high and (low .. " to " .. high .. " yd")
-                or ("over " .. low .. " yd")))
-        end
-        return
-    end
     if f.key == "totems" then -- the bar drains itself from the duration object, in C
         local c = db[f.mode].bars[f.key]
         for i = 1, f.n do
@@ -3354,22 +3154,6 @@ local function buildConfig()
         function() return cur().cost end, function(v) cur().cost = v end)
     local costColor = swatch(barsPage, "Cost color", only.x, only:row(0) - ROW,
         function() return cur().costColor or { 0, 0, 0, 1 } end)
-    -- Range: how long the bar is in yards, whether the lit stretch breathes, and a color per
-    -- section -- they run from you outwards, as many as your spells' ranges make.
-    local rangeBits = {}
-    rangeBits[1] = slider(barsPage, "Bar is this many yards", only.x, only:row(0) + 4, 10, 100,
-        function() return cur().yards or 41 end, function(v)
-            cur().yards = v
-            ns.rg.spells, ns.rg.lastGood = {}, nil -- the cut-off moved: ask again
-        end)
-    rangeBits[3] = swatch(barsPage, "In melee", only.x, only:row(0) - 70,
-        function() return cur().meleeColor or { 0, 0, 0, 1 } end)
-    rangeBits[6] = swatch(barsPage, "In range", only.x + 96, only:row(0) - 70,
-        function() return cur().inColor or { 0, 0, 0, 1 } end)
-    rangeBits[4] = swatch(barsPage, "Dead zone", only.x, only:row(0) - 94,
-        function() return cur().deadColor or { 0, 0, 0, 1 } end)
-    rangeBits[5] = swatch(barsPage, "Too far", only.x, only:row(0) - 118,
-        function() return cur().farColor or { 0, 0, 0, 1 } end)
     local castIcon = check(barsPage, "Show spell icon", only.x, only:row(ROW),
         function() return cur().icon end, function(v) cur().icon = v end)
     local castSide = button(barsPage, "", 186, only.x, only:row(BUTTON), function()
@@ -3384,7 +3168,6 @@ local function buildConfig()
         healColor:SetShown(selected == "health")
         costCheck:SetShown(selected == "power")
         costColor:SetShown(selected == "power")
-        for _, w in ipairs(rangeBits) do w:SetShown(selected == "range") end
         for _, w in ipairs(swingChecks) do w:SetShown(selected == "swing") end
         for _, row in ipairs(totemRows) do
             for _, w in ipairs(row) do w:SetShown(selected == "totems") end
@@ -3925,72 +3708,6 @@ function ns.CritReport()
     if not any then say("  nothing at all: no crit is visible to an addon here") end
 end
 
--- /cpd range: how close this client will let an addon get to "how far away is my target".
--- There is no call that gives a distance to an arbitrary unit, so the question is which of the
--- yes/no range checks still answer, and whether their answers are readable.
-ns.RANGE_ITEMS = { { 37727, 5 }, { 8149, 8 }, { 32321, 10 }, { 33069, 15 }, { 10645, 20 },
-    { 24268, 25 }, { 835, 30 }, { 24269, 35 }, { 28767, 40 } }
-
-function ns.RangeReport()
-    local function say(t) print("|cff88ccffWolfpack:|r " .. t) end
-    if not UnitExists("target") then return say("target something first") end
-    say("target: " .. (UnitName("target") or "?") .. ", in combat: " .. tostring(InCombatLockdown()))
-    local ok, d = pcall(UnitDistanceSquared, "target")
-    if not ok then
-        say("UnitDistanceSquared: refused")
-    elseif not readable(d) then
-        say("UnitDistanceSquared: secret")
-    else
-        say("UnitDistanceSquared: " .. tostring(d) .. (d and (" (" .. math.floor(math.sqrt(d) + 0.5)
-            .. " yards)") or ""))
-    end
-    for i, what in ipairs({ "inspect 28", "trade 11", "duel 10", "follow 28" }) do
-        local got, res = pcall(CheckInteractDistance, "target", i)
-        say("CheckInteractDistance " .. what .. ": " .. (not got and "refused"
-            or not readable(res) and "secret" or tostring(res)))
-    end
-    local bands = {}
-    for _, item in ipairs(ns.RANGE_ITEMS) do
-        local got, res = pcall(function()
-            return (C_Item and C_Item.IsItemInRange and C_Item.IsItemInRange(item[1], "target"))
-                or (IsItemInRange and IsItemInRange(item[1], "target"))
-        end)
-        if got and res ~= nil and readable(res) then
-            bands[#bands + 1] = item[2] .. (res and "y" or "y:no")
-        end
-    end
-    say("item range checks answering: " .. (#bands > 0 and table.concat(bands, " ") or "none"))
-
-    -- Your own spells are the likely route: each has a range the game will check for you.
-    local answered, examples = 0, {}
-    for i = 1, 60 do
-        local name = select(2, pcall(function()
-            if C_SpellBook and C_SpellBook.GetSpellBookItemName then
-                return (C_SpellBook.GetSpellBookItemName(i, 0))
-            end
-            return (GetSpellBookItemName and GetSpellBookItemName(i, "spell"))
-        end))
-        if type(name) == "string" and name ~= "" then
-            local got, res = pcall(function()
-                if C_Spell and C_Spell.IsSpellInRange then return C_Spell.IsSpellInRange(name, "target") end
-                return IsSpellInRange(name, "target")
-            end)
-            if got and res ~= nil and readable(res) then
-                answered = answered + 1
-                if #examples < 4 then examples[#examples + 1] = name .. "=" .. tostring(res) end
-            end
-        end
-    end
-    say("spells answering a range check: " .. answered
-        .. (#examples > 0 and ("  e.g. " .. table.concat(examples, ", ")) or ""))
-    local act = 0
-    for slot = 1, 24 do
-        local got, res = pcall(IsActionInRange, slot)
-        if got and res ~= nil and readable(res) then act = act + 1 end
-    end
-    say("action bar slots answering: " .. act)
-end
-
 -- /cpd auras: says which aura calls this client has and whether they answer right now, which
 -- is the only way to tell from inside the game why a buff icon is missing. Run it twice: once
 -- out of combat and once in combat, with the buff actually on you.
@@ -4045,7 +3762,6 @@ SlashCmdList.WOLFPACKADDON = function(msg)
     msg = (msg or ""):lower()
     if msg:find("aura") then return safe(ns.AuraReport, (msg:gsub("^%s*auras?%s*", ""))) end
     if msg:find("crit") then return safe(ns.CritReport) end
-    if msg:find("range") then return safe(ns.RangeReport) end
     safe(ns.ToggleConfig)
 end
 
@@ -4263,17 +3979,6 @@ local function fillShown(...)
     end
 end
 
-rg.ticker = CreateFrame("Frame")
-rg.ticker.since = 0
-rg.ticker:SetScript("OnUpdate", function(self, elapsed)
-    if not db or not frames.range:IsShown() then return end
-    frames.range.segs[1]:SetAlpha(1)
-    self.since = self.since + elapsed
-    if self.since < 0.2 then return end
-    self.since = 0
-    safe(fillShown, "range")
-end)
-
 ev:SetScript("OnEvent", function(_, event, unit, arg2, arg3)
     if event == "ADDON_LOADED" then
         if unit == ADDON then applyCombatFont() end
@@ -4324,9 +4029,6 @@ ev:SetScript("OnEvent", function(_, event, unit, arg2, arg3)
     elseif event == "UNIT_HEAL_PREDICTION" then
         fillShown("health")
         if targetFrame:IsShown() then safe(fill, targetFrame) end
-    elseif event == "SPELLS_CHANGED" or event == "LEARNED_SPELL_IN_TAB"
-        or event == "PLAYER_LEVEL_UP" then
-        rg.spells, rg.candidates, rg.lastGood = {}, nil, nil -- new ranges: work them out again
     elseif event == "UNIT_ABSORB_AMOUNT_CHANGED" then
         if GetTime() - absorb.castAt <= ABSORB_CAST_WINDOW then -- our cast just put a shield up
             local ok, points = pcall(UnitGetTotalAbsorbs, "player")

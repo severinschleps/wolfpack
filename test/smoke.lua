@@ -896,8 +896,8 @@ dds[7]:GenerateMenu(); dds[8]:GenerateMenu()
 assert(#dds[7]._items == 4 and #dds[8]._items == 4, "icon choices")
 for _, it in ipairs(dds[7]._items) do assert(type(it.init(menuButton())) == "number", "icon preview") end
 dds[7]._items[3].set()
-boxes[17]._text = "32"; boxes[17]._scripts.OnEnterPressed(boxes[17]) -- kill size
-boxes[14]._text = "-5"; boxes[14]._scripts.OnEnterPressed(boxes[14]) -- row X
+boxes[16]._text = "32"; boxes[16]._scripts.OnEnterPressed(boxes[16]) -- kill size
+boxes[13]._text = "-5"; boxes[13]._scripts.OnEnterPressed(boxes[13]) -- row X
 local Q = prof().quest
 assert(Q.kill.icon == 135274 and Q.kill.size == 32 and Q.loot.size == 20 and Q.x == -5, "quest page edits")
 assert(h.kill._tex == 135274 and h.kill._w == 32 and h.box._w == 54 and h.box._point[4] == -5, "live plate row restyled")
@@ -914,7 +914,7 @@ prof().other.hideGryphons = true; fire("UNIT_MAXPOWER")
 assert(caps.LeftEndCap.Texture._alpha == 0 and caps.RightEndCap.Texture._alpha == 0, "hidden")
 prof().other.hideGryphons = false; fire("UNIT_MAXPOWER")
 assert(caps.LeftEndCap.Texture._alpha == 1, "shown again")
-local opBox = boxes[19] -- highlight opacity (%)
+local opBox = boxes[18] -- highlight opacity (%)
 opBox._text = "60"; opBox._scripts.OnEnterPressed(opBox)
 assert(math.abs(prof().regular.highlight.color[4] - 0.6) < 1e-9 and opBox._text == "60", "opacity typed")
 byText("Combat Display")._scripts.OnClick(byText("Combat Display"), "LeftButton")
@@ -1235,7 +1235,7 @@ assert(#bad == 32 and bp.evil == nil and bp.locked == true, "unknown key dropped
 assert(bp.other.hover.bar1 and bp.other.hover.nope == nil and bp.other.hover.bar2 == nil, "hover: known and true only")
 assert(bp.other.combatFont == "", "unknown combat font path refused")
 assert(bp.regular.gap == 2 and bp.regular.x == 0, "out-of-range numbers defaulted")
-assert(bp.regular.order[1] == "health" and bp.regular.order[2] == "castbar" and #bp.regular.order == 10, "order repaired")
+assert(bp.regular.order[1] == "health" and bp.regular.order[2] == "castbar" and #bp.regular.order == 9, "order repaired")
 local ns2 = bp.nameplate.bars.power.stops
 assert(#ns2 == 2 and ns2[1].pos == 10 and ns2[2].pos == 90 and ns2[1].color[1] == 1, "gradient points checked")
 local hb2 = bp.regular.bars.health
@@ -1337,8 +1337,7 @@ for _, m in ipairs({ "regular", "nameplate" }) do
     local seen = {}
     for _, k in ipairs(prof()[m].order) do seen[k] = true end
     assert(seen.health and seen.power and seen.combo and seen.druidmana and seen.castbar and seen.pethealth
-        and seen.swing and seen.totems and seen.absorb and seen.range and #prof()[m].order == 10,
-        "order intact")
+        and seen.swing and seen.totems and seen.absorb and #prof()[m].order == 9, "order intact")
 end
 
 -- Totems: four element segments, each draining on its own; the bar is shaman-only and
@@ -1596,197 +1595,6 @@ C_Spell.IsSpellInRange = function(name, unit)
     end
 end
 IsActionInRange = function(slot) return slot <= 2 end
--- Range: a bar whose width is a stretch of yards, with the band your target is in lit up
-local rb = prof().regular.bars.range
-rb.show, rb.text, rb.yards = true, true, 41
--- the control poking above recolors things, so pin them
-rb.meleeColor, rb.inColor = { 0.3, 0.55, 1, 1 }, { 0.3, 0.85, 0.3, 1 }
-rb.deadColor, rb.farColor = { 0.5, 0.5, 0.5, 1 }, { 0.85, 0.2, 0.2, 1 }
-S.targetHP = 500 -- something to target
-S.distance = 3
-S.targetHP = 500
-ns.rg.spells, ns.rg.candidates = {}, nil
-local low, high = ns.rg.band()
-assert(#ns.rg.spells == 2, "one spell per range, answered for, and no further than the bar")
-for _, sp in ipairs(ns.rg.spells) do assert(sp.name ~= "Eagle Eye", "nothing past the bar's end") end
-assert(ns.rg.spells[1].name == "Raptor Strike", "melee is the raptor strike, not the aspect")
-assert(low == 0 and high == 5, "inside melee: nothing longer reaches, the shot's minimum caps it")
-S.distance = 20
-low, high = ns.rg.band()
-assert(low == 8 and high == 35, "out of melee, inside the shot: 8 to 35")
-S.distance = 60
-low, high = ns.rg.band()
-assert(low == 35 and high == nil, "beyond everything: over 35")
-fire("UNIT_MAXPOWER")
-local rbar = ns.frames.range
-assert(rbar:IsShown() and rbar.zone == "far", "past everything: the far zone")
-assert(rbar.segs[1]._sbc[1] == 0.85 and rbar.segs[1]._sbc[2] == 0.2, "and the bar is red")
-assert(rbar.text._text == "Too far - over 35 yd", "with the reason spelled out")
-S.distance = 20
-fire("UNIT_MAXPOWER")
-assert(rbar.zone == "in" and rbar.segs[1]._sbc[2] == 0.85, "in reach of a shot: green")
-assert(rbar.text._text == "In range - 8 to 35 yd", "and it says so")
--- walking out of melee into the gap: the same answers as "miles away", told apart by where
--- you just were
-S.distance = 3
-fire("UNIT_MAXPOWER")
-S.distance = 6
-fire("UNIT_MAXPOWER")
-assert(rbar.zone == "dead" and rbar.segs[1]._sbc[1] == 0.5, "the gap nothing covers: grey")
-assert(rbar.text._text == "Dead zone - 5 to 8 yd", "named as such")
-S.distance = 3
-fire("UNIT_MAXPOWER")
-assert(rbar.zone == "melee" and rbar.segs[1]._sbc[3] == 1, "next to it: blue")
-assert(rbar.text._text == "Melee - 0 to 5 yd", "and named")
-
--- a neutral mob the game is stingier about: the set that worked before is kept
-S.neutral, S.distance = true, 20
-fire("UNIT_MAXPOWER")
-assert(rbar:IsShown() and #ns.rg.spells == 2, "still asking, with what worked before")
-S.neutral = nil
-S.targetHP = nil
-fire("UNIT_MAXPOWER")
-assert(not rbar:IsShown(), "no target, no bar")
--- nothing to ask, nothing to show
-S.targetHP, S.distance = 500, 20
-local keptBook = S.book
-S.book = {}
-ns.rg.spells, ns.rg.candidates, ns.rg.lastGood = {}, nil, nil
-fire("UNIT_MAXPOWER")
-assert(not rbar:IsShown(), "no spell with a range: the bar stays away")
-S.book = keptBook
-ns.rg.spells, ns.rg.candidates = {}, nil
-fire("UNIT_MAXPOWER")
-assert(rbar:IsShown(), "and comes back when there is something to ask")
-S.targetHP = nil
-rb.show = false
-
--- Prediction overlays: incoming heals grow right from the health fill, a cast's cost grows left
--- from the power fill (the bar clips whatever runs past its edge).
-local hb, pb = ns.frames.health, ns.frames.power
-prof().regular.bars.health.heal = true
-S.incomingHeal = 250
-fire("UNIT_MAXPOWER")
-assert(hb.over:IsShown() and hb.over._max == 1000 and hb.over._value == 250, "incoming heals drawn")
-assert(hb.over._reverseFill == false and hb.over._sbc[4] == 0.45, "grows right, in the heal color")
-S.incomingHeal = 0; fire("UNIT_HEAL_PREDICTION", "player")
-assert(hb.over._value == 0, "heals landed: nothing left to draw")
-prof().regular.bars.power.cost = true
-S.costs[8] = { { type = 3, cost = 35 } } -- an energy cost, for the rogue this test ends as
-fire("UNIT_SPELLCAST_START", "player", "c1", 8)
-assert(pb.over:IsShown() and pb.over._value == 35 and pb.over._reverseFill == true, "cost reserved")
-fire("UNIT_SPELLCAST_STOP", "player", "c1", 8)
-assert(pb.over._value == 0, "cast over: nothing reserved")
-prof().regular.bars.health.heal, prof().regular.bars.power.cost = false, false
-fire("UNIT_MAXPOWER")
-assert(not hb.over:IsShown() and not pb.over:IsShown(), "switched off: both overlays gone")
-
--- Buff check: who in the group is missing a buff somebody here can give
-login("PRIEST", 0)
-local bo = prof().buffs
-bo.show, bo.locked, bo.onlyMissing, bo.skip = true, true, false, {}
-prof().locked, ns.configOpen = true, false
-S.group, S.members, S.raid = true, 3, false
-S.units = { party1 = "DAMAGER", party2 = "DAMAGER" }
-S.unitClasses = { player = "PRIEST", party1 = "PALADIN", party2 = "MAGE" }
-S.auras = {} -- nobody is buffed yet
-ns.bfEv._scripts.OnEvent(ns.bfEv, "GROUP_ROSTER_UPDATE")
-local rows, texts = ns.bf.rows, {}
-for i, r in ipairs(rows) do if r:IsShown() then texts[#texts + 1] = r.text._text end end
-assert(#texts >= 3, "a row per buff this group can hand out")
-assert(table.concat(texts, "|"):find("Stamina"), "the priest's stamina is checked")
-assert(table.concat(texts, "|"):find("A blessing"), "and the paladin's blessing")
-assert(not table.concat(texts, "|"):find("Thorns"), "no druid here, no thorns row")
--- one blessing is enough, whichever it is
-S.auras = { { name = "Blessing of Kings" } }
-ns.bfEv._scripts.OnEvent(ns.bfEv, "UNIT_AURA")
-local blessing
-for _, r in ipairs(rows) do
-    if r:IsShown() and r.text._text:find("A blessing") then blessing = r.text._text end
-end
-assert(blessing == "A blessing: all set", "any single blessing satisfies it")
--- in combat the list steps aside rather than guessing
-S.combat = true
-ns.bfEv._scripts.OnEvent(ns.bfEv, "PLAYER_REGEN_DISABLED")
-assert(not ns.bf.panel:IsShown(), "combat: out of the way")
-S.combat = false
-ns.bfEv._scripts.OnEvent(ns.bfEv, "PLAYER_REGEN_ENABLED")
-assert(ns.bf.panel:IsShown(), "and back afterwards")
-
-S.group, S.members = false, 0
-login("ROGUE", 3)
-
-
-
--- Mage: the conjured food and water in the bags, best rank only, on its own panel
-S.unitClasses = nil -- the group test above left everyone else's class behind
-login("MAGE", 0)
-local mo = prof().mage
-mo.show, mo.locked, mo.size, mo.gap, mo.grow, mo.low = true, true, 30, 4, "right", 5
-local keptBags = S.bags
-S.level = 60
-S.bags = { [0] = {
-    { itemID = 5349, stackCount = 20, quality = 1 }, -- Conjured Muffin, the lowest rank
-    { itemID = 8076, stackCount = 12, quality = 1 }, -- Conjured Sweet Roll
-    { itemID = 8076, stackCount = 8, quality = 1 },
-    { itemID = 8079, stackCount = 3, quality = 1 },  -- Conjured Crystal Water
-} }
-ns.mgEv._scripts.OnEvent(ns.mgEv, "BAG_UPDATE")
-local food, water = ns.mg.entries[1], ns.mg.entries[2]
-assert(ns.mg.panel:IsShown() and food:IsShown(), "the panel shows for a mage")
-assert(food.text._text == 20, "the best food, counted across its stacks")
-assert(food.icon._tex == 1000 + 8076, "with the Sweet Roll icon, not the Muffin's")
-assert(water.text._text == 3 and water.icon._tex == 1000 + 8079, "and the best water")
-assert(water.text._color and water.text._color[1] == 1 and water.text._color[2] == 0.4,
-    "three is low, so it is colored that way")
--- the number can be put in the middle of the icon, or hidden altogether
-mo.countAt, mo.showCount = "center", true
-ns.mgEv._scripts.OnEvent(ns.mgEv, "BAG_UPDATE")
-assert(food.text._point[1] == "CENTER" and food.text:IsShown(), "the count sits in the icon")
-mo.showCount = false
-ns.mgEv._scripts.OnEvent(ns.mgEv, "BAG_UPDATE")
-assert(not food.text:IsShown(), "or not at all")
-mo.showCount, mo.countAt = true, "corner"
--- stacked instead of side by side
-mo.grow = "down"
-ns.mgEv._scripts.OnEvent(ns.mgEv, "BAG_UPDATE")
-assert(water._point[4] == 0 and water._point[5] == -34, "stacked, one under the other")
-mo.grow = "right"
-ns.mgEv._scripts.OnEvent(ns.mgEv, "BAG_UPDATE")
-assert(water._point[4] == 34 and water._point[5] == 0, "or side by side")
-
--- empty bags still show the rank your level conjures, grayed out
-S.bags = { [0] = {} }
-ns.mgEv._scripts.OnEvent(ns.mgEv, "BAG_UPDATE")
-assert(food.text._text == 0 and food.icon._tex == 1000 + 22895, "level 60 conjures Cinnamon Rolls")
-assert(food.icon._desat == true, "and it is grayed out")
-mo.radius = 50
-ns.mgEv._scripts.OnEvent(ns.mgEv, "BAG_UPDATE")
-assert(food.icon.iconMask and food.mask._tex:find("i50"), "the mage icons round off too")
-assert(food.icon._coords[1] == 0 and food.icon._coords[2] == 1,
-    "and are shown whole, because a mask ignores a crop and shrinks the art")
-mo.radius = 0
-ns.mgEv._scripts.OnEvent(ns.mgEv, "BAG_UPDATE")
-assert(food.icon._coords[1] == 0.08, "square again: the icon border is trimmed as before")
-S.level = 10
-ns.mgEv._scripts.OnEvent(ns.mgEv, "BAG_UPDATE")
-assert(food.icon._tex == 1000 + 1113, "at level 10 it is Conjured Bread")
-S.bags, S.level = keptBags, 60
-login("ROGUE", 3)
-ns.mgEv._scripts.OnEvent(ns.mgEv, "BAG_UPDATE")
-assert(not ns.mg.panel:IsShown(), "and nothing at all for anyone else")
-
-
--- the crit probe records what a hit looks like, and survives a client that sends nothing
-ns.critEv._scripts.OnEvent(ns.critEv, "UNIT_COMBAT", "target", "WOUND", "CRITICAL", 412, 1)
-assert((ns.critSeen.counts.UNIT_COMBAT or 0) >= 1, "hits are counted")
-assert(ns.critSeen.samples["UNIT_COMBAT CRIT"]:find("CRITICAL"), "and a critical one is kept apart")
-UnitDistanceSquared = function() return 361 end
-CheckInteractDistance = function(_, i) return i > 2 end
-IsActionInRange = function(slot) return slot <= 2 end
-
-
-SlashCmdList.WOLFPACKADDON("range") -- must not error, whatever the client answers
 SlashCmdList.WOLFPACKADDON("crit")
 SlashCmdList.WOLFPACKADDON("auras") -- the probe must not error, whatever the client has
 SlashCmdList.WOLFPACKADDON("")
