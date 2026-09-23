@@ -1563,8 +1563,40 @@ assert(ns.critSeen.counts.UNIT_COMBAT == 1, "hits are counted")
 assert(ns.critSeen.samples["UNIT_COMBAT CRIT"]:find("CRITICAL"), "and a critical one is kept apart")
 UnitDistanceSquared = function() return 361 end
 CheckInteractDistance = function(_, i) return i > 2 end
-C_SpellBook = { GetSpellBookItemName = function(i) return i <= 3 and ("Spell" .. i) or nil end }
+-- a hunter's book: a melee swing, a shot with a minimum range, and a long shot
+S.book = { { "Raptor Strike", 0, 5 }, { "Arcane Shot", 8, 35 }, { "Auto Shot", 8, 35 } }
+C_SpellBook = { GetSpellBookItemName = function(i) return S.book[i] and S.book[i][1] or nil end }
+C_Spell.GetSpellInfo = function(name)
+    for _, sp in ipairs(S.book or {}) do
+        if sp[1] == name then return { name = name, minRange = sp[2], maxRange = sp[3] } end
+    end
+    return { name = name }
+end
+C_Spell.IsSpellInRange = function(name, unit)
+    for _, sp in ipairs(S.book or {}) do
+        if sp[1] == name then
+            local d = S.distance or 3
+            return d >= sp[2] and d <= sp[3]
+        end
+    end
+end
 IsActionInRange = function(slot) return slot <= 2 end
+-- Range: the target is pinned between two numbers by asking your own spells
+prof().range.show = true
+S.targetHP = 500 -- something to target
+S.distance = 3
+ns.rg.spells = {}
+local low, high = ns.rg.band()
+assert(low == 0 and high == 5, "inside melee: nothing longer reaches, the shot's minimum caps it")
+S.distance = 20
+low, high = ns.rg.band()
+assert(low == 8 and high == 35, "out of melee, inside the shot: 8 to 35")
+S.distance = 60
+low, high = ns.rg.band()
+assert(low == 35 and high == nil, "beyond everything: over 35")
+ns.rg.refresh()
+assert(ns.rg.panel:IsShown() and ns.rg.text._text == "over 35 yd", "and that is what it says")
+prof().range.show = false
 SlashCmdList.WOLFPACKADDON("range") -- must not error, whatever the client answers
 SlashCmdList.WOLFPACKADDON("crit")
 SlashCmdList.WOLFPACKADDON("auras") -- the probe must not error, whatever the client has

@@ -216,6 +216,12 @@ local DEFAULTS = {
     },
 }
 
+-- Range: how far the target is, in bands worked out from your own spells' ranges.
+DEFAULTS.range = {
+    show = false, locked = true, x = 0, y = -220, font = FONTS[1][2], fontSize = 14,
+    outline = true, color = { 1, 0.9, 0.4, 1 },
+}
+
 -- Hunter: ammunition left, and how the pet feels.
 DEFAULTS.hunter = {
     show = true, locked = true, x = 0, y = -180, size = 32, gap = 4, grow = "right", radius = 0,
@@ -266,7 +272,7 @@ end
 ------------------------------------------------------------------------------------------
 -- store = WolfpackAddonDB, account-wide: { profiles = { [name] = settings }, chars = { [char] = name } }
 -- db = the active profile's settings.
-local changed, placeMini, useProfile, bf, mg, hn, seedFromBaked -- defined further down
+local changed, placeMini, useProfile, bf, mg, hn, rg, seedFromBaked -- defined further down
 
 -- Bars that only show while they are doing something (cast, swing) stay visible while the bars
 -- are unlocked or the options are open, so they can be placed.
@@ -1679,6 +1685,7 @@ local function Refresh()
     bf.refresh()
     mg.refresh()
     hn.refresh()
+    rg.refresh()
     fsr:sync()
     syncHover()
     syncBags()
@@ -1697,6 +1704,9 @@ local function safe(fn, ...)
     end
 end
 
+bf = { rows = {} }
+ns.bf = bf
+
 ------------------------------------------------------------------------------------------
 -- Buff check: out of combat, who in the group is missing a buff that somebody here can give.
 -- Only out of combat, because that is the only time this client answers aura questions -- and
@@ -1705,7 +1715,7 @@ end
 -- One entry per buff a class hands out. `names` are all the spellings that satisfy it, so a
 -- greater blessing counts as a blessing and Prayer of Fortitude counts as stamina. A paladin
 -- can only keep one blessing on someone, so any single one satisfies the row.
-local BUFF_CHECKS = {
+bf.checks = {
     { key = "stamina", from = "PRIEST", label = "Stamina", icon = 1243,
         names = { "Power Word: Fortitude", "Prayer of Fortitude" } },
     { key = "spirit", from = "PRIEST", label = "Spirit", icon = 14752,
@@ -1728,10 +1738,9 @@ local BUFF_CHECKS = {
 }
 
 -- Classes that should have something on their weapon: a rogue's poison, a shaman's enchant.
-local WEAPON_CLASSES = { ROGUE = true, SHAMAN = true }
+bf.weaponClasses = { ROGUE = true, SHAMAN = true }
 
-bf = { rows = {} }
-ns.bf = bf
+
 bf.panel = CreateFrame("Frame", "WolfpackAddonBuffCheck", UIParent)
 bf.panel:SetSize(200, 20)
 bf.panel:SetMovable(true)
@@ -1839,7 +1848,7 @@ end
 function bf.check()
     local o, lines = db.buffs, {}
     local units, classes = bf.roster()
-    for _, chk in ipairs(BUFF_CHECKS) do
+    for _, chk in ipairs(bf.checks) do
         if classes[chk.from] and not o.skip[chk.key] and not (chk.off and o.skip[chk.key] ~= false) then
             local missing, mineLeft = {}, nil
             for _, u in ipairs(units) do
@@ -1864,7 +1873,7 @@ function bf.check()
         end
     end
     -- Your weapon: a rogue's poison or a shaman's enchant, with what is left on it.
-    if WEAPON_CLASSES[class or ""] and not o.skip.weapon then
+    if bf.weaponClasses[class or ""] and not o.skip.weapon then
         local ok, hasMain, mainMs, _, _, hasOff, offMs = pcall(GetWeaponEnchantInfo)
         if ok then
             local text = "Weapon: "
@@ -1919,7 +1928,7 @@ function bf.refresh()
     bf.panel:SetSize(260, math.max(n * (o.size + 2), 20))
 end
 
-ns.BUFF_CHECKS = BUFF_CHECKS
+ns.BUFF_CHECKS = bf.checks
 
 local bfEv = CreateFrame("Frame")
 ns.bfEv = bfEv
@@ -2201,6 +2210,131 @@ for _, e in ipairs({ "BAG_UPDATE", "BAG_UPDATE_DELAYED", "PLAYER_ENTERING_WORLD"
     "UNIT_HAPPINESS", "PLAYER_LOGIN", "UNIT_INVENTORY_CHANGED" }) do
     pcall(hnEv.RegisterEvent, hnEv, e)
 end
+
+------------------------------------------------------------------------------------------
+-- Range: how far away your target is, in bands. No call gives a distance to an arbitrary unit,
+-- but the game will answer "is this spell in range", and your own spells carry their ranges --
+-- so a handful of yes/no answers pins the target between two numbers.
+------------------------------------------------------------------------------------------
+rg = { spells = {} }
+ns.rg = rg
+rg.panel = CreateFrame("Frame", "WolfpackAddonRange", UIParent)
+rg.panel:SetSize(80, 20)
+rg.panel:SetMovable(true)
+rg.panel:SetClampedToScreen(true)
+rg.panel:RegisterForDrag("LeftButton")
+rg.panel:SetScript("OnDragStart", function(a) a:StartMoving() end)
+rg.panel:SetScript("OnDragStop", function(a)
+    a:StopMovingOrSizing()
+    local ux, uy = UIParent:GetCenter()
+    db.range.x = math.floor(a:GetCenter() - ux + 0.5)
+    db.range.y = math.floor(select(2, a:GetCenter()) - uy + 0.5)
+    changed()
+end)
+rg.text = rg.panel:CreateFontString(nil, "OVERLAY")
+rg.text:SetPoint("CENTER")
+
+-- Every spell you know that has a range, once per distinct pair of numbers.
+function rg.build()
+    local seen, list = {}, {}
+    for i = 1, 200 do
+        local name = select(2, pcall(function()
+            if C_SpellBook and C_SpellBook.GetSpellBookItemName then
+                return (C_SpellBook.GetSpellBookItemName(i, 0))
+            end
+            return (GetSpellBookItemName and GetSpellBookItemName(i, "spell"))
+        end))
+        if type(name) ~= "string" or name == "" then break end
+        local minR, maxR = 0, nil
+        pcall(function()
+            local info = C_Spell and C_Spell.GetSpellInfo and C_Spell.GetSpellInfo(name)
+            if type(info) == "table" then
+                minR, maxR = tonumber(info.minRange) or 0, tonumber(info.maxRange)
+            end
+            if not maxR and GetSpellInfo then
+                local _, _, _, _, mn, mx = GetSpellInfo(name)
+                minR, maxR = tonumber(mn) or 0, tonumber(mx)
+            end
+        end)
+        local key = minR .. ":" .. tostring(maxR)
+        if maxR and maxR > 0 and not seen[key] then
+            seen[key] = true
+            list[#list + 1] = { name = name, min = minR, max = maxR }
+        end
+    end
+    table.sort(list, function(a, b) return a.max < b.max end)
+    rg.spells = list
+    return list
+end
+
+-- Asks the game about each of them and works out what is left. A "no" from a spell with a
+-- minimum range means two different things -- too close, or too far -- so it only counts as
+-- "too close" when something with no minimum says yes.
+function rg.band()
+    if #rg.spells == 0 then rg.build() end
+    local answers, close = {}, false
+    for _, sp in ipairs(rg.spells) do
+        local ok, res = pcall(function()
+            if C_Spell and C_Spell.IsSpellInRange then return C_Spell.IsSpellInRange(sp.name, "target") end
+            return IsSpellInRange(sp.name, "target")
+        end)
+        if ok and res ~= nil and readable(res) then
+            answers[#answers + 1] = { sp, res and true or false }
+            if res and sp.min == 0 then close = true end
+        end
+    end
+    local low, high = 0, nil
+    for _, a in ipairs(answers) do
+        local sp, yes = a[1], a[2]
+        if yes then
+            if not high or sp.max < high then high = sp.max end
+            if sp.min > low then low = sp.min end
+        elseif sp.min > 0 and close then
+            if not high or sp.min < high then high = sp.min end
+        elseif sp.max > low then
+            low = sp.max
+        end
+    end
+    return low, high
+end
+
+function rg.refresh()
+    if not db then return end
+    local o = db.range
+    rg.panel:ClearAllPoints()
+    rg.panel:SetPoint("CENTER", UIParent, "CENTER", o.x, o.y)
+    rg.panel:EnableMouse(not o.locked)
+    if not o.show or not (UnitExists("target") or ns.previewing()) then
+        rg.panel:Hide()
+        return
+    end
+    rg.panel:Show()
+    local flags = o.outline and "OUTLINE" or ""
+    if not rg.text:SetFont(o.font, o.fontSize, flags) then rg.text:SetFont(FONTS[1][2], o.fontSize, flags) end
+    rg.text:SetTextColor(unpack(o.color))
+    if not UnitExists("target") then
+        rg.text:SetText("0 - 5 yd")
+    else
+        local low, high = rg.band()
+        if high then
+            rg.text:SetText((low > 0 and (low .. " - " .. high) or ("0 - " .. high)) .. " yd")
+        elseif low > 0 then
+            rg.text:SetText("over " .. low .. " yd")
+        else
+            rg.text:SetText("?")
+        end
+    end
+    rg.panel:SetSize(math.max(rg.text:GetStringWidth() + 8, 20), o.fontSize + 6)
+end
+
+rg.ticker = CreateFrame("Frame")
+rg.ticker.since = 0
+rg.ticker:SetScript("OnUpdate", function(self, elapsed)
+    self.since = self.since + elapsed
+    if self.since < 0.2 then return end
+    self.since = 0
+    if db and db.range.show then safe(rg.refresh) end
+end)
 
 ------------------------------------------------------------------------------------------
 -- Options window (/cpd)
@@ -2980,7 +3114,7 @@ local function buildConfig()
     -- Sidebar: one entry per module
     local SIDEBAR = { { "combat", "Combat Display", "regular" }, { "nameplates", "Nameplates", "nameplate" },
         { "buffs", "Buffs", "regular" }, { "mage", "Mage", "regular" },
-        { "hunter", "Hunter", "regular" },
+        { "hunter", "Hunter", "regular" }, { "range", "Range", "regular" },
         { "other", "Other", "regular" } }
     for i, e in ipairs(SIDEBAR) do
         local b = button(cfg, e[2], 118, 12, -104 - (i - 1) * 26, function()
@@ -3009,6 +3143,8 @@ local function buildConfig()
     magePage:SetAllPoints(barsPage)
     local hunterPage = CreateFrame("Frame", nil, cfg)
     hunterPage:SetAllPoints(barsPage)
+    local rangePage = CreateFrame("Frame", nil, cfg)
+    rangePage:SetAllPoints(barsPage)
 
     local title = label(cfg, "Combat Display", "GameFontNormalLarge")
     title:SetPoint("TOPLEFT", 150, -72)
@@ -3023,7 +3159,8 @@ local function buildConfig()
         title:SetText(section == "other" and "Other"
             or section == "buffs" and "Buff check"
             or section == "mage" and "Mage: food and water"
-            or section == "hunter" and "Hunter: ammo and pet" or "Combat Display")
+            or section == "hunter" and "Hunter: ammo and pet"
+            or section == "range" and "Range to target" or "Combat Display")
         for _, t in ipairs(tabs) do t:SetShown(np) end
         barsPage:SetShown(section == "combat" or (np and sub == "bars"))
         questPage:SetShown(np and sub == "quest")
@@ -3031,6 +3168,7 @@ local function buildConfig()
         buffPage:SetShown(section == "buffs")
         magePage:SetShown(section == "mage")
         hunterPage:SetShown(section == "hunter")
+        rangePage:SetShown(section == "range")
     end)
 
     local tabNote = label(barsPage, "", "GameFontDisableSmall")
@@ -3548,6 +3686,41 @@ local function buildConfig()
     slider(hunterPage, "Low is under", htext.x, htext:row(SLIDER), 1, 2000,
         function() return H().low end, function(v) H().low = v end)
     htext:close()
+
+    ----------------------------------------------------------------------------------
+    -- Range page: how far the target is, in bands
+    ----------------------------------------------------------------------------------
+    local R = function() return db.range end
+    local rset = group(rangePage, COL[1], TOP, 202, "Range to target")
+    check(rangePage, "Show it", rset.x, rset:row(ROW), function() return R().show end,
+        function(v) R().show = v end)
+    local rlk = button(rangePage, "", 186, rset.x, rset:row(BUTTON), function()
+        R().locked = not R().locked
+        changed()
+    end)
+    onRefresh(function() rlk:SetText(R().locked and "Locked (click to unlock)" or "Unlocked - drag it") end)
+    slider(rangePage, "X (left / right)", rset.x, rset:row(SLIDER), -1200, 1200,
+        function() return R().x end, function(v) R().x = v end)
+    slider(rangePage, "Y (down / up)", rset.x, rset:row(SLIDER), -800, 800,
+        function() return R().y end, function(v) R().y = v end)
+    local rNote = label(rangePage, "No call gives the distance to an enemy, so this asks your own "
+        .. "spells whether they would reach and reads the answer off their ranges. You get a band, "
+        .. "like 8 - 30 yd, not a number -- and the more ranges your spells cover, the tighter it "
+        .. "gets.", "GameFontDisableSmall")
+    rNote:SetPoint("TOPLEFT", rset.x, rset:row(62))
+    rNote:SetWidth(182)
+    rNote:SetJustifyH("LEFT")
+    rset:close()
+
+    local rtext = group(rangePage, COL[2], TOP, 202, "Text")
+    dropdown(rangePage, "Font", rtext.x, rtext:row(DROP), FONTS, function() return R().font end,
+        function(v) R().font = v end, fontPreview)
+    slider(rangePage, "Font size", rtext.x, rtext:row(SLIDER), 8, 40, function() return R().fontSize end,
+        function(v) R().fontSize = v end)
+    check(rangePage, "Outline", rtext.x, rtext:row(ROW), function() return R().outline end,
+        function(v) R().outline = v end)
+    swatch(rangePage, "Color", rtext.x, rtext:row(SWATCH), function() return R().color end)
+    rtext:close()
 
     ----------------------------------------------------------------------------------
     -- Buffs page: the out-of-combat check of who is missing what
