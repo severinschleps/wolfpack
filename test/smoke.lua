@@ -119,6 +119,11 @@ print = function(msg) -- addon errors fail the test; ordinary chat output is kep
     if msg:find("error:") then error("addon reported: " .. msg, 0) end
     S.printed[#S.printed + 1] = msg
 end
+C_Item = { GetItemInfo = function(id)
+    local it = (S.items or {})[id]
+    if not it then return nil end
+    return it.name, nil, nil, it.level
+end }
 GetCursorPosition = function() return 10, 20 end
 strtrim = function(str) return (str:gsub("^%s+", ""):gsub("%s+$", "")) end
 StaticPopupDialogs = {}
@@ -1436,6 +1441,39 @@ ns.bfEv._scripts.OnEvent(ns.bfEv, "PLAYER_REGEN_ENABLED")
 assert(ns.bf.panel:IsShown(), "and back afterwards")
 S.group, S.members = false, 0
 login("ROGUE", 3)
+
+-- a mage sees how much of the best food and water is in the bags
+S.unitClasses = nil -- the group test above left everyone else's class behind
+login("MAGE", 0)
+prof().buffs.show, prof().buffs.lowCount, prof().buffs.skip = true, 5, {}
+local keptBags = S.bags
+S.items = {
+    [1] = { name = "Conjured Muffin", level = 6 },
+    [2] = { name = "Conjured Sweet Roll", level = 52 },
+    [4] = { name = "Conjured Crystal Water", level = 55 },
+}
+S.bags = { [0] = {
+    { itemID = 1, stackCount = 20, quality = 1 },
+    { itemID = 2, stackCount = 12, quality = 1 },
+    { itemID = 2, stackCount = 8, quality = 1 },
+    { itemID = 4, stackCount = 3, quality = 1 },
+} }
+local function buffLines()
+    local t = {}
+    for _, r in ipairs(ns.bf.rows) do if r:IsShown() then t[#t + 1] = r.text._text end end
+    return table.concat(t, "|")
+end
+ns.bfEv._scripts.OnEvent(ns.bfEv, "UNIT_AURA")
+local joined = buffLines()
+assert(joined:find("Food: 20 %(Conjured Sweet Roll%)"), "the best food, counted across stacks")
+assert(joined:find("Water: 3 %(Conjured Crystal Water%)"), "and the best water")
+assert(not joined:find("Muffin"), "the lower rank is not mentioned")
+S.bags = { [0] = {} }
+ns.bfEv._scripts.OnEvent(ns.bfEv, "UNIT_AURA")
+assert(buffLines():find("Food: none"), "empty bags say so")
+S.bags, S.items = keptBags, nil
+login("ROGUE", 3)
+
 
 SlashCmdList.WOLFPACKADDON("auras") -- the probe must not error, whatever the client has
 SlashCmdList.WOLFPACKADDON("")

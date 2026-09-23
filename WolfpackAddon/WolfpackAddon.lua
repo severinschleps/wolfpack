@@ -219,7 +219,7 @@ local DEFAULTS = {
 -- Buff check: who in the group is missing a buff somebody here can hand out.
 DEFAULTS.buffs = {
     show = false, locked = true, x = -300, y = 0, size = 18, fontSize = 12, outline = true,
-    font = FONTS[1][2], color = { 1, 0.5, 0.5, 1 }, onlyMissing = false,
+    font = FONTS[1][2], color = { 1, 0.5, 0.5, 1 }, onlyMissing = false, lowCount = 5,
     skip = {}, -- [check key] = true: leave that one out
 }
 
@@ -1728,7 +1728,44 @@ bf.panel:SetScript("OnDragStop", function(a)
     changed()
 end)
 
+-- A mage's conjured food and water. Ranks are told apart by the level they need, so a new rank
+-- counts without anyone adding it here, and only the best one you carry is reported.
+function bf.conjured()
+    local best = {}
+    local totals, seen = {}, {}
+    for bag = 0, (NUM_BAG_SLOTS or 4) do
+        for slot = 1, (C_Container.GetContainerNumSlots(bag) or 0) do
+            local info = C_Container.GetContainerItemInfo(bag, slot)
+            local id = info and info.itemID
+            if id then
+                if seen[id] == nil then
+                    local ok, name, _, _, level = pcall(C_Item.GetItemInfo, id)
+                    if ok and type(name) == "string" and name:find("Conjured") then
+                        seen[id] = { name = name, level = tonumber(level) or 0,
+                            kind = name:find("Water") and "water" or "food",
+                            icon = info.iconFileID }
+                    else
+                        seen[id] = false
+                    end
+                end
+                if seen[id] then totals[id] = (totals[id] or 0) + (info.stackCount or 1) end
+            end
+        end
+    end
+    for id, item in pairs(seen) do
+        if item and totals[id] then
+            local cur = best[item.kind]
+            if not cur or item.level > cur.level then
+                best[item.kind] = { name = item.name, level = item.level, icon = item.icon,
+                    count = totals[id] }
+            end
+        end
+    end
+    return best
+end
+
 function bf.icon(id)
+    if not id then return 134400 end -- a question mark, for anything the client won't name
     bf.textures = bf.textures or {}
     if bf.textures[id] == nil then
         local ok, tex = pcall(function()
@@ -1844,6 +1881,22 @@ function bf.check()
             lines[#lines + 1] = { icon = chk.icon, text = text, ok = #missing == 0 }
         end
     end
+    -- A mage's food and water: how much of the best rank you carry.
+    if class == "MAGE" and not o.skip.conjured then
+        local best = bf.conjured()
+        for _, kind in ipairs({ "food", "water" }) do
+            local it = best[kind]
+            local label = kind == "food" and "Food" or "Water"
+            local fallback = kind == "food" and 134062 or 132805
+            if it then
+                lines[#lines + 1] = { icon = it.icon or fallback, text = label .. ": " .. it.count
+                    .. " (" .. it.name .. ")", ok = it.count >= (o.lowCount or 5) }
+            else
+                lines[#lines + 1] = { icon = fallback, text = label .. ": none", ok = false }
+            end
+        end
+    end
+
     -- Your weapon: a rogue's poison or a shaman's enchant, with what is left on it.
     if WEAPON_CLASSES[class or ""] and not o.skip.weapon then
         local ok, hasMain, mainMs, _, _, hasOff, offMs = pcall(GetWeaponEnchantInfo)
@@ -3180,6 +3233,11 @@ local function buildConfig()
     check(buffPage, "Weapon (rogue, shaman)", bwhat.x, bwhat:row(ROW),
         function() return not B().skip.weapon end,
         function(v) B().skip.weapon = (not v) or nil end)
+    check(buffPage, "Food and water (mage)", bwhat.x, bwhat:row(ROW),
+        function() return not B().skip.conjured end,
+        function(v) B().skip.conjured = (not v) or nil end)
+    slider(buffPage, "Warn under", bwhat.x, bwhat:row(SLIDER), 1, 40,
+        function() return B().lowCount end, function(v) B().lowCount = v end)
     local bwhatNote = label(buffPage, "A row shows only when somebody in the group can actually "
         .. "give that buff. A paladin keeps one blessing per person, so any one of them counts.",
         "GameFontDisableSmall")
