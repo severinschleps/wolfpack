@@ -3687,6 +3687,43 @@ function ns.CritReport()
     if not any then say("  nothing at all: no crit is visible to an addon here") end
 end
 
+-- /cpd range: how close this client will let an addon get to "how far away is my target".
+-- There is no call that gives a distance to an arbitrary unit, so the question is which of the
+-- yes/no range checks still answer, and whether their answers are readable.
+ns.RANGE_ITEMS = { { 37727, 5 }, { 8149, 8 }, { 32321, 10 }, { 33069, 15 }, { 10645, 20 },
+    { 24268, 25 }, { 835, 30 }, { 24269, 35 }, { 28767, 40 } }
+
+function ns.RangeReport()
+    local function say(t) print("|cff88ccffWolfpack:|r " .. t) end
+    if not UnitExists("target") then return say("target something first") end
+    say("target: " .. (UnitName("target") or "?") .. ", in combat: " .. tostring(InCombatLockdown()))
+    local ok, d = pcall(UnitDistanceSquared, "target")
+    if not ok then
+        say("UnitDistanceSquared: refused")
+    elseif not readable(d) then
+        say("UnitDistanceSquared: secret")
+    else
+        say("UnitDistanceSquared: " .. tostring(d) .. (d and (" (" .. math.floor(math.sqrt(d) + 0.5)
+            .. " yards)") or ""))
+    end
+    for i, what in ipairs({ "inspect 28", "trade 11", "duel 10", "follow 28" }) do
+        local got, res = pcall(CheckInteractDistance, "target", i)
+        say("CheckInteractDistance " .. what .. ": " .. (not got and "refused"
+            or not readable(res) and "secret" or tostring(res)))
+    end
+    local bands = {}
+    for _, item in ipairs(ns.RANGE_ITEMS) do
+        local got, res = pcall(function()
+            return (C_Item and C_Item.IsItemInRange and C_Item.IsItemInRange(item[1], "target"))
+                or (IsItemInRange and IsItemInRange(item[1], "target"))
+        end)
+        if got and res ~= nil and readable(res) then
+            bands[#bands + 1] = item[2] .. (res and "y" or "y:no")
+        end
+    end
+    say("item range checks answering: " .. (#bands > 0 and table.concat(bands, " ") or "none"))
+end
+
 -- /cpd auras: says which aura calls this client has and whether they answer right now, which
 -- is the only way to tell from inside the game why a buff icon is missing. Run it twice: once
 -- out of combat and once in combat, with the buff actually on you.
@@ -3741,6 +3778,7 @@ SlashCmdList.WOLFPACKADDON = function(msg)
     msg = (msg or ""):lower()
     if msg:find("aura") then return safe(ns.AuraReport, (msg:gsub("^%s*auras?%s*", ""))) end
     if msg:find("crit") then return safe(ns.CritReport) end
+    if msg:find("range") then return safe(ns.RangeReport) end
     safe(ns.ToggleConfig)
 end
 
