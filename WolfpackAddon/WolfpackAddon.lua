@@ -178,7 +178,7 @@ local function layoutDefaults(show, x, y, gap, width, h1, h2, h3, h4, h5, h6, h7
     l.bars.swing.main, l.bars.swing.off, l.bars.swing.ranged = true, false, false
     l.bars.health.heal, l.bars.health.healColor = false, { 0.4, 1, 0.5, 0.45 } -- incoming heals
     l.bars.power.cost, l.bars.power.costColor = false, { 1, 1, 1, 0.35 } -- what the cast will take
-    l.bars.range.yards, l.bars.range.flash = 41, true
+    l.bars.range.yards = 41
     -- where the target stands: next to you, in the gap nothing reaches, or past everything
     l.bars.range.meleeColor = { 0.3, 0.55, 1, 1 }
     l.bars.range.inColor = { 0.3, 0.85, 0.3, 1 } -- within reach of something
@@ -3353,8 +3353,6 @@ local function buildConfig()
     local rangeBits = {}
     rangeBits[1] = slider(barsPage, "Bar is this many yards", only.x, only:row(0) + 4, 10, 100,
         function() return cur().yards or 50 end, function(v) cur().yards = v end)
-    rangeBits[2] = check(barsPage, "Flash the stretch you are in", only.x, only:row(0) - 44,
-        function() return cur().flash end, function(v) cur().flash = v end)
     rangeBits[3] = swatch(barsPage, "In melee", only.x, only:row(0) - 70,
         function() return cur().meleeColor or { 0, 0, 0, 1 } end)
     rangeBits[6] = swatch(barsPage, "In range", only.x + 96, only:row(0) - 70,
@@ -4260,10 +4258,7 @@ rg.ticker = CreateFrame("Frame")
 rg.ticker.since = 0
 rg.ticker:SetScript("OnUpdate", function(self, elapsed)
     if not db or not frames.range:IsShown() then return end
-    local c, f = db.regular.bars.range, frames.range
-    self.t = (self.t or 0) + elapsed
-    -- a slow breath, so the eye catches a change of zone
-    f.segs[1]:SetAlpha(c.flash and (0.55 + 0.45 * math.sin(self.t * 1.4)) or 1)
+    frames.range.segs[1]:SetAlpha(1)
     self.since = self.since + elapsed
     if self.since < 0.2 then return end
     self.since = 0

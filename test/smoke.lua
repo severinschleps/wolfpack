@@ -1597,7 +1597,7 @@ end
 IsActionInRange = function(slot) return slot <= 2 end
 -- Range: a bar whose width is a stretch of yards, with the band your target is in lit up
 local rb = prof().regular.bars.range
-rb.show, rb.text, rb.yards, rb.flash, rb.dim = true, true, 41, true, 0.3
+rb.show, rb.text, rb.yards = true, true, 41
 -- the control poking above recolors things, so pin them
 rb.meleeColor, rb.inColor = { 0.3, 0.55, 1, 1 }, { 0.3, 0.85, 0.3, 1 }
 rb.deadColor, rb.farColor = { 0.5, 0.5, 0.5, 1 }, { 0.85, 0.2, 0.2, 1 }
