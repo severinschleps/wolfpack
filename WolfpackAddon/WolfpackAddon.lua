@@ -2255,11 +2255,11 @@ end)
 function hn.ammo()
     local slot = 0 -- the ammo slot; GetInventorySlotInfo knows it by name on clients that have it
     pcall(function() slot = GetInventorySlotInfo("AmmoSlot") or slot end)
-    local id = select(2, pcall(GetInventoryItemID, "player", slot))
-    local count = select(2, pcall(GetInventoryItemCount, "player", slot)) or 0
-    local icon = select(2, pcall(GetInventoryItemTexture, "player", slot))
-    if not id then return nil, 0, nil end
-    return id, count or 0, icon
+    local okID, id = pcall(GetInventoryItemID, "player", slot)
+    local okCount, count = pcall(GetInventoryItemCount, "player", slot)
+    local okIcon, icon = pcall(GetInventoryItemTexture, "player", slot)
+    if not okID or type(id) ~= "number" then return nil, 0, nil end
+    return id, (okCount and type(count) == "number") and count or 0, okIcon and icon or nil
 end
 
 function hn.entry(i)
@@ -2290,7 +2290,10 @@ function hn.refresh()
     local flags = o.outline and "OUTLINE" or ""
     local step, n = o.size + o.gap, 0
     local id, count, tex = hn.ammo()
-    local happy = select(2, pcall(GetPetHappiness))
+    -- A failed pcall hands back its error text, so only a real number counts: on a client with
+    -- no happiness at all, the face simply never shows.
+    local okHappy, happy = pcall(GetPetHappiness)
+    if not okHappy or type(happy) ~= "number" or happy < 1 or happy > 3 then happy = nil end
     for _, what in ipairs({ "ammo", "pet" }) do
         local show, icon, text, coords = false, nil, nil, nil
         if what == "ammo" and o.ammo and id then
