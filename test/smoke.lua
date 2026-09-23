@@ -1498,7 +1498,7 @@ assert(not ns.hn.entries[1]:IsShown(), "and the ammo can be switched off")
 -- a client without pet happiness at all must not throw: the face is simply left out
 local keptHappy = GetPetHappiness
 GetPetHappiness = nil
-ho.ammo = true
+S.petHP, ho.ammo = 400, true -- with a pet out, so the face would be drawn if it could be
 ns.hnEv._scripts.OnEvent(ns.hnEv, "UNIT_HAPPINESS")
 assert(not (ns.hn.entries[2] and ns.hn.entries[2]:IsShown()), "no happiness here, no face")
 GetPetHappiness = keptHappy
