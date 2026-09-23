@@ -155,11 +155,11 @@ local function totemDuration(slot)
     if ok then return d end
 end
 
-local function layoutDefaults(show, x, y, gap, width, h1, h2, h3, h4, h5, h6, h7, h8, h9)
+local function layoutDefaults(show, x, y, gap, width, h1, h2, h3, h4, h5, h6, h7, h8, h9, h10)
     local l = {
         x = x, y = y, gap = gap, grow = "down", -- "up": the group's bottom edge stays put instead
         order = { "health", "power", "combo", "druidmana", "castbar", "pethealth", "swing", "totems",
-            "absorb" },
+            "absorb", "range" },
         bars = {
             health = barDefaults(show, width, h1, 0.2, 0.8, 0.2, show),
             power = barDefaults(show, width, h2, 1, 0.85, 0.1, show),
@@ -170,6 +170,7 @@ local function layoutDefaults(show, x, y, gap, width, h1, h2, h3, h4, h5, h6, h7
             swing = barDefaults(show, width, h7, 0.8, 0.8, 0.85, show), -- text = seconds left
             totems = barDefaults(show, width, h8, 0.6, 0.6, 0.6, false), -- colored per element instead
             absorb = barDefaults(false, width, h9, 0.9, 0.9, 0.7, true), -- text = points left
+            range = barDefaults(false, width, h10, 1, 0.75, 0.2, true), -- text = the band, in yards
         },
     }
     l.bars.power.colorMode = "power"
@@ -177,6 +178,10 @@ local function layoutDefaults(show, x, y, gap, width, h1, h2, h3, h4, h5, h6, h7
     l.bars.swing.main, l.bars.swing.off, l.bars.swing.ranged = true, false, false
     l.bars.health.heal, l.bars.health.healColor = false, { 0.4, 1, 0.5, 0.45 } -- incoming heals
     l.bars.power.cost, l.bars.power.costColor = false, { 1, 1, 1, 0.35 } -- what the cast will take
+    l.bars.range.yards, l.bars.range.flash, l.bars.range.dim = 50, true, 0.3
+    -- one color per stretch of the bar, in order; past the list a section wears the bar's own
+    l.bars.range.sectionColors = { { 0.9, 0.3, 0.2, 1 }, { 1, 0.75, 0.2, 1 }, { 0.4, 0.9, 0.4, 1 },
+        { 0.3, 0.6, 1, 1 }, { 0.7, 0.5, 0.9, 1 } }
     l.bars.totems.slots = { 1, 2, 3, 4 } -- left to right: which totem slot each segment shows
     l.bars.totems.slotColors = { { 1, 0.3, 0.1, 1 }, { 0.5, 0.35, 0.2, 1 }, -- by slot, so a color
         { 0.2, 0.5, 1, 1 }, { 0.6, 0.5, 0.9, 1 } }                          -- sticks to its element
@@ -195,8 +200,8 @@ end
 -- top-right corner plus x/y. Icons are file IDs.
 local DEFAULTS = {
     locked = true,
-    regular = layoutDefaults(true, 0, -120, 2, 220, 18, 14, 12, 6, 14, 10, 10, 10, 10),
-    nameplate = layoutDefaults(false, 0, -2, 1, 110, 8, 6, 6, 4, 8, 5, 5, 5, 5),
+    regular = layoutDefaults(true, 0, -120, 2, 220, 18, 14, 12, 6, 14, 10, 10, 10, 10, 12),
+    nameplate = layoutDefaults(false, 0, -2, 1, 110, 8, 6, 6, 4, 8, 5, 5, 5, 5, 6),
     quest = {
         x = 0, y = 0, spacing = 2,
         kill = { show = true, icon = 131013, size = 20, count = false },
@@ -214,12 +219,6 @@ local DEFAULTS = {
         fsr = { show = false, bar = "power", size = 28, x = 0, y = 0, color = { 0.3, 0.6, 1, 0.7 },
             fill = true },
     },
-}
-
--- Range: how far the target is, in bands worked out from your own spells' ranges.
-DEFAULTS.range = {
-    show = false, locked = true, x = 0, y = -220, font = FONTS[1][2], fontSize = 14,
-    outline = true, color = { 1, 0.9, 0.4, 1 },
 }
 
 -- Hunter: ammunition left, and how the pet feels.
@@ -288,6 +287,96 @@ local function classPower()
 end
 
 -- state() -> shown, segment count. value(unit) -> current, max (both possibly secret).
+------------------------------------------------------------------------------------------
+-- Range to the target. No call gives the distance to an arbitrary unit, but the game will say
+-- whether a spell of yours would reach, and every spell carries its range -- so a handful of
+-- yes/no answers pins the target between two numbers.
+------------------------------------------------------------------------------------------
+rg = { spells = {} }
+ns.rg = rg
+
+-- Every spell you know that has a range, once per distinct pair of numbers.
+function rg.build()
+    local seen, list = {}, {}
+    for i = 1, 200 do
+        local name = select(2, pcall(function()
+            if C_SpellBook and C_SpellBook.GetSpellBookItemName then
+                return (C_SpellBook.GetSpellBookItemName(i, 0))
+            end
+            return (GetSpellBookItemName and GetSpellBookItemName(i, "spell"))
+        end))
+        if type(name) ~= "string" or name == "" then break end
+        local minR, maxR = 0, nil
+        pcall(function()
+            local info = C_Spell and C_Spell.GetSpellInfo and C_Spell.GetSpellInfo(name)
+            if type(info) == "table" then
+                minR, maxR = tonumber(info.minRange) or 0, tonumber(info.maxRange)
+            end
+            if not maxR and GetSpellInfo then
+                local _, _, _, _, mn, mx = GetSpellInfo(name)
+                minR, maxR = tonumber(mn) or 0, tonumber(mx)
+            end
+        end)
+        local key = minR .. ":" .. tostring(maxR)
+        if maxR and maxR > 0 and not seen[key] then
+            seen[key] = true
+            list[#list + 1] = { name = name, min = minR, max = maxR }
+        end
+    end
+    table.sort(list, function(a, b) return a.max < b.max end)
+    rg.spells = list
+    return list
+end
+
+-- Asks the game about each of them and works out what is left. A "no" from a spell with a
+-- minimum range means two different things -- too close, or too far -- so it only counts as
+-- "too close" when something with no minimum says yes.
+-- The steps your spells put on the bar: 0, every range they have, and the far end.
+function rg.bounds(max)
+    if #rg.spells == 0 then rg.build() end
+    local seen, out = { [0] = true }, { 0 }
+    for _, sp in ipairs(rg.spells) do
+        for _, yards in ipairs({ sp.min, sp.max }) do
+            if yards and yards > 0 and yards < max and not seen[yards] then
+                seen[yards] = true
+                out[#out + 1] = yards
+            end
+        end
+    end
+    table.sort(out)
+    out[#out + 1] = max
+    return out
+end
+
+function rg.band()
+    if #rg.spells == 0 then rg.build() end
+    local answers, close = {}, false
+    for _, sp in ipairs(rg.spells) do
+        local ok, res = pcall(function()
+            if C_Spell and C_Spell.IsSpellInRange then return C_Spell.IsSpellInRange(sp.name, "target") end
+            return IsSpellInRange(sp.name, "target")
+        end)
+        if ok and res ~= nil and readable(res) then
+            answers[#answers + 1] = { sp, res and true or false }
+            if res and sp.min == 0 then close = true end
+        end
+    end
+    local low, high = 0, nil
+    for _, a in ipairs(answers) do
+        local sp, yes = a[1], a[2]
+        if yes then
+            if not high or sp.max < high then high = sp.max end
+            if sp.min > low then low = sp.min end
+        elseif sp.min > 0 and close then
+            if not high or sp.min < high then high = sp.min end
+        elseif sp.max > low then
+            low = sp.max
+        end
+    end
+    return low, high
+end
+
+
 local BARS = {
     health = {
         label = "Health",
@@ -327,6 +416,11 @@ local BARS = {
         state = function()
             return (ns.previewing() or UnitCastingInfo("player") or UnitChannelInfo("player")) and true or false, 1
         end,
+    },
+    range = {
+        label = "Range",
+        -- only with a target, like the cast bar only while casting
+        state = function() return (UnitExists("target") or ns.previewing()) and true or false, 1 end,
     },
     absorb = {
         label = "Shield",
@@ -732,6 +826,42 @@ end
 local function fill(f)
     if f.key == "castbar" then return fillCast(f) end
     if f.key == "swing" then return fillSwing(f) end
+    if f.key == "range" then -- one section per stretch of yards your spells mark out
+        local c = db[f.mode].bars.range
+        local max = math.max(c.yards or 50, 5)
+        local low, high = 0, nil
+        if UnitExists("target") then low, high = rg.band() end
+        local seg, bounds = f.segs[1], rg.bounds(max)
+        seg:SetMinMaxValues(0, 1)
+        seg:SetValue(0) -- the sections below do the drawing
+        f.sections, f.lit = f.sections or {}, {}
+        local w = f.width or c.width
+        for i = 1, #bounds - 1 do
+            local from, to = bounds[i], bounds[i + 1]
+            local t = f.sections[i]
+            if not t then
+                t = seg:CreateTexture(nil, "ARTWORK")
+                f.sections[i] = t
+            end
+            t:SetTexture(c.texture)
+            local col = (c.sectionColors and c.sectionColors[i]) or c.color
+            t:SetVertexColor(col[1], col[2], col[3], col[4] or 1)
+            t:ClearAllPoints()
+            t:SetPoint("TOPLEFT", seg, "TOPLEFT", from / max * w, 0)
+            t:SetPoint("BOTTOMLEFT", seg, "BOTTOMLEFT", from / max * w, 0)
+            t:SetWidth(math.max((to - from) / max * w, 1))
+            local here = from >= low and to <= (high or max)
+            f.lit[i] = here
+            t:SetAlpha(here and 1 or (c.dim or 0.3))
+            t:Show()
+        end
+        for i = #bounds, #f.sections do f.sections[i]:Hide() end
+        if f.text:IsShown() then
+            f.text:SetText(high and (low .. " - " .. high .. " yd")
+                or (low > 0 and ("over " .. low .. " yd") or "?"))
+        end
+        return
+    end
     if f.key == "totems" then -- the bar drains itself from the duration object, in C
         local c = db[f.mode].bars[f.key]
         for i = 1, f.n do
@@ -1685,7 +1815,6 @@ local function Refresh()
     bf.refresh()
     mg.refresh()
     hn.refresh()
-    rg.refresh()
     fsr:sync()
     syncHover()
     syncBags()
@@ -2210,131 +2339,6 @@ for _, e in ipairs({ "BAG_UPDATE", "BAG_UPDATE_DELAYED", "PLAYER_ENTERING_WORLD"
     "UNIT_HAPPINESS", "PLAYER_LOGIN", "UNIT_INVENTORY_CHANGED" }) do
     pcall(hnEv.RegisterEvent, hnEv, e)
 end
-
-------------------------------------------------------------------------------------------
--- Range: how far away your target is, in bands. No call gives a distance to an arbitrary unit,
--- but the game will answer "is this spell in range", and your own spells carry their ranges --
--- so a handful of yes/no answers pins the target between two numbers.
-------------------------------------------------------------------------------------------
-rg = { spells = {} }
-ns.rg = rg
-rg.panel = CreateFrame("Frame", "WolfpackAddonRange", UIParent)
-rg.panel:SetSize(80, 20)
-rg.panel:SetMovable(true)
-rg.panel:SetClampedToScreen(true)
-rg.panel:RegisterForDrag("LeftButton")
-rg.panel:SetScript("OnDragStart", function(a) a:StartMoving() end)
-rg.panel:SetScript("OnDragStop", function(a)
-    a:StopMovingOrSizing()
-    local ux, uy = UIParent:GetCenter()
-    db.range.x = math.floor(a:GetCenter() - ux + 0.5)
-    db.range.y = math.floor(select(2, a:GetCenter()) - uy + 0.5)
-    changed()
-end)
-rg.text = rg.panel:CreateFontString(nil, "OVERLAY")
-rg.text:SetPoint("CENTER")
-
--- Every spell you know that has a range, once per distinct pair of numbers.
-function rg.build()
-    local seen, list = {}, {}
-    for i = 1, 200 do
-        local name = select(2, pcall(function()
-            if C_SpellBook and C_SpellBook.GetSpellBookItemName then
-                return (C_SpellBook.GetSpellBookItemName(i, 0))
-            end
-            return (GetSpellBookItemName and GetSpellBookItemName(i, "spell"))
-        end))
-        if type(name) ~= "string" or name == "" then break end
-        local minR, maxR = 0, nil
-        pcall(function()
-            local info = C_Spell and C_Spell.GetSpellInfo and C_Spell.GetSpellInfo(name)
-            if type(info) == "table" then
-                minR, maxR = tonumber(info.minRange) or 0, tonumber(info.maxRange)
-            end
-            if not maxR and GetSpellInfo then
-                local _, _, _, _, mn, mx = GetSpellInfo(name)
-                minR, maxR = tonumber(mn) or 0, tonumber(mx)
-            end
-        end)
-        local key = minR .. ":" .. tostring(maxR)
-        if maxR and maxR > 0 and not seen[key] then
-            seen[key] = true
-            list[#list + 1] = { name = name, min = minR, max = maxR }
-        end
-    end
-    table.sort(list, function(a, b) return a.max < b.max end)
-    rg.spells = list
-    return list
-end
-
--- Asks the game about each of them and works out what is left. A "no" from a spell with a
--- minimum range means two different things -- too close, or too far -- so it only counts as
--- "too close" when something with no minimum says yes.
-function rg.band()
-    if #rg.spells == 0 then rg.build() end
-    local answers, close = {}, false
-    for _, sp in ipairs(rg.spells) do
-        local ok, res = pcall(function()
-            if C_Spell and C_Spell.IsSpellInRange then return C_Spell.IsSpellInRange(sp.name, "target") end
-            return IsSpellInRange(sp.name, "target")
-        end)
-        if ok and res ~= nil and readable(res) then
-            answers[#answers + 1] = { sp, res and true or false }
-            if res and sp.min == 0 then close = true end
-        end
-    end
-    local low, high = 0, nil
-    for _, a in ipairs(answers) do
-        local sp, yes = a[1], a[2]
-        if yes then
-            if not high or sp.max < high then high = sp.max end
-            if sp.min > low then low = sp.min end
-        elseif sp.min > 0 and close then
-            if not high or sp.min < high then high = sp.min end
-        elseif sp.max > low then
-            low = sp.max
-        end
-    end
-    return low, high
-end
-
-function rg.refresh()
-    if not db then return end
-    local o = db.range
-    rg.panel:ClearAllPoints()
-    rg.panel:SetPoint("CENTER", UIParent, "CENTER", o.x, o.y)
-    rg.panel:EnableMouse(not o.locked)
-    if not o.show or not (UnitExists("target") or ns.previewing()) then
-        rg.panel:Hide()
-        return
-    end
-    rg.panel:Show()
-    local flags = o.outline and "OUTLINE" or ""
-    if not rg.text:SetFont(o.font, o.fontSize, flags) then rg.text:SetFont(FONTS[1][2], o.fontSize, flags) end
-    rg.text:SetTextColor(unpack(o.color))
-    if not UnitExists("target") then
-        rg.text:SetText("0 - 5 yd")
-    else
-        local low, high = rg.band()
-        if high then
-            rg.text:SetText((low > 0 and (low .. " - " .. high) or ("0 - " .. high)) .. " yd")
-        elseif low > 0 then
-            rg.text:SetText("over " .. low .. " yd")
-        else
-            rg.text:SetText("?")
-        end
-    end
-    rg.panel:SetSize(math.max(rg.text:GetStringWidth() + 8, 20), o.fontSize + 6)
-end
-
-rg.ticker = CreateFrame("Frame")
-rg.ticker.since = 0
-rg.ticker:SetScript("OnUpdate", function(self, elapsed)
-    self.since = self.since + elapsed
-    if self.since < 0.2 then return end
-    self.since = 0
-    if db and db.range.show then safe(rg.refresh) end
-end)
 
 ------------------------------------------------------------------------------------------
 -- Options window (/cpd)
@@ -3114,7 +3118,7 @@ local function buildConfig()
     -- Sidebar: one entry per module
     local SIDEBAR = { { "combat", "Combat Display", "regular" }, { "nameplates", "Nameplates", "nameplate" },
         { "buffs", "Buffs", "regular" }, { "mage", "Mage", "regular" },
-        { "hunter", "Hunter", "regular" }, { "range", "Range", "regular" },
+        { "hunter", "Hunter", "regular" },
         { "other", "Other", "regular" } }
     for i, e in ipairs(SIDEBAR) do
         local b = button(cfg, e[2], 118, 12, -104 - (i - 1) * 26, function()
@@ -3143,8 +3147,6 @@ local function buildConfig()
     magePage:SetAllPoints(barsPage)
     local hunterPage = CreateFrame("Frame", nil, cfg)
     hunterPage:SetAllPoints(barsPage)
-    local rangePage = CreateFrame("Frame", nil, cfg)
-    rangePage:SetAllPoints(barsPage)
 
     local title = label(cfg, "Combat Display", "GameFontNormalLarge")
     title:SetPoint("TOPLEFT", 150, -72)
@@ -3160,7 +3162,7 @@ local function buildConfig()
             or section == "buffs" and "Buff check"
             or section == "mage" and "Mage: food and water"
             or section == "hunter" and "Hunter: ammo and pet"
-            or section == "range" and "Range to target" or "Combat Display")
+            or "Combat Display")
         for _, t in ipairs(tabs) do t:SetShown(np) end
         barsPage:SetShown(section == "combat" or (np and sub == "bars"))
         questPage:SetShown(np and sub == "quest")
@@ -3168,7 +3170,6 @@ local function buildConfig()
         buffPage:SetShown(section == "buffs")
         magePage:SetShown(section == "mage")
         hunterPage:SetShown(section == "hunter")
-        rangePage:SetShown(section == "range")
     end)
 
     local tabNote = label(barsPage, "", "GameFontDisableSmall")
@@ -3285,6 +3286,23 @@ local function buildConfig()
         function() return cur().cost end, function(v) cur().cost = v end)
     local costColor = swatch(barsPage, "Cost color", only.x, only:row(0) - ROW,
         function() return cur().costColor or { 0, 0, 0, 1 } end)
+    -- Range: how long the bar is in yards, whether the lit stretch breathes, and a color per
+    -- section -- they run from you outwards, as many as your spells' ranges make.
+    local rangeBits = {}
+    rangeBits[1] = slider(barsPage, "Bar is this many yards", only.x, only:row(0) + 4, 10, 100,
+        function() return cur().yards or 50 end, function(v) cur().yards = v end)
+    rangeBits[2] = check(barsPage, "Flash the stretch you are in", only.x, only:row(0) - 44,
+        function() return cur().flash end, function(v) cur().flash = v end)
+    rangeBits[3] = slider(barsPage, "The rest, in %", only.x, only:row(0) - 68, 0, 100,
+        function() return math.floor((cur().dim or 0.3) * 100 + 0.5) end,
+        function(v) cur().dim = v / 100 end)
+    for i = 1, 5 do
+        rangeBits[3 + i] = swatch(barsPage, "Section " .. i, only.x + (i > 3 and 96 or 0),
+            only:row(0) - 112 - ((i - 1) % 3) * 24, function()
+                local c = cur()
+                return (c.sectionColors and c.sectionColors[i]) or { 0, 0, 0, 1 }
+            end)
+    end
     local castIcon = check(barsPage, "Show spell icon", only.x, only:row(ROW),
         function() return cur().icon end, function(v) cur().icon = v end)
     local castSide = button(barsPage, "", 186, only.x, only:row(BUTTON), function()
@@ -3299,6 +3317,7 @@ local function buildConfig()
         healColor:SetShown(selected == "health")
         costCheck:SetShown(selected == "power")
         costColor:SetShown(selected == "power")
+        for _, w in ipairs(rangeBits) do w:SetShown(selected == "range") end
         for _, w in ipairs(swingChecks) do w:SetShown(selected == "swing") end
         for _, row in ipairs(totemRows) do
             for _, w in ipairs(row) do w:SetShown(selected == "totems") end
@@ -3308,7 +3327,12 @@ local function buildConfig()
         castSide:SetText("Icon side: " .. (cur().iconSide == "right" and "Right" or "Left"))
         local none = not (selected == "castbar" or selected == "swing" or selected == "power"
             or selected == "health")
-        onlyNote:SetText(selected ~= "totems" and none and "Nothing extra for this one." or "")
+        if selected == "range" then
+            onlyNote:SetText("Asks your own spells whether they would reach, and lights the stretch "
+                .. "your target is in. Only with a target.")
+        else
+            onlyNote:SetText(selected ~= "totems" and none and "Nothing extra for this one." or "")
+        end
     end)
     only:row(28) -- room for the four totem rows, which sit over the other controls
     only:close()
@@ -3686,41 +3710,6 @@ local function buildConfig()
     slider(hunterPage, "Low is under", htext.x, htext:row(SLIDER), 1, 2000,
         function() return H().low end, function(v) H().low = v end)
     htext:close()
-
-    ----------------------------------------------------------------------------------
-    -- Range page: how far the target is, in bands
-    ----------------------------------------------------------------------------------
-    local R = function() return db.range end
-    local rset = group(rangePage, COL[1], TOP, 202, "Range to target")
-    check(rangePage, "Show it", rset.x, rset:row(ROW), function() return R().show end,
-        function(v) R().show = v end)
-    local rlk = button(rangePage, "", 186, rset.x, rset:row(BUTTON), function()
-        R().locked = not R().locked
-        changed()
-    end)
-    onRefresh(function() rlk:SetText(R().locked and "Locked (click to unlock)" or "Unlocked - drag it") end)
-    slider(rangePage, "X (left / right)", rset.x, rset:row(SLIDER), -1200, 1200,
-        function() return R().x end, function(v) R().x = v end)
-    slider(rangePage, "Y (down / up)", rset.x, rset:row(SLIDER), -800, 800,
-        function() return R().y end, function(v) R().y = v end)
-    local rNote = label(rangePage, "No call gives the distance to an enemy, so this asks your own "
-        .. "spells whether they would reach and reads the answer off their ranges. You get a band, "
-        .. "like 8 - 30 yd, not a number -- and the more ranges your spells cover, the tighter it "
-        .. "gets.", "GameFontDisableSmall")
-    rNote:SetPoint("TOPLEFT", rset.x, rset:row(62))
-    rNote:SetWidth(182)
-    rNote:SetJustifyH("LEFT")
-    rset:close()
-
-    local rtext = group(rangePage, COL[2], TOP, 202, "Text")
-    dropdown(rangePage, "Font", rtext.x, rtext:row(DROP), FONTS, function() return R().font end,
-        function(v) R().font = v end, fontPreview)
-    slider(rangePage, "Font size", rtext.x, rtext:row(SLIDER), 8, 40, function() return R().fontSize end,
-        function(v) R().fontSize = v end)
-    check(rangePage, "Outline", rtext.x, rtext:row(ROW), function() return R().outline end,
-        function(v) R().outline = v end)
-    swatch(rangePage, "Color", rtext.x, rtext:row(SWATCH), function() return R().color end)
-    rtext:close()
 
     ----------------------------------------------------------------------------------
     -- Buffs page: the out-of-combat check of who is missing what
@@ -4197,6 +4186,22 @@ local function fillShown(...)
         if plateFrames[key]:IsShown() then safe(fill, plateFrames[key]) end
     end
 end
+
+rg.ticker = CreateFrame("Frame")
+rg.ticker.since = 0
+rg.ticker:SetScript("OnUpdate", function(self, elapsed)
+    if not db or not frames.range:IsShown() then return end
+    local c, f = db.regular.bars.range, frames.range
+    self.t = (self.t or 0) + elapsed
+    local a = c.flash and (0.55 + 0.45 * math.sin(self.t * 4)) or 1
+    for i, t in ipairs(f.sections or {}) do
+        if (f.lit or {})[i] then t:SetAlpha(a) end
+    end
+    self.since = self.since + elapsed
+    if self.since < 0.2 then return end
+    self.since = 0
+    safe(fillShown, "range")
+end)
 
 ev:SetScript("OnEvent", function(_, event, unit, arg2, arg3)
     if event == "ADDON_LOADED" then
