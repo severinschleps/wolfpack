@@ -319,15 +319,39 @@ function rg.build()
                 minR, maxR = tonumber(mn) or 0, tonumber(mx)
             end
         end)
-        -- Melee is range 0 in the game's data, which is five yards on the ground.
+        -- Melee is range 0 in the game's data, which is five yards on the ground. Plenty of
+        -- spells with no range at all look the same here, so every candidate is kept: the ones
+        -- that cannot be pointed at an enemy are weeded out in rg.qualify.
         if maxR == 0 and minR == 0 then maxR = 5 end
-        local key = minR .. ":" .. tostring(maxR)
+        local key = name
         if maxR and maxR > 0 and not seen[key] then
             seen[key] = true
             list[#list + 1] = { name = name, min = minR, max = maxR }
         end
     end
     table.sort(list, function(a, b) return a.max < b.max end)
+    rg.candidates = list
+    return list
+end
+
+-- Which of them the game will actually answer for the unit in front of you. A self-buff says
+-- nothing about an enemy, so it drops out here -- otherwise one of those would sit in the melee
+-- slot and the bar would never see you standing next to something. One spell per range.
+function rg.qualify()
+    if not rg.candidates then rg.build() end
+    if not UnitExists("target") then return rg.spells end
+    local seen, list = {}, {}
+    for _, sp in ipairs(rg.candidates) do
+        local ok, res = pcall(function()
+            if C_Spell and C_Spell.IsSpellInRange then return C_Spell.IsSpellInRange(sp.name, "target") end
+            return IsSpellInRange(sp.name, "target")
+        end)
+        local key = sp.min .. ":" .. sp.max
+        if ok and res ~= nil and readable(res) and not seen[key] then
+            seen[key] = true
+            list[#list + 1] = sp
+        end
+    end
     rg.spells = list
     return list
 end
@@ -337,7 +361,7 @@ end
 -- "too close" when something with no minimum says yes.
 -- The steps your spells put on the bar: 0, every range they have, and the far end.
 function rg.bounds(max)
-    if #rg.spells == 0 then rg.build() end
+    if #rg.spells == 0 then rg.qualify() end
     local seen, out = { [0] = true }, { 0 }
     for _, sp in ipairs(rg.spells) do
         for _, yards in ipairs({ sp.min, sp.max }) do
@@ -354,12 +378,12 @@ end
 
 -- Whether this is worth drawing at all: spells with ranges, and a game willing to answer.
 function rg.usable()
-    if #rg.spells == 0 then rg.build() end
-    return #rg.spells > 0 and rg.answered ~= false
+    if #rg.spells == 0 then rg.qualify() end
+    return #rg.spells > 0
 end
 
 function rg.band()
-    if #rg.spells == 0 then rg.build() end
+    if #rg.spells == 0 then rg.qualify() end
     local answers, close = {}, false
     for _, sp in ipairs(rg.spells) do
         local ok, res = pcall(function()
@@ -4281,7 +4305,7 @@ ev:SetScript("OnEvent", function(_, event, unit, arg2, arg3)
         if targetFrame:IsShown() then safe(fill, targetFrame) end
     elseif event == "SPELLS_CHANGED" or event == "LEARNED_SPELL_IN_TAB"
         or event == "PLAYER_LEVEL_UP" then
-        rg.spells, rg.answered = {}, nil -- new ranges: work them out again
+        rg.spells, rg.candidates, rg.answered = {}, nil, nil -- new ranges: work them out again
     elseif event == "UNIT_ABSORB_AMOUNT_CHANGED" then
         if GetTime() - absorb.castAt <= ABSORB_CAST_WINDOW then -- our cast just put a shield up
             local ok, points = pcall(UnitGetTotalAbsorbs, "player")

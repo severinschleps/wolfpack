@@ -1573,7 +1573,10 @@ assert(ns.critSeen.samples["UNIT_COMBAT CRIT"]:find("CRITICAL"), "and a critical
 UnitDistanceSquared = function() return 361 end
 CheckInteractDistance = function(_, i) return i > 2 end
 -- a hunter's book: a melee swing, a shot with a minimum range, and a long shot
-S.book = { { "Raptor Strike", 0, 0 }, { "Arcane Shot", 8, 35 }, { "Auto Shot", 8, 35 } }
+-- Aspect of the Hawk comes first and has no range at all, like melee does: it must not take
+-- the melee slot, because the game says nothing about it when an enemy is targeted.
+S.book = { { "Aspect of the Hawk", 0, 0, "self" }, { "Raptor Strike", 0, 0 },
+    { "Arcane Shot", 8, 35 }, { "Auto Shot", 8, 35 } }
 C_SpellBook = { GetSpellBookItemName = function(i) return S.book[i] and S.book[i][1] or nil end }
 C_Spell.GetSpellInfo = function(name)
     for _, sp in ipairs(S.book or {}) do
@@ -1584,6 +1587,7 @@ end
 C_Spell.IsSpellInRange = function(name, unit)
     for _, sp in ipairs(S.book or {}) do
         if sp[1] == name then
+            if sp[4] == "self" then return nil end -- nothing to say about an enemy
             local d, max = S.distance or 3, sp[3] > 0 and sp[3] or 5
             return d >= sp[2] and d <= max
         end
@@ -1598,8 +1602,11 @@ rb.sectionColors = { { 0.9, 0.3, 0.2, 1 }, { 1, 0.75, 0.2, 1 }, { 0.4, 0.9, 0.4,
     { 0.3, 0.6, 1, 1 }, { 0.7, 0.5, 0.9, 1 } } -- the control poking above recolors them
 S.targetHP = 500 -- something to target
 S.distance = 3
-ns.rg.spells = {}
+S.targetHP = 500
+ns.rg.spells, ns.rg.candidates = {}, nil
 local low, high = ns.rg.band()
+assert(#ns.rg.spells == 2, "one spell per range, and only ones the game answers for")
+assert(ns.rg.spells[1].name == "Raptor Strike", "melee is the raptor strike, not the aspect")
 assert(low == 0 and high == 5, "inside melee: nothing longer reaches, the shot's minimum caps it")
 S.distance = 20
 low, high = ns.rg.band()
@@ -1630,11 +1637,11 @@ assert(not rbar:IsShown(), "no target, no bar")
 S.targetHP, S.distance = 500, 20
 local keptBook = S.book
 S.book = {}
-ns.rg.spells, ns.rg.answered = {}, nil
+ns.rg.spells, ns.rg.candidates = {}, nil
 fire("UNIT_MAXPOWER")
 assert(not rbar:IsShown(), "no spell with a range: the bar stays away")
 S.book = keptBook
-ns.rg.spells, ns.rg.answered = {}, nil
+ns.rg.spells, ns.rg.candidates = {}, nil
 fire("UNIT_MAXPOWER")
 assert(rbar:IsShown(), "and comes back when there is something to ask")
 S.targetHP = nil
