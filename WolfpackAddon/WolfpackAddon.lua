@@ -352,8 +352,14 @@ function rg.qualify()
             list[#list + 1] = sp
         end
     end
-    rg.spells = list
-    return list
+    -- A neutral mob may answer for fewer spells than a hostile one, so a set that once worked
+    -- is kept and reused rather than leaving the bar with nothing to ask.
+    if #list > 0 then
+        rg.spells, rg.lastGood = list, list
+    else
+        rg.spells = rg.lastGood or {}
+    end
+    return rg.spells
 end
 
 -- Asks the game about each of them and works out what is left. A "no" from a spell with a
@@ -4305,7 +4311,7 @@ ev:SetScript("OnEvent", function(_, event, unit, arg2, arg3)
         if targetFrame:IsShown() then safe(fill, targetFrame) end
     elseif event == "SPELLS_CHANGED" or event == "LEARNED_SPELL_IN_TAB"
         or event == "PLAYER_LEVEL_UP" then
-        rg.spells, rg.candidates, rg.answered = {}, nil, nil -- new ranges: work them out again
+        rg.spells, rg.candidates, rg.lastGood = {}, nil, nil -- new ranges: work them out again
     elseif event == "UNIT_ABSORB_AMOUNT_CHANGED" then
         if GetTime() - absorb.castAt <= ABSORB_CAST_WINDOW then -- our cast just put a shield up
             local ok, points = pcall(UnitGetTotalAbsorbs, "player")

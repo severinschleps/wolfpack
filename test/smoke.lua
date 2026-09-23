@@ -1588,6 +1588,7 @@ C_Spell.IsSpellInRange = function(name, unit)
     for _, sp in ipairs(S.book or {}) do
         if sp[1] == name then
             if sp[4] == "self" then return nil end -- nothing to say about an enemy
+            if S.neutral and sp[2] > 0 then return nil end -- stingier about a neutral one
             local d, max = S.distance or 3, sp[3] > 0 and sp[3] or 5
             return d >= sp[2] and d <= max
         end
@@ -1630,6 +1631,11 @@ S.distance = 20
 fire("UNIT_MAXPOWER")
 assert(rbar.lit[3] == true and rbar.lit[4] == false, "8 to 35 is the lit stretch now")
 assert(rbar.text._text == "8 - 35 yd", "with the numbers")
+-- a neutral mob the game is stingier about: the set that worked before is kept
+S.neutral, S.distance = true, 20
+fire("UNIT_MAXPOWER")
+assert(rbar:IsShown() and #ns.rg.spells == 2, "still asking, with what worked before")
+S.neutral = nil
 S.targetHP = nil
 fire("UNIT_MAXPOWER")
 assert(not rbar:IsShown(), "no target, no bar")
@@ -1637,7 +1643,7 @@ assert(not rbar:IsShown(), "no target, no bar")
 S.targetHP, S.distance = 500, 20
 local keptBook = S.book
 S.book = {}
-ns.rg.spells, ns.rg.candidates = {}, nil
+ns.rg.spells, ns.rg.candidates, ns.rg.lastGood = {}, nil, nil
 fire("UNIT_MAXPOWER")
 assert(not rbar:IsShown(), "no spell with a range: the bar stays away")
 S.book = keptBook
