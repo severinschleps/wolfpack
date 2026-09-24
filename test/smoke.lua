@@ -1527,6 +1527,14 @@ assert(food.icon._tex == 1000 + 8076, "with the Sweet Roll icon, not the Muffin'
 assert(water.text._text == 3 and water.icon._tex == 1000 + 8079, "and the best water")
 assert(water.text._color and water.text._color[1] == 1 and water.text._color[2] == 0.4,
     "three is low, so it is colored that way")
+-- and which of the two comes first is yours to choose
+mo.waterFirst = true
+ns.mgEv._scripts.OnEvent(ns.mgEv, "BAG_UPDATE")
+assert(food.icon._tex == 1000 + 8079 and water.icon._tex == 1000 + 8076, "water leads, food follows")
+mo.waterFirst = false
+ns.mgEv._scripts.OnEvent(ns.mgEv, "BAG_UPDATE")
+assert(food.icon._tex == 1000 + 8076, "and back the other way round")
+
 -- the number can be put in the middle of the icon, or hidden altogether
 mo.countAt, mo.showCount = "center", true
 ns.mgEv._scripts.OnEvent(ns.mgEv, "BAG_UPDATE")

@@ -227,7 +227,7 @@ DEFAULTS.hunter = {
 -- Mage: the conjured food and water in your bags, best rank only.
 DEFAULTS.mage = {
     show = true, locked = true, x = 0, y = -140, size = 32, gap = 4, grow = "right",
-    countAt = "corner", showCount = true, low = 5, radius = 0,
+    countAt = "corner", showCount = true, low = 5, radius = 0, waterFirst = false,
     font = FONTS[1][2], fontSize = 12, outline = true,
     color = { 1, 1, 1, 1 }, lowColor = { 1, 0.4, 0.4, 1 },
 }
@@ -2053,7 +2053,8 @@ function mg.refresh()
     mg.panel:Show()
     local totals = mg.counts()
     local flags = o.outline and "OUTLINE" or ""
-    for i, kind in ipairs({ "food", "water" }) do
+    local order = o.waterFirst and { "water", "food" } or { "food", "water" }
+    for i, kind in ipairs(order) do
         local id, count = mg.best(kind, totals)
         local e = mg.entry(i)
         e:SetSize(o.size, o.size)
@@ -3479,6 +3480,10 @@ local function buildConfig()
     dropdown(magePage, "Side by side or stacked", mlook.x, mlook:row(DROP),
         { { "Side by side", "right" }, { "Stacked", "down" } },
         function() return M().grow end, function(v) M().grow = v end, textPreview)
+    dropdown(magePage, "Which comes first", mlook.x, mlook:row(DROP),
+        { { "Food, then water", false }, { "Water, then food", true } },
+        function() return M().waterFirst and true or false end,
+        function(v) M().waterFirst = v end, textPreview)
     dropdown(magePage, "Corner radius", mlook.x, mlook:row(DROP), { { "None (square)", 0 },
         { "Slightly rounded", 12 }, { "Rounded", 25 }, { "Circle", 50 } },
         function() return ns.ICON_MASKS[M().radius] and M().radius or 0 end,
