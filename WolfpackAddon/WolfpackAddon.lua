@@ -219,6 +219,7 @@ local DEFAULTS = {
 -- Warlock: the soul shards in your bags.
 DEFAULTS.warlock = {
     show = true, locked = true, x = 0, y = -220, size = 32, radius = 0,
+    armor = true, armorSize = 32, flash = true, gap = 4, grow = "right",
     countAt = "corner", showCount = true, low = 3,
     font = FONTS[1][2], fontSize = 12, outline = true,
     color = { 1, 1, 1, 1 }, lowColor = { 1, 0.4, 0.4, 1 },
@@ -2254,11 +2255,22 @@ wl.panel:SetScript("OnDragStop", function(a)
     db.warlock.y = math.floor(select(2, a:GetCenter()) - uy + 0.5)
     changed()
 end)
-wl.icon = wl.panel:CreateTexture(nil, "ARTWORK")
-wl.icon:SetAllPoints()
-wl.mask = wl.panel:CreateMaskTexture()
-wl.mask:SetAllPoints(wl.panel)
-wl.text = wl.panel:CreateFontString(nil, "OVERLAY")
+wl.entries = {}
+wl.armors = { { "Demon Armor", 706 }, { "Demon Skin", 696 } } -- best first
+
+function wl.entry(i)
+    local e = wl.entries[i]
+    if not e then
+        e = CreateFrame("Frame", nil, wl.panel)
+        e.icon = e:CreateTexture(nil, "ARTWORK")
+        e.icon:SetAllPoints()
+        e.mask = e:CreateMaskTexture()
+        e.mask:SetAllPoints(e)
+        e.text = e:CreateFontString(nil, "OVERLAY")
+        wl.entries[i] = e
+    end
+    return e
+end
 
 -- Shards stack one to a slot, so this counts slots as well as stack sizes.
 function wl.count()
@@ -2272,6 +2284,66 @@ function wl.count()
     return total
 end
 
+function wl.icons(id)
+    wl.tex = wl.tex or {}
+    if wl.tex[id] == nil then
+        local ok, tex = pcall(function()
+            if id == wl.shard then
+                return (C_Item and C_Item.GetItemIconByID and C_Item.GetItemIconByID(id))
+                    or (GetItemIcon and GetItemIcon(id))
+            end
+            return (C_Spell and C_Spell.GetSpellTexture and C_Spell.GetSpellTexture(id))
+                or (GetSpellTexture and GetSpellTexture(id))
+        end)
+        wl.tex[id] = (ok and tex) or 134336
+    end
+    return wl.tex[id]
+end
+
+-- The best armor you know, and how long the one you are wearing has left. Out of combat the
+-- game answers; in a fight it will not, so the last expiry it gave keeps counting down on its
+-- own -- no reading required, just the clock.
+function wl.armor()
+    local best
+    for _, sp in ipairs(wl.armors) do
+        local known = select(2, pcall(function()
+            for i = 1, 200 do
+                local name = C_SpellBook and C_SpellBook.GetSpellBookItemName
+                    and C_SpellBook.GetSpellBookItemName(i, 0)
+                    or (GetSpellBookItemName and GetSpellBookItemName(i, "spell"))
+                if not name then return false end
+                if name == sp[1] then return true end
+            end
+            return false
+        end))
+        if known and not best then best = sp end
+        -- whichever one is actually on you wins, even the lesser one
+        local ok, data = pcall(function()
+            local d = C_UnitAuras.GetAuraDataBySpellName("player", sp[1], "HELPFUL")
+            if d then return d end
+        end)
+        if ok and data then
+            local left = select(2, pcall(function() return data.expirationTime end))
+            wl.expiry = (readable(left) and left and left > 0) and left or wl.expiry
+            return sp, true, wl.expiry
+        elseif ok and not InCombatLockdown() then
+            -- Out of combat "nothing" is an answer; in a fight this client says that about
+            -- every aura, so it means nothing at all and the timer below keeps its word.
+            if sp == best then wl.expiry = nil end
+        end
+    end
+    -- No answer: the last expiry we were given still tells the truth until it runs out.
+    if wl.expiry and wl.expiry > GetTime() then return best, true, wl.expiry end
+    return best, false, nil
+end
+
+function wl.short(sec)
+    if not sec or sec <= 0 then return "" end
+    if sec >= 3600 then return math.floor(sec / 3600 + 0.5) .. "h" end
+    if sec >= 60 then return math.floor(sec / 60 + 0.5) .. "m" end
+    return math.floor(sec) .. "s"
+end
+
 function wl.refresh()
     if not db then return end
     local o = db.warlock
@@ -2283,36 +2355,70 @@ function wl.refresh()
         return
     end
     wl.panel:Show()
-    wl.panel:SetSize(o.size, o.size)
+    local flags, n, step = o.outline and "OUTLINE" or "", 0, o.size + o.gap
+    local function place(e, icon, text, colored, size)
+        n = n + 1
+        e:SetSize(size, size)
+        e:ClearAllPoints()
+        if o.grow == "down" then
+            e:SetPoint("TOPLEFT", wl.panel, "TOPLEFT", 0, -(n - 1) * step)
+        else
+            e:SetPoint("TOPLEFT", wl.panel, "TOPLEFT", (n - 1) * step, 0)
+        end
+        e.icon:SetTexture(icon)
+        ns.iconCorners(e.icon, e.mask, o.radius)
+        if not e.text:SetFont(o.font, o.fontSize, flags) then e.text:SetFont(FONTS[1][2], o.fontSize, flags) end
+        e.text:ClearAllPoints()
+        local at = o.countAt == "center" and "CENTER" or "BOTTOMRIGHT"
+        e.text:SetPoint(at, e, at, 0, 0)
+        e.text:SetText(text or "")
+        e.text:SetShown(o.showCount and text ~= nil)
+        e.text:SetTextColor(unpack(colored and o.lowColor or o.color))
+        e:Show()
+    end
+
     local count = wl.count()
-    if wl.tex == nil then
-        local ok, tex = pcall(function()
-            return (C_Item and C_Item.GetItemIconByID and C_Item.GetItemIconByID(wl.shard))
-                or (GetItemIcon and GetItemIcon(wl.shard))
-        end)
-        wl.tex = (ok and tex) or 134336 -- a soul shard, when the client will not say
+    place(wl.entry(1), wl.icons(wl.shard), count, count <= o.low, o.size)
+    wl.entry(1).icon:SetDesaturated(count == 0)
+
+    wl.lit = nil
+    if o.armor then
+        local sp, up, expiry = wl.armor()
+        if sp then
+            local left = up and expiry and (expiry - GetTime()) or nil
+            local e = wl.entry(2)
+            place(e, wl.icons(sp[2]), up and wl.short(left) or "", not up, o.armorSize or o.size)
+            e.icon:SetDesaturated(not up)
+            wl.lit = not up and e or nil -- missing: it is the one that flashes
+        end
     end
-    wl.icon:SetTexture(wl.tex)
-    wl.icon:SetDesaturated(count == 0)
-    ns.iconCorners(wl.icon, wl.mask, o.radius)
-    local flags = o.outline and "OUTLINE" or ""
-    if not wl.text:SetFont(o.font, o.fontSize, flags) then wl.text:SetFont(FONTS[1][2], o.fontSize, flags) end
-    wl.text:ClearAllPoints()
-    local at = o.countAt == "center" and "CENTER" or "BOTTOMRIGHT"
-    wl.text:SetPoint(at, wl.panel, at, 0, 0)
-    wl.text:SetText(count)
-    wl.text:SetShown(o.showCount)
-    if count <= o.low then
-        wl.text:SetTextColor(unpack(o.lowColor))
-    else
-        wl.text:SetTextColor(unpack(o.color))
-    end
+    for i = n + 1, #wl.entries do wl.entries[i]:Hide() end
+    wl.panel:SetSize(o.grow == "down" and o.size or math.max(n * step - o.gap, o.size),
+        o.grow == "down" and math.max(n * step - o.gap, o.size) or o.size)
 end
+
+-- The armor icon breathes while the buff is missing, and the duration ticks down on its own.
+wl.ticker = CreateFrame("Frame")
+wl.ticker.since = 0
+wl.ticker:SetScript("OnUpdate", function(self, elapsed)
+    if not db or not db.warlock.show or class ~= "WARLOCK" then return end
+    if wl.lit and db.warlock.flash then
+        self.t = (self.t or 0) + elapsed
+        wl.lit.icon:SetAlpha(0.45 + 0.55 * math.abs(math.sin(self.t * 1.6)))
+    elseif wl.entries[2] then
+        wl.entries[2].icon:SetAlpha(1)
+    end
+    self.since = self.since + elapsed
+    if self.since < 1 then return end
+    self.since = 0
+    safe(wl.refresh)
+end)
 
 local wlEv = CreateFrame("Frame")
 ns.wlEv = wlEv
 wlEv:SetScript("OnEvent", function() safe(wl.refresh) end)
-for _, e in ipairs({ "BAG_UPDATE", "BAG_UPDATE_DELAYED", "PLAYER_ENTERING_WORLD", "PLAYER_LOGIN" }) do
+for _, e in ipairs({ "BAG_UPDATE", "BAG_UPDATE_DELAYED", "PLAYER_ENTERING_WORLD", "PLAYER_LOGIN",
+    "UNIT_AURA", "PLAYER_REGEN_ENABLED" }) do
     pcall(wlEv.RegisterEvent, wlEv, e)
 end
 
@@ -3724,7 +3830,28 @@ local function buildConfig()
         function(v) W().countAt = v end, textPreview)
     check(lockPage, "Show the count", wlook.x, wlook:row(ROW), function() return W().showCount end,
         function(v) W().showCount = v end)
+    slider(lockPage, "Gap", wlook.x, wlook:row(SLIDER), 0, 30, function() return W().gap end,
+        function(v) W().gap = v end)
+    dropdown(lockPage, "Side by side or stacked", wlook.x, wlook:row(DROP),
+        { { "Side by side", "right" }, { "Stacked", "down" } },
+        function() return W().grow end, function(v) W().grow = v end, textPreview)
     wlook:close()
+
+    local warm = group(lockPage, COL[4], TOP, 202, "Demon armor")
+    check(lockPage, "Show it", warm.x, warm:row(ROW), function() return W().armor end,
+        function(v) W().armor = v end)
+    check(lockPage, "Flash when it is gone", warm.x, warm:row(ROW), function() return W().flash end,
+        function(v) W().flash = v end)
+    slider(lockPage, "Icon size", warm.x, warm:row(SLIDER), 12, 80,
+        function() return W().armorSize or W().size end, function(v) W().armorSize = v end)
+    local warmNote = label(lockPage, "The best armor you know -- Demon Armor, or Demon Skin until "
+        .. "you have it -- with what is left on it written inside the icon. Out of combat the "
+        .. "game is asked; in a fight the last time it gave keeps counting down on its own.",
+        "GameFontDisableSmall")
+    warmNote:SetPoint("TOPLEFT", warm.x, warm:row(56))
+    warmNote:SetWidth(182)
+    warmNote:SetJustifyH("LEFT")
+    warm:close()
 
     local wtext = group(lockPage, COL[3], TOP, 202, "The count")
     dropdown(lockPage, "Font", wtext.x, wtext:row(DROP), FONTS, function() return W().font end,

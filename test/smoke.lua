@@ -189,6 +189,7 @@ RegisterUnitWatch = function(f) f._watched = true end
 GetNumGroupMembers = function() return S.members or 0 end
 UnitIsDeadOrGhost = function() return false end
 UnitLevel = function() return S.level or 60 end
+C_SpellBook = { GetSpellBookItemName = function(i) return (S.book or {})[i] and S.book[i][1] or nil end }
 GetInventorySlotInfo = function() return 0 end
 GetInventoryItemID = function() return S.ammoID end
 GetInventoryItemCount = function() return S.ammoCount or 0 end
@@ -1490,12 +1491,31 @@ S.bags = { [0] = {
     { itemID = 6265, stackCount = 1 }, { itemID = 6265, stackCount = 1 },
     { itemID = 1, stackCount = 5 },
 } }
+wo.armor, wo.flash, wo.gap, wo.grow = true, true, 4, "right"
+S.book = { { "Demon Armor", 0, 0, "self" } } -- the best armor this warlock knows
+S.auras = {}
 ns.wlEv._scripts.OnEvent(ns.wlEv, "BAG_UPDATE")
-assert(ns.wl.panel:IsShown() and ns.wl.text._text == 2, "two shards, and nothing else counted")
-assert(ns.wl.text._color[1] == 1 and ns.wl.text._color[2] == 0.4, "two is low, so it reads low")
+local shard, armor = ns.wl.entries[1], ns.wl.entries[2]
+assert(ns.wl.panel:IsShown() and shard.text._text == 2, "two shards, and nothing else counted")
+assert(shard.text._color[1] == 1 and shard.text._color[2] == 0.4, "two is low, so it reads low")
+-- the armor icon: missing, so it is grey and it is the one that flashes
+assert(armor:IsShown() and armor.icon._desat == true and ns.wl.lit == armor, "no armor: it flashes")
+S.time = 7000
+S.auras = { { name = "Demon Armor", expirationTime = 7000 + 1800 } }
+ns.wlEv._scripts.OnEvent(ns.wlEv, "UNIT_AURA")
+assert(armor.icon._desat == false and ns.wl.lit == nil, "armor up: no flashing")
+assert(armor.text._text == "30m", "with what is left on it, inside the icon")
+-- in combat the game says nothing about any aura, and the timer keeps counting on its own
+S.combat = true
+S.auras = {}
+S.time = 7000 + 1500
+ns.wlEv._scripts.OnEvent(ns.wlEv, "UNIT_AURA")
+assert(armor.text._text == "5m", "still counting, without asking anyone")
+S.combat = false
 S.bags = { [0] = {} }
+S.auras = {}
 ns.wlEv._scripts.OnEvent(ns.wlEv, "BAG_UPDATE")
-assert(ns.wl.text._text == 0 and ns.wl.icon._desat == true, "none: a grey shard and a zero")
+assert(shard.text._text == 0 and shard.icon._desat == true, "none: a grey shard and a zero")
 S.bags = keptBags2
 login("ROGUE", 3)
 ns.wlEv._scripts.OnEvent(ns.wlEv, "BAG_UPDATE")
@@ -1622,7 +1642,6 @@ CheckInteractDistance = function(_, i) return i > 2 end
 -- Eagle Eye reaches a hundred yards and would swamp the reading, so it must be left out
 S.book = { { "Aspect of the Hawk", 0, 0, "self" }, { "Raptor Strike", 0, 0 },
     { "Arcane Shot", 8, 35 }, { "Auto Shot", 8, 35 }, { "Eagle Eye", 10, 100 } }
-C_SpellBook = { GetSpellBookItemName = function(i) return S.book[i] and S.book[i][1] or nil end }
 C_Spell.GetSpellInfo = function(name)
     for _, sp in ipairs(S.book or {}) do
         if sp[1] == name then return { name = name, minRange = sp[2], maxRange = sp[3] } end
