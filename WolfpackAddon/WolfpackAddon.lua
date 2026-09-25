@@ -219,7 +219,7 @@ local DEFAULTS = {
 -- Warlock: the soul shards in your bags.
 DEFAULTS.warlock = {
     show = true, locked = true, x = 0, y = -220, size = 32, radius = 0,
-    armor = true, armorSize = 32, armorFontSize = 12, armorInCombat = false,
+    armor = true, armorSize = 32, armorFontSize = 12, armorOnlyMissing = false,
     flash = true, gap = 4, grow = "right",
     countAt = "corner", showCount = true, low = 3,
     font = FONTS[1][2], fontSize = 12, outline = true,
@@ -2301,9 +2301,34 @@ function wl.icons(id)
     return wl.tex[id]
 end
 
--- The best armor you know, and how long the one you are wearing has left. Out of combat the
--- game answers; in a fight it will not, so the last expiry it gave keeps counting down on its
--- own -- no reading required, just the clock.
+-- Is that buff on you? Out of combat the game answers. In a fight it says nothing about any
+-- aura -- but Blizzard's own buff buttons are still on screen wearing the icon, and reading a
+-- texture off their frame is not an aura call, so it is not cut off. Returns true, false, or
+-- nil when nobody will say.
+function wl.iconOnBuffBar(tex)
+    local found = nil
+    pcall(function()
+        for i = 1, 40 do
+            local b = _G["BuffButton" .. i]
+            local art = b and (b.icon or _G["BuffButton" .. i .. "Icon"])
+            if not art then break end
+            found = found or false
+            if art:GetTexture() == tex then found = true end
+        end
+        if found ~= nil or not BuffFrame then return end
+        local holder = BuffFrame.AuraContainer or BuffFrame
+        for _, child in ipairs({ holder:GetChildren() }) do
+            local art = child.icon or child.Icon
+            if art then
+                found = found or false
+                if art:GetTexture() == tex then found = true end
+            end
+        end
+    end)
+    return found
+end
+
+-- The best armor you know, and whether it is on you.
 function wl.armor()
     local best
     for _, sp in ipairs(wl.armors) do
@@ -2318,31 +2343,15 @@ function wl.armor()
             return false
         end))
         if known and not best then best = sp end
-        -- whichever one is actually on you wins, even the lesser one
         local ok, data = pcall(function()
             local d = C_UnitAuras.GetAuraDataBySpellName("player", sp[1], "HELPFUL")
             if d then return d end
         end)
-        if ok and data then
-            local left = select(2, pcall(function() return data.expirationTime end))
-            wl.expiry = (readable(left) and left and left > 0) and left or wl.expiry
-            return sp, true, wl.expiry
-        elseif ok and not InCombatLockdown() then
-            -- Out of combat "nothing" is an answer; in a fight this client says that about
-            -- every aura, so it means nothing at all and the timer below keeps its word.
-            if sp == best then wl.expiry = nil end
-        end
+        if ok and data then return sp, true end
+        -- the buff bar knows even while the aura calls are shut
+        if wl.iconOnBuffBar(wl.icons(sp[2])) == true then return sp, true end
     end
-    -- No answer: the last expiry we were given still tells the truth until it runs out.
-    if wl.expiry and wl.expiry > GetTime() then return best, true, wl.expiry end
-    return best, false, nil
-end
-
-function wl.short(sec)
-    if not sec or sec <= 0 then return "" end
-    if sec >= 3600 then return math.floor(sec / 3600 + 0.5) .. "h" end
-    if sec >= 60 then return math.floor(sec / 60 + 0.5) .. "m" end
-    return math.floor(sec) .. "s"
+    return best, false
 end
 
 function wl.refresh()
@@ -2384,17 +2393,16 @@ function wl.refresh()
     wl.entry(1).icon:SetDesaturated(count == 0)
 
     wl.lit = nil
-    -- In a fight the game says nothing about auras, so the armor icon can only repeat itself.
-    -- Unless you want it to, it steps aside until the fight is over.
-    if o.armor and (o.armorInCombat or not InCombatLockdown()) then
-        local sp, up, expiry = wl.armor()
-        if sp then
-            local left = up and expiry and (expiry - GetTime()) or nil
+    if o.armor then
+        local sp, up = wl.armor()
+        -- With "only when missing" on, a buff that is up needs no reminder at all.
+        if sp and not (up and o.armorOnlyMissing) then
             local e = wl.entry(2)
-            place(e, wl.icons(sp[2]), up and wl.short(left) or "", not up, o.armorSize or o.size,
+            place(e, wl.icons(sp[2]), nil, false, o.armorSize or o.size,
                 o.armorFontSize or o.fontSize)
-            e.icon:SetDesaturated(not up)
-            wl.lit = not up and e or nil -- missing: it is the one that flashes
+            e.icon:SetDesaturated(false)
+            e.icon:SetAlpha(1)
+            wl.lit = (not up) and e or nil -- missing: it is the one that flashes
         end
     end
     for i = n + 1, #wl.entries do wl.entries[i]:Hide() end
@@ -2407,9 +2415,9 @@ wl.ticker = CreateFrame("Frame")
 wl.ticker.since = 0
 wl.ticker:SetScript("OnUpdate", function(self, elapsed)
     if not db or not db.warlock.show or class ~= "WARLOCK" then return end
-    if wl.lit and db.warlock.flash then
+    if wl.lit and db.warlock.flash then -- all the way down and back, so it is hard to miss
         self.t = (self.t or 0) + elapsed
-        wl.lit.icon:SetAlpha(0.45 + 0.55 * math.abs(math.sin(self.t * 1.6)))
+        wl.lit.icon:SetAlpha(0.1 + 0.9 * math.abs(math.sin(self.t * 2.6)))
     elseif wl.entries[2] then
         wl.entries[2].icon:SetAlpha(1)
     end
@@ -3847,17 +3855,17 @@ local function buildConfig()
         function(v) W().armor = v end)
     check(lockPage, "Flash when it is gone", warm.x, warm:row(ROW), function() return W().flash end,
         function(v) W().flash = v end)
-    check(lockPage, "Keep it up in combat", warm.x, warm:row(ROW),
-        function() return W().armorInCombat end, function(v) W().armorInCombat = v end)
+    check(lockPage, "Only when it is missing", warm.x, warm:row(ROW),
+        function() return W().armorOnlyMissing end, function(v) W().armorOnlyMissing = v end)
     slider(lockPage, "Icon size", warm.x, warm:row(SLIDER), 12, 80,
         function() return W().armorSize or W().size end, function(v) W().armorSize = v end)
     slider(lockPage, "Font size", warm.x, warm:row(SLIDER), 6, 30,
         function() return W().armorFontSize or W().fontSize end,
         function(v) W().armorFontSize = v end)
     local warmNote = label(lockPage, "The best armor you know -- Demon Armor, or Demon Skin until "
-        .. "you have it -- with what is left on it inside the icon. In a fight the game says "
-        .. "nothing about auras, so the icon steps aside; tick above to keep it up anyway, "
-        .. "counting down on the clock alone.", "GameFontDisableSmall")
+        .. "you have it. Missing, it flashes. This one works in a fight too: when the aura calls "
+        .. "go quiet the icon is looked for on Blizzard's own buff bar instead.",
+        "GameFontDisableSmall")
     warmNote:SetPoint("TOPLEFT", warm.x, warm:row(56))
     warmNote:SetWidth(182)
     warmNote:SetJustifyH("LEFT")

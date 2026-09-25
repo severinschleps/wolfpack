@@ -1492,34 +1492,36 @@ S.bags = { [0] = {
     { itemID = 1, stackCount = 5 },
 } }
 wo.armor, wo.flash, wo.gap, wo.grow = true, true, 4, "right"
-wo.armorInCombat, wo.fontSize, wo.armorFontSize = true, 11, 18
+wo.armorOnlyMissing, wo.fontSize, wo.armorFontSize = false, 11, 18
 S.book = { { "Demon Armor", 0, 0, "self" } } -- the best armor this warlock knows
 S.auras = {}
 ns.wlEv._scripts.OnEvent(ns.wlEv, "BAG_UPDATE")
 local shard, armor = ns.wl.entries[1], ns.wl.entries[2]
 assert(ns.wl.panel:IsShown() and shard.text._text == 2, "two shards, and nothing else counted")
 assert(shard.text._color[1] == 1 and shard.text._color[2] == 0.4, "two is low, so it reads low")
--- the armor icon: missing, so it is grey and it is the one that flashes
-assert(armor:IsShown() and armor.icon._desat == true and ns.wl.lit == armor, "no armor: it flashes")
-S.time = 7000
-S.auras = { { name = "Demon Armor", expirationTime = 7000 + 1800 } }
+assert(armor:IsShown() and ns.wl.lit == armor, "no armor: that icon is the one that flashes")
+assert(armor.icon._desat == false, "and it keeps its colors while it does")
+assert(shard.text._font[2] == 11 and armor.text._font[2] == 18, "one font size each")
+S.auras = { { name = "Demon Armor" } }
 ns.wlEv._scripts.OnEvent(ns.wlEv, "UNIT_AURA")
-assert(armor.icon._desat == false and ns.wl.lit == nil, "armor up: no flashing")
-assert(armor.text._text == "30m", "with what is left on it, inside the icon")
--- each icon carries its own font size
-assert(shard.text._font[2] == 11 and armor.text._font[2] == 18, "one size each")
--- in combat the game says nothing about any aura, and the timer keeps counting on its own
-S.combat = true
-S.auras = {}
-S.time = 7000 + 1500
+assert(armor:IsShown() and ns.wl.lit == nil, "armor up: no flashing")
+wo.armorOnlyMissing = true
 ns.wlEv._scripts.OnEvent(ns.wlEv, "UNIT_AURA")
-assert(armor.text._text == "5m", "still counting, without asking anyone")
--- and by default it does not stay up at all while the aura calls are shut
-wo.armorInCombat = false
+assert(not armor:IsShown(), "and with only-when-missing it is out of the way entirely")
+-- in a fight the aura calls say nothing, so Blizzard's own buff bar is read instead
+S.combat, S.auras = true, {}
+BuffButton1 = new()
+BuffButton1.icon = new()
+BuffButton1.icon._tex = 100 + 706 -- the demon armor icon, sitting on the buff bar
+BuffButton1.icon.GetTexture = function(self) return self._tex end
 ns.wlEv._scripts.OnEvent(ns.wlEv, "UNIT_AURA")
-assert(not armor:IsShown(), "in combat it steps aside")
-wo.armorInCombat = true
-S.combat = false
+assert(not armor:IsShown(), "the buff bar says it is up, so nothing is shown")
+BuffButton1.icon._tex = 999 -- something else entirely
+ns.wlEv._scripts.OnEvent(ns.wlEv, "UNIT_AURA")
+assert(armor:IsShown() and ns.wl.lit == armor, "not on the bar: flashing again, mid-fight")
+BuffButton1 = nil
+S.combat, wo.armorOnlyMissing = false, false
+
 S.bags = { [0] = {} }
 S.auras = {}
 ns.wlEv._scripts.OnEvent(ns.wlEv, "BAG_UPDATE")
