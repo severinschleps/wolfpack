@@ -818,6 +818,12 @@ xBox._text = "-150"; xBox._scripts.OnEnterPressed(xBox)
 boxes[5]._text = "90"; boxes[5]._scripts.OnEnterPressed(boxes[5])
 assert(prof().nameplate.gap == 4 and prof().nameplate.x == -150 and prof().nameplate.bars.health.width == 90, "nameplate edits")
 assert(prof().regular.gap == 30 and prof().regular.x == 0 and prof().regular.bars.health.width == 220, "regular untouched")
+-- every sidebar entry is really there and really opens its page
+for _, name in ipairs({ "Combat Display", "Nameplates", "Buffs", "Mage", "Hunter", "Warlock", "Other" }) do
+    local b = byText(name)
+    assert(b, "sidebar entry missing: " .. name)
+    b._scripts.OnClick(b, "LeftButton")
+end
 byText("Combat Display")._scripts.OnClick(byText("Combat Display"), "LeftButton")
 assert(gapBox._text == "30", "back on Combat Display")
 

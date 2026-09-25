@@ -3094,7 +3094,7 @@ local function buildConfig()
     -- Sidebar: one entry per module
     local SIDEBAR = { { "combat", "Combat Display", "regular" }, { "nameplates", "Nameplates", "nameplate" },
         { "buffs", "Buffs", "regular" }, { "mage", "Mage", "regular" },
-        { "hunter", "Hunter", "regular" },
+        { "hunter", "Hunter", "regular" }, { "warlock", "Warlock", "regular" },
         { "other", "Other", "regular" } }
     for i, e in ipairs(SIDEBAR) do
         local b = button(cfg, e[2], 118, 12, -104 - (i - 1) * 26, function()
