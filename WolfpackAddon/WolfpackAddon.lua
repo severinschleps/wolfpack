@@ -2336,6 +2336,8 @@ local function onRefresh(fn) refreshers[#refreshers + 1] = fn end
 -- box on any page decides how tall the options window needs to be.
 local pageBottom = 0
 local function group(parent, x, y, w, title)
+    ns.boxesOn = ns.boxesOn or {}
+    ns.boxesOn[parent] = (ns.boxesOn[parent] or 0) + 1
     local g = { x = x + 8, cursor = y - 24, w = w }
     g.title = parent:CreateFontString(nil, "OVERLAY", "GameFontNormal")
     g.title:SetPoint("TOPLEFT", x + 6, y)
@@ -3123,6 +3125,10 @@ local function buildConfig()
     magePage:SetAllPoints(barsPage)
     local hunterPage = CreateFrame("Frame", nil, cfg)
     hunterPage:SetAllPoints(barsPage)
+    local lockPage = CreateFrame("Frame", nil, cfg)
+    lockPage:SetAllPoints(barsPage)
+    ns.pages = { combat = barsPage, nameplates = questPage, buffs = buffPage, mage = magePage,
+        hunter = hunterPage, warlock = lockPage, other = otherPage }
 
     local title = label(cfg, "Combat Display", "GameFontNormalLarge")
     title:SetPoint("TOPLEFT", 150, -72)
@@ -3146,6 +3152,7 @@ local function buildConfig()
         buffPage:SetShown(section == "buffs")
         magePage:SetShown(section == "mage")
         hunterPage:SetShown(section == "hunter")
+        lockPage:SetShown(section == "warlock")
     end)
 
     local tabNote = label(barsPage, "", "GameFontDisableSmall")
@@ -3681,6 +3688,56 @@ local function buildConfig()
     slider(hunterPage, "Low is under", htext.x, htext:row(SLIDER), 1, 2000,
         function() return H().low end, function(v) H().low = v end)
     htext:close()
+
+    ----------------------------------------------------------------------------------
+    -- Warlock page: the soul shards in your bags
+    ----------------------------------------------------------------------------------
+    local W = function() return db.warlock end
+    local wset = group(lockPage, COL[1], TOP, 202, "Soul shards")
+    check(lockPage, "Show it", wset.x, wset:row(ROW), function() return W().show end,
+        function(v) W().show = v end)
+    local wlk = button(lockPage, "", 186, wset.x, wset:row(BUTTON), function()
+        W().locked = not W().locked
+        changed()
+    end)
+    onRefresh(function() wlk:SetText(W().locked and "Locked (click to unlock)" or "Unlocked - drag it") end)
+    slider(lockPage, "X (left / right)", wset.x, wset:row(SLIDER), -1200, 1200,
+        function() return W().x end, function(v) W().x = v end)
+    slider(lockPage, "Y (down / up)", wset.x, wset:row(SLIDER), -800, 800,
+        function() return W().y end, function(v) W().y = v end)
+    local wNote = label(lockPage, "Counts the soul shards in your bags. Warlocks only.",
+        "GameFontDisableSmall")
+    wNote:SetPoint("TOPLEFT", wset.x, wset:row(30))
+    wNote:SetWidth(182)
+    wNote:SetJustifyH("LEFT")
+    wset:close()
+
+    local wlook = group(lockPage, COL[2], TOP, 202, "Icon")
+    slider(lockPage, "Icon size", wlook.x, wlook:row(SLIDER), 12, 80, function() return W().size end,
+        function(v) W().size = v end)
+    dropdown(lockPage, "Corner radius", wlook.x, wlook:row(DROP), { { "None (square)", 0 },
+        { "Slightly rounded", 12 }, { "Rounded", 25 }, { "Circle", 50 } },
+        function() return ns.ICON_MASKS[W().radius] and W().radius or 0 end,
+        function(v) W().radius = v end, textPreview)
+    dropdown(lockPage, "Count sits", wlook.x, wlook:row(DROP), { { "In the corner", "corner" },
+        { "In the middle", "center" } }, function() return W().countAt end,
+        function(v) W().countAt = v end, textPreview)
+    check(lockPage, "Show the count", wlook.x, wlook:row(ROW), function() return W().showCount end,
+        function(v) W().showCount = v end)
+    wlook:close()
+
+    local wtext = group(lockPage, COL[3], TOP, 202, "The count")
+    dropdown(lockPage, "Font", wtext.x, wtext:row(DROP), FONTS, function() return W().font end,
+        function(v) W().font = v end, fontPreview)
+    slider(lockPage, "Font size", wtext.x, wtext:row(SLIDER), 6, 30, function() return W().fontSize end,
+        function(v) W().fontSize = v end)
+    check(lockPage, "Outline", wtext.x, wtext:row(ROW), function() return W().outline end,
+        function(v) W().outline = v end)
+    swatch(lockPage, "Shard color", wtext.x, wtext:row(SWATCH), function() return W().color end)
+    swatch(lockPage, "Shard color when low", wtext.x, wtext:row(SWATCH), function() return W().lowColor end)
+    slider(lockPage, "Low is under", wtext.x, wtext:row(SLIDER), 1, 32, function() return W().low end,
+        function(v) W().low = v end)
+    wtext:close()
 
     ----------------------------------------------------------------------------------
     -- Buffs page: the out-of-combat check of who is missing what
