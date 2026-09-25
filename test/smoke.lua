@@ -1532,6 +1532,7 @@ S.bags = { [0] = {
     { itemID = 1, stackCount = 5 },
 } }
 wo.armor, wo.flash, wo.gap, wo.grow = true, true, 4, "right"
+assert(prof().warlock.armorOnlyMissing == true, "armored means out of the way, by default")
 wo.armorOnlyMissing, wo.fontSize, wo.armorFontSize = false, 11, 18
 S.book = { { "Demon Armor", 0, 0, "self" } } -- the best armor this warlock knows
 S.auras = {}
@@ -1575,6 +1576,8 @@ assert(ns.wl.lit == nil, "and the buff bar finds it in a fight as well")
 BuffButton1.icon._tex = 999
 ns.wlEv._scripts.OnEvent(ns.wlEv, "UNIT_AURA")
 assert(ns.wl.lit == armor, "gone again mid-fight: flashing")
+SlashCmdList.WOLFPACKADDON("armor") -- the probe reads both routes without blowing up
+assert(not ns.errored, "the armor probe runs clean")
 S.book = { { "Demon Armor", 0, 0, "self" } }
 BuffButton1 = nil
 S.combat, wo.armorOnlyMissing = false, false

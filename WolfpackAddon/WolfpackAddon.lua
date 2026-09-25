@@ -232,7 +232,7 @@ DEFAULTS.shaman = ns.weaponDefaults(-260)
 -- Warlock: the soul shards in your bags.
 DEFAULTS.warlock = {
     show = true, locked = true, x = 0, y = -220, size = 32, radius = 0,
-    armor = true, armorSize = 32, armorFontSize = 12, armorOnlyMissing = false,
+    armor = true, armorSize = 32, armorFontSize = 12, armorOnlyMissing = true,
     flash = true, gap = 4, grow = "right",
     countAt = "corner", showCount = true, low = 3,
     font = FONTS[1][2], fontSize = 12, outline = true,
@@ -4026,7 +4026,7 @@ local function buildConfig()
         function(v) W().armor = v end)
     check(lockPage, "Flash when it is gone", warm.x, warm:row(ROW), function() return W().flash end,
         function(v) W().flash = v end)
-    check(lockPage, "Only when it is missing", warm.x, warm:row(ROW),
+    check(lockPage, "Hide it while you are armored", warm.x, warm:row(ROW),
         function() return W().armorOnlyMissing end, function(v) W().armorOnlyMissing = v end)
     slider(lockPage, "Icon size", warm.x, warm:row(SLIDER), 12, 80,
         function() return W().armorSize or W().size end, function(v) W().armorSize = v end)
@@ -4034,8 +4034,9 @@ local function buildConfig()
         function() return W().armorFontSize or W().fontSize end,
         function(v) W().armorFontSize = v end)
     local warmNote = label(lockPage, "The best armor you know -- Demon Armor, or Demon Skin until "
-        .. "you have it. Missing, it flashes. This one works in a fight too: when the aura calls "
-        .. "go quiet the icon is looked for on Blizzard's own buff bar instead.",
+        .. "you have it, and either one counts while it is on you. Missing, the icon flashes; "
+        .. "armored, it is out of the way. This works in a fight too: when the aura calls go "
+        .. "quiet the icon is looked for on Blizzard's own buff bar instead.",
         "GameFontDisableSmall")
     warmNote:SetPoint("TOPLEFT", warm.x, warm:row(56))
     warmNote:SetWidth(182)
@@ -4304,10 +4305,29 @@ function ns.AuraReport(spellName)
     report("GetAuraDataByIndex(1)", A.GetAuraDataByIndex, "player", 1, "HELPFUL|PLAYER")
 end
 
+-- /wp armor -- what the warlock icon thinks it sees, for when it shows up at the wrong time.
+function ns.ArmorReport()
+    local function say(t) print("|cff88ccffWolfpack:|r " .. t) end
+    say(InCombatLockdown() and "in combat -- only the buff bar can answer" or "out of combat")
+    for _, sp in ipairs(wl.armors) do
+        local want = wl.icons(sp[2])
+        local ok, data = pcall(function()
+            return C_UnitAuras.GetAuraDataBySpellName("player", sp[1], "HELPFUL")
+        end)
+        local bar = wl.iconOnBuffBar(want)
+        say(("%s: icon %s | aura %s | buff bar %s"):format(sp[1], tostring(want),
+            ok and (data and "found" or "not on you") or "call refused",
+            bar == nil and "no answer" or tostring(bar)))
+    end
+    local sp, up = wl.armor()
+    say(("verdict: %s, buffed = %s"):format(sp and sp[1] or "none known", tostring(up)))
+end
+
 SlashCmdList.WOLFPACKADDON = function(msg)
     msg = (msg or ""):lower()
     if msg:find("aura") then return safe(ns.AuraReport, (msg:gsub("^%s*auras?%s*", ""))) end
     if msg:find("crit") then return safe(ns.CritReport) end
+    if msg:find("armor") then return safe(ns.ArmorReport) end
     safe(ns.ToggleConfig)
 end
 
