@@ -1492,6 +1492,7 @@ S.bags = { [0] = {
     { itemID = 1, stackCount = 5 },
 } }
 wo.armor, wo.flash, wo.gap, wo.grow = true, true, 4, "right"
+wo.armorInCombat, wo.fontSize, wo.armorFontSize = true, 11, 18
 S.book = { { "Demon Armor", 0, 0, "self" } } -- the best armor this warlock knows
 S.auras = {}
 ns.wlEv._scripts.OnEvent(ns.wlEv, "BAG_UPDATE")
@@ -1505,12 +1506,19 @@ S.auras = { { name = "Demon Armor", expirationTime = 7000 + 1800 } }
 ns.wlEv._scripts.OnEvent(ns.wlEv, "UNIT_AURA")
 assert(armor.icon._desat == false and ns.wl.lit == nil, "armor up: no flashing")
 assert(armor.text._text == "30m", "with what is left on it, inside the icon")
+-- each icon carries its own font size
+assert(shard.text._font[2] == 11 and armor.text._font[2] == 18, "one size each")
 -- in combat the game says nothing about any aura, and the timer keeps counting on its own
 S.combat = true
 S.auras = {}
 S.time = 7000 + 1500
 ns.wlEv._scripts.OnEvent(ns.wlEv, "UNIT_AURA")
 assert(armor.text._text == "5m", "still counting, without asking anyone")
+-- and by default it does not stay up at all while the aura calls are shut
+wo.armorInCombat = false
+ns.wlEv._scripts.OnEvent(ns.wlEv, "UNIT_AURA")
+assert(not armor:IsShown(), "in combat it steps aside")
+wo.armorInCombat = true
 S.combat = false
 S.bags = { [0] = {} }
 S.auras = {}

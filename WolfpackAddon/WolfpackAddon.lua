@@ -219,7 +219,8 @@ local DEFAULTS = {
 -- Warlock: the soul shards in your bags.
 DEFAULTS.warlock = {
     show = true, locked = true, x = 0, y = -220, size = 32, radius = 0,
-    armor = true, armorSize = 32, flash = true, gap = 4, grow = "right",
+    armor = true, armorSize = 32, armorFontSize = 12, armorInCombat = false,
+    flash = true, gap = 4, grow = "right",
     countAt = "corner", showCount = true, low = 3,
     font = FONTS[1][2], fontSize = 12, outline = true,
     color = { 1, 1, 1, 1 }, lowColor = { 1, 0.4, 0.4, 1 },
@@ -2356,7 +2357,7 @@ function wl.refresh()
     end
     wl.panel:Show()
     local flags, n, step = o.outline and "OUTLINE" or "", 0, o.size + o.gap
-    local function place(e, icon, text, colored, size)
+    local function place(e, icon, text, colored, size, fontSize)
         n = n + 1
         e:SetSize(size, size)
         e:ClearAllPoints()
@@ -2367,7 +2368,8 @@ function wl.refresh()
         end
         e.icon:SetTexture(icon)
         ns.iconCorners(e.icon, e.mask, o.radius)
-        if not e.text:SetFont(o.font, o.fontSize, flags) then e.text:SetFont(FONTS[1][2], o.fontSize, flags) end
+        local fs = fontSize or o.fontSize
+        if not e.text:SetFont(o.font, fs, flags) then e.text:SetFont(FONTS[1][2], fs, flags) end
         e.text:ClearAllPoints()
         local at = o.countAt == "center" and "CENTER" or "BOTTOMRIGHT"
         e.text:SetPoint(at, e, at, 0, 0)
@@ -2378,16 +2380,19 @@ function wl.refresh()
     end
 
     local count = wl.count()
-    place(wl.entry(1), wl.icons(wl.shard), count, count <= o.low, o.size)
+    place(wl.entry(1), wl.icons(wl.shard), count, count <= o.low, o.size, o.fontSize)
     wl.entry(1).icon:SetDesaturated(count == 0)
 
     wl.lit = nil
-    if o.armor then
+    -- In a fight the game says nothing about auras, so the armor icon can only repeat itself.
+    -- Unless you want it to, it steps aside until the fight is over.
+    if o.armor and (o.armorInCombat or not InCombatLockdown()) then
         local sp, up, expiry = wl.armor()
         if sp then
             local left = up and expiry and (expiry - GetTime()) or nil
             local e = wl.entry(2)
-            place(e, wl.icons(sp[2]), up and wl.short(left) or "", not up, o.armorSize or o.size)
+            place(e, wl.icons(sp[2]), up and wl.short(left) or "", not up, o.armorSize or o.size,
+                o.armorFontSize or o.fontSize)
             e.icon:SetDesaturated(not up)
             wl.lit = not up and e or nil -- missing: it is the one that flashes
         end
@@ -3842,12 +3847,17 @@ local function buildConfig()
         function(v) W().armor = v end)
     check(lockPage, "Flash when it is gone", warm.x, warm:row(ROW), function() return W().flash end,
         function(v) W().flash = v end)
+    check(lockPage, "Keep it up in combat", warm.x, warm:row(ROW),
+        function() return W().armorInCombat end, function(v) W().armorInCombat = v end)
     slider(lockPage, "Icon size", warm.x, warm:row(SLIDER), 12, 80,
         function() return W().armorSize or W().size end, function(v) W().armorSize = v end)
+    slider(lockPage, "Font size", warm.x, warm:row(SLIDER), 6, 30,
+        function() return W().armorFontSize or W().fontSize end,
+        function(v) W().armorFontSize = v end)
     local warmNote = label(lockPage, "The best armor you know -- Demon Armor, or Demon Skin until "
-        .. "you have it -- with what is left on it written inside the icon. Out of combat the "
-        .. "game is asked; in a fight the last time it gave keeps counting down on its own.",
-        "GameFontDisableSmall")
+        .. "you have it -- with what is left on it inside the icon. In a fight the game says "
+        .. "nothing about auras, so the icon steps aside; tick above to keep it up anyway, "
+        .. "counting down on the clock alone.", "GameFontDisableSmall")
     warmNote:SetPoint("TOPLEFT", warm.x, warm:row(56))
     warmNote:SetWidth(182)
     warmNote:SetJustifyH("LEFT")
