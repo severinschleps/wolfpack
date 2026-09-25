@@ -216,6 +216,14 @@ local DEFAULTS = {
     },
 }
 
+-- Warlock: the soul shards in your bags.
+DEFAULTS.warlock = {
+    show = true, locked = true, x = 0, y = -220, size = 32, radius = 0,
+    countAt = "corner", showCount = true, low = 3,
+    font = FONTS[1][2], fontSize = 12, outline = true,
+    color = { 1, 1, 1, 1 }, lowColor = { 1, 0.4, 0.4, 1 },
+}
+
 -- Hunter: ammunition left, and how the pet feels.
 DEFAULTS.hunter = {
     show = true, locked = true, x = 0, y = -180, size = 32, gap = 4, grow = "right", radius = 0,
@@ -266,7 +274,7 @@ end
 ------------------------------------------------------------------------------------------
 -- store = WolfpackAddonDB, account-wide: { profiles = { [name] = settings }, chars = { [char] = name } }
 -- db = the active profile's settings.
-local changed, placeMini, useProfile, bf, mg, hn, seedFromBaked -- defined further down
+local changed, placeMini, useProfile, bf, mg, hn, wl, seedFromBaked -- defined further down
 
 -- Bars that only show while they are doing something (cast, swing) stay visible while the bars
 -- are unlocked or the options are open, so they can be placed.
@@ -1680,6 +1688,7 @@ local function Refresh()
     bf.refresh()
     mg.refresh()
     hn.refresh()
+    wl.refresh()
     fsr:sync()
     syncHover()
     syncBags()
@@ -2128,6 +2137,27 @@ function hn.ammo()
     return id, (okCount and type(count) == "number") and count or 0, okIcon and icon or nil
 end
 
+-- Happiness has moved around between builds, so every route is tried: the old call, a unit
+-- version of it, and finally Blizzard's own pet frame, whose face texture says it without
+-- anyone having to be told. A failed pcall hands back its error text, so only a real 1-3 counts.
+function hn.happiness()
+    for _, get in ipairs({
+        function() return GetPetHappiness() end,
+        function() return UnitPetHappiness("pet") end,
+        function() return PetFrameHappiness and select(2, PetFrameHappiness:GetTexCoord()) end,
+    }) do
+        local ok, value = pcall(get)
+        if ok and type(value) == "number" then
+            if value >= 1 and value <= 3 then return math.floor(value) end
+            -- a texture coordinate: the faces sit side by side, a fifth of the way apart
+            if value > 0 and value <= 1 then
+                local n = math.floor(value / 0.1875 + 0.5)
+                if n >= 1 and n <= 3 then return n end
+            end
+        end
+    end
+end
+
 function hn.entry(i)
     local e = hn.entries[i]
     if not e then
@@ -2156,10 +2186,7 @@ function hn.refresh()
     local flags = o.outline and "OUTLINE" or ""
     local step, n = o.size + o.gap, 0
     local id, count, tex = hn.ammo()
-    -- A failed pcall hands back its error text, so only a real number counts: on a client with
-    -- no happiness at all, the face simply never shows.
-    local okHappy, happy = pcall(GetPetHappiness)
-    if not okHappy or type(happy) ~= "number" or happy < 1 or happy > 3 then happy = nil end
+    local happy = hn.happiness()
     for _, what in ipairs({ "ammo", "pet" }) do
         local show, icon, text, coords = false, nil, nil, nil
         if what == "ammo" and o.ammo and id then
@@ -2207,6 +2234,86 @@ hnEv:SetScript("OnEvent", function() safe(hn.refresh) end)
 for _, e in ipairs({ "BAG_UPDATE", "BAG_UPDATE_DELAYED", "PLAYER_ENTERING_WORLD", "UNIT_PET",
     "UNIT_HAPPINESS", "PLAYER_LOGIN", "UNIT_INVENTORY_CHANGED" }) do
     pcall(hnEv.RegisterEvent, hnEv, e)
+end
+
+------------------------------------------------------------------------------------------
+-- Warlock: how many soul shards are in the bags.
+------------------------------------------------------------------------------------------
+wl = { shard = 6265 } -- the item id of a Soul Shard
+ns.wl = wl
+wl.panel = CreateFrame("Frame", "WolfpackAddonWarlock", UIParent)
+wl.panel:SetSize(32, 32)
+wl.panel:SetMovable(true)
+wl.panel:SetClampedToScreen(true)
+wl.panel:RegisterForDrag("LeftButton")
+wl.panel:SetScript("OnDragStart", function(a) a:StartMoving() end)
+wl.panel:SetScript("OnDragStop", function(a)
+    a:StopMovingOrSizing()
+    local ux, uy = UIParent:GetCenter()
+    db.warlock.x = math.floor(a:GetCenter() - ux + 0.5)
+    db.warlock.y = math.floor(select(2, a:GetCenter()) - uy + 0.5)
+    changed()
+end)
+wl.icon = wl.panel:CreateTexture(nil, "ARTWORK")
+wl.icon:SetAllPoints()
+wl.mask = wl.panel:CreateMaskTexture()
+wl.mask:SetAllPoints(wl.panel)
+wl.text = wl.panel:CreateFontString(nil, "OVERLAY")
+
+-- Shards stack one to a slot, so this counts slots as well as stack sizes.
+function wl.count()
+    local total = 0
+    for bag = 0, (NUM_BAG_SLOTS or 4) do
+        for slot = 1, (C_Container.GetContainerNumSlots(bag) or 0) do
+            local info = C_Container.GetContainerItemInfo(bag, slot)
+            if info and info.itemID == wl.shard then total = total + (info.stackCount or 1) end
+        end
+    end
+    return total
+end
+
+function wl.refresh()
+    if not db then return end
+    local o = db.warlock
+    wl.panel:ClearAllPoints()
+    wl.panel:SetPoint("CENTER", UIParent, "CENTER", o.x, o.y)
+    wl.panel:EnableMouse(not o.locked)
+    if not o.show or class ~= "WARLOCK" then
+        wl.panel:Hide()
+        return
+    end
+    wl.panel:Show()
+    wl.panel:SetSize(o.size, o.size)
+    local count = wl.count()
+    if wl.tex == nil then
+        local ok, tex = pcall(function()
+            return (C_Item and C_Item.GetItemIconByID and C_Item.GetItemIconByID(wl.shard))
+                or (GetItemIcon and GetItemIcon(wl.shard))
+        end)
+        wl.tex = (ok and tex) or 134336 -- a soul shard, when the client will not say
+    end
+    wl.icon:SetTexture(wl.tex)
+    wl.icon:SetDesaturated(count == 0)
+    ns.iconCorners(wl.icon, wl.mask, o.radius)
+    local flags = o.outline and "OUTLINE" or ""
+    if not wl.text:SetFont(o.font, o.fontSize, flags) then wl.text:SetFont(FONTS[1][2], o.fontSize, flags) end
+    wl.text:ClearAllPoints()
+    local at = o.countAt == "center" and "CENTER" or "BOTTOMRIGHT"
+    wl.text:SetPoint(at, wl.panel, at, 0, 0)
+    wl.text:SetText(count)
+    wl.text:SetShown(o.showCount)
+    if count <= o.low then
+        wl.text:SetTextColor(unpack(o.lowColor))
+    else
+        wl.text:SetTextColor(unpack(o.color))
+    end
+end
+
+local wlEv = CreateFrame("Frame")
+ns.wlEv = wlEv
+wlEv:SetScript("OnEvent", function() safe(wl.refresh) end)
+for _, e in ipairs({ "BAG_UPDATE", "BAG_UPDATE_DELAYED", "PLAYER_ENTERING_WORLD", "PLAYER_LOGIN" }) do
+    pcall(wlEv.RegisterEvent, wlEv, e)
 end
 
 ------------------------------------------------------------------------------------------
@@ -3031,7 +3138,7 @@ local function buildConfig()
             or section == "buffs" and "Buff check"
             or section == "mage" and "Mage: food and water"
             or section == "hunter" and "Hunter: ammo and pet"
-            or "Combat Display")
+            or section == "warlock" and "Warlock: soul shards" or "Combat Display")
         for _, t in ipairs(tabs) do t:SetShown(np) end
         barsPage:SetShown(section == "combat" or (np and sub == "bars"))
         questPage:SetShown(np and sub == "quest")
@@ -3522,9 +3629,9 @@ local function buildConfig()
     local petNote = label(hunterPage, "", "GameFontDisableSmall")
     petNote:SetPoint("TOPLEFT", hset.x + 24, hset:row(14))
     onRefresh(function()
-        local has = GetPetHappiness ~= nil
+        local has = GetPetHappiness ~= nil or UnitPetHappiness ~= nil or PetFrameHappiness ~= nil
         petTick:SetEnabled(has)
-        petNote:SetText(has and "" or "|cffff8888not in this client|r")
+        petNote:SetText(has and "" or "|cffff8888no happiness in this client|r")
     end)
     local hlk = button(hunterPage, "", 186, hset.x, hset:row(BUTTON), function()
         H().locked = not H().locked

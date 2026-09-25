@@ -1471,6 +1471,27 @@ assert(ns.bf.panel:IsShown(), "and back afterwards")
 S.group, S.members = false, 0
 login("ROGUE", 3)
 
+-- Warlock: the soul shards in the bags
+S.unitClasses = nil
+login("WARLOCK", 0)
+local wo = prof().warlock
+wo.show, wo.locked, wo.size, wo.low, wo.showCount = true, true, 30, 3, true
+local keptBags2 = S.bags
+S.bags = { [0] = {
+    { itemID = 6265, stackCount = 1 }, { itemID = 6265, stackCount = 1 },
+    { itemID = 1, stackCount = 5 },
+} }
+ns.wlEv._scripts.OnEvent(ns.wlEv, "BAG_UPDATE")
+assert(ns.wl.panel:IsShown() and ns.wl.text._text == 2, "two shards, and nothing else counted")
+assert(ns.wl.text._color[1] == 1 and ns.wl.text._color[2] == 0.4, "two is low, so it reads low")
+S.bags = { [0] = {} }
+ns.wlEv._scripts.OnEvent(ns.wlEv, "BAG_UPDATE")
+assert(ns.wl.text._text == 0 and ns.wl.icon._desat == true, "none: a grey shard and a zero")
+S.bags = keptBags2
+login("ROGUE", 3)
+ns.wlEv._scripts.OnEvent(ns.wlEv, "BAG_UPDATE")
+assert(not ns.wl.panel:IsShown(), "nothing for anyone else")
+
 -- Hunter: what is in the ammo slot, and the face the pet is pulling
 S.unitClasses = nil -- the group test above left everyone else's class behind
 login("HUNTER", 2)
@@ -1494,9 +1515,16 @@ assert(not pet:IsShown(), "no pet, no face")
 ho.ammo = false
 ns.hnEv._scripts.OnEvent(ns.hnEv, "BAG_UPDATE")
 assert(not ns.hn.entries[1]:IsShown(), "and the ammo can be switched off")
--- a client without pet happiness at all must not throw: the face is simply left out
+-- when the old call is gone, the pet frame's own face is read instead
 local keptHappy = GetPetHappiness
 GetPetHappiness = nil
+PetFrameHappiness = new()
+PetFrameHappiness._coords = { 2 * 0.1875, 3 * 0.1875, 0, 0.359375 }
+PetFrameHappiness.GetTexCoord = function(self) return unpack(self._coords) end
+S.petHP, ho.ammo = 400, true
+ns.hnEv._scripts.OnEvent(ns.hnEv, "UNIT_HAPPINESS")
+assert(ns.hn.entries[2]:IsShown(), "the pet frame's face stands in for the missing call")
+PetFrameHappiness = nil
 S.petHP, ho.ammo = 400, true -- with a pet out, so the face would be drawn if it could be
 ns.hnEv._scripts.OnEvent(ns.hnEv, "UNIT_HAPPINESS")
 assert(not (ns.hn.entries[2] and ns.hn.entries[2]:IsShown()), "no happiness here, no face")
