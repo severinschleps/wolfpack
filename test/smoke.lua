@@ -193,11 +193,13 @@ C_SpellBook = { GetSpellBookItemName = function(i) return (S.book or {})[i] and 
 GetInventorySlotInfo = function() return 0 end
 GetInventoryItemID = function() return S.ammoID end
 GetInventoryItemCount = function() return S.ammoCount or 0 end
-GetInventoryItemTexture = function() return S.ammoIcon end
 GetPetHappiness = function() return S.happiness end
 GetItemIcon = function(id) return 1000 + id end
 GetWeaponEnchantInfo = function() return S.mainEnchant or false, S.mainMs or 0, 0, 0,
     S.offEnchant or false, S.offMs or 0 end
+GetInventoryItemTexture = function(_, slot)
+    return (S.weapons or {})[slot] or (slot == 0 and S.ammoIcon) or nil
+end
 UnitGroupRolesAssigned = function(unit) return (S.units or {})[unit] or "NONE" end
 GetTexCoordsForRoleSmallCircle = function() return 0, 0.5, 0, 0.5 end
 C_UnitAuras = {
@@ -820,7 +822,8 @@ boxes[5]._text = "90"; boxes[5]._scripts.OnEnterPressed(boxes[5])
 assert(prof().nameplate.gap == 4 and prof().nameplate.x == -150 and prof().nameplate.bars.health.width == 90, "nameplate edits")
 assert(prof().regular.gap == 30 and prof().regular.x == 0 and prof().regular.bars.health.width == 220, "regular untouched")
 -- every sidebar entry is really there, opens its page, and that page has settings on it
-for _, name in ipairs({ "Combat Display", "Nameplates", "Buffs", "Mage", "Hunter", "Warlock", "Other" }) do
+for _, name in ipairs({ "Combat Display", "Nameplates", "Buffs", "Mage", "Hunter", "Warlock",
+    "Rogue", "Shaman", "Other" }) do
     local b = byText(name)
     assert(b, "sidebar entry missing: " .. name)
     b._scripts.OnClick(b, "LeftButton")
@@ -1480,6 +1483,34 @@ assert(ns.bf.panel:IsShown(), "and back afterwards")
 
 S.group, S.members = false, 0
 login("ROGUE", 3)
+
+-- Rogue poisons: one icon per bare weapon, and a warning when one is running out
+S.unitClasses = nil
+login("ROGUE", 3)
+local ro = prof().rogue
+ro.show, ro.locked, ro.size, ro.gap, ro.warn, ro.flash = true, true, 30, 4, 9, true
+S.weapons = { [16] = 501, [17] = 502 } -- a weapon in each hand
+S.mainEnchant, S.offEnchant, S.combat = false, false, false
+ns.weEv._scripts.OnEvent(ns.weEv, "UNIT_INVENTORY_CHANGED")
+local rp = ns.we.panels.rogue
+assert(rp.frame:IsShown() and rp.entries[1]:IsShown() and rp.entries[2]:IsShown(), "both hands bare")
+assert(rp.entries[1].icon._tex == 501 and rp.entries[2].icon._tex == 502, "each weapon's own icon")
+assert(rp.lit[1] and rp.lit[2], "and both flash")
+S.mainEnchant, S.mainMs = true, 20 * 60000 -- twenty minutes on the main hand
+ns.weEv._scripts.OnEvent(ns.weEv, "UNIT_INVENTORY_CHANGED")
+assert(rp.entries[1].icon._tex == 502 and not rp.entries[2]:IsShown(), "only the bare one is left")
+S.offEnchant, S.offMs = true, 7 * 60000 -- and the off hand is running out
+ns.weEv._scripts.OnEvent(ns.weEv, "UNIT_INVENTORY_CHANGED")
+assert(rp.entries[1]:IsShown() and rp.entries[1].text._text == "7m", "seven minutes, on the icon")
+assert(not rp.lit[1], "a poison that is merely fading does not flash")
+S.combat = true
+ns.weEv._scripts.OnEvent(ns.weEv, "UNIT_INVENTORY_CHANGED")
+assert(not rp.entries[1]:IsShown(), "in combat there is nothing to be done, so it stays quiet")
+S.combat, S.mainEnchant, S.offEnchant = false, true, true
+S.mainMs, S.offMs = 30 * 60000, 30 * 60000
+ns.weEv._scripts.OnEvent(ns.weEv, "UNIT_INVENTORY_CHANGED")
+assert(not rp.entries[1]:IsShown(), "both fresh: nothing shown at all")
+S.weapons, ro.show = nil, false
 
 -- Warlock: the soul shards in the bags
 S.unitClasses = nil

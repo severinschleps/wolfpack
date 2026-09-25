@@ -216,6 +216,19 @@ local DEFAULTS = {
     },
 }
 
+-- Rogue and shaman: what is on each weapon, and when it is nearly gone.
+-- (a local would put this file over Lua's limit of 200 of them, so it hangs off ns)
+function ns.weaponDefaults(y)
+    return {
+        show = true, locked = true, x = 0, y = y, size = 32, gap = 4, grow = "right", radius = 0,
+        warn = 9, flash = true, countAt = "corner",
+        font = FONTS[1][2], fontSize = 12, outline = true,
+        color = { 1, 1, 1, 1 }, warnColor = { 1, 0.75, 0.2, 1 },
+    }
+end
+DEFAULTS.rogue = ns.weaponDefaults(-260)
+DEFAULTS.shaman = ns.weaponDefaults(-260)
+
 -- Warlock: the soul shards in your bags.
 DEFAULTS.warlock = {
     show = true, locked = true, x = 0, y = -220, size = 32, radius = 0,
@@ -276,7 +289,7 @@ end
 ------------------------------------------------------------------------------------------
 -- store = WolfpackAddonDB, account-wide: { profiles = { [name] = settings }, chars = { [char] = name } }
 -- db = the active profile's settings.
-local changed, placeMini, useProfile, bf, mg, hn, wl, seedFromBaked -- defined further down
+local changed, placeMini, useProfile, bf, mg, hn, wl, we, seedFromBaked -- defined further down
 
 -- Bars that only show while they are doing something (cast, swing) stay visible while the bars
 -- are unlocked or the options are open, so they can be placed.
@@ -1206,14 +1219,14 @@ local HOVER_FRAMES = {
     { "stance", "Stance bar", "StanceBar" }, { "pet", "Pet bar", "PetActionBar" },
     { "micro", "Micro menu", "MicroMenuContainer" }, { "bags", "Bag bar", "BagsBar" },
 }
-local FADE_TIME = 0.2
+ns.FADE_TIME = 0.2
 local faded = {} -- frame -> alpha we set
 
 local hoverTicker = CreateFrame("Frame")
 ns.hoverTicker = hoverTicker
 local function hoverTick(_, elapsed)
     local editing = EditModeManagerFrame and EditModeManagerFrame:IsEditModeActive()
-    local step = math.min(elapsed / FADE_TIME, 1)
+    local step = math.min(elapsed / ns.FADE_TIME, 1)
     for _, e in ipairs(HOVER_FRAMES) do
         local f = _G[e[3]]
         if f and db.other.hover[e[1]] then
@@ -1691,6 +1704,8 @@ local function Refresh()
     mg.refresh()
     hn.refresh()
     wl.refresh()
+    we.refresh("rogue")
+    we.refresh("shaman")
     fsr:sync()
     syncHover()
     syncBags()
@@ -2436,6 +2451,148 @@ for _, e in ipairs({ "BAG_UPDATE", "BAG_UPDATE_DELAYED", "PLAYER_ENTERING_WORLD"
 end
 
 ------------------------------------------------------------------------------------------
+-- Weapon enchants: a rogue's poisons, a shaman's imbues. One icon per hand, shown when that
+-- weapon has nothing on it, or when what it has is nearly gone. GetWeaponEnchantInfo is
+-- inventory, not auras, so it answers in a fight as well as out of one.
+------------------------------------------------------------------------------------------
+we = { panels = {}, classOf = { rogue = "ROGUE", shaman = "SHAMAN" } }
+ns.we = we
+
+function we.panel(key)
+    local p = we.panels[key]
+    if not p then
+        p = { entries = {} }
+        p.frame = CreateFrame("Frame", "WolfpackAddon" .. key, UIParent)
+        p.frame:SetSize(32, 32)
+        p.frame:SetMovable(true)
+        p.frame:SetClampedToScreen(true)
+        p.frame:RegisterForDrag("LeftButton")
+        p.frame:SetScript("OnDragStart", function(a) a:StartMoving() end)
+        p.frame:SetScript("OnDragStop", function(a)
+            a:StopMovingOrSizing()
+            local ux, uy = UIParent:GetCenter()
+            db[key].x = math.floor(a:GetCenter() - ux + 0.5)
+            db[key].y = math.floor(select(2, a:GetCenter()) - uy + 0.5)
+            changed()
+        end)
+        we.panels[key] = p
+    end
+    return p
+end
+
+function we.entry(p, i)
+    local e = p.entries[i]
+    if not e then
+        e = CreateFrame("Frame", nil, p.frame)
+        e.icon = e:CreateTexture(nil, "ARTWORK")
+        e.icon:SetAllPoints()
+        e.mask = e:CreateMaskTexture()
+        e.mask:SetAllPoints(e)
+        e.text = e:CreateFontString(nil, "OVERLAY")
+        p.entries[i] = e
+    end
+    return e
+end
+
+-- What is on each hand: the weapon's own icon, whether it is enchanted, and the minutes left.
+function we.hands()
+    local ok, hasMain, mainMs, _, _, hasOff, offMs = pcall(GetWeaponEnchantInfo)
+    if not ok then return {} end
+    local out = {}
+    for i, slot in ipairs({ 16, 17 }) do -- main hand, off hand
+        local gotIcon, icon = pcall(GetInventoryItemTexture, "player", slot)
+        if gotIcon and icon then
+            local has = i == 1 and hasMain or hasOff
+            local ms = i == 1 and mainMs or offMs
+            out[#out + 1] = { icon = icon, has = has and true or false,
+                minutes = (type(ms) == "number" and ms > 0) and (ms / 60000) or nil }
+        end
+    end
+    return out
+end
+
+function we.refresh(key)
+    if not db then return end
+    local o = db[key]
+    local p = we.panel(key)
+    p.frame:ClearAllPoints()
+    p.frame:SetPoint("CENTER", UIParent, "CENTER", o.x, o.y)
+    p.frame:EnableMouse(not o.locked)
+    if not o.show or class ~= we.classOf[key] then
+        p.frame:Hide()
+        return
+    end
+    p.frame:Show()
+    local flags, n, step = o.outline and "OUTLINE" or "", 0, o.size + o.gap
+    p.lit = {}
+    for _, hand in ipairs(we.hands()) do
+        -- Nothing on it: a reminder. Nearly gone, and out of combat where you can do something
+        -- about it: the same icon with the minutes left. Otherwise nothing at all.
+        local missing = not hand.has
+        local low = hand.has and hand.minutes and hand.minutes <= o.warn
+            and not InCombatLockdown()
+        if missing or low then
+            n = n + 1
+            local e = we.entry(p, n)
+            e:SetSize(o.size, o.size)
+            e:ClearAllPoints()
+            if o.grow == "down" then
+                e:SetPoint("TOPLEFT", p.frame, "TOPLEFT", 0, -(n - 1) * step)
+            else
+                e:SetPoint("TOPLEFT", p.frame, "TOPLEFT", (n - 1) * step, 0)
+            end
+            e.icon:SetTexture(hand.icon)
+            e.icon:SetAlpha(1)
+            ns.iconCorners(e.icon, e.mask, o.radius)
+            if not e.text:SetFont(o.font, o.fontSize, flags) then
+                e.text:SetFont(FONTS[1][2], o.fontSize, flags)
+            end
+            e.text:ClearAllPoints()
+            local at = o.countAt == "center" and "CENTER" or "BOTTOMRIGHT"
+            e.text:SetPoint(at, e, at, 0, 0)
+            e.text:SetText(low and (math.floor(hand.minutes) .. "m") or "")
+            e.text:SetShown(low and true or false)
+            e.text:SetTextColor(unpack(low and o.warnColor or o.color))
+            p.lit[n] = missing -- only a bare weapon flashes
+            e:Show()
+        end
+    end
+    for i = n + 1, #p.entries do p.entries[i]:Hide() end
+    p.frame:SetSize(o.grow == "down" and o.size or math.max(n * step - o.gap, o.size),
+        o.grow == "down" and math.max(n * step - o.gap, o.size) or o.size)
+end
+
+we.ticker = CreateFrame("Frame")
+we.ticker.since = 0
+we.ticker:SetScript("OnUpdate", function(self, elapsed)
+    if not db then return end
+    self.t = (self.t or 0) + elapsed
+    local a = 0.1 + 0.9 * math.abs(math.sin(self.t * 2.6))
+    for key, p in pairs(we.panels) do
+        if db[key] and db[key].flash then
+            for i, lit in pairs(p.lit or {}) do
+                if lit and p.entries[i] then p.entries[i].icon:SetAlpha(a) end
+            end
+        end
+    end
+    self.since = self.since + elapsed
+    if self.since < 1 then return end
+    self.since = 0
+    safe(we.refresh, "rogue")
+    safe(we.refresh, "shaman")
+end)
+
+ns.weEv = CreateFrame("Frame")
+ns.weEv:SetScript("OnEvent", function()
+    safe(we.refresh, "rogue")
+    safe(we.refresh, "shaman")
+end)
+for _, e in ipairs({ "UNIT_INVENTORY_CHANGED", "PLAYER_ENTERING_WORLD", "PLAYER_LOGIN",
+    "PLAYER_REGEN_ENABLED", "PLAYER_REGEN_DISABLED", "BAG_UPDATE" }) do
+    pcall(ns.weEv.RegisterEvent, ns.weEv, e)
+end
+
+------------------------------------------------------------------------------------------
 -- Options window (/cpd)
 ------------------------------------------------------------------------------------------
 -- section = sidebar entry, sub = tab inside Nameplates, mode = which bar layout is being edited
@@ -2507,7 +2664,7 @@ local function check(parent, text, x, y, get, set)
     return cb
 end
 
-local SLIDER_BACKDROP = {
+ns.SLIDER_BACKDROP = {
     bgFile = "Interface\\Buttons\\UI-SliderBar-Background",
     edgeFile = "Interface\\Buttons\\UI-SliderBar-Border",
     tile = true, tileSize = 8, edgeSize = 8,
@@ -2522,7 +2679,7 @@ local function slider(parent, text, x, y, min, max, get, set, step)
     local s = CreateFrame("Slider", nil, parent, "BackdropTemplate")
     s:SetSize(130, 16) -- 130 + 12 + 40 fits a box's inner width
     s:SetPoint("TOPLEFT", x, y - 16)
-    s:SetBackdrop(SLIDER_BACKDROP)
+    s:SetBackdrop(ns.SLIDER_BACKDROP)
     s:SetOrientation("HORIZONTAL")
     s:SetThumbTexture("Interface\\Buttons\\UI-SliderBar-Button-Horizontal")
     s:GetThumbTexture():SetSize(32, 32)
@@ -2771,12 +2928,12 @@ local E = C_EncodingUtil
 
 -- A profile whose name holds a class name belongs to that class, so one string can carry
 -- "Alpha Priest", "Alpha Warrior" and the rest, and each character lands on its own.
-local CLASS_NAMES = { "Warrior", "Paladin", "Hunter", "Rogue", "Priest", "Shaman", "Mage",
+ns.CLASS_NAMES = { "Warrior", "Paladin", "Hunter", "Rogue", "Priest", "Shaman", "Mage",
     "Warlock", "Druid" }
 
 local function classOfProfile(name)
     local low, best = name:lower(), nil
-    for _, cls in ipairs(CLASS_NAMES) do
+    for _, cls in ipairs(ns.CLASS_NAMES) do
         if low:find(cls:lower(), 1, true) then best = cls:upper() end
     end
     return best
@@ -3216,6 +3373,7 @@ local function buildConfig()
     local SIDEBAR = { { "combat", "Combat Display", "regular" }, { "nameplates", "Nameplates", "nameplate" },
         { "buffs", "Buffs", "regular" }, { "mage", "Mage", "regular" },
         { "hunter", "Hunter", "regular" }, { "warlock", "Warlock", "regular" },
+        { "rogue", "Rogue", "regular" }, { "shaman", "Shaman", "regular" },
         { "other", "Other", "regular" } }
     for i, e in ipairs(SIDEBAR) do
         local b = button(cfg, e[2], 118, 12, -104 - (i - 1) * 26, function()
@@ -3246,8 +3404,13 @@ local function buildConfig()
     hunterPage:SetAllPoints(barsPage)
     local lockPage = CreateFrame("Frame", nil, cfg)
     lockPage:SetAllPoints(barsPage)
+    local roguePage = CreateFrame("Frame", nil, cfg)
+    roguePage:SetAllPoints(barsPage)
+    local shamanPage = CreateFrame("Frame", nil, cfg)
+    shamanPage:SetAllPoints(barsPage)
     ns.pages = { combat = barsPage, nameplates = questPage, buffs = buffPage, mage = magePage,
-        hunter = hunterPage, warlock = lockPage, other = otherPage }
+        hunter = hunterPage, warlock = lockPage, rogue = roguePage, shaman = shamanPage,
+        other = otherPage }
 
     local title = label(cfg, "Combat Display", "GameFontNormalLarge")
     title:SetPoint("TOPLEFT", 150, -72)
@@ -3263,7 +3426,9 @@ local function buildConfig()
             or section == "buffs" and "Buff check"
             or section == "mage" and "Mage: food and water"
             or section == "hunter" and "Hunter: ammo and pet"
-            or section == "warlock" and "Warlock: soul shards" or "Combat Display")
+            or section == "warlock" and "Warlock: soul shards"
+            or section == "rogue" and "Rogue: weapon poisons"
+            or section == "shaman" and "Shaman: weapon imbues" or "Combat Display")
         for _, t in ipairs(tabs) do t:SetShown(np) end
         barsPage:SetShown(section == "combat" or (np and sub == "bars"))
         questPage:SetShown(np and sub == "quest")
@@ -3272,6 +3437,8 @@ local function buildConfig()
         magePage:SetShown(section == "mage")
         hunterPage:SetShown(section == "hunter")
         lockPage:SetShown(section == "warlock")
+        roguePage:SetShown(section == "rogue")
+        shamanPage:SetShown(section == "shaman")
     end)
 
     local tabNote = label(barsPage, "", "GameFontDisableSmall")
@@ -3883,6 +4050,67 @@ local function buildConfig()
     slider(lockPage, "Low is under", wtext.x, wtext:row(SLIDER), 1, 32, function() return W().low end,
         function(v) W().low = v end)
     wtext:close()
+
+    ----------------------------------------------------------------------------------
+    -- Rogue and Shaman pages: what is on each weapon. The same settings, twice over.
+    ----------------------------------------------------------------------------------
+    for _, w in ipairs({ { "rogue", roguePage, "poison" }, { "shaman", shamanPage, "imbue" } }) do
+        local key, page, what = w[1], w[2], w[3]
+        local W = function() return db[key] end
+        local wg = group(page, COL[1], TOP, 202, "Weapon " .. what)
+        check(page, "Show it", wg.x, wg:row(ROW), function() return W().show end,
+            function(v) W().show = v end)
+        check(page, "Flash a bare weapon", wg.x, wg:row(ROW), function() return W().flash end,
+            function(v) W().flash = v end)
+        local wgl = button(page, "", 186, wg.x, wg:row(BUTTON), function()
+            W().locked = not W().locked
+            changed()
+        end)
+        onRefresh(function()
+            wgl:SetText(W().locked and "Locked (click to unlock)" or "Unlocked - drag it")
+        end)
+        slider(page, "X (left / right)", wg.x, wg:row(SLIDER), -1200, 1200,
+            function() return W().x end, function(v) W().x = v end)
+        slider(page, "Y (down / up)", wg.x, wg:row(SLIDER), -800, 800,
+            function() return W().y end, function(v) W().y = v end)
+        slider(page, "Warn under (minutes)", wg.x, wg:row(SLIDER), 1, 60,
+            function() return W().warn end, function(v) W().warn = v end)
+        local wgNote = label(page, "One icon per hand, and only when it needs you: nothing on "
+            .. "that weapon, or -- out of combat, where you can do something about it -- less "
+            .. "than the minutes above left, with the number on the icon.", "GameFontDisableSmall")
+        wgNote:SetPoint("TOPLEFT", wg.x, wg:row(56))
+        wgNote:SetWidth(182)
+        wgNote:SetJustifyH("LEFT")
+        wg:close()
+
+        local wgi = group(page, COL[2], TOP, 202, "Icons")
+        slider(page, "Icon size", wgi.x, wgi:row(SLIDER), 12, 80, function() return W().size end,
+            function(v) W().size = v end)
+        slider(page, "Gap", wgi.x, wgi:row(SLIDER), 0, 30, function() return W().gap end,
+            function(v) W().gap = v end)
+        dropdown(page, "Corner radius", wgi.x, wgi:row(DROP), { { "None (square)", 0 },
+            { "Slightly rounded", 12 }, { "Rounded", 25 }, { "Circle", 50 } },
+            function() return ns.ICON_MASKS[W().radius] and W().radius or 0 end,
+            function(v) W().radius = v end, textPreview)
+        dropdown(page, "Side by side or stacked", wgi.x, wgi:row(DROP),
+            { { "Side by side", "right" }, { "Stacked", "down" } },
+            function() return W().grow end, function(v) W().grow = v end, textPreview)
+        dropdown(page, "Minutes sit", wgi.x, wgi:row(DROP), { { "In the corner", "corner" },
+            { "In the middle", "center" } }, function() return W().countAt end,
+            function(v) W().countAt = v end, textPreview)
+        wgi:close()
+
+        local wgt = group(page, COL[3], TOP, 202, "The minutes")
+        dropdown(page, "Font", wgt.x, wgt:row(DROP), FONTS, function() return W().font end,
+            function(v) W().font = v end, fontPreview)
+        slider(page, "Font size", wgt.x, wgt:row(SLIDER), 6, 30, function() return W().fontSize end,
+            function(v) W().fontSize = v end)
+        check(page, "Outline", wgt.x, wgt:row(ROW), function() return W().outline end,
+            function(v) W().outline = v end)
+        swatch(page, "Color", wgt.x, wgt:row(SWATCH), function() return W().color end)
+        swatch(page, "Running out", wgt.x, wgt:row(SWATCH), function() return W().warnColor end)
+        wgt:close()
+    end
 
     ----------------------------------------------------------------------------------
     -- Buffs page: the out-of-combat check of who is missing what
