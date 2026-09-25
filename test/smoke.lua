@@ -1534,7 +1534,7 @@ S.bags = { [0] = {
 wo.armor, wo.flash, wo.gap, wo.grow = true, true, 4, "right"
 assert(prof().warlock.armorOnlyMissing == true, "armored means out of the way, by default")
 wo.armorOnlyMissing, wo.fontSize, wo.armorFontSize = false, 11, 18
-S.book = { { "Demon Armor", 0, 0, "self" } } -- the best armor this warlock knows
+S.book, S.level = nil, 60 -- the spellbook says nothing on this client; the level still does
 S.auras = {}
 ns.wlEv._scripts.OnEvent(ns.wlEv, "BAG_UPDATE")
 local shard, armor = ns.wl.entries[1], ns.wl.entries[2]
@@ -1560,8 +1560,8 @@ assert(not armor:IsShown(), "the buff bar says it is up, so nothing is shown")
 BuffButton1.icon._tex = 999 -- something else entirely
 ns.wlEv._scripts.OnEvent(ns.wlEv, "UNIT_AURA")
 assert(armor:IsShown() and ns.wl.lit == armor, "not on the bar: flashing again, mid-fight")
--- a warlock who only knows Demon Skin: the same two routes must find that one too
-S.book = { { "Demon Skin", 0, 0, "self" } }
+-- a warlock too young for Demon Armor: the same two routes must find Demon Skin too
+S.level = 12
 S.combat, S.auras = false, {}
 ns.wlEv._scripts.OnEvent(ns.wlEv, "UNIT_AURA")
 assert(armor:IsShown() and ns.wl.lit == armor, "skin missing: it is the one being asked for")
@@ -1576,9 +1576,17 @@ assert(ns.wl.lit == nil, "and the buff bar finds it in a fight as well")
 BuffButton1.icon._tex = 999
 ns.wlEv._scripts.OnEvent(ns.wlEv, "UNIT_AURA")
 assert(ns.wl.lit == armor, "gone again mid-fight: flashing")
+-- and a warlock buffed with Demon Skin at 60 is armored: the better one is not nagged for
+S.combat, S.auras = false, { { name = "Demon Skin" } }
+S.level = 60
+ns.wlEv._scripts.OnEvent(ns.wlEv, "UNIT_AURA")
+assert(not armor:IsShown(), "any of the two counts as armored")
+S.auras = {}
+ns.wlEv._scripts.OnEvent(ns.wlEv, "UNIT_AURA")
+assert(armor:IsShown() and armor.icon._tex == 100 + 706, "bare at 60: Demon Armor is the ask")
 SlashCmdList.WOLFPACKADDON("armor") -- the probe reads both routes without blowing up
 assert(not ns.errored, "the armor probe runs clean")
-S.book = { { "Demon Armor", 0, 0, "self" } }
+S.level = 60
 BuffButton1 = nil
 S.combat, wo.armorOnlyMissing = false, false
 

@@ -2272,7 +2272,7 @@ wl.panel:SetScript("OnDragStop", function(a)
     changed()
 end)
 wl.entries = {}
-wl.armors = { { "Demon Armor", 706 }, { "Demon Skin", 696 } } -- best first
+wl.armors = { { "Demon Armor", 706, 20 }, { "Demon Skin", 696, 4 } } -- best first, and its level
 
 function wl.entry(i)
     local e = wl.entries[i]
@@ -2343,21 +2343,11 @@ function wl.iconOnBuffBar(tex)
     return found
 end
 
--- The best armor you know, and whether it is on you.
+-- Which armor should be on you, and whether it is. Either one counts while it is up, so both
+-- are asked about. Nothing up: the one to nag about is a question of level -- the spellbook on
+-- this client often answers nothing at all, the level always answers.
 function wl.armor()
-    local best
     for _, sp in ipairs(wl.armors) do
-        local known = select(2, pcall(function()
-            for i = 1, 200 do
-                local name = C_SpellBook and C_SpellBook.GetSpellBookItemName
-                    and C_SpellBook.GetSpellBookItemName(i, 0)
-                    or (GetSpellBookItemName and GetSpellBookItemName(i, "spell"))
-                if not name then return false end
-                if name == sp[1] then return true end
-            end
-            return false
-        end))
-        if known and not best then best = sp end
         local ok, data = pcall(function()
             local d = C_UnitAuras.GetAuraDataBySpellName("player", sp[1], "HELPFUL")
             if d then return d end
@@ -2366,7 +2356,11 @@ function wl.armor()
         -- the buff bar knows even while the aura calls are shut
         if wl.iconOnBuffBar(wl.icons(sp[2])) == true then return sp, true end
     end
-    return best, false
+    local lvl = UnitLevel("player") or 0
+    for _, sp in ipairs(wl.armors) do
+        if lvl >= sp[3] then return sp, false end
+    end
+    return nil, false
 end
 
 function wl.refresh()
@@ -4320,7 +4314,8 @@ function ns.ArmorReport()
             bar == nil and "no answer" or tostring(bar)))
     end
     local sp, up = wl.armor()
-    say(("verdict: %s, buffed = %s"):format(sp and sp[1] or "none known", tostring(up)))
+    say(("level %s -- verdict: %s, buffed = %s"):format(tostring(UnitLevel("player")),
+        sp and sp[1] or "none", tostring(up)))
 end
 
 SlashCmdList.WOLFPACKADDON = function(msg)
