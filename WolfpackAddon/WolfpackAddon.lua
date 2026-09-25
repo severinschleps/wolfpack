@@ -2495,7 +2495,10 @@ function we.entry(p, i)
 end
 
 -- What is on each hand: the weapon's own icon, whether it is enchanted, and the minutes left.
+-- In a fight the answer is not to be trusted, and nothing can be done about it anyway, so the
+-- last reading from before the fight stands: you went in bare, and the icon keeps saying so.
 function we.hands()
+    if InCombatLockdown() then return we.cache or {} end
     local ok, hasMain, mainMs, _, _, hasOff, offMs = pcall(GetWeaponEnchantInfo)
     if not ok then return {} end
     local out = {}
@@ -2508,6 +2511,7 @@ function we.hands()
                 minutes = (type(ms) == "number" and ms > 0) and (ms / 60000) or nil }
         end
     end
+    we.cache = out
     return out
 end
 

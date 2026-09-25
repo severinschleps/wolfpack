@@ -1505,7 +1505,16 @@ assert(rp.entries[1]:IsShown() and rp.entries[1].text._text == "7m", "seven minu
 assert(not rp.lit[1], "a poison that is merely fading does not flash")
 S.combat = true
 ns.weEv._scripts.OnEvent(ns.weEv, "UNIT_INVENTORY_CHANGED")
-assert(not rp.entries[1]:IsShown(), "in combat there is nothing to be done, so it stays quiet")
+assert(not rp.entries[1]:IsShown(), "a fading poison in combat: nothing to be done, so quiet")
+-- and in a fight the call is not asked at all: whatever was true at the pull still stands
+S.combat = false
+S.mainEnchant, S.offEnchant = false, false
+ns.weEv._scripts.OnEvent(ns.weEv, "UNIT_INVENTORY_CHANGED")
+assert(rp.entries[1]:IsShown() and rp.lit[1], "bare when the fight starts")
+S.combat = true
+S.mainEnchant, S.offEnchant, S.mainMs, S.offMs = true, true, 60 * 60000, 60 * 60000
+ns.weEv._scripts.OnEvent(ns.weEv, "UNIT_INVENTORY_CHANGED")
+assert(rp.entries[1]:IsShown() and rp.lit[1], "the call says otherwise mid-fight and is ignored")
 S.combat, S.mainEnchant, S.offEnchant = false, true, true
 S.mainMs, S.offMs = 30 * 60000, 30 * 60000
 ns.weEv._scripts.OnEvent(ns.weEv, "UNIT_INVENTORY_CHANGED")
