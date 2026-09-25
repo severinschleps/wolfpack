@@ -4356,11 +4356,35 @@ function ns.ArmorReport()
         sp and sp[1] or "none", tostring(up)))
 end
 
+-- /wp pet -- which of the happiness routes, if any, this build still answers on.
+function ns.PetReport()
+    local function say(t) print("|cff88ccffWolfpack:|r " .. t) end
+    local function shot(what, fn)
+        local ok, v = pcall(fn)
+        say(("%s: %s %s"):format(what, ok and type(v) or "error", tostring(v)))
+    end
+    say(("pet exists = %s, name = %s"):format(tostring(UnitExists("pet")),
+        tostring(UnitName("pet"))))
+    shot("GetPetHappiness", function() return GetPetHappiness() end)
+    shot("UnitPetHappiness", function() return UnitPetHappiness("pet") end)
+    shot("PetFrameHappiness", function()
+        return PetFrameHappiness and select(2, PetFrameHappiness:GetTexCoord())
+    end)
+    shot("hn.happiness", hn.happiness)
+    local found = {}
+    for k in pairs(_G) do
+        if type(k) == "string" and k:lower():find("happ") then found[#found + 1] = k end
+    end
+    table.sort(found)
+    say("anything named happiness: " .. (#found > 0 and table.concat(found, ", ") or "nothing"))
+end
+
 SlashCmdList.WOLFPACKADDON = function(msg)
     msg = (msg or ""):lower()
     if msg:find("aura") then return safe(ns.AuraReport, (msg:gsub("^%s*auras?%s*", ""))) end
     if msg:find("crit") then return safe(ns.CritReport) end
     if msg:find("armor") then return safe(ns.ArmorReport) end
+    if msg:find("pet") then return safe(ns.PetReport) end
     safe(ns.ToggleConfig)
 end
 
