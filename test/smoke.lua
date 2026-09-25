@@ -1549,18 +1549,32 @@ assert(armor:IsShown() and ns.wl.lit == nil, "armor up: no flashing")
 wo.armorOnlyMissing = true
 ns.wlEv._scripts.OnEvent(ns.wlEv, "UNIT_AURA")
 assert(not armor:IsShown(), "and with only-when-missing it is out of the way entirely")
--- in a fight the aura calls say nothing, so Blizzard's own buff bar is read instead
+-- In a fight nothing answers, so what was true on the way in is what is believed.
 S.combat, S.auras = true, {}
+ns.wlEv._scripts.OnEvent(ns.wlEv, "UNIT_AURA")
+assert(not armor:IsShown(), "armored walking in: still armored, whatever the aura calls do")
+S.combat, S.auras = false, {}
+ns.wlEv._scripts.OnEvent(ns.wlEv, "UNIT_AURA")
+assert(armor:IsShown() and ns.wl.lit == armor, "it fell off out here: back to flashing")
+S.combat = true
+S.spellNames = { [706] = "Demon Armor" }
+ns.wlEv._scripts.OnEvent(ns.wlEv, "UNIT_AURA")
+assert(armor:IsShown() and ns.wl.lit == armor, "bare walking in: still bare")
+ns.wlEv._scripts.OnEvent(ns.wlEv, "UNIT_SPELLCAST_SUCCEEDED", "player", "cast-1", 706)
+assert(not armor:IsShown(), "cast it mid-fight and the reminder goes away")
+ns.wlEv._scripts.OnEvent(ns.wlEv, "UNIT_SPELLCAST_SUCCEEDED", "pet", "cast-2", 706)
+assert(not armor:IsShown(), "somebody else's cast changes nothing")
+-- Blizzard's buff bar counts too, where it can be read
+S.combat, S.auras = false, {}
+ns.wlEv._scripts.OnEvent(ns.wlEv, "UNIT_AURA")
 BuffButton1 = new()
 BuffButton1.icon = new()
 BuffButton1.icon._tex = 100 + 706 -- the demon armor icon, sitting on the buff bar
 BuffButton1.icon.GetTexture = function(self) return self._tex end
 ns.wlEv._scripts.OnEvent(ns.wlEv, "UNIT_AURA")
 assert(not armor:IsShown(), "the buff bar says it is up, so nothing is shown")
-BuffButton1.icon._tex = 999 -- something else entirely
-ns.wlEv._scripts.OnEvent(ns.wlEv, "UNIT_AURA")
-assert(armor:IsShown() and ns.wl.lit == armor, "not on the bar: flashing again, mid-fight")
--- a warlock too young for Demon Armor: the same two routes must find Demon Skin too
+BuffButton1 = nil
+-- a warlock too young for Demon Armor: the aura route must find Demon Skin too
 S.level = 12
 S.combat, S.auras = false, {}
 ns.wlEv._scripts.OnEvent(ns.wlEv, "UNIT_AURA")
@@ -1569,13 +1583,6 @@ assert(armor.icon._tex == 100 + 696, "and it wears Demon Skin's icon, not Armor'
 S.auras = { { name = "Demon Skin" } }
 ns.wlEv._scripts.OnEvent(ns.wlEv, "UNIT_AURA")
 assert(ns.wl.lit == nil, "skin up out of combat: no flashing")
-S.combat, S.auras = true, {}
-BuffButton1.icon._tex = 100 + 696 -- Demon Skin sitting on the buff bar
-ns.wlEv._scripts.OnEvent(ns.wlEv, "UNIT_AURA")
-assert(ns.wl.lit == nil, "and the buff bar finds it in a fight as well")
-BuffButton1.icon._tex = 999
-ns.wlEv._scripts.OnEvent(ns.wlEv, "UNIT_AURA")
-assert(ns.wl.lit == armor, "gone again mid-fight: flashing")
 -- and a warlock buffed with Demon Skin at 60 is armored: the better one is not nagged for
 S.combat, S.auras = false, { { name = "Demon Skin" } }
 S.level = 60
@@ -1584,10 +1591,8 @@ assert(not armor:IsShown(), "any of the two counts as armored")
 S.auras = {}
 ns.wlEv._scripts.OnEvent(ns.wlEv, "UNIT_AURA")
 assert(armor:IsShown() and armor.icon._tex == 100 + 706, "bare at 60: Demon Armor is the ask")
-SlashCmdList.WOLFPACKADDON("armor") -- the probe reads both routes without blowing up
+SlashCmdList.WOLFPACKADDON("armor") -- the probe reads every route without blowing up
 assert(not ns.errored, "the armor probe runs clean")
-S.level = 60
-BuffButton1 = nil
 S.combat, wo.armorOnlyMissing = false, false
 
 S.bags = { [0] = {} }

@@ -2343,24 +2343,54 @@ function wl.iconOnBuffBar(tex)
     return found
 end
 
--- Which armor should be on you, and whether it is. Either one counts while it is up, so both
--- are asked about. Nothing up: the one to nag about is a question of level -- the spellbook on
--- this client often answers nothing at all, the level always answers.
+-- Which armor should be on you, and whether it is. Either one counts while it is up.
+--
+-- In a fight nothing will say: the aura calls refuse, and Blizzard's buff icons do not compare
+-- reliably either. So what is known out of the fight is remembered, and casting armor during
+-- one updates that memory. The buff lasts half an hour; no fight outlives the answer.
 function wl.armor()
+    local combat = InCombatLockdown()
+    local answered = false
     for _, sp in ipairs(wl.armors) do
-        local ok, data = pcall(function()
-            local d = C_UnitAuras.GetAuraDataBySpellName("player", sp[1], "HELPFUL")
-            if d then return d end
-        end)
-        if ok and data then return sp, true end
-        -- the buff bar knows even while the aura calls are shut
-        if wl.iconOnBuffBar(wl.icons(sp[2])) == true then return sp, true end
+        if not combat then
+            local ok, data = pcall(function()
+                local d = C_UnitAuras.GetAuraDataBySpellName("player", sp[1], "HELPFUL")
+                if d then return d end
+            end)
+            if ok then answered = true end
+            if ok and data then wl.memoUp, wl.memoSp = true, sp return sp, true end
+        end
+        if wl.iconOnBuffBar(wl.icons(sp[2])) == true then
+            wl.memoUp, wl.memoSp = true, sp
+            return sp, true
+        end
     end
-    local lvl = UnitLevel("player") or 0
+    -- the one you should be wearing is a question of level -- the spellbook on this client
+    -- often answers nothing at all, the level always answers
+    local lvl, best = UnitLevel("player") or 0, nil
     for _, sp in ipairs(wl.armors) do
-        if lvl >= sp[3] then return sp, false end
+        if lvl >= sp[3] and not best then best = sp end
     end
-    return nil, false
+    if combat then
+        if wl.memoUp then return wl.memoSp or best, true end
+    elseif answered then
+        wl.memoUp, wl.memoSp = false, nil -- out here the game is telling the truth
+    end
+    return best, false
+end
+
+-- Casting it in a fight is the one thing we do get told about.
+function wl.sawCast(spellID)
+    local ok, name = pcall(function()
+        if C_Spell and C_Spell.GetSpellName then return C_Spell.GetSpellName(spellID) end
+        local info = C_Spell and C_Spell.GetSpellInfo and C_Spell.GetSpellInfo(spellID)
+        if type(info) == "table" then return info.name end
+        if GetSpellInfo then return (GetSpellInfo(spellID)) end
+    end)
+    if not ok or type(name) ~= "string" then return end
+    for _, sp in ipairs(wl.armors) do
+        if name == sp[1] then wl.memoUp, wl.memoSp = true, sp end
+    end
 end
 
 function wl.refresh()
@@ -2438,9 +2468,15 @@ end)
 
 local wlEv = CreateFrame("Frame")
 ns.wlEv = wlEv
-wlEv:SetScript("OnEvent", function() safe(wl.refresh) end)
+wlEv:SetScript("OnEvent", function(_, ev, unit, _, spellID)
+    if ev == "UNIT_SPELLCAST_SUCCEEDED" then
+        if unit ~= "player" then return end
+        safe(wl.sawCast, spellID)
+    end
+    safe(wl.refresh)
+end)
 for _, e in ipairs({ "BAG_UPDATE", "BAG_UPDATE_DELAYED", "PLAYER_ENTERING_WORLD", "PLAYER_LOGIN",
-    "UNIT_AURA", "PLAYER_REGEN_ENABLED" }) do
+    "UNIT_AURA", "PLAYER_REGEN_ENABLED", "UNIT_SPELLCAST_SUCCEEDED" }) do
     pcall(wlEv.RegisterEvent, wlEv, e)
 end
 
@@ -4313,6 +4349,8 @@ function ns.ArmorReport()
             ok and (data and "found" or "not on you") or "call refused",
             bar == nil and "no answer" or tostring(bar)))
     end
+    say(("remembered: %s%s"):format(tostring(wl.memoUp),
+        wl.memoSp and (" (" .. wl.memoSp[1] .. ")") or ""))
     local sp, up = wl.armor()
     say(("level %s -- verdict: %s, buffed = %s"):format(tostring(UnitLevel("player")),
         sp and sp[1] or "none", tostring(up)))
