@@ -4371,12 +4371,50 @@ function ns.PetReport()
         return PetFrameHappiness and select(2, PetFrameHappiness:GetTexCoord())
     end)
     shot("hn.happiness", hn.happiness)
-    local found = {}
-    for k in pairs(_G) do
-        if type(k) == "string" and k:lower():find("happ") then found[#found + 1] = k end
+    local function keys(t, want)
+        local out = {}
+        if type(t) == "table" then
+            for k, v in pairs(t) do
+                if type(k) == "string" and (not want or k:lower():find(want)) then
+                    out[#out + 1] = k .. (type(v) == "number" and ("=" .. v) or "")
+                end
+            end
+        end
+        table.sort(out)
+        return #out > 0 and table.concat(out, ", ") or "nothing"
     end
-    table.sort(found)
-    say("anything named happiness: " .. (#found > 0 and table.concat(found, ", ") or "nothing"))
+    local f = PetFrameHappiness
+    say(("PetFrameHappiness: %s %s"):format(type(f),
+        type(f) == "table" and f.GetObjectType and f:GetObjectType() or ""))
+    if type(f) == "table" then
+        say("  its own keys: " .. keys(f))
+        if f.GetRegions then
+            for i, r in ipairs({ f:GetRegions() }) do
+                local ok, tex = pcall(function() return r.GetTexture and r:GetTexture() end)
+                local ok2, a = pcall(function() return r.GetAtlas and r:GetAtlas() end)
+                local ok3, c = pcall(function()
+                    return r.GetTexCoord and table.concat({ r:GetTexCoord() }, " ")
+                end)
+                say(("  region %d: %s tex=%s atlas=%s coords=%s"):format(i,
+                    r.GetObjectType and r:GetObjectType() or "?", ok and tostring(tex) or "-",
+                    ok2 and tostring(a) or "-", ok3 and tostring(c) or "-"))
+            end
+        end
+    end
+    say("PetHappinessIndicatorMixin: " .. keys(PetHappinessIndicatorMixin))
+    say("PetPaperDollPetHappinessInfo: " .. keys(PetPaperDollPetHappinessInfo))
+    local api = {}
+    for name, t in pairs(_G) do
+        if type(name) == "string" and name:find("^C_") and type(t) == "table" then
+            for k in pairs(t) do
+                if type(k) == "string" and k:lower():find("happ") then
+                    api[#api + 1] = name .. "." .. k
+                end
+            end
+        end
+    end
+    table.sort(api)
+    say("namespaced calls: " .. (#api > 0 and table.concat(api, ", ") or "nothing"))
 end
 
 SlashCmdList.WOLFPACKADDON = function(msg)
