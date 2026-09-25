@@ -2154,23 +2154,23 @@ function hn.ammo()
     return id, (okCount and type(count) == "number") and count or 0, okIcon and icon or nil
 end
 
--- Happiness has moved around between builds, so every route is tried: the old call, a unit
--- version of it, and finally Blizzard's own pet frame, whose face texture says it without
--- anyone having to be told. A failed pcall hands back its error text, so only a real 1-3 counts.
+-- Happiness has moved around between builds, so every route is tried. This client answers on
+-- C_PetInfo.GetPetHappiness; older ones on the bare call, and Blizzard's own indicator frame
+-- can be asked directly as a last resort. A failed pcall hands back its error text, and some
+-- builds answer with a table, so only a real 1-3 counts.
 function hn.happiness()
     for _, get in ipairs({
+        function() return C_PetInfo.GetPetHappiness() end,
+        function() return PetFrameHappiness:GetHappinessStats() end,
         function() return GetPetHappiness() end,
         function() return UnitPetHappiness("pet") end,
-        function() return PetFrameHappiness and select(2, PetFrameHappiness:GetTexCoord()) end,
     }) do
         local ok, value = pcall(get)
-        if ok and type(value) == "number" then
-            if value >= 1 and value <= 3 then return math.floor(value) end
-            -- a texture coordinate: the faces sit side by side, a fifth of the way apart
-            if value > 0 and value <= 1 then
-                local n = math.floor(value / 0.1875 + 0.5)
-                if n >= 1 and n <= 3 then return n end
-            end
+        if ok and type(value) == "table" then
+            value = value.happiness or value.happinessLevel or value.level
+        end
+        if ok and type(value) == "number" and value >= 1 and value <= 3 then
+            return math.floor(value)
         end
     end
 end

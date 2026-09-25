@@ -225,6 +225,10 @@ S.time = 1000
 GetTime = function() return S.time end
 -- Duration objects stand in for the client's secret-safe ones: everything about them, IsZero
 -- included, is secret, so the addon may only pass them on. Reading one here fails the test.
+C_PetInfo = { GetPetHappiness = function()
+    if S.happyTable then return { happiness = S.happiness } end
+    return S.happiness
+end }
 C_Spell = { GetSpellPowerCost = function(id) return S.costs and S.costs[id] or {} end,
     GetSpellTexture = function(id) return id == 139 and 135953 or 100 + id end,
     GetSpellInfo = function(id) return { name = (S.spellNames or {})[id] or ("Spell" .. id) } end }
@@ -1629,19 +1633,24 @@ assert(not pet:IsShown(), "no pet, no face")
 ho.ammo = false
 ns.hnEv._scripts.OnEvent(ns.hnEv, "BAG_UPDATE")
 assert(not ns.hn.entries[1]:IsShown(), "and the ammo can be switched off")
--- when the old call is gone, the pet frame's own face is read instead
-local keptHappy = GetPetHappiness
-GetPetHappiness = nil
-PetFrameHappiness = new()
-PetFrameHappiness._coords = { 2 * 0.1875, 3 * 0.1875, 0, 0.359375 }
-PetFrameHappiness.GetTexCoord = function(self) return unpack(self._coords) end
+-- this build answers on C_PetInfo, and hands back a table on some days
+local keptHappy, keptInfo = GetPetHappiness, C_PetInfo
+GetPetHappiness, S.happyTable = nil, true
 S.petHP, ho.ammo = 400, true
 ns.hnEv._scripts.OnEvent(ns.hnEv, "UNIT_HAPPINESS")
-assert(ns.hn.entries[2]:IsShown(), "the pet frame's face stands in for the missing call")
+assert(ns.hn.entries[2]:IsShown(), "C_PetInfo stands in for the call that went away")
+S.happyTable = nil
+-- and Blizzard's own indicator will say it outright when nothing else answers
+C_PetInfo = nil
+PetFrameHappiness = new()
+PetFrameHappiness.GetHappinessStats = function() return 3 end
+ns.hnEv._scripts.OnEvent(ns.hnEv, "UNIT_HAPPINESS")
+assert(ns.hn.entries[2]:IsShown(), "the indicator frame stands in as well")
 PetFrameHappiness = nil
 S.petHP, ho.ammo = 400, true -- with a pet out, so the face would be drawn if it could be
 ns.hnEv._scripts.OnEvent(ns.hnEv, "UNIT_HAPPINESS")
 assert(not (ns.hn.entries[2] and ns.hn.entries[2]:IsShown()), "no happiness here, no face")
+C_PetInfo = keptInfo
 GetPetHappiness = keptHappy
 S.ammoID, S.happiness = nil, nil
 login("ROGUE", 3)
