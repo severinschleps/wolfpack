@@ -1559,6 +1559,23 @@ assert(not armor:IsShown(), "the buff bar says it is up, so nothing is shown")
 BuffButton1.icon._tex = 999 -- something else entirely
 ns.wlEv._scripts.OnEvent(ns.wlEv, "UNIT_AURA")
 assert(armor:IsShown() and ns.wl.lit == armor, "not on the bar: flashing again, mid-fight")
+-- a warlock who only knows Demon Skin: the same two routes must find that one too
+S.book = { { "Demon Skin", 0, 0, "self" } }
+S.combat, S.auras = false, {}
+ns.wlEv._scripts.OnEvent(ns.wlEv, "UNIT_AURA")
+assert(armor:IsShown() and ns.wl.lit == armor, "skin missing: it is the one being asked for")
+assert(armor.icon._tex == 100 + 696, "and it wears Demon Skin's icon, not Armor's")
+S.auras = { { name = "Demon Skin" } }
+ns.wlEv._scripts.OnEvent(ns.wlEv, "UNIT_AURA")
+assert(ns.wl.lit == nil, "skin up out of combat: no flashing")
+S.combat, S.auras = true, {}
+BuffButton1.icon._tex = 100 + 696 -- Demon Skin sitting on the buff bar
+ns.wlEv._scripts.OnEvent(ns.wlEv, "UNIT_AURA")
+assert(ns.wl.lit == nil, "and the buff bar finds it in a fight as well")
+BuffButton1.icon._tex = 999
+ns.wlEv._scripts.OnEvent(ns.wlEv, "UNIT_AURA")
+assert(ns.wl.lit == armor, "gone again mid-fight: flashing")
+S.book = { { "Demon Armor", 0, 0, "self" } }
 BuffButton1 = nil
 S.combat, wo.armorOnlyMissing = false, false
 
