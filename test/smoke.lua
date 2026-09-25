@@ -1644,8 +1644,14 @@ S.happyTable = nil
 C_PetInfo = nil
 PetFrameHappiness = new()
 PetFrameHappiness.GetHappinessStats = function() return 3 end
+local face = new()
+face.GetObjectType = function() return "Texture" end
+face.GetAtlas = function() return "UI-PetHappiness-Content" end
+PetFrameHappiness._regions = { face }
 ns.hnEv._scripts.OnEvent(ns.hnEv, "UNIT_HAPPINESS")
 assert(ns.hn.entries[2]:IsShown(), "the indicator frame stands in as well")
+assert(pet.icon._atlas == "UI-PetHappiness-Content",
+    "and the face it is wearing is copied, not cut out of the old file by hand")
 PetFrameHappiness = nil
 S.petHP, ho.ammo = 400, true -- with a pet out, so the face would be drawn if it could be
 ns.hnEv._scripts.OnEvent(ns.hnEv, "UNIT_HAPPINESS")

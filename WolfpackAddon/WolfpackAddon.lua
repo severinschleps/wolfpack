@@ -2175,6 +2175,23 @@ function hn.happiness()
     end
 end
 
+-- Blizzard's own indicator is already wearing the right face, so it is copied rather than
+-- cropped by hand: on this build the art is an atlas, and the old coordinates land on some
+-- unrelated corner of the file.
+function hn.happyLook()
+    local ok, look = pcall(function()
+        for _, r in ipairs({ PetFrameHappiness:GetRegions() }) do
+            if r.GetObjectType and r:GetObjectType() == "Texture" then
+                local atlas = r.GetAtlas and r:GetAtlas()
+                if atlas then return { atlas = atlas } end
+                local tex = r.GetTexture and r:GetTexture()
+                if tex then return { tex = tex, coords = { r:GetTexCoord() } } end
+            end
+        end
+    end)
+    return ok and type(look) == "table" and look or nil
+end
+
 function hn.entry(i)
     local e = hn.entries[i]
     if not e then
@@ -2205,12 +2222,20 @@ function hn.refresh()
     local id, count, tex = hn.ammo()
     local happy = hn.happiness()
     for _, what in ipairs({ "ammo", "pet" }) do
-        local show, icon, text, coords = false, nil, nil, nil
+        local show, icon, text, coords, atlas = false, nil, nil, nil, nil
         if what == "ammo" and o.ammo and id then
             show, icon, text = true, tex or 132382, o.showCount and count or nil
         elseif what == "pet" and o.pet and happy and UnitExists("pet") then
-            show, icon = true, hn.happyArt
-            coords = { (happy - 1) * 0.1875, happy * 0.1875, 0, 0.359375 }
+            show = true
+            local look = hn.happyLook()
+            if look and look.atlas then
+                atlas = look.atlas
+            elseif look and look.tex then
+                icon, coords = look.tex, look.coords
+            else -- the old file, cut into three faces side by side
+                icon = hn.happyArt
+                coords = { (happy - 1) * 0.1875, happy * 0.1875, 0, 0.359375 }
+            end
         end
         if show then
             n = n + 1
@@ -2224,6 +2249,7 @@ function hn.refresh()
             end
             e.icon:SetTexture(icon)
             ns.iconCorners(e.icon, e.mask, o.radius, coords)
+            if atlas then e.icon:SetAtlas(atlas) end -- an atlas brings its own coordinates
             if not e.text:SetFont(o.font, o.fontSize, flags) then
                 e.text:SetFont(FONTS[1][2], o.fontSize, flags)
             end
@@ -4415,6 +4441,23 @@ function ns.PetReport()
     end
     table.sort(api)
     say("namespaced calls: " .. (#api > 0 and table.concat(api, ", ") or "nothing"))
+    local names = { "UI-PetHappiness" }
+    for i = 1, 3 do
+        names[#names + 1] = "UI-PetHappiness" .. i
+        names[#names + 1] = "PetHappiness" .. i
+        names[#names + 1] = "UI-HUD-UnitFrame-Player-PetFrame-Happiness" .. i
+    end
+    local atlases = {}
+    for _, n in ipairs(names) do
+        local ok, info = pcall(function() return C_Texture.GetAtlasInfo(n) end)
+        if ok and type(info) == "table" then
+            atlases[#atlases + 1] = ("%s (%sx%s)"):format(n, tostring(info.width),
+                tostring(info.height))
+        end
+    end
+    say("atlases that exist: " .. (#atlases > 0 and table.concat(atlases, ", ") or "none"))
+    local look = hn.happyLook()
+    say("what we would draw: " .. (look and (look.atlas or tostring(look.tex)) or "the old file"))
 end
 
 SlashCmdList.WOLFPACKADDON = function(msg)
