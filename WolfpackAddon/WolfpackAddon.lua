@@ -4664,17 +4664,43 @@ function ns.LootReport()
     say("EJ_GetInstanceByIndex: " .. type(EJ_GetInstanceByIndex)
         .. ", EJ_GetEncounterInfoByIndex: " .. type(EJ_GetEncounterInfoByIndex)
         .. ", EJ_GetNumLoot: " .. type(EJ_GetNumLoot))
-    local names = {}
+    local keys = {}
+    if type(C_EncounterJournal) == "table" then
+        for k in pairs(C_EncounterJournal) do keys[#keys + 1] = k end
+        table.sort(keys)
+    end
+    say("C_EncounterJournal has: " .. (#keys > 0 and table.concat(keys, ", ") or "nothing"))
+    -- nothing is listed until a tier is picked, so every tier is walked
+    local tiers = 0
+    pcall(function() tiers = EJ_GetNumTiers() or 0 end)
+    say("tiers: " .. tostring(tiers))
+    for t = 1, tiers do
+        local tname = select(1, pcall(function() return (EJ_GetTierInfo(t)) end)) and
+            select(2, pcall(function() return (EJ_GetTierInfo(t)) end)) or "?"
+        pcall(EJ_SelectTier, t)
+        local names, raids = {}, {}
+        pcall(function()
+            for i = 1, 40 do
+                local id, name = EJ_GetInstanceByIndex(i, false)
+                if not id then break end
+                names[#names + 1] = name or ("#" .. id)
+            end
+            for i = 1, 40 do
+                local id, name = EJ_GetInstanceByIndex(i, true)
+                if not id then break end
+                raids[#raids + 1] = name or ("#" .. id)
+            end
+        end)
+        say(("tier %d (%s): %d dungeons, %d raids%s"):format(t, tostring(tname), #names, #raids,
+            #names > 0 and (" -- " .. table.concat(names, ", ")) or ""))
+    end
     pcall(function()
-        for i = 1, 40 do
-            local id, name = EJ_GetInstanceByIndex(i, false) -- false: dungeons, not raids
-            if not id then break end
-            names[#names + 1] = name or ("#" .. id)
+        local id
+        for t = 1, tiers do
+            EJ_SelectTier(t)
+            id = select(1, EJ_GetInstanceByIndex(1, false))
+            if id then break end
         end
-    end)
-    say("dungeons it knows: " .. (#names > 0 and table.concat(names, ", ") or "none"))
-    pcall(function()
-        local id = select(1, EJ_GetInstanceByIndex(1, false))
         if not id then return end
         EJ_SelectInstance(id)
         local bosses = {}
