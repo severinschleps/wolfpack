@@ -1876,16 +1876,35 @@ end
 -- picking one up puts it on the cursor, ready for an action bar
 assert(ns.mc.pickUp(shelf[stocked + 2]) and S.cursor.name == "Charge 2", "it is on the cursor")
 -- the game full, and combat, are both said out loud rather than swallowed
+-- what the game is given is a file id or a bare name; a path is what it refuses
+S.gameMacros = {}
+local pathy = { name = "Pathy", body = "/say hi", icon = "Interface/Icons/INV_Sword_04" }
+ns.mc.toGame(pathy)
+assert(S.gameMacros[1].icon == "INV_Sword_04", "the folder is stripped off for the game")
+assert(ns.mc.iconOf(pathy) == "Interface/Icons/INV_Sword_04", "while the screen still gets a path")
+assert(ns.mc.iconFor({ body = "/say hi" }) == 134400, "and no icon at all is the question mark")
 -- the shared list full, this character's own eighteen take over
-S.macroRoom = #S.gameMacros
-local spill = shelf[stocked + 50]
+S.gameMacros = {}
+ns.mc.SHARED_SLOTS, ns.mc.CHAR_SLOTS = 2, 3
+for i = 1, 2 do ns.mc.toGame({ name = "Filler " .. i, body = "/say " .. i }) end
+assert(select(1, ns.mc.room()) == 2, "the shared list is full")
+local spill = { name = "Spill", body = "/say spill" }
 local at = ns.mc.toGame(spill)
 assert(at and S.gameMacros[at].perChar == true, "it goes into a character slot instead")
 assert(spill.perChar == true, "and remembers that is where it lives")
 -- both full, and it says which is which rather than just refusing
-S.charRoom = select(2, GetNumMacros())
-local ok, why = ns.mc.toGame(shelf[stocked + 51])
-assert(not ok and why:find("18") and why:find("120"), "both full: " .. tostring(why))
+for i = 1, 2 do ns.mc.toGame({ name = "More " .. i, body = "/say m" .. i }) end
+local ok, why = ns.mc.toGame({ name = "Nope", body = "/say no" })
+assert(not ok and why:find("both macro lists are full"), "both full: " .. tostring(why))
+assert(why:find("2 of 2") and why:find("3 of 3"), "with the counts spelled out: " .. why)
+-- a refusal that is not about room says what the game actually said
+ns.mc.SHARED_SLOTS, ns.mc.CHAR_SLOTS = 120, 18
+S.gameMacros = {}
+local kept = CreateMacro
+CreateMacro = function() error("some other trouble entirely") end
+ok, why = ns.mc.toGame({ name = "Odd", body = "/say odd" })
+assert(not ok and why:find("some other trouble"), "the game's own words: " .. tostring(why))
+CreateMacro = kept
 S.macroRoom, S.charRoom = nil, nil
 S.combat = true
 ok, why = ns.mc.toGame(shelf[stocked + 50])

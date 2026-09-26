@@ -2622,6 +2622,16 @@ function mc.iconOf(entry)
     return mc.texture(entry.icon or mc.guessIcon(entry.body) or mc.DEFAULT_ICON)
 end
 
+-- The same icon, in the shape CreateMacro wants: a file id or a bare name. Handed a full
+-- path -- which is what draws on screen -- it refuses the lot.
+function mc.iconFor(entry)
+    local icon = mc.iconOf(entry)
+    if type(icon) == "number" then return icon end
+    local id = tonumber(icon)
+    if id then return id end
+    return icon:match("([^\\/]+)$") or mc.DEFAULT_ICON
+end
+
 -- What a shelf is called on screen.
 function mc.shelfName(key)
     for _, e in ipairs(ns.MACRO_SHELVES) do if e[1] == key then return e[2] end end
@@ -2729,13 +2739,24 @@ end
 -- Hand one to the game. It remembers which slot it was given and keeps it across edits, so
 -- editing never doubles up. A name the game already has -- one of yours from before, or another
 -- macro on this shelf -- is left alone: this one takes a numbered name beside it rather than
--- writing over somebody else's work. Blizzard's own rule: nothing about macros in combat.
+-- writing over somebody else's work.
+--
+-- The game keeps two lists, 120 shared across the account and 18 on this character, and it is
+-- asked how full each is rather than being made to fail first. Whatever goes wrong is repeated
+-- word for word: every failure reading the same way told us nothing.
+mc.SHARED_SLOTS, mc.CHAR_SLOTS = 120, 18
+
+function mc.room()
+    local shared, mine = 0, 0
+    pcall(function() shared, mine = GetNumMacros() end)
+    return tonumber(shared) or 0, tonumber(mine) or 0
+end
+
 function mc.toGame(entry)
     if not entry then return nil, "nothing to save" end
     if InCombatLockdown() then return nil, "not while you are fighting" end
     local want = (entry.name or "Macro"):sub(1, 16)
-    local icon = mc.iconOf(entry)
-    local body = entry.body or ""
+    local icon, body = mc.iconFor(entry), entry.body or ""
     local function slotOf(name)
         local at = select(2, pcall(GetMacroIndexByName, name))
         return type(at) == "number" and at > 0 and at or nil
@@ -2754,30 +2775,40 @@ function mc.toGame(entry)
         n = n + 1
         name = want:sub(1, 13) .. " " .. n
     end
-    -- the shared list first, then this character's own eighteen when that one is full
-    for _, perCharacter in ipairs({ false, true }) do
+    -- whichever list has room, the shared one first
+    local shared, own = mc.room()
+    local lists = {}
+    if shared < mc.SHARED_SLOTS then lists[#lists + 1] = false end
+    if own < mc.CHAR_SLOTS then lists[#lists + 1] = true end
+    if #lists == 0 then
+        return nil, ("both macro lists are full -- %d of %d shared, %d of %d on this character. "
+            .. "Delete one in the game's macro list."):format(shared, mc.SHARED_SLOTS, own,
+            mc.CHAR_SLOTS)
+    end
+    local trouble
+    for _, perCharacter in ipairs(lists) do
         local ok, made = pcall(CreateMacro, name, icon, body, perCharacter)
         if ok and type(made) == "number" then
             entry.slot, entry.perChar = name, perCharacter
             return made
         end
+        trouble = trouble or (not ok and tostring(made)) or "the game gave back nothing"
     end
-    local shared, mine = 0, 0
-    pcall(function() shared, mine = GetNumMacros() end)
-    return nil, ("no room left -- %d of the 120 shared slots and %d of this character's 18 are "
-        .. "taken. Delete one in the game's macro list and try again."):format(shared or 0, mine or 0)
+    return nil, ("the game would not take it (%d of %d shared, %d of %d here): %s"):format(
+        shared, mc.SHARED_SLOTS, own, mc.CHAR_SLOTS, tostring(trouble))
 end
 
 -- Open the game's own macro window. Dragging out of that one is Blizzard's code doing the
 -- picking up, which is the one route that cannot upset anything.
 function mc.openGameList()
-    if InCombatLockdown() then return false end
-    local ok = pcall(function()
-        if not MacroFrame then UIParentLoadAddOn("Blizzard_MacroUI") end
-        if MacroFrame and MacroFrame:IsShown() then HideUIPanel(MacroFrame)
-        elseif MacroFrame then ShowUIPanel(MacroFrame) end
+    if InCombatLockdown() then return false, "not while you are fighting" end
+    local ok, err = pcall(function()
+        if not MacroFrame and UIParentLoadAddOn then UIParentLoadAddOn("Blizzard_MacroUI") end
+        if not MacroFrame then error("this build has no macro window of its own") end
+        if MacroFrame:IsShown() then HideUIPanel(MacroFrame) else ShowUIPanel(MacroFrame) end
     end)
-    return ok
+    if ok then return true end
+    return false, tostring(err)
 end
 
 -- Put it on the cursor so it can be dropped on an action bar.
@@ -4928,8 +4959,10 @@ local function buildConfig()
             or (why or "no")))
     end)
     button(M.page, "Open the game's list", 160, COL[1] + 350, M.EDIT - 218, function()
-        mc.toGame(current())
-        if not mc.openGameList() then print("|cff88ccffWolfpack:|r not while you are fighting") end
+        local saved, why = mc.toGame(current())
+        if not saved then print("|cff88ccffWolfpack:|r " .. (why or "no")) end
+        local ok, trouble = mc.openGameList()
+        if not ok then print("|cff88ccffWolfpack:|r " .. (trouble or "no")) end
     end)
     local mNote = label(M.page, "Keep as many here as you like -- they are saved with the addon, "
         .. "one shelf per class, and changing profile does not touch them. The game itself only "
