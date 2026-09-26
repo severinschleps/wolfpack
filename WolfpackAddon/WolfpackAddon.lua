@@ -232,6 +232,8 @@ DEFAULTS.shaman = ns.weaponDefaults(-260)
 -- Warlock: the soul shards in your bags.
 DEFAULTS.training = { hideKnown = true, fromMyLevel = true, showCost = true }
 
+DEFAULTS.dungeons = { pick = 0, blueOnly = false, showChance = true, quests = true }
+
 DEFAULTS.warlock = {
     show = true, locked = true, x = 0, y = -220, size = 32, radius = 0,
     armor = true, armorSize = 32, armorFontSize = 12, armorOnlyMissing = true,
@@ -291,7 +293,7 @@ end
 ------------------------------------------------------------------------------------------
 -- store = WolfpackAddonDB, account-wide: { profiles = { [name] = settings }, chars = { [char] = name } }
 -- db = the active profile's settings.
-local changed, placeMini, useProfile, bf, mg, hn, wl, we, tr, seedFromBaked -- defined below
+local changed, placeMini, useProfile, bf, mg, hn, wl, we, tr, lt, seedFromBaked -- below
 
 -- Bars that only show while they are doing something (cast, swing) stay visible while the bars
 -- are unlocked or the options are open, so they can be placed.
@@ -2593,6 +2595,53 @@ function tr.list()
 end
 
 ------------------------------------------------------------------------------------------
+-- Dungeons: who drops what, and which quests the place has. The tables live in Data/Loot.lua,
+-- read off Wowhead's Forever section by tools/fetch_loot.py -- an addon cannot fetch anything
+-- itself, so the data is shipped with it.
+
+lt = {}
+ns.lt = lt
+lt.quality = { [0] = { 0.62, 0.62, 0.62 }, { 1, 1, 1 }, { 0.12, 1, 0 }, { 0, 0.44, 0.87 },
+    { 0.64, 0.21, 0.93 }, { 1, 0.5, 0 } }
+
+-- The tables are a separate addon, so that they can be switched off in the addon list. If it
+-- is not loaded the panel simply says so.
+function lt.all()
+    return WolfpackAddonLootData or {}
+end
+
+-- The one whose level range you are in, so the page opens somewhere useful.
+function lt.forMyLevel()
+    local lvl, best = UnitLevel("player") or 1, 1
+    for i, d in ipairs(lt.all()) do
+        if lvl >= (d.lo or 0) and lvl <= (d.hi or 0) then return i end
+        if (d.hi or 0) <= lvl then best = i end
+    end
+    return best
+end
+
+-- One flat list for the chosen dungeon: a boss, then its items, then the quests.
+function lt.rows(dungeon)
+    local out, o = {}, db and db.dungeons or {}
+    if not dungeon then return out end
+    for _, b in ipairs(dungeon.bosses or {}) do
+        local items = {}
+        for _, it in ipairs(b.items or {}) do
+            if not (o.blueOnly and it[3] < 3) then items[#items + 1] = it end
+        end
+        if #items > 0 then
+            out[#out + 1] = { boss = b.name }
+            for _, it in ipairs(items) do out[#out + 1] = { item = it } end
+        end
+    end
+    if o.quests and #(dungeon.quests or {}) > 0 then
+        out[#out + 1] = { boss = "Quests for this place" }
+        for _, qu in ipairs(dungeon.quests) do out[#out + 1] = { quest = qu } end
+    end
+    return out
+end
+
+------------------------------------------------------------------------------------------
 -- Weapon enchants: a rogue's poisons, a shaman's imbues. One icon per hand, shown when that
 -- weapon has nothing on it, or when what it has is nearly gone. GetWeaponEnchantInfo is
 -- inventory, not auras, so it answers in a fight as well as out of one.
@@ -3520,7 +3569,8 @@ local function buildConfig()
         { "buffs", "Buffs", "regular" }, { "mage", "Mage", "regular" },
         { "hunter", "Hunter", "regular" }, { "warlock", "Warlock", "regular" },
         { "rogue", "Rogue", "regular" }, { "shaman", "Shaman", "regular" },
-        { "training", "Training", "regular" }, { "other", "Other", "regular" } }
+        { "training", "Training", "regular" }, { "dungeons", "Dungeons", "regular" },
+        { "other", "Other", "regular" } }
     for i, e in ipairs(SIDEBAR) do
         local b = button(cfg, e[2], 118, 12, -104 - (i - 1) * 26, function()
             section, mode = e[1], e[3]
@@ -3556,9 +3606,11 @@ local function buildConfig()
     shamanPage:SetAllPoints(barsPage)
     local trainPage = CreateFrame("Frame", nil, cfg)
     trainPage:SetAllPoints(barsPage)
+    local dungPage = CreateFrame("Frame", nil, cfg)
+    dungPage:SetAllPoints(barsPage)
     ns.pages = { combat = barsPage, nameplates = questPage, buffs = buffPage, mage = magePage,
         hunter = hunterPage, warlock = lockPage, rogue = roguePage, shaman = shamanPage,
-        training = trainPage, other = otherPage }
+        training = trainPage, dungeons = dungPage, other = otherPage }
 
     local title = label(cfg, "Combat Display", "GameFontNormalLarge")
     title:SetPoint("TOPLEFT", 150, -72)
@@ -3577,7 +3629,8 @@ local function buildConfig()
             or section == "warlock" and "Warlock: soul shards"
             or section == "rogue" and "Rogue: weapon poisons"
             or section == "shaman" and "Shaman: weapon imbues"
-            or section == "training" and "What your trainer still has" or "Combat Display")
+            or section == "training" and "What your trainer still has"
+            or section == "dungeons" and "Dungeons: loot and quests" or "Combat Display")
         for _, t in ipairs(tabs) do t:SetShown(np) end
         barsPage:SetShown(section == "combat" or (np and sub == "bars"))
         questPage:SetShown(np and sub == "quest")
@@ -3589,6 +3642,7 @@ local function buildConfig()
         roguePage:SetShown(section == "rogue")
         shamanPage:SetShown(section == "shaman")
         trainPage:SetShown(section == "training")
+        dungPage:SetShown(section == "dungeons")
     end)
 
     local tabNote = label(barsPage, "", "GameFontDisableSmall")
@@ -4362,6 +4416,147 @@ local function buildConfig()
         end
         for i = #list + 1, #trRows do trRows[i]:Hide() end
         trChild:SetHeight(math.max(#list * 20, 10))
+    end)
+
+    ----------------------------------------------------------------------------------
+    -- Dungeons page: pick a place on the left, read its loot and its quests on the right.
+    ----------------------------------------------------------------------------------
+    local D = { rows = {}, picks = {} }
+    ns.dung = D
+    local DG = function() return db.dungeons end
+    local dset = group(dungPage, COL[1], TOP, 202, "The list")
+    check(dungPage, "Blue and better only", dset.x, dset:row(ROW),
+        function() return DG().blueOnly end, function(v) DG().blueOnly = v end)
+    check(dungPage, "Show drop chance", dset.x, dset:row(ROW),
+        function() return DG().showChance end, function(v) DG().showChance = v end)
+    check(dungPage, "List the quests too", dset.x, dset:row(ROW),
+        function() return DG().quests end, function(v) DG().quests = v end)
+    dset:close()
+
+    D.left = CreateFrame("ScrollFrame", nil, dungPage, "UIPanelScrollFrameTemplate")
+    D.left:SetPoint("TOPLEFT", COL[1] + 8, TOP - 116)
+    D.left:SetSize(176, 430)
+    D.leftChild = CreateFrame("Frame", nil, D.left)
+    D.leftChild:SetSize(176, 10)
+    D.left:SetScrollChild(D.leftChild)
+
+    D.right = CreateFrame("Frame", nil, dungPage)
+    D.right:SetPoint("TOPLEFT", COL[2], TOP - 4)
+    D.right:SetSize(620, 560)
+    local dbg = D.right:CreateTexture(nil, "BACKGROUND")
+    dbg:SetAllPoints()
+    dbg:SetColorTexture(0, 0, 0, 0.35)
+    D.scroll = CreateFrame("ScrollFrame", nil, D.right, "UIPanelScrollFrameTemplate")
+    D.scroll:SetPoint("TOPLEFT", 6, -6)
+    D.scroll:SetPoint("BOTTOMRIGHT", -28, 6)
+    D.child = CreateFrame("Frame", nil, D.scroll)
+    D.child:SetSize(580, 10)
+    D.scroll:SetScrollChild(D.child)
+    D.empty = D.child:CreateFontString(nil, "OVERLAY", "GameFontDisable")
+    D.empty:SetPoint("TOPLEFT", 8, -8)
+    D.empty:SetText("The dungeon tables are not loaded.\n\nThey live in their own addon --"
+        .. " \"Wolfpack Addon - Dungeon Loot\" -- so that you can switch them off. Tick it in"
+        .. " the addon list and reload.")
+    D.empty:SetJustifyH("LEFT")
+
+    function D.row(i)
+        local r = D.rows[i]
+        if not r then
+            r = CreateFrame("Button", nil, D.child)
+            r:SetSize(576, 18)
+            r.icon = r:CreateTexture(nil, "ARTWORK")
+            r.icon:SetSize(15, 15)
+            r.icon:SetPoint("LEFT", 4, 0)
+            r.icon:SetTexCoord(0.08, 0.92, 0.08, 0.92)
+            r.name = r:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+            r.name:SetPoint("LEFT", r.icon, "RIGHT", 6, 0)
+            r.name:SetJustifyH("LEFT")
+            r.right = r:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
+            r.right:SetPoint("RIGHT", -8, 0)
+            r:SetScript("OnEnter", function(self)
+                if not self.itemID and not self.questName then return end
+                GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+                if self.itemID then
+                    local ok = pcall(GameTooltip.SetItemByID, GameTooltip, self.itemID)
+                    if not ok then GameTooltip:SetText(self.name:GetText() or "") end
+                else
+                    GameTooltip:SetText(self.questName)
+                end
+                GameTooltip:Show()
+            end)
+            r:SetScript("OnLeave", function() GameTooltip:Hide() end)
+            D.rows[i] = r
+        end
+        return r
+    end
+
+    function D.pick(i)
+        local b = D.picks[i]
+        if not b then
+            b = button(dungPage, "", 170, 0, 0, function()
+                DG().pick = i
+                changed()
+            end)
+            b:SetParent(D.leftChild)
+            b:ClearAllPoints()
+            b:SetPoint("TOPLEFT", 0, -(i - 1) * 22)
+            D.picks[i] = b
+        end
+        return b
+    end
+
+    onRefresh(function()
+        if section ~= "dungeons" then return end
+        local all = lt.all()
+        if DG().pick == 0 or not all[DG().pick] then DG().pick = lt.forMyLevel() end
+        for i, d in ipairs(all) do
+            local b = D.pick(i)
+            b:SetText(d.name)
+            if i == DG().pick then b:LockHighlight() else b:UnlockHighlight() end
+            b:Show()
+        end
+        for i = #all + 1, #D.picks do D.picks[i]:Hide() end
+        D.leftChild:SetHeight(math.max(#all * 22, 10))
+
+        local here = all[DG().pick]
+        local list = lt.rows(here)
+        D.empty:SetShown(#all == 0)
+        for i, e in ipairs(list) do
+            local r = D.row(i)
+            r:SetPoint("TOPLEFT", 0, -(i - 1) * 18)
+            r.itemID, r.questName = nil, nil
+            if e.item then
+                local id, name, quality, need, pct, change = e.item[1], e.item[2], e.item[3],
+                    e.item[4], e.item[5], e.item[6]
+                r.itemID = id
+                local ok, tex = pcall(function() return C_Item.GetItemIconByID(id) end)
+                r.icon:SetTexture((ok and tex) or 134400)
+                r.icon:Show()
+                r.name:SetText(name .. (type(change) == "string"
+                    and ("  |cff8888ff" .. change .. "|r") or ""))
+                local col = lt.quality[quality] or lt.quality[1]
+                r.name:SetTextColor(col[1], col[2], col[3])
+                local note = type(need) == "number" and need > 0 and ("needs " .. need) or ""
+                if DG().showChance and type(pct) == "number" and pct > 0 then
+                    note = (note ~= "" and note .. "  " or "") .. pct .. "%"
+                end
+                r.right:SetText(note)
+            elseif e.quest then
+                r.questName = e.quest[2]
+                r.icon:Hide()
+                r.name:SetText(e.quest[2])
+                r.name:SetTextColor(1, 0.82, 0)
+                r.right:SetText("level " .. (e.quest[3] or 0))
+            else
+                r.icon:Hide()
+                r.name:SetText(e.boss)
+                r.name:SetTextColor(0.6, 0.85, 1)
+                r.right:SetText("")
+            end
+            r:Show()
+        end
+        for i = #list + 1, #D.rows do D.rows[i]:Hide() end
+        D.child:SetHeight(math.max(#list * 18, 10))
     end)
 
     ----------------------------------------------------------------------------------

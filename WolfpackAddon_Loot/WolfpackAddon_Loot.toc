@@ -1,0 +1,7 @@
+## Interface: 16001
+## Title: Wolfpack Addon |cff888888- Dungeon Loot|r
+## Notes: The dungeon, boss, loot and quest tables for the Dungeons panel. Untick it to save the memory; everything else in Wolfpack Addon carries on without it.
+## Author: severin
+## Version: 1.0.0
+
+Data.lua

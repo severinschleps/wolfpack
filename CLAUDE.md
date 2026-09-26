@@ -6,9 +6,16 @@ Whenever you change anything under `WolfpackAddon/`, run the test and then
 mirror the folder into the live game so the next `/reload` picks it up:
 
 ```bash
-luajit test/smoke.lua && rsync -a --delete WolfpackAddon/ \
-  "/Users/severin/Games/World of Warcraft/_classic_beta_/Interface/AddOns/WolfpackAddon/"
+luajit test/smoke.lua \
+  && rsync -a --delete WolfpackAddon/ \
+     "/Users/severin/Games/World of Warcraft/_classic_beta_/Interface/AddOns/WolfpackAddon/" \
+  && rsync -a --delete WolfpackAddon_Loot/ \
+     "/Users/severin/Games/World of Warcraft/_classic_beta_/Interface/AddOns/WolfpackAddon_Loot/"
 ```
+
+There are two addon folders: `WolfpackAddon/` and `WolfpackAddon_Loot/`, which holds
+only the dungeon tables so they can be switched off in the game's addon list. Both
+need installing.
 
 Do this before you report the change as done, in the same turn as the edit.
 Never install a version whose test fails; fix it first.
@@ -26,3 +33,17 @@ the very same directory, so either works in the command above.
 `test/smoke.lua` runs the addon against a mock WoW API: `luajit test/smoke.lua`
 prints `smoke ok`. Every non-trivial change gets a check there, and a fix for a
 real bug gets a test that fails without the fix.
+
+## Dungeon and training data
+
+`WolfpackAddon/Data/` holds generated tables. Nothing in there is hand-written:
+
+- `Training.lua` — trainer spells, copied from What's Training? (MIT), `Classes/Camelot`.
+- `../WolfpackAddon_Loot/Data.lua` — dungeon bosses, loot and quests, built by
+  `tools/fetch_loot.py` from Wowhead's Forever section. It sets a global,
+  `WolfpackAddonLootData`, because it is a separate addon. Rerun it when Forever
+  patches:
+  `python3 tools/fetch_loot.py` (add `--refresh` to ignore the cache).
+
+An addon cannot reach the network at runtime, so shipping a generated table is the
+only way this data gets in. Keep `tools/.cache/` out of git.

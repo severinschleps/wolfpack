@@ -379,6 +379,7 @@ UnitHealthMax = function() return 1000 end
 DAMAGE_TEXT_FONT = "Fonts\\FRIZQT__.TTF"
 local ns = {}
 assert(loadfile("WolfpackAddon/Data/Training.lua"))("WolfpackAddon", ns) -- loaded first, per the toc
+assert(loadfile("WolfpackAddon_Loot/Data.lua"))() -- its own addon; it sets a global
 assert(loadfile("WolfpackAddon/WolfpackAddon.lua"))("WolfpackAddon", ns)
 for _, c in ipairs({ "DRUID", "HUNTER", "MAGE", "PALADIN", "PRIEST", "ROGUE", "SHAMAN",
     "WARLOCK", "WARRIOR" }) do
@@ -840,7 +841,7 @@ assert(prof().nameplate.gap == 4 and prof().nameplate.x == -150 and prof().namep
 assert(prof().regular.gap == 30 and prof().regular.x == 0 and prof().regular.bars.health.width == 220, "regular untouched")
 -- every sidebar entry is really there, opens its page, and that page has settings on it
 for _, name in ipairs({ "Combat Display", "Nameplates", "Buffs", "Mage", "Hunter", "Warlock",
-    "Rogue", "Shaman", "Training", "Other" }) do
+    "Rogue", "Shaman", "Training", "Dungeons", "Other" }) do
     local b = byText(name)
     assert(b, "sidebar entry missing: " .. name)
     b._scripts.OnClick(b, "LeftButton")
@@ -849,6 +850,25 @@ end
 byText("Training")._scripts.OnClick(byText("Training"), "LeftButton")
 assert(ns.trainRows[1] and ns.trainRows[1]:IsShown(), "the trainer list has rows on it")
 assert(ns.trainRows[1].name._text:find("Level"), "and it starts with a level heading")
+-- and so does the dungeon page: a place is picked for you, its bosses and loot drawn
+byText("Dungeons")._scripts.OnClick(byText("Dungeons"), "LeftButton")
+assert(#WolfpackAddonLootData > 0, "the dungeon addon is loaded")
+assert(prof().dungeons.pick > 0, "one is picked, near your level")
+assert(ns.dung.picks[1] and ns.dung.picks[1]:IsShown(), "the dungeon list is drawn")
+assert(ns.dung.rows[1] and ns.dung.rows[1]:IsShown(), "and so is that dungeon's loot")
+local sawBoss, sawItem = false, false
+for _, r in ipairs(ns.dung.rows) do
+    if r:IsShown() and r.itemID then sawItem = true elseif r:IsShown() then sawBoss = true end
+end
+assert(sawBoss and sawItem, "bosses with items under them")
+-- and with that addon switched off the page says so instead of falling over
+local keptLoot = WolfpackAddonLootData
+WolfpackAddonLootData = nil
+byText("Dungeons")._scripts.OnClick(byText("Dungeons"), "LeftButton")
+assert(not ns.errored, "no data, no error")
+assert(ns.dung.empty:IsShown() and ns.dung.empty._text:find("not loaded"), "it explains itself")
+WolfpackAddonLootData = keptLoot
+byText("Dungeons")._scripts.OnClick(byText("Dungeons"), "LeftButton")
 for section, page in pairs(ns.pages) do
     assert((ns.boxesOn[page] or 0) > 0, "nothing on the " .. section .. " page")
 end
