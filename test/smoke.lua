@@ -163,7 +163,23 @@ date = function() return "12:34" end
 C_Map = {
     GetBestMapForUnit = function() return 84 end,
     GetPlayerMapPosition = function() return { GetXY = function() return 0.253, 0.607 end } end,
+    -- a small map tree: the world, one continent, two zones
+    GetMapInfo = function(id) return ({ [947] = { name = "Azeroth", mapType = 2 },
+        [13] = { name = "Eastern Kingdoms", mapType = 2 },
+        [52] = { name = "Westfall", mapType = 3 },
+        [84] = { name = "Stormwind City", mapType = 3 } })[id] end,
+    GetMapChildrenInfo = function(id)
+        if id == 947 then return { { mapID = 13 } } end
+        if id == 13 then return { { mapID = 52 }, { mapID = 84 } } end
+        return {}
+    end,
+    SetUserWaypoint = function(point) S.waypoint = point end,
 }
+UiMapPoint = { CreateFromCoordinates = function(m, x, y) return { map = m, x = x, y = y } end }
+C_SuperTrack = { SetSuperTrackedUserWaypoint = function(on) S.superTrack = on end }
+WorldMapFrame = new()
+WorldMapFrame.SetMapID = function(self, id) S.mapShown = id end
+ToggleWorldMap = function() S.mapOpen = true end
 MainActionBar = new()
 MainActionBar.EndCaps = { LeftEndCap = { Texture = new() }, RightEndCap = { Texture = new() } }
 BagsBar = new()
@@ -884,12 +900,45 @@ S.faction = "Alliance"
 byText("Dungeons")._scripts.OnClick(byText("Dungeons"), "LeftButton")
 local sawState = false
 for _, r in ipairs(ns.dung.rows) do
-    if r:IsShown() and r.questName then
+    if r:IsShown() and r.quest then
         assert(r.right._text ~= "", "a quest row carries its state: " .. tostring(r.right._text))
         sawState = true
     end
 end
 assert(sawState, "quests are on the page at all")
+-- clicking a quest opens the map where it is handed out and pins the spot
+local withGiver
+for _, d in ipairs(WolfpackAddonLootData) do
+    for _, x in ipairs(d.quests) do if x[6] and (x[8] or 0) > 0 then withGiver = x break end end
+    if withGiver then break end
+end
+assert(withGiver, "at least one quest knows who hands it out")
+assert(ns.lt.mapByName("Westfall") == 52, "a zone name finds its map")
+assert(ns.lt.mapByName("Nowhere") == nil, "and an unknown one finds nothing")
+local here = { 166, "The Defias Brotherhood", 22, 14, 1, "Gryan Stoutmantle", "Westfall", 56.2, 47.6 }
+S.waypoint, S.mapShown, S.superTrack = nil, nil, nil
+assert(ns.lt.showOnMap(here), "a quest with a spot goes on the map")
+assert(S.mapShown == 52, "the map opens on that zone")
+assert(S.waypoint and math.abs(S.waypoint.x - 0.562) < 1e-9
+    and math.abs(S.waypoint.y - 0.476) < 1e-9, "the pin lands on the spot")
+assert(S.superTrack == true, "with the arrow pointing at it")
+-- a zone this client does not know, and a quest nobody hands out, are both simply declined
+S.waypoint, S.mapShown = nil, nil
+assert(not ns.lt.showOnMap({ 1, "?", 1, 1, 3, "Someone", "Elsewhen", 10, 10 }), "no such zone")
+assert(not ns.lt.showOnMap({ 1, "?", 1, 1, 3, nil, nil, 0, 0 }), "nobody hands it out")
+assert(S.mapShown == nil and S.waypoint == nil, "and nothing was poked either time")
+-- clicking the row itself goes through the same door
+local row
+for _, r in ipairs(ns.dung.rows) do if r:IsShown() and r.quest then row = r break end end
+assert(row, "a quest row is on the page")
+row._scripts.OnClick(row)
+assert(not ns.errored, "clicking one never errors, wherever it points")
+-- in a fight nothing is touched
+S.combat = true
+S.waypoint, S.mapShown = nil, nil
+assert(not ns.lt.showOnMap(here), "not mid-fight")
+assert(S.mapShown == nil and S.waypoint == nil, "and nothing was poked")
+S.combat = false
 -- and with that addon switched off the page says so instead of falling over
 local keptLoot = WolfpackAddonLootData
 WolfpackAddonLootData = nil

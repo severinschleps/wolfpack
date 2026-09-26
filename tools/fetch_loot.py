@@ -221,11 +221,52 @@ def zone(zid, refresh=False, jobs=2):
     quests = []
     for qu in listview(html, "quests"):
         if qu.get("id"):
+            try:
+                where = giver(qu["id"], refresh) or (None, None, 0, 0)
+            except Exception as e:  # one odd quest page must not cost the whole run
+                print("    no map for quest %s (%s)" % (qu["id"], e))
+                where = (None, None, 0, 0)
             quests.append({"id": qu["id"], "name": qu.get("name", "?"),
                            "level": qu.get("level") or 0, "min": qu.get("reqlevel") or 0,
-                           "side": qu.get("side") or 3})  # 1 Alliance, 2 Horde, 3 both
+                           "side": qu.get("side") or 3,  # 1 Alliance, 2 Horde, 3 both
+                           "giver": where[0], "zone": where[1], "x": where[2], "y": where[3]})
     quests.sort(key=lambda r: (r["level"], r["name"]))
     return bosses, quests
+
+
+def giver(quest_id, refresh=False):
+    """Where a quest is picked up: (npc name, zone name, x, y).
+
+    A quest page draws its own little map, and the data behind it -- `new Mapper({...})` --
+    names the start point and where it stands, in percent across the zone."""
+    html = get("/quest=%d" % quest_id, refresh)
+    at = html.find("new Mapper(")
+    if at < 0:
+        return None
+    at = html.find("{", at)
+    stop = _match(html, at, "{", "}")
+    if stop < 0:
+        return None
+    try:
+        blob = json.loads(html[at:stop])
+    except json.JSONDecodeError:
+        return None
+    for _, zone in (blob.get("objectives") or {}).items():
+        if not isinstance(zone, dict) or not zone.get("mappable"):
+            continue
+        for level in zone.get("levels") or []:
+            if not isinstance(level, list):
+                continue
+            for point in level:
+                if not isinstance(point, dict) or point.get("point") != "start":
+                    continue
+                spot = point.get("coord")
+                if not isinstance(spot, list) or len(spot) < 2:
+                    spot = (point.get("coords") or [[]])[0]
+                if not isinstance(spot, list) or len(spot) < 2:
+                    continue
+                return point.get("name") or "?", zone.get("zone") or "?", spot[0], spot[1]
+    return None
 
 
 def q(s):
@@ -268,7 +309,7 @@ def main():
              '-- reach the network itself, so this table is the only way the data gets in.',
              '--',
              '-- WolfpackAddonLootData[i] = { id, name, lo, hi, bosses = { { id, name, items = { {id, name, quality,',
-             '-- level, percent, change}, ... } } }, quests = { {id, name, level, min, side}, ... } }',
+             '-- level, percent, change}, ... } } }, quests = { {id, name, level, min, side,\n-- giver, zone, x, y}, ... } }',
              '-- Its own addon so it can be switched off in the addon list: a global, not a',
              '-- namespace, is how the main addon finds it.',
              'WolfpackAddonLootData = {']
@@ -284,8 +325,10 @@ def main():
             lines.append('        } },')
         lines.append('    }, quests = {')
         for qu in d["quests"]:
-            lines.append('        { %s, %s, %s, %s, %s },'
-                         % (qu["id"], q(qu["name"]), qu["level"], qu["min"], qu["side"]))
+            lines.append('        { %s, %s, %s, %s, %s, %s, %s, %s, %s },'
+                         % (qu["id"], q(qu["name"]), qu["level"], qu["min"], qu["side"],
+                            q(qu["giver"]) if qu["giver"] else "nil",
+                            q(qu["zone"]) if qu["zone"] else "nil", qu["x"], qu["y"]))
         lines.append('    } },')
     lines.append('}')
     os.makedirs(os.path.dirname(OUT), exist_ok=True)

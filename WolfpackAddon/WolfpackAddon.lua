@@ -2644,6 +2644,53 @@ function lt.questState(qu)
     return "open"
 end
 
+-- Wowhead names the zone, the game numbers it, so the map tree is walked once and indexed by
+-- name. Zone maps win over continents and instance floors that happen to share a name.
+function lt.mapByName(name)
+    if not name then return nil end
+    if not lt.maps then
+        lt.maps = {}
+        pcall(function()
+            local queue, seen = { 946, 947, 12, 13, 1414, 1415 }, {}
+            while #queue > 0 do
+                local id = table.remove(queue)
+                if not seen[id] then
+                    seen[id] = true
+                    local info = C_Map.GetMapInfo(id)
+                    if info and info.name and (not lt.maps[info.name] or info.mapType == 3) then
+                        lt.maps[info.name] = id
+                    end
+                    for _, child in ipairs(C_Map.GetMapChildrenInfo(id) or {}) do
+                        if child.mapID then queue[#queue + 1] = child.mapID end
+                    end
+                end
+            end
+        end)
+    end
+    return lt.maps[name]
+end
+
+-- Open the map where the quest is handed out, and drop the waypoint pin on the spot.
+function lt.showOnMap(qu)
+    local zone, x, y = qu[7], qu[8], qu[9]
+    if not zone or not x or x == 0 or InCombatLockdown() then return false end
+    local mapID = lt.mapByName(zone)
+    if not mapID then return false end
+    pcall(function()
+        if C_Map.SetUserWaypoint and UiMapPoint and UiMapPoint.CreateFromCoordinates then
+            C_Map.SetUserWaypoint(UiMapPoint.CreateFromCoordinates(mapID, x / 100, y / 100))
+            if C_SuperTrack and C_SuperTrack.SetSuperTrackedUserWaypoint then
+                C_SuperTrack.SetSuperTrackedUserWaypoint(true)
+            end
+        end
+    end)
+    pcall(function()
+        if not WorldMapFrame:IsShown() then ToggleWorldMap() end
+        WorldMapFrame:SetMapID(mapID)
+    end)
+    return true
+end
+
 lt.questLook = {
     done = { "done", 0.5, 0.5, 0.5 },
     log = { "in your log", 1, 0.82, 0 },
@@ -4506,17 +4553,34 @@ local function buildConfig()
             r.right = r:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
             r.right:SetPoint("RIGHT", -8, 0)
             r:SetScript("OnEnter", function(self)
-                if not self.itemID and not self.questName then return end
+                if not self.itemID and not self.quest then return end
                 GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
                 if self.itemID then
                     local ok = pcall(GameTooltip.SetItemByID, GameTooltip, self.itemID)
                     if not ok then GameTooltip:SetText(self.name:GetText() or "") end
                 else
-                    GameTooltip:SetText(self.questName)
+                    GameTooltip:SetText(self.quest[2])
+                    if self.quest[6] then
+                        GameTooltip:AddLine("From " .. self.quest[6], 1, 1, 1)
+                        GameTooltip:AddLine(("%s  %.1f, %.1f"):format(self.quest[7] or "?",
+                            self.quest[8] or 0, self.quest[9] or 0), 0.7, 0.7, 0.7)
+                        GameTooltip:AddLine("Click to put it on the map", 0.2, 1, 0.2)
+                    else
+                        GameTooltip:AddLine("Nobody hands this one out -- it starts on an item "
+                            .. "or inside the place.", 0.7, 0.7, 0.7, true)
+                    end
                 end
                 GameTooltip:Show()
             end)
             r:SetScript("OnLeave", function() GameTooltip:Hide() end)
+            r:SetScript("OnClick", function(self)
+                if not self.quest then return end
+                if not lt.showOnMap(self.quest) then
+                    print("|cff88ccffWolfpack:|r " .. (InCombatLockdown()
+                        and "not while you are fighting"
+                        or "no map spot for that one"))
+                end
+            end)
             D.rows[i] = r
         end
         return r
@@ -4556,7 +4620,7 @@ local function buildConfig()
         for i, e in ipairs(list) do
             local r = D.row(i)
             r:SetPoint("TOPLEFT", 0, -(i - 1) * 18)
-            r.itemID, r.questName = nil, nil
+            r.itemID, r.quest = nil, nil
             if e.item then
                 local id, name, quality, need, pct, change = e.item[1], e.item[2], e.item[3],
                     e.item[4], e.item[5], e.item[6]
@@ -4574,7 +4638,7 @@ local function buildConfig()
                 end
                 r.right:SetText(note)
             elseif e.quest then
-                r.questName = e.quest[2]
+                r.quest = e.quest
                 r.icon:Hide()
                 local how = lt.questLook[lt.questState(e.quest)] or lt.questLook.open
                 r.name:SetText(e.quest[2])
