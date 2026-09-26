@@ -4616,6 +4616,19 @@ local function buildConfig()
             r.right = r:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
             r.right:SetPoint("RIGHT", -8, 0)
             r.right:SetJustifyH("RIGHT")
+            r:EnableMouse(true)
+            r:SetScript("OnEnter", function(self)
+                if not self.spellID then return end
+                GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+                local ok = pcall(GameTooltip.SetSpellByID, GameTooltip, self.spellID)
+                if not ok then
+                    GameTooltip:SetText(self.name:GetText() or "")
+                    GameTooltip:AddLine("Spell " .. self.spellID, 0.6, 0.6, 0.6)
+                end
+                if self.note then GameTooltip:AddLine(self.note, 0.2, 1, 0.2, true) end
+                GameTooltip:Show()
+            end)
+            r:SetScript("OnLeave", function() GameTooltip:Hide() end)
             trRows[i] = r
         end
         return r
@@ -4633,7 +4646,13 @@ local function buildConfig()
         for i, e in ipairs(list) do
             local r = trRow(i)
             r:SetPoint("TOPLEFT", 0, -(i - 1) * 20)
+            r.spellID, r.note = nil, nil
             if e.spell then
+                r.spellID = e.spell.id
+                r.note = e.known and "You know this one."
+                    or e.trainable and ("Your trainer has it now, for " .. ns.money(e.spell.cost))
+                    or e.reached and "You need the rank below this one first."
+                    or ("Comes at level " .. e.level .. ".")
                 local name, icon = tr.spellInfo(e.spell.id)
                 r.icon:SetTexture(icon)
                 r.icon:SetShown(true)

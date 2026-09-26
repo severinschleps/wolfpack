@@ -225,6 +225,7 @@ EditMacro = function(i, name, icon, body)
     S.gameMacros[i] = { name = name, icon = icon, body = body }
 end
 PickupMacro = function(i) S.cursor = S.gameMacros[i] end
+GameTooltip.SetSpellByID = function(_, id) S.tooltip = id end
 GetNumMacroIcons = function() return S.macroIcons and #S.macroIcons or 0 end
 GetMacroIconInfo = function(i) return (S.macroIcons or {})[i] end
 C_SpellBook = { GetSpellBookItemName = function(i) return (S.book or {})[i] and S.book[i][1] or nil end }
@@ -949,6 +950,18 @@ assert(#ns.mc.shelf("WARRIOR") == before, "and deleting takes it off the shelf")
 byText("Training")._scripts.OnClick(byText("Training"), "LeftButton")
 assert(ns.trainRows[1] and ns.trainRows[1]:IsShown(), "the trainer list has rows on it")
 assert(ns.trainRows[1].name._text:find("Level"), "and it starts with a level heading")
+-- hovering a spell asks the game for its tooltip, and adds why it is on the list
+local trSpell
+for _, r in ipairs(ns.trainRows) do if r:IsShown() and r.spellID then trSpell = r break end end
+assert(trSpell, "a spell row is on the page")
+assert(trSpell.note and trSpell.note ~= "", "with a line saying where you stand: " .. trSpell.note)
+S.tooltip = nil
+trSpell._scripts.OnEnter(trSpell)
+assert(S.tooltip == trSpell.spellID, "the game is asked for that spell")
+trSpell._scripts.OnLeave(trSpell)
+local trHeader = ns.trainRows[1]
+trHeader._scripts.OnEnter(trHeader) -- a level heading has nothing to show
+assert(not ns.errored, "and a heading is simply passed over")
 -- and so does the dungeon page: a place is picked for you, its bosses and loot drawn
 byText("Dungeons")._scripts.OnClick(byText("Dungeons"), "LeftButton")
 assert(#WolfpackAddonLootData > 0, "the dungeon addon is loaded")
