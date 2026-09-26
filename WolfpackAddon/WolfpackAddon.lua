@@ -2762,7 +2762,9 @@ end
 function mc.toGame(entry)
     if not entry then return nil, "nothing to save" end
     if InCombatLockdown() then return nil, "not while you are fighting" end
-    local want = (entry.name or "Macro"):sub(1, 16)
+    local want = (entry.name or ""):gsub("^%s+", ""):gsub("%s+$", "")
+    if want == "" then want = "Macro" end -- an empty string is truthy in Lua; the game refuses it
+    want = want:sub(1, 16)
     local icon, body = mc.iconFor(entry), entry.body or ""
     local function slotOf(name)
         local at = select(2, pcall(GetMacroIndexByName, name))
@@ -2803,6 +2805,23 @@ function mc.toGame(entry)
     end
     return nil, ("the game would not take it (%d of %d shared, %d of %d here): %s"):format(
         shared, mc.SHARED_SLOTS, own, mc.CHAR_SLOTS, tostring(trouble))
+end
+
+-- Put a whole shelf into the game, as far as it goes: the shared list first, then this
+-- character's own. Says how many went in, and why it stopped if it did.
+function mc.shelfToGame(key)
+    local put, why = 0, nil
+    for _, entry in ipairs(mc.shelf(key)) do
+        local ok, trouble = mc.toGame(entry)
+        if ok then
+            put = put + 1
+        else
+            why = trouble
+            break
+        end
+    end
+    local shared, own = mc.room()
+    return put, why, shared, own
 end
 
 -- Open the game's own macro window. Dragging out of that one is Blizzard's code doing the
@@ -4967,7 +4986,13 @@ local function buildConfig()
         print("|cff88ccffWolfpack:|r " .. (index and "saved in the game's macro list"
             or (why or "no")))
     end)
-    button(M.page, "Open the game's list", 160, COL[1] + 350, M.EDIT - 218, function()
+    button(M.page, "Save the whole shelf", 170, COL[1] + 350, M.EDIT - 218, function()
+        local put, why, shared, own = mc.shelfToGame(ns.macroClass)
+        print(("|cff88ccffWolfpack:|r %d saved -- the game now holds %d of %d shared and %d of "
+            .. "%d here.%s"):format(put, shared, mc.SHARED_SLOTS, own, mc.CHAR_SLOTS,
+            why and (" Stopped: " .. why) or ""))
+    end)
+    button(M.page, "Open the game's list", 160, COL[1] + 526, M.EDIT - 218, function()
         local saved, why = mc.toGame(current())
         if not saved then print("|cff88ccffWolfpack:|r " .. (why or "no")) end
         local ok, trouble = mc.openGameList()
@@ -5613,6 +5638,32 @@ function ns.LootReport()
         and select(1, C_AddOns.IsAddOnLoaded("AtlasLoot")) or "unknown"))
 end
 
+-- /wp macro -- what shape this build's CreateMacro actually wants. It makes a few throwaway
+-- macros, says which calls were taken, and deletes them again.
+function ns.MacroReport()
+    local function say(t) print("|cff88ccffWolfpack:|r " .. t) end
+    local shared, own = mc.room()
+    say(("room: %d shared, %d on this character"):format(shared, own))
+    say("CreateMacro is a " .. type(CreateMacro) .. ", GetNumMacros a " .. type(GetNumMacros))
+    local made = {}
+    local function try(what, ...)
+        local ok, res = pcall(CreateMacro, ...)
+        say(("%-34s %s"):format(what, ok and ("slot " .. tostring(res)) or tostring(res)))
+        if ok and type(res) == "number" then made[#made + 1] = select(1, ...) end
+    end
+    try("name, id icon, body, false", "WpaOne", 134400, "/say one", false)
+    try("name, named icon, body, false", "WpaTwo", "INV_Misc_QuestionMark", "/say two", false)
+    try("name, id icon, body (no 4th)", "WpaThree", 134400, "/say three")
+    try("name, icon as text, body, false", "WpaFour", "134400", "/say four", false)
+    try("one-letter name", "Q", 134400, "/say five", false)
+    try("character macro", "WpaSix", 134400, "/say six", true)
+    for _, name in ipairs(made) do
+        local at = select(2, pcall(GetMacroIndexByName, name))
+        if type(at) == "number" and at > 0 then pcall(DeleteMacro, at) end
+    end
+    say(#made .. " of the six were taken, and have been deleted again")
+end
+
 SlashCmdList.WOLFPACKADDON = function(msg)
     msg = (msg or ""):lower()
     if msg:find("aura") then return safe(ns.AuraReport, (msg:gsub("^%s*auras?%s*", ""))) end
@@ -5620,6 +5671,7 @@ SlashCmdList.WOLFPACKADDON = function(msg)
     if msg:find("armor") then return safe(ns.ArmorReport) end
     if msg:find("pet") then return safe(ns.PetReport) end
     if msg:find("loot") then return safe(ns.LootReport) end
+    if msg:find("macro") then return safe(ns.MacroReport) end
     safe(ns.ToggleConfig)
 end
 

@@ -1912,6 +1912,38 @@ for i = 1, 2 do ns.mc.toGame({ name = "More " .. i, body = "/say m" .. i }) end
 local ok, why = ns.mc.toGame({ name = "Nope", body = "/say no" })
 assert(not ok and why:find("both macro lists are full"), "both full: " .. tostring(why))
 assert(why:find("2 of 2") and why:find("3 of 3"), "with the counts spelled out: " .. why)
+-- an empty name is what the game refuses outright, and "" is truthy in Lua
+S.gameMacros = {}
+assert(ns.mc.toGame({ name = "", body = "/say hi" }), "a macro with no name still saves")
+assert(S.gameMacros[1].name == "Macro", "under a name the game will take")
+ns.mc.toGame({ name = "   ", body = "/say hi" })
+assert(S.gameMacros[2].name == "Macro 2", "and so does one that is only spaces")
+ns.mc.toGame({ name = "  Pull  ", body = "/say hi" })
+assert(S.gameMacros[3].name == "Pull", "while a padded one is trimmed, not renamed")
+-- the probe walks every call shape without leaving anything behind
+S.gameMacros = {}
+DeleteMacro = function(i) table.remove(S.gameMacros, i) end
+SlashCmdList.WOLFPACKADDON("macro")
+assert(not ns.errored, "the macro probe runs clean")
+assert(#S.gameMacros == 0, "and tidies up after itself")
+
+-- a whole shelf at once: the shared list first, then the character's own, and it says where it got to
+S.gameMacros = {}
+ns.mc.SHARED_SLOTS, ns.mc.CHAR_SLOTS = 3, 2
+WolfpackAddonDB.macros.TESTS = {}
+for i = 1, 8 do
+    WolfpackAddonDB.macros.TESTS[i] = { name = "Bulk " .. i, body = "/say " .. i }
+end
+S.bulk = { ns.mc.shelfToGame("TESTS") }
+assert(S.bulk[1] == 5, "it filled both lists: " .. S.bulk[1])
+assert(S.bulk[3] == 3 and S.bulk[4] == 2, "three shared, two here")
+assert(S.bulk[2] and S.bulk[2]:find("both macro lists are full"), "and says why it stopped")
+S.bulk = 0
+for _, m in ipairs(S.gameMacros) do if m.perChar then S.bulk = S.bulk + 1 end end
+assert(S.bulk == 2, "the last two went into character slots")
+ns.mc.SHARED_SLOTS, ns.mc.CHAR_SLOTS = 120, 18
+WolfpackAddonDB.macros.TESTS = nil
+
 -- a refusal that is not about room says what the game actually said
 ns.mc.SHARED_SLOTS, ns.mc.CHAR_SLOTS = 120, 18
 S.gameMacros = {}
