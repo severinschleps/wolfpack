@@ -293,7 +293,7 @@ end
 ------------------------------------------------------------------------------------------
 -- store = WolfpackAddonDB, account-wide: { profiles = { [name] = settings }, chars = { [char] = name } }
 -- db = the active profile's settings.
-local changed, placeMini, useProfile, bf, mg, hn, wl, we, tr, lt, seedFromBaked -- below
+local changed, placeMini, useProfile, bf, mg, hn, wl, we, tr, lt, mc, seedFromBaked -- below
 
 -- Bars that only show while they are doing something (cast, swing) stay visible while the bars
 -- are unlocked or the options are open, so they can be placed.
@@ -1721,7 +1721,7 @@ end
 -- One report per session, printed to chat: Lua errors are hidden by default and this client
 -- stops delivering them after 100.
 -- GetMoneyString is what this client has; GetCoinTextureString is not here at all.
-local function money(c)
+function ns.money(c) -- on the namespace, not a local: this chunk is at Lua's 200-local ceiling
     local ok, text = pcall(GetMoneyString, c)
     return (ok and text) or tostring(math.floor((c or 0) / 10000)) .. "g"
 end
@@ -2595,6 +2595,67 @@ function tr.list()
 end
 
 ------------------------------------------------------------------------------------------
+-- Macros. Keep as many as you like here -- they live in the saved variables, account-wide, one
+-- shelf per class, and switching profile does not touch them. The game itself has room for
+-- only 120 macros plus 18 on the character, so one is written into a real slot at the moment
+-- you ask for it: dragging it onto a bar, or pressing the button.
+
+mc = {}
+ns.mc = mc
+mc.DEFAULT_ICON = "INV_Misc_QuestionMark"
+
+function mc.shelf(classToken)
+    local key = classToken or class or "WARRIOR"
+    store.macros = store.macros or {}
+    store.macros[key] = store.macros[key] or {}
+    return store.macros[key]
+end
+
+-- The icon of the first thing the macro casts, so a new one does not arrive as a question mark.
+function mc.guessIcon(body)
+    for line in (body or ""):gmatch("[^\r\n]+") do
+        local verb, rest = line:match("^%s*/(%a+)%s+(.+)$")
+        if rest and (verb == "cast" or verb == "use" or verb == "castsequence") then
+            rest = rest:gsub("^%b[]%s*", "")            -- drop a [conditional] in front
+            rest = rest:match("^[^;,]+") or rest        -- first of a sequence or a fallback list
+            rest = rest:gsub("^%s+", ""):gsub("%s+$", "")
+            local ok, tex = pcall(function()
+                return C_Spell and C_Spell.GetSpellTexture and C_Spell.GetSpellTexture(rest)
+            end)
+            if ok and tex then return tex end
+        end
+    end
+    return nil
+end
+
+-- Hand one to the game. It keeps its slot across edits, and says plainly when the game is full.
+-- Blizzard's own rule: nothing about macros in combat.
+function mc.toGame(entry)
+    if not entry or InCombatLockdown() then return nil, "not while you are fighting" end
+    local name = (entry.name or "Macro"):sub(1, 16)
+    local icon = entry.icon or mc.guessIcon(entry.body) or mc.DEFAULT_ICON
+    local index = select(2, pcall(GetMacroIndexByName, name))
+    if type(index) == "number" and index > 0 then
+        local ok = pcall(EditMacro, index, name, icon, entry.body or "")
+        if not ok then return nil, "the game would not take it" end
+        return index
+    end
+    local ok, made = pcall(CreateMacro, name, icon, entry.body or "", false)
+    if not ok or type(made) ~= "number" then
+        return nil, "no room left -- the game keeps 120 macro slots, and they are all full"
+    end
+    return made
+end
+
+-- Put it on the cursor so it can be dropped on an action bar.
+function mc.pickUp(entry)
+    local index, why = mc.toGame(entry)
+    if not index then return false, why end
+    local ok = pcall(PickupMacro, index)
+    return ok, ok and nil or "the game would not pick it up"
+end
+
+------------------------------------------------------------------------------------------
 -- Dungeons: who drops what, and which quests the place has. The tables live in Data/Loot.lua,
 -- read off Wowhead's Forever section by tools/fetch_loot.py -- an addon cannot fetch anything
 -- itself, so the data is shipped with it.
@@ -2871,6 +2932,14 @@ end
 ------------------------------------------------------------------------------------------
 -- section = sidebar entry, sub = tab inside Nameplates, mode = which bar layout is being edited
 local cfg, selected, mode, section, sub = nil, "health", "regular", "combat", "bars"
+local csub = "settings" -- class pages: their own settings, or the macro shelf
+-- Every class gets a place on the sidebar, whether or not the addon does anything else for it:
+-- { section key, label, class token }
+ns.CLASS_SECTIONS = { { "druid", "Druid", "DRUID" }, { "hunter", "Hunter", "HUNTER" },
+    { "mage", "Mage", "MAGE" }, { "paladin", "Paladin", "PALADIN" },
+    { "priest", "Priest", "PRIEST" }, { "rogue", "Rogue", "ROGUE" },
+    { "shaman", "Shaman", "SHAMAN" }, { "warlock", "Warlock", "WARLOCK" },
+    { "warrior", "Warrior", "WARRIOR" } }
 local refreshers = {}
 
 changed = function()
@@ -3410,7 +3479,7 @@ local openStops -- the gradient points dialog, defined below
 
 local ioFrame
 
-local function textArea(parent, y, h)
+function ns.textArea(parent, y, h) -- on the namespace: this chunk is at Lua's 200-local ceiling
     local area = CreateFrame("Frame", nil, parent)
     area:SetPoint("TOPLEFT", 14, y)
     area:SetPoint("TOPRIGHT", -14, y)
@@ -3459,11 +3528,11 @@ local function openIO(mode)
             f.area1.box:SetText(exportString(self:GetChecked()))
             f.area1.box:SetFocus()
         end)
-        f.area1 = textArea(f, -50, 110)
+        f.area1 = ns.textArea(f, -50, 110)
         f.label2 = label(f, "2. WoW UI layout (Edit Mode). Import it in Edit Mode: Layout dropdown, Import.",
             "GameFontNormal")
         f.label2:SetPoint("TOPLEFT", 16, -172)
-        f.area2 = textArea(f, -190, 110)
+        f.area2 = ns.textArea(f, -190, 110)
         f.note = label(f, "", "GameFontHighlightSmall")
         f.note:SetPoint("TOPLEFT", 16, -312)
         f.note:SetWidth(505)
@@ -3643,20 +3712,42 @@ local function buildConfig()
     button(cfg, "Export", 64, 668, -33, function() openIO("export") end)
     button(cfg, "Import", 64, 738, -33, function() openIO("import") end)
 
-    -- Sidebar: one entry per module
+    -- Sidebar: everything that is about the screen first, then a class shelf of its own.
     local SIDEBAR = { { "combat", "Combat Display", "regular" }, { "nameplates", "Nameplates", "nameplate" },
-        { "buffs", "Buffs", "regular" }, { "mage", "Mage", "regular" },
-        { "hunter", "Hunter", "regular" }, { "warlock", "Warlock", "regular" },
-        { "rogue", "Rogue", "regular" }, { "shaman", "Shaman", "regular" },
-        { "training", "Training", "regular" }, { "dungeons", "Dungeons", "regular" },
-        { "other", "Other", "regular" } }
-    for i, e in ipairs(SIDEBAR) do
-        local b = button(cfg, e[2], 118, 12, -104 - (i - 1) * 26, function()
+        { "buffs", "Buffs", "regular" }, { "training", "Training", "regular" },
+        { "dungeons", "Dungeons", "regular" }, { "other", "Other", "regular" } }
+    local y = -104
+    for _, e in ipairs(SIDEBAR) do
+        local b = button(cfg, e[2], 118, 12, y, function()
             section, mode = e[1], e[3]
             changed()
         end)
         onRefresh(function() if section == e[1] then b:LockHighlight() else b:UnlockHighlight() end end)
+        y = y - 26
     end
+    y = y - 14
+    local shelfLine = cfg:CreateTexture(nil, "ARTWORK")
+    shelfLine:SetColorTexture(1, 1, 1, 0.15)
+    shelfLine:SetPoint("TOPLEFT", 12, y + 8)
+    shelfLine:SetSize(118, 1)
+    local shelf = label(cfg, "Classes", "GameFontDisableSmall")
+    shelf:SetPoint("TOPLEFT", 14, y)
+    y = y - 16
+    for _, e in ipairs(ns.CLASS_SECTIONS) do
+        local b = button(cfg, e[2], 118, 12, y, function()
+            section, mode = e[1], "regular"
+            if not ns.pages[e[1]] then csub = "macros" end
+            changed()
+        end)
+        onRefresh(function()
+            if section == e[1] then b:LockHighlight() else b:UnlockHighlight() end
+            -- your own class reads brighter; the rest are there for writing macros ahead of time
+            local on = e[3] == class
+            b:GetFontString():SetTextColor(on and 1 or 0.65, on and 0.82 or 0.65, on and 0 or 0.65)
+        end)
+        y = y - 26
+    end
+    ns.sidebarBottom = y
     local divider = cfg:CreateTexture(nil, "ARTWORK")
     divider:SetColorTexture(1, 1, 1, 0.15)
     divider:SetPoint("TOPLEFT", 138, -64)
@@ -3698,6 +3789,17 @@ local function buildConfig()
         tabs[i] = button(cfg, t[2], 110, 150 + (i - 1) * 116, -68, function() sub = t[1]; changed() end)
         onRefresh(function() if sub == t[1] then tabs[i]:LockHighlight() else tabs[i]:UnlockHighlight() end end)
     end
+    -- class pages carry the same two tabs: what the addon does for the class, and its macros
+    local ctabs = {}
+    for i, t in ipairs({ { "settings", "Settings" }, { "macros", "Macros" } }) do
+        ctabs[i] = button(cfg, t[2], 110, 150 + (i - 1) * 116, -68, function()
+            csub = t[1]
+            changed()
+        end)
+        onRefresh(function()
+            if csub == t[1] then ctabs[i]:LockHighlight() else ctabs[i]:UnlockHighlight() end
+        end)
+    end
     onRefresh(function()
         local np = section == "nameplates"
         title:SetShown(not np)
@@ -3709,17 +3811,27 @@ local function buildConfig()
             or section == "rogue" and "Rogue: weapon poisons"
             or section == "shaman" and "Shaman: weapon imbues"
             or section == "training" and "What your trainer still has"
-            or section == "dungeons" and "Dungeons: loot and quests" or "Combat Display")
+            or section == "dungeons" and "Dungeons: loot and quests"
+            or section == "druid" and "Druid" or section == "paladin" and "Paladin"
+            or section == "priest" and "Priest" or section == "warrior" and "Warrior"
+            or "Combat Display")
         for _, t in ipairs(tabs) do t:SetShown(np) end
+        local klass, hasOwn = nil, ns.pages[section] ~= nil
+        for _, e in ipairs(ns.CLASS_SECTIONS) do if e[1] == section then klass = e[3] end end
+        if klass and not hasOwn then csub = "macros" end
+        ctabs[1]:SetShown(klass ~= nil and hasOwn)
+        ctabs[2]:SetShown(klass ~= nil)
+        ns.macroPage:SetShown(klass ~= nil and csub == "macros")
+        ns.macroClass = klass
         barsPage:SetShown(section == "combat" or (np and sub == "bars"))
         questPage:SetShown(np and sub == "quest")
         otherPage:SetShown(section == "other")
         buffPage:SetShown(section == "buffs")
-        magePage:SetShown(section == "mage")
-        hunterPage:SetShown(section == "hunter")
-        lockPage:SetShown(section == "warlock")
-        roguePage:SetShown(section == "rogue")
-        shamanPage:SetShown(section == "shaman")
+        magePage:SetShown(section == "mage" and csub == "settings")
+        hunterPage:SetShown(section == "hunter" and csub == "settings")
+        lockPage:SetShown(section == "warlock" and csub == "settings")
+        roguePage:SetShown(section == "rogue" and csub == "settings")
+        shamanPage:SetShown(section == "shaman" and csub == "settings")
         trainPage:SetShown(section == "training")
         dungPage:SetShown(section == "dungeons")
     end)
@@ -4473,15 +4585,15 @@ local function buildConfig()
                     r.right:SetTextColor(0.5, 0.5, 0.5)
                 elseif e.trainable then
                     r.name:SetTextColor(0.2, 1, 0.2)
-                    r.right:SetText(T().showCost and money(e.spell.cost) or "train it")
+                    r.right:SetText(T().showCost and ns.money(e.spell.cost) or "train it")
                     r.right:SetTextColor(0.2, 1, 0.2)
                 elseif e.reached then -- level is there, the rank below it is not
                     r.name:SetTextColor(1, 1, 1)
-                    r.right:SetText(T().showCost and money(e.spell.cost) or "needs the rank below")
+                    r.right:SetText(T().showCost and ns.money(e.spell.cost) or "needs the rank below")
                     r.right:SetTextColor(0.8, 0.8, 0.8)
                 else
                     r.name:SetTextColor(0.65, 0.65, 0.65)
-                    r.right:SetText(T().showCost and money(e.spell.cost) or "")
+                    r.right:SetText(T().showCost and ns.money(e.spell.cost) or "")
                     r.right:SetTextColor(0.45, 0.45, 0.45)
                 end
             else -- a level header
@@ -4495,6 +4607,155 @@ local function buildConfig()
         end
         for i = #list + 1, #trRows do trRows[i]:Hide() end
         trChild:SetHeight(math.max(#list * 20, 10))
+    end)
+
+    ----------------------------------------------------------------------------------
+    -- Macros: a shelf per class, as long as you like. The list on the left, the one you are
+    -- editing on the right. Nothing reaches the game until you drag it out or press the button.
+    ----------------------------------------------------------------------------------
+    local M = { rows = {} }
+    ns.macro = M
+    M.page = CreateFrame("Frame", nil, cfg)
+    M.page:SetAllPoints(barsPage)
+    ns.macroPage = M.page
+    M.picked = 1
+
+    local function shelf() return mc.shelf(ns.macroClass) end
+    local function current() return shelf()[M.picked] end
+
+    label(M.page, "Saved macros", "GameFontNormal"):SetPoint("TOPLEFT", COL[1] + 6, TOP)
+    M.list = CreateFrame("ScrollFrame", nil, M.page, "UIPanelScrollFrameTemplate")
+    M.list:SetPoint("TOPLEFT", COL[1] + 8, TOP - 24)
+    M.list:SetSize(176, 420)
+    M.listChild = CreateFrame("Frame", nil, M.list)
+    M.listChild:SetSize(176, 10)
+    M.list:SetScrollChild(M.listChild)
+
+    function M.row(i)
+        local r = M.rows[i]
+        if not r then
+            r = button(M.page, "", 170, 0, 0, function() M.picked = i; changed() end)
+            r:SetParent(M.listChild)
+            r:ClearAllPoints()
+            r:SetPoint("TOPLEFT", 0, -(i - 1) * 24)
+            r:RegisterForDrag("LeftButton")
+            -- drag it straight onto an action bar: the game gets a real macro at that moment
+            r:SetScript("OnDragStart", function()
+                local ok, why = mc.pickUp(shelf()[i])
+                if not ok then print("|cff88ccffWolfpack:|r " .. (why or "no")) end
+            end)
+            r:SetScript("OnEnter", function(self)
+                local e = shelf()[i]
+                if not e then return end
+                GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+                GameTooltip:SetText(e.name or "Macro")
+                for line in (e.body or ""):gmatch("[^\r\n]+") do
+                    GameTooltip:AddLine(line, 0.8, 0.8, 0.8)
+                end
+                GameTooltip:AddLine("Drag it onto an action bar", 0.2, 1, 0.2)
+                GameTooltip:Show()
+            end)
+            r:SetScript("OnLeave", function() GameTooltip:Hide() end)
+            M.rows[i] = r
+        end
+        return r
+    end
+
+    M.empty = label(M.page, "", "GameFontDisableSmall")
+    M.empty:SetPoint("TOPLEFT", COL[1] + 12, TOP - 30)
+    M.empty:SetWidth(170)
+    M.empty:SetJustifyH("LEFT")
+
+    button(M.page, "New macro", 176, COL[1] + 8, TOP - 452, function()
+        local list = shelf()
+        list[#list + 1] = { name = "New macro", body = "/cast " }
+        M.picked = #list
+        changed()
+    end)
+    button(M.page, "Delete this one", 176, COL[1] + 8, TOP - 480, function()
+        local list = shelf()
+        table.remove(list, M.picked)
+        M.picked = math.max(1, math.min(M.picked, #list))
+        changed()
+    end)
+
+    label(M.page, "Name", "GameFontNormal"):SetPoint("TOPLEFT", COL[2], TOP)
+    M.name = CreateFrame("EditBox", nil, M.page, "InputBoxTemplate")
+    M.name:SetPoint("TOPLEFT", COL[2] + 6, TOP - 20)
+    M.name:SetSize(300, 22)
+    M.name:SetAutoFocus(false)
+    M.name:SetMaxLetters(16) -- the game's own limit on a macro name
+    M.name:SetScript("OnEnterPressed", function(self)
+        local e = current()
+        if e then e.name = self:GetText() end
+        self:ClearFocus()
+        changed()
+    end)
+    M.name:SetScript("OnEscapePressed", function(self) self:ClearFocus() changed() end)
+
+    label(M.page, "What it does", "GameFontNormal"):SetPoint("TOPLEFT", COL[2], TOP - 52)
+    M.bodyBox = CreateFrame("Frame", nil, M.page)
+    M.bodyBox:SetPoint("TOPLEFT", COL[2] + 6, TOP - 72)
+    M.bodyBox:SetSize(560, 300)
+    local mbg = M.bodyBox:CreateTexture(nil, "BACKGROUND")
+    mbg:SetAllPoints()
+    mbg:SetColorTexture(0, 0, 0, 0.5)
+    M.bodyScroll = CreateFrame("ScrollFrame", nil, M.bodyBox, "UIPanelScrollFrameTemplate")
+    M.bodyScroll:SetPoint("TOPLEFT", 6, -6)
+    M.bodyScroll:SetPoint("BOTTOMRIGHT", -28, 6)
+    M.body = CreateFrame("EditBox", nil, M.bodyScroll)
+    M.body:SetMultiLine(true)
+    M.body:SetAutoFocus(false)
+    M.body:SetMaxLetters(255) -- the game's own limit on a macro body
+    M.body:SetFontObject(ChatFontNormal)
+    M.body:SetWidth(520)
+    M.body:SetScript("OnEscapePressed", function(self) self:ClearFocus() end)
+    M.body:SetScript("OnTextChanged", function(self)
+        local e = current()
+        if e and self:HasFocus() then e.body = self:GetText() end
+    end)
+    M.bodyScroll:SetScrollChild(M.body)
+
+    button(M.page, "Put it on my cursor", 176, COL[2] + 6, TOP - 382, function()
+        local ok, why = mc.pickUp(current())
+        print("|cff88ccffWolfpack:|r " .. (ok and "there it is -- click an action bar slot"
+            or (why or "no")))
+    end)
+    button(M.page, "Save it into the game", 186, COL[2] + 190, TOP - 382, function()
+        local index, why = mc.toGame(current())
+        print("|cff88ccffWolfpack:|r " .. (index and "saved in the game's macro list"
+            or (why or "no")))
+    end)
+    local mNote = label(M.page, "Keep as many here as you like -- they are saved with the addon, "
+        .. "one shelf per class, and changing profile does not touch them. The game itself only "
+        .. "has 120 macro slots, so a macro is written into one at the moment you drag it out or "
+        .. "press a button above. A name already in the game's list is overwritten, not doubled.",
+        "GameFontDisableSmall")
+    mNote:SetPoint("TOPLEFT", COL[2] + 6, TOP - 414)
+    mNote:SetWidth(560)
+    mNote:SetJustifyH("LEFT")
+
+    onRefresh(function()
+        if not M.page:IsShown() then return end
+        local list = shelf()
+        M.picked = math.max(1, math.min(M.picked, math.max(#list, 1)))
+        for i, e in ipairs(list) do
+            local r = M.row(i)
+            r:SetText(e.name or "Macro")
+            if i == M.picked then r:LockHighlight() else r:UnlockHighlight() end
+            r:Show()
+        end
+        for i = #list + 1, #M.rows do M.rows[i]:Hide() end
+        M.listChild:SetHeight(math.max(#list * 24, 10))
+        M.empty:SetShown(#list == 0)
+        M.empty:SetText("Nothing here yet. Press New macro.")
+        local e = current()
+        M.name:SetShown(e ~= nil)
+        M.bodyBox:SetShown(e ~= nil)
+        if e then
+            if not M.name:HasFocus() then M.name:SetText(e.name or "") end
+            if not M.body:HasFocus() then M.body:SetText(e.body or "") end
+        end
     end)
 
     ----------------------------------------------------------------------------------
@@ -4743,7 +5004,8 @@ local function buildConfig()
     spinNote:SetJustifyH("LEFT")
     spin:close()
 
-    ns.configHeight = -pageBottom + 24 -- what the tallest column needs
+    -- the sidebar now runs past most pages, so it counts towards the height too
+    ns.configHeight = math.max(-pageBottom, -(ns.sidebarBottom or 0)) + 24
     local height = math.min(ns.configHeight, math.floor(UIParent:GetHeight()) - 40)
     cfg:SetHeight(height)
     barsPage:SetHeight(height)
@@ -5179,11 +5441,11 @@ local function autoRepair()
     local ok, cost, canRepair = pcall(GetRepairAllCost)
     if not ok or not canRepair or (cost or 0) <= 0 then return end
     if GetMoney() < cost then
-        print("|cffff5555Wolfpack Addon:|r not enough money to repair (" .. money(cost) .. ")")
+        print("|cffff5555Wolfpack Addon:|r not enough money to repair (" .. ns.money(cost) .. ")")
         return
     end
     RepairAllItems()
-    print("|cff33ff99Wolfpack Addon|r repaired for " .. money(cost))
+    print("|cff33ff99Wolfpack Addon|r repaired for " .. ns.money(cost))
 end
 
 local function sellJunk()
@@ -5211,7 +5473,7 @@ local function sellJunk()
         sellTicker = nil
         C_Timer.After(0.5, function() -- the money arrives a moment after the last sale
             local earned = GetMoney() - before
-            if earned > 0 then print("|cff33ff99Wolfpack Addon|r sold junk for " .. money(earned)) end
+            if earned > 0 then print("|cff33ff99Wolfpack Addon|r sold junk for " .. ns.money(earned)) end
         end)
     end, #queue + 1)
 end
@@ -5241,6 +5503,7 @@ ev:SetScript("OnEvent", function(_, event, unit, arg2, arg3)
         WolfpackAddonDB = store
         store.minimapAngle = store.minimapAngle or 220
         store.classProfiles = store.classProfiles or {} -- [class token] = profile name
+        store.macros = store.macros or {} -- [class token] = { { name, body, icon }, ... }
         seedFromBaked()
         classProfile, class = UnitClass("player")
         playerName = UnitName("player")

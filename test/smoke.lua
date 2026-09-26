@@ -209,6 +209,22 @@ UnitRace = function() return "Orc", "Orc", S.raceID or 2 end
 UnitFactionGroup = function() return S.faction or "Horde" end
 IsSpellKnown = function(id) return (S.known or {})[id] == true end
 GetMoneyString = function(c) return tostring(math.floor(c / 10000)) .. "g" end
+-- the game's macro list: 120 slots, names unique, nothing doing in combat
+S.gameMacros = {}
+GetMacroIndexByName = function(name)
+    for i, m in ipairs(S.gameMacros) do if m.name == name then return i end end
+    return 0
+end
+CreateMacro = function(name, icon, body)
+    assert(not S.combat, "the game refuses macros in combat")
+    if #S.gameMacros >= (S.macroRoom or 120) then error("out of macro slots") end
+    S.gameMacros[#S.gameMacros + 1] = { name = name, icon = icon, body = body }
+    return #S.gameMacros
+end
+EditMacro = function(i, name, icon, body)
+    S.gameMacros[i] = { name = name, icon = icon, body = body }
+end
+PickupMacro = function(i) S.cursor = S.gameMacros[i] end
 C_SpellBook = { GetSpellBookItemName = function(i) return (S.book or {})[i] and S.book[i][1] or nil end }
 GetInventorySlotInfo = function() return 0 end
 GetInventoryItemID = function() return S.ammoID end
@@ -250,7 +266,10 @@ C_PetInfo = { GetPetHappiness = function()
     return S.happiness
 end }
 C_Spell = { GetSpellPowerCost = function(id) return S.costs and S.costs[id] or {} end,
-    GetSpellTexture = function(id) return id == 139 and 135953 or 100 + id end,
+    GetSpellTexture = function(id) -- the game takes a name as readily as an id
+        if type(id) == "string" then return (S.spellTextures or {})[id] end
+        return id == 139 and 135953 or 100 + id
+    end,
     GetSpellInfo = function(id) return { name = (S.spellNames or {})[id] or ("Spell" .. id) } end }
 GetTotemDuration = function(slot)
     return setmetatable({ slot = slot }, { __index = function() error("read a secret duration") end })
@@ -858,12 +877,43 @@ boxes[5]._text = "90"; boxes[5]._scripts.OnEnterPressed(boxes[5])
 assert(prof().nameplate.gap == 4 and prof().nameplate.x == -150 and prof().nameplate.bars.health.width == 90, "nameplate edits")
 assert(prof().regular.gap == 30 and prof().regular.x == 0 and prof().regular.bars.health.width == 220, "regular untouched")
 -- every sidebar entry is really there, opens its page, and that page has settings on it
-for _, name in ipairs({ "Combat Display", "Nameplates", "Buffs", "Mage", "Hunter", "Warlock",
-    "Rogue", "Shaman", "Training", "Dungeons", "Other" }) do
+for _, name in ipairs({ "Combat Display", "Nameplates", "Buffs", "Training", "Dungeons",
+    "Other", "Druid", "Hunter", "Mage", "Paladin", "Priest", "Rogue", "Shaman", "Warlock",
+    "Warrior" }) do
     local b = byText(name)
     assert(b, "sidebar entry missing: " .. name)
     b._scripts.OnClick(b, "LeftButton")
 end
+-- every class has a macro shelf, whether or not the addon does anything else for it
+for _, e in ipairs(ns.CLASS_SECTIONS) do
+    byText(e[2])._scripts.OnClick(byText(e[2]), "LeftButton")
+    byText("Macros")._scripts.OnClick(byText("Macros"), "LeftButton")
+    assert(ns.macroPage:IsShown(), e[2] .. " has somewhere to keep macros")
+    assert(ns.macroClass == e[3], "and it is that class's shelf: " .. tostring(ns.macroClass))
+end
+-- a class the addon has settings for keeps them on its own tab
+byText("Mage")._scripts.OnClick(byText("Mage"), "LeftButton")
+byText("Settings")._scripts.OnClick(byText("Settings"), "LeftButton")
+assert(ns.pages.mage:IsShown() and not ns.macroPage:IsShown(), "Mage settings are still there")
+-- a class it does not goes straight to the macros, with no empty Settings tab offered
+byText("Warrior")._scripts.OnClick(byText("Warrior"), "LeftButton")
+assert(ns.macroPage:IsShown(), "a warrior lands on the macro shelf")
+assert(not byText("Settings"):IsShown(), "and is not offered an empty settings tab")
+-- New macro, edit it, and it is on the shelf
+local before = #ns.mc.shelf("WARRIOR")
+byText("New macro")._scripts.OnClick(byText("New macro"), "LeftButton")
+assert(#ns.mc.shelf("WARRIOR") == before + 1, "a new one is added")
+ns.macro.name._text = "Pull"
+ns.macro.name._scripts.OnEnterPressed(ns.macro.name)
+assert(ns.mc.shelf("WARRIOR")[ns.macro.picked].name == "Pull", "and renaming it sticks")
+assert(ns.macro.rows[ns.macro.picked]._text == "Pull", "the list shows the new name")
+-- dragging a row hands it to the game and puts it on the cursor
+S.gameMacros, S.cursor = {}, nil
+local mrow = ns.macro.rows[ns.macro.picked]
+mrow._scripts.OnDragStart(mrow)
+assert(S.cursor and S.cursor.name == "Pull", "dragging one puts it on the cursor")
+byText("Delete this one")._scripts.OnClick(byText("Delete this one"), "LeftButton")
+assert(#ns.mc.shelf("WARRIOR") == before, "and deleting takes it off the shelf")
 -- the training page fills itself in when it is the one on screen
 byText("Training")._scripts.OnClick(byText("Training"), "LeftButton")
 assert(ns.trainRows[1] and ns.trainRows[1]:IsShown(), "the trainer list has rows on it")
@@ -950,6 +1000,7 @@ byText("Dungeons")._scripts.OnClick(byText("Dungeons"), "LeftButton")
 for section, page in pairs(ns.pages) do
     assert((ns.boxesOn[page] or 0) > 0, "nothing on the " .. section .. " page")
 end
+byText("Combat Display")._scripts.OnClick(byText("Combat Display"), "LeftButton")
 byText("Combat Display")._scripts.OnClick(byText("Combat Display"), "LeftButton")
 assert(gapBox._text == "30", "back on Combat Display")
 
@@ -1462,7 +1513,7 @@ for _, f in ipairs(created) do
     if sc.OnDragStart then
         sc.OnDragStart(f)
         if f._scripts.OnUpdate then f._scripts.OnUpdate(f) end
-        sc.OnDragStop(f)
+        if sc.OnDragStop then sc.OnDragStop(f) end -- picking a macro up has nothing to stop
     end
 end
 for _, m in ipairs({ "regular", "nameplate" }) do
@@ -1722,6 +1773,38 @@ S.bags = keptBags2
 login("ROGUE", 3)
 ns.wlEv._scripts.OnEvent(ns.wlEv, "BAG_UPDATE")
 assert(not ns.wl.panel:IsShown(), "nothing for anyone else")
+
+-- Macros: kept here without limit, handed to the game one at a time
+login("WARRIOR", 1)
+S.gameMacros, S.cursor = {}, nil
+local shelf = ns.mc.shelf("WARRIOR")
+assert(#shelf == 0, "a fresh shelf is empty")
+for i = 1, 200 do shelf[i] = { name = "Charge " .. i, body = "/cast Charge" } end
+assert(#ns.mc.shelf("WARRIOR") == 200, "two hundred saved, well past what the game would hold")
+assert(#ns.mc.shelf("MAGE") == 0, "another class has its own shelf")
+assert(WolfpackAddonDB.macros.WARRIOR[7].name == "Charge 7", "and they are saved with the addon")
+-- handing one over writes a real macro, and editing it keeps the same slot
+local idx = ns.mc.toGame(shelf[1])
+assert(idx == 1 and S.gameMacros[1].body == "/cast Charge", "the game took it")
+shelf[1].body = "/cast Heroic Strike"
+assert(ns.mc.toGame(shelf[1]) == 1 and #S.gameMacros == 1, "the same name overwrites its slot")
+assert(S.gameMacros[1].body == "/cast Heroic Strike", "with the new text")
+-- a macro casting something known arrives wearing that spell's icon
+S.spellTextures = { Charge = 132337 }
+assert(ns.mc.guessIcon("/cast Charge") == 132337, "icon comes from the spell it casts")
+assert(ns.mc.guessIcon("/say hello") == nil, "and nothing to guess from otherwise")
+-- picking one up puts it on the cursor, ready for an action bar
+assert(ns.mc.pickUp(shelf[2]) and S.cursor.name == "Charge 2", "it is on the cursor")
+-- the game full, and combat, are both said out loud rather than swallowed
+S.macroRoom = #S.gameMacros
+local ok, why = ns.mc.toGame(shelf[50])
+assert(not ok and why:find("full"), "no room: " .. tostring(why))
+S.macroRoom = nil
+S.combat = true
+ok, why = ns.mc.toGame(shelf[50])
+assert(not ok and why:find("fighting"), "not in combat: " .. tostring(why))
+S.combat = false
+for i = 1, 200 do shelf[i] = nil end
 
 -- Training: the trainer's list, cut down by level and by what is already learned
 login("PRIEST", 0)
