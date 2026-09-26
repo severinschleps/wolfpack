@@ -225,6 +225,8 @@ EditMacro = function(i, name, icon, body)
     S.gameMacros[i] = { name = name, icon = icon, body = body }
 end
 PickupMacro = function(i) S.cursor = S.gameMacros[i] end
+GetNumMacroIcons = function() return S.macroIcons and #S.macroIcons or 0 end
+GetMacroIconInfo = function(i) return (S.macroIcons or {})[i] end
 C_SpellBook = { GetSpellBookItemName = function(i) return (S.book or {})[i] and S.book[i][1] or nil end }
 GetInventorySlotInfo = function() return 0 end
 GetInventoryItemID = function() return S.ammoID end
@@ -907,6 +909,35 @@ ns.macro.name._text = "Pull"
 ns.macro.name._scripts.OnEnterPressed(ns.macro.name)
 assert(ns.mc.shelf("WARRIOR")[ns.macro.picked].name == "Pull", "and renaming it sticks")
 assert(ns.macro.rows[ns.macro.picked]._text == "Pull", "the list shows the new name")
+-- an icon can be picked by hand, out of whatever list this build offers
+S.macroIcons = { "Interface/Icons/Ability_Warrior_Charge", "Interface/Icons/INV_Sword_04" }
+for i = 3, 120 do S.macroIcons[i] = "Interface/Icons/Spell_Fire_" .. i end
+ns.mc.iconCache = nil
+assert(#ns.mc.icons() == 120, "the game's icon list is read")
+assert(ns.mc.iconName("Interface/Icons/INV_Sword_04") == "INV_Sword_04", "icons have names")
+assert(#ns.mc.iconsLike("sword") == 1, "and the search box narrows by them")
+assert(#ns.mc.iconsLike("") == 120, "an empty box is the whole list")
+local mine = ns.mc.shelf("WARRIOR")[ns.macro.picked]
+assert(mine.icon == nil, "a new macro has no icon of its own")
+ns.macro.iconBtn._scripts.OnClick(ns.macro.iconBtn)
+assert(ns.macro.picker:IsShown(), "the picker opens")
+assert(ns.macro.picker.buttons[1]:IsShown(), "with icons on it")
+assert(ns.macro.picker.buttons[2].icon == "Interface/Icons/INV_Sword_04", "the second one")
+ns.macro.picker.buttons[2]._scripts.OnClick(ns.macro.picker.buttons[2])
+assert(mine.icon == "Interface/Icons/INV_Sword_04", "clicking one keeps it")
+assert(not ns.macro.picker:IsShown(), "and closes the picker")
+-- that icon is what the game gets, not the guess
+S.gameMacros = {}
+ns.mc.toGame(mine)
+assert(S.gameMacros[1].icon == "Interface/Icons/INV_Sword_04", "the game is given the chosen one")
+-- paging through, and going back to the automatic icon
+ns.macro.iconBtn._scripts.OnClick(ns.macro.iconBtn)
+byText("More")._scripts.OnClick(byText("More"), "LeftButton")
+assert(ns.macro.picker.buttons[1].icon == S.macroIcons[49], "page two starts where page one ended")
+byText("Back to the spell's icon")._scripts.OnClick(byText("Back to the spell's icon"), "LeftButton")
+assert(mine.icon == nil, "and it can go back to following the spell")
+S.macroIcons, ns.mc.iconCache = nil, nil
+
 -- dragging a row hands it to the game and puts it on the cursor
 S.gameMacros, S.cursor = {}, nil
 local mrow = ns.macro.rows[ns.macro.picked]

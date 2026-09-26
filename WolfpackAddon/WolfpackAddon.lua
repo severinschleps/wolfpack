@@ -2628,6 +2628,65 @@ function mc.guessIcon(body)
     return nil
 end
 
+-- Every icon the game will put on a macro. Which call gives them has moved between builds, so
+-- each is tried in turn; failing all of them, the icons of the spells you know still make a
+-- usable list. Gathered once and kept.
+function mc.icons()
+    if mc.iconCache then return mc.iconCache end
+    local out = {}
+    pcall(function()
+        local n = C_MacroFrame and C_MacroFrame.GetNumMacroIcons and C_MacroFrame.GetNumMacroIcons()
+        for i = 1, (n or 0) do
+            out[#out + 1] = C_MacroFrame.GetMacroIconInfo(i)
+        end
+    end)
+    if #out == 0 then
+        pcall(function()
+            local n = GetNumMacroIcons and GetNumMacroIcons()
+            for i = 1, (n or 0) do out[#out + 1] = GetMacroIconInfo(i) end
+        end)
+    end
+    if #out == 0 then
+        pcall(function()
+            local t = {}
+            GetMacroIcons(t)
+            for _, v in ipairs(t) do out[#out + 1] = v end
+        end)
+    end
+    if #out == 0 then -- nothing on offer: the spells you know are better than one question mark
+        pcall(function()
+            for i = 1, 400 do
+                local name = C_SpellBook and C_SpellBook.GetSpellBookItemName
+                    and C_SpellBook.GetSpellBookItemName(i, 0)
+                if not name then break end
+                local tex = C_Spell.GetSpellTexture(name)
+                if tex then out[#out + 1] = tex end
+            end
+        end)
+    end
+    if #out == 0 then out[1] = mc.DEFAULT_ICON end
+    mc.iconCache = out
+    return out
+end
+
+-- What an icon is called, where the game says so at all -- fileIDs are just numbers.
+function mc.iconName(icon)
+    if type(icon) ~= "string" then return nil end
+    return icon:match("([^\\/]+)$")
+end
+
+-- The ones matching what you typed. No text, no filtering: it is the whole list.
+function mc.iconsLike(text)
+    local all = mc.icons()
+    if not text or text == "" then return all end
+    local want, out = text:lower(), {}
+    for _, icon in ipairs(all) do
+        local name = mc.iconName(icon)
+        if name and name:lower():find(want, 1, true) then out[#out + 1] = icon end
+    end
+    return out
+end
+
 -- Hand one to the game. It keeps its slot across edits, and says plainly when the game is full.
 -- Blizzard's own rule: nothing about macros in combat.
 function mc.toGame(entry)
@@ -4680,6 +4739,25 @@ local function buildConfig()
     end)
 
     label(M.page, "Name", "GameFontNormal"):SetPoint("TOPLEFT", COL[2], TOP)
+    -- the icon sits beside the name, and opens the picker
+    M.iconBtn = CreateFrame("Button", nil, M.page)
+    M.iconBtn:SetPoint("TOPLEFT", COL[2] + 320, TOP - 18)
+    M.iconBtn:SetSize(26, 26)
+    M.iconBtn.tex = M.iconBtn:CreateTexture(nil, "ARTWORK")
+    M.iconBtn.tex:SetAllPoints()
+    M.iconBtn.tex:SetTexCoord(0.08, 0.92, 0.08, 0.92)
+    M.iconBtn:SetScript("OnClick", function()
+        M.picker:SetShown(not M.picker:IsShown())
+        changed()
+    end)
+    M.iconBtn:SetScript("OnEnter", function(self)
+        GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+        GameTooltip:SetText("Pick an icon")
+        GameTooltip:AddLine("Leave it alone and it takes the icon of the first spell it casts.",
+            0.7, 0.7, 0.7, true)
+        GameTooltip:Show()
+    end)
+    M.iconBtn:SetScript("OnLeave", function() GameTooltip:Hide() end)
     M.name = CreateFrame("EditBox", nil, M.page, "InputBoxTemplate")
     M.name:SetPoint("TOPLEFT", COL[2] + 6, TOP - 20)
     M.name:SetSize(300, 22)
@@ -4695,7 +4773,7 @@ local function buildConfig()
 
     label(M.page, "What it does", "GameFontNormal"):SetPoint("TOPLEFT", COL[2], TOP - 52)
     M.bodyBox = CreateFrame("Frame", nil, M.page)
-    M.bodyBox:SetPoint("TOPLEFT", COL[2] + 6, TOP - 72)
+    M.bodyBox:SetPoint("TOPLEFT", COL[2] + 6, TOP - 76)
     M.bodyBox:SetSize(560, 300)
     local mbg = M.bodyBox:CreateTexture(nil, "BACKGROUND")
     mbg:SetAllPoints()
@@ -4735,6 +4813,88 @@ local function buildConfig()
     mNote:SetWidth(560)
     mNote:SetJustifyH("LEFT")
 
+    ----------------------------------------------------------------------------------
+    -- The icon picker: a page of them at a time, with a box to narrow the list down.
+    ----------------------------------------------------------------------------------
+    M.picker = CreateFrame("Frame", nil, M.page, "BackdropTemplate")
+    M.picker:SetPoint("TOPLEFT", COL[2] + 6, TOP - 46)
+    M.picker:SetSize(356, 280)
+    M.picker:SetFrameLevel(M.page:GetFrameLevel() + 10)
+    M.picker:EnableMouse(true)
+    M.picker:Hide()
+    M.picker.bg = M.picker:CreateTexture(nil, "BACKGROUND")
+    M.picker.bg:SetAllPoints()
+    M.picker.bg:SetColorTexture(0.05, 0.05, 0.07, 0.97)
+    M.page.pickerPage, M.picker.buttons = 1, {}
+
+    M.search = CreateFrame("EditBox", nil, M.picker, "InputBoxTemplate")
+    M.search:SetPoint("TOPLEFT", 14, -12)
+    M.search:SetSize(200, 22)
+    M.search:SetAutoFocus(false)
+    M.search:SetScript("OnTextChanged", function()
+        M.page.pickerPage = 1
+        changed()
+    end)
+    M.search:SetScript("OnEscapePressed", function(self) self:ClearFocus() end)
+    label(M.picker, "Search", "GameFontDisableSmall"):SetPoint("BOTTOMLEFT", M.search, "TOPLEFT", -6, 2)
+
+    M.pickerCount = label(M.picker, "", "GameFontDisableSmall")
+    M.pickerCount:SetPoint("TOPRIGHT", -14, -18)
+
+    for i = 1, 48 do -- eight across, six down
+        local b = CreateFrame("Button", nil, M.picker)
+        b:SetSize(34, 34)
+        b:SetPoint("TOPLEFT", 14 + ((i - 1) % 8) * 42, -44 - math.floor((i - 1) / 8) * 38)
+        b.tex = b:CreateTexture(nil, "ARTWORK")
+        b.tex:SetAllPoints()
+        b.tex:SetTexCoord(0.08, 0.92, 0.08, 0.92)
+        b:SetHighlightTexture("Interface\\Buttons\\ButtonHilight-Square", "ADD")
+        b:SetScript("OnClick", function(self)
+            local e = current()
+            if e and self.icon then e.icon = self.icon end
+            M.picker:Hide()
+            changed()
+        end)
+        b:SetScript("OnEnter", function(self)
+            if not mc.iconName(self.icon) then return end
+            GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+            GameTooltip:SetText(mc.iconName(self.icon))
+            GameTooltip:Show()
+        end)
+        b:SetScript("OnLeave", function() GameTooltip:Hide() end)
+        M.picker.buttons[i] = b
+    end
+
+    button(M.picker, "Back", 70, 14, -272, function()
+        M.page.pickerPage = math.max(1, M.page.pickerPage - 1)
+        changed()
+    end)
+    button(M.picker, "More", 70, 90, -272, function()
+        M.page.pickerPage = M.page.pickerPage + 1
+        changed()
+    end)
+    button(M.picker, "Back to the spell's icon", 160, 180, -272, function()
+        local e = current()
+        if e then e.icon = nil end
+        M.picker:Hide()
+        changed()
+    end)
+
+    onRefresh(function()
+        if not M.picker:IsShown() then return end
+        local found = mc.iconsLike(M.search:GetText())
+        local pages = math.max(1, math.ceil(#found / 48))
+        M.page.pickerPage = math.max(1, math.min(M.page.pickerPage, pages))
+        local first = (M.page.pickerPage - 1) * 48
+        for i, b in ipairs(M.picker.buttons) do
+            local icon = found[first + i]
+            b.icon = icon
+            b.tex:SetTexture(icon)
+            b:SetShown(icon ~= nil)
+        end
+        M.pickerCount:SetText(("%d icons, page %d of %d"):format(#found, M.page.pickerPage, pages))
+    end)
+
     onRefresh(function()
         if not M.page:IsShown() then return end
         local list = shelf()
@@ -4752,9 +4912,13 @@ local function buildConfig()
         local e = current()
         M.name:SetShown(e ~= nil)
         M.bodyBox:SetShown(e ~= nil)
+        M.iconBtn:SetShown(e ~= nil)
         if e then
             if not M.name:HasFocus() then M.name:SetText(e.name or "") end
             if not M.body:HasFocus() then M.body:SetText(e.body or "") end
+            M.iconBtn.tex:SetTexture(e.icon or mc.guessIcon(e.body) or mc.DEFAULT_ICON)
+        else
+            M.picker:Hide()
         end
     end)
 
