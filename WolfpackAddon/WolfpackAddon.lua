@@ -155,11 +155,11 @@ local function totemDuration(slot)
     if ok then return d end
 end
 
-local function layoutDefaults(show, x, y, gap, width, h1, h2, h3, h4, h5, h6, h7, h8, h9)
+local function layoutDefaults(show, x, y, gap, width, h1, h2, h3, h4, h5, h6, h7, h8, h9, h10)
     local l = {
         x = x, y = y, gap = gap, grow = "down", -- "up": the group's bottom edge stays put instead
         order = { "health", "power", "combo", "druidmana", "castbar", "pethealth", "swing", "totems",
-            "absorb" },
+            "absorb", "flight" },
         bars = {
             health = barDefaults(show, width, h1, 0.2, 0.8, 0.2, show),
             power = barDefaults(show, width, h2, 1, 0.85, 0.1, show),
@@ -170,6 +170,7 @@ local function layoutDefaults(show, x, y, gap, width, h1, h2, h3, h4, h5, h6, h7
             swing = barDefaults(show, width, h7, 0.8, 0.8, 0.85, show), -- text = seconds left
             totems = barDefaults(show, width, h8, 0.6, 0.6, 0.6, false), -- colored per element instead
             absorb = barDefaults(false, width, h9, 0.9, 0.9, 0.7, true), -- text = points left
+            flight = barDefaults(false, width, h10 or h5, 0.4, 0.7, 1, true), -- text = time left
         },
     }
     l.bars.power.colorMode = "power"
@@ -293,7 +294,7 @@ end
 ------------------------------------------------------------------------------------------
 -- store = WolfpackAddonDB, account-wide: { profiles = { [name] = settings }, chars = { [char] = name } }
 -- db = the active profile's settings.
-local changed, placeMini, useProfile, bf, mg, hn, wl, we, tr, lt, mc, seedFromBaked -- below
+local changed, placeMini, useProfile, bf, mg, hn, wl, we, tr, lt, mc, ft, seedFromBaked
 
 -- Bars that only show while they are doing something (cast, swing) stay visible while the bars
 -- are unlocked or the options are open, so they can be placed.
@@ -309,6 +310,84 @@ local function classPower()
 end
 
 -- state() -> shown, segment count. value(unit) -> current, max (both possibly secret).
+------------------------------------------------------------------------------------------
+-- Flight times. Nothing in the game will say how long a taxi ride takes -- the flight point
+-- knows the price and nothing else -- so the first ride on a route is timed and written down,
+-- account-wide, and every ride after that counts down from it. A route you have never flown
+-- shows the time so far instead of a guess.
+ft = { }
+ns.ft = ft
+
+function ft.flying()
+    local ok, on = pcall(UnitOnTaxi, "player")
+    return ok and on == true
+end
+
+-- The name of the flight point you are standing on, and of one on the map by its slot.
+function ft.nodeName(slot)
+    local ok, name = pcall(function()
+        if TaxiNodeName then return TaxiNodeName(slot) end
+    end)
+    if ok and type(name) == "string" and name ~= "" then return name end
+    local ok2, found = pcall(function()
+        local map = C_Map.GetBestMapForUnit("player")
+        for _, node in ipairs(C_TaxiMap.GetAllTaxiNodes(map) or {}) do
+            if node.slotIndex == slot then return node.name end
+        end
+    end)
+    return ok2 and found or nil
+end
+
+function ft.here()
+    local ok, name = pcall(function()
+        local map = C_Map.GetBestMapForUnit("player")
+        for _, node in ipairs(C_TaxiMap.GetAllTaxiNodes(map) or {}) do
+            if node.state == 0 or node.state == Enum.FlightPathState.Current then return node.name end
+        end
+    end)
+    if ok and type(name) == "string" then return name end
+    local ok2, zone = pcall(GetSubZoneText)
+    return (ok2 and zone ~= "" and zone) or (select(2, pcall(GetZoneText)))
+end
+
+-- Clicking a flight point is the only moment both ends of the route are known.
+function ft.taking(slot)
+    ft.route = { from = ft.here() or "?", to = ft.nodeName(slot) or "?" }
+end
+
+function ft.key()
+    return ft.route and (ft.route.from .. " > " .. ft.route.to) or nil
+end
+
+function ft.known(key)
+    return store and store.flights and store.flights[key or ft.key() or ""] or nil
+end
+
+-- How long this ride takes and how far into it you are. The first is nil on a route never
+-- flown; the second is always the time since takeoff, so the two never mean different things.
+function ft.progress()
+    if not ft.startedAt then return nil, nil end
+    return ft.total, GetTime() - ft.startedAt
+end
+
+function ft.tick()
+    local on = ft.flying()
+    if on and not ft.startedAt then
+        ft.startedAt, ft.total = GetTime(), ft.known()
+        ft.moved = true
+    elseif not on and ft.startedAt then
+        ft.moved = true
+        local flown, key = GetTime() - ft.startedAt, ft.key()
+        -- a ride under five seconds is somebody dismounting, not a route
+        if key and flown > 5 and store then
+            store.flights = store.flights or {}
+            store.flights[key] = math.floor(flown + 0.5)
+        end
+        ft.startedAt, ft.total, ft.route = nil, nil, nil
+    end
+    return ft.moved -- set on the tick where the ride began or ended, cleared by the ticker
+end
+
 local BARS = {
     health = {
         label = "Health",
@@ -369,6 +448,12 @@ local BARS = {
     swing = {
         label = "Swing Timer",
         state = function() return true, 1 end, -- a row per ticked weapon, each only while that one swings
+    },
+    flight = {
+        label = "Flight",
+        -- only while the griffin has you. Nobody will say how long a route takes, so the first
+        -- time you fly one it is timed and remembered, and after that it counts down.
+        state = function() return (ns.previewing() or ft.flying()) and true or false, 1 end,
     },
     druidmana = {
         label = "Druid Mana",
@@ -625,7 +710,7 @@ local function layoutBar(f, n, width)
             f.segWidth = iw
             s:SetSize(iw, ih)
             s:SetPoint("LEFT", f, "LEFT", lead + (i - 1) * (w + PIP_GAP) + t, 0)
-            s:SetMinMaxValues(i - 1, i) -- pip range; single bars get their real max in fill()
+            s:SetMinMaxValues(i - 1, i) -- pip range; single bars get their real max in ns.fill()
             s.bg:SetColorTexture(unpack(c.bgColor))
             if f.key == "totems" then -- each segment wears its element's color
                 local col = c.slotColors[c.slots[i]]
@@ -704,6 +789,30 @@ local function fillCast(f)
     f.icon:SetTexture(icon)
 end
 
+-- The flight bar drains for a route we have flown before, and counts up the first time so the
+-- ride is at least measured while it happens.
+local function fillFlight(f)
+    local total, gone = ft.progress()
+    local function clock(t)
+        return ("%d:%02d"):format(math.floor(t / 60), math.floor(t % 60))
+    end
+    if not gone then -- previewing, on the ground
+        f.segs[1]:SetMinMaxValues(0, 1)
+        f.segs[1]:SetValue(1)
+        f.text:SetText(BARS.flight.label)
+        return
+    end
+    if total then
+        f.segs[1]:SetMinMaxValues(0, total)
+        f.segs[1]:SetValue(math.max(total - gone, 0))
+        f.text:SetText(clock(math.max(total - gone, 0)))
+    else -- never flown this one: a full bar, and the time so far
+        f.segs[1]:SetMinMaxValues(0, 1)
+        f.segs[1]:SetValue(1)
+        f.text:SetText(clock(gone) .. " so far")
+    end
+end
+
 -- Swing timers come from the game's own PLAYER_SWING event (no combat log needed).
 local swingState = {} -- [swing type] = { start, duration }
 
@@ -751,8 +860,11 @@ local function fillOverlay(f, max)
     if not ok then f.over:SetValue(0) end
 end
 
-local function fill(f)
+-- on the namespace rather than a local: this chunk is at Lua's 200-local ceiling, and the
+-- flight ticker needs to reach it
+function ns.fill(f)
     if f.key == "castbar" then return fillCast(f) end
+    if f.key == "flight" then return fillFlight(f) end
     if f.key == "swing" then return fillSwing(f) end
     if f.key == "totems" then -- the bar drains itself from the duration object, in C
         local c = db[f.mode].bars[f.key]
@@ -979,7 +1091,7 @@ local function stack(container, set, L, on, swings)
                 sf:SetShown(rowShown)
                 if rowShown then
                     layoutBar(sf, 1)
-                    fill(sf)
+                    ns.fill(sf)
                     if h > 0 then h = h + L.gap end
                     h = h + c.padTop
                     sf:ClearAllPoints()
@@ -994,7 +1106,7 @@ local function stack(container, set, L, on, swings)
         if shown then
             -- f.split: the player health bar shares its width with the target health bar
             layoutBar(f, n, f.split and (c.width - L.gap) / 2 or nil)
-            fill(f)
+            ns.fill(f)
             if h > 0 then h = h + L.gap end
             h = h + c.padTop
             f:ClearAllPoints()
@@ -1687,13 +1799,14 @@ end
 
 local function Refresh()
     if not moving then place() end -- keeps the pinned edge right after any settings change
+    ft.tick() -- takeoff and landing, so a route gets timed whether the bar is shown or not
     local health = frames.health
     health.split = (db.regular.bars.health.target and UnitExists("target")) and true or false
     stack(anchor, frames, db.regular, true, swingFrames.regular)
     targetFrame:SetShown(health.split and health:IsShown())
     if targetFrame:IsShown() then
         layoutBar(targetFrame, 1, health.width) -- the other half
-        fill(targetFrame)
+        ns.fill(targetFrame)
         targetFrame:ClearAllPoints()
         targetFrame:SetPoint("LEFT", health, "RIGHT", db.regular.gap, 0)
     end
@@ -4172,6 +4285,11 @@ local function buildConfig()
             onlyNote:SetText("Asks your own spells whether they would reach. The whole bar takes "
                 .. "the color of where your target stands, and says so: in melee, in the gap "
                 .. "nothing covers, in range, or too far.")
+        elseif selected == "flight" then
+            onlyNote:SetText("Shows only while a griffin has you. Nothing in the game will say how "
+                .. "long a route takes, so the first time you fly one it is timed and written "
+                .. "down; every ride after that counts down. Routes are remembered for the whole "
+                .. "account.")
         else
             onlyNote:SetText(selected ~= "totems" and none and "Nothing extra for this one." or "")
         end
@@ -5812,7 +5930,7 @@ local function swingTick()
     else
         for _, set in pairs(swingFrames) do
             for _, f in ipairs(set) do
-                if f:IsShown() then safe(fill, f) end
+                if f:IsShown() then safe(ns.fill, f) end
             end
         end
     end
@@ -5875,11 +5993,32 @@ local function stopSelling()
     end
 end
 
+-- The flight bar is the one bar the game will not animate for us -- there is no duration object
+-- for a taxi ride -- so it is redrawn on a ticker, and only while the griffin has you.
+ft.ticker = CreateFrame("Frame")
+ft.ticker.since = 0
+ft.ticker:SetScript("OnUpdate", function(self, elapsed)
+    if not db then return end
+    self.since = self.since + elapsed
+    if self.since < 0.2 then return end
+    self.since = 0
+    safe(ft.tick)
+    if ft.moved then -- takeoff or landing: the bar joins or leaves the stack
+        ft.moved = nil
+        changed()
+    end
+    if not (ft.startedAt or ns.previewing()) then return end
+    for _, set in ipairs({ frames, plateFrames }) do
+        local f = set.flight
+        if f and f:IsShown() then safe(ns.fill, f) end
+    end
+end)
+
 local function fillShown(...)
     for i = 1, select("#", ...) do
         local key = select(i, ...)
-        if frames[key]:IsShown() then safe(fill, frames[key]) end
-        if plateFrames[key]:IsShown() then safe(fill, plateFrames[key]) end
+        if frames[key]:IsShown() then safe(ns.fill, frames[key]) end
+        if plateFrames[key]:IsShown() then safe(ns.fill, plateFrames[key]) end
     end
 end
 
@@ -5894,6 +6033,8 @@ ev:SetScript("OnEvent", function(_, event, unit, arg2, arg3)
         store.minimapAngle = store.minimapAngle or 220
         store.classProfiles = store.classProfiles or {} -- [class token] = profile name
         store.macros = store.macros or {} -- [class token] = { { name, body, icon }, ... }
+        store.flights = store.flights or {} -- ["Ironforge > Menethil Harbor"] = seconds
+        pcall(hooksecurefunc, "TakeTaxiNode", function(slot) safe(ft.taking, slot) end)
         -- The baked macros are added to whatever is already on a shelf, not instead of it, and
         -- each is only ever offered once: delete one and it stays deleted, while any that arrive
         -- in a later version of the addon turn up beside what you have.
@@ -5950,7 +6091,7 @@ ev:SetScript("OnEvent", function(_, event, unit, arg2, arg3)
         placeMini()
     elseif event == "UNIT_HEAL_PREDICTION" then
         fillShown("health")
-        if targetFrame:IsShown() then safe(fill, targetFrame) end
+        if targetFrame:IsShown() then safe(ns.fill, targetFrame) end
     elseif event == "UNIT_ABSORB_AMOUNT_CHANGED" then
         if GetTime() - absorb.castAt <= ABSORB_CAST_WINDOW then -- our cast just put a shield up
             local ok, points = pcall(UnitGetTotalAbsorbs, "player")
@@ -5960,7 +6101,7 @@ ev:SetScript("OnEvent", function(_, event, unit, arg2, arg3)
     elseif event == "UNIT_HEALTH" then
         fillShown("health", "pethealth")
         fillShown("absorb") -- max health scales it
-        if targetFrame:IsShown() then safe(fill, targetFrame) end
+        if targetFrame:IsShown() then safe(ns.fill, targetFrame) end
     elseif event == "UNIT_POWER_FREQUENT" then
         fillShown("power", "combo", "druidmana")
     elseif event:find("^UNIT_SPELLCAST_") then

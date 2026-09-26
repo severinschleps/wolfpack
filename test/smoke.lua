@@ -205,6 +205,10 @@ RegisterUnitWatch = function(f) f._watched = true end
 GetNumGroupMembers = function() return S.members or 0 end
 UnitIsDeadOrGhost = function() return false end
 UnitLevel = function() return S.level or 60 end
+UnitOnTaxi = function() return S.onTaxi or false end
+TaxiNodeName = function(slot) return (S.taxiNodes or {})[slot] end
+GetSubZoneText = function() return S.subZone or "" end
+GetZoneText = function() return S.zone or "Elwynn Forest" end
 UnitRace = function() return "Orc", "Orc", S.raceID or 2 end
 UnitFactionGroup = function() return S.faction or "Horde" end
 IsSpellKnown = function(id) return (S.known or {})[id] == true end
@@ -1450,7 +1454,7 @@ assert(#bad == 32 and bp.evil == nil and bp.locked == true, "unknown key dropped
 assert(bp.other.hover.bar1 and bp.other.hover.nope == nil and bp.other.hover.bar2 == nil, "hover: known and true only")
 assert(bp.other.combatFont == "", "unknown combat font path refused")
 assert(bp.regular.gap == 2 and bp.regular.x == 0, "out-of-range numbers defaulted")
-assert(bp.regular.order[1] == "health" and bp.regular.order[2] == "castbar" and #bp.regular.order == 9, "order repaired")
+assert(bp.regular.order[1] == "health" and bp.regular.order[2] == "castbar" and #bp.regular.order == 10, "order repaired")
 local ns2 = bp.nameplate.bars.power.stops
 assert(#ns2 == 2 and ns2[1].pos == 10 and ns2[2].pos == 90 and ns2[1].color[1] == 1, "gradient points checked")
 local hb2 = bp.regular.bars.health
@@ -1552,7 +1556,8 @@ for _, m in ipairs({ "regular", "nameplate" }) do
     local seen = {}
     for _, k in ipairs(prof()[m].order) do seen[k] = true end
     assert(seen.health and seen.power and seen.combo and seen.druidmana and seen.castbar and seen.pethealth
-        and seen.swing and seen.totems and seen.absorb and #prof()[m].order == 9, "order intact")
+        and seen.swing and seen.totems and seen.absorb and seen.flight and #prof()[m].order == 10,
+        "order intact")
 end
 
 -- Totems: four element segments, each draining on its own; the bar is shaman-only and
@@ -1805,6 +1810,55 @@ S.bags = keptBags2
 login("ROGUE", 3)
 ns.wlEv._scripts.OnEvent(ns.wlEv, "BAG_UPDATE")
 assert(not ns.wl.panel:IsShown(), "nothing for anyone else")
+
+-- Flight timer: nobody will say how long a ride takes, so the first one is timed and the next
+-- counts down
+S.taxiNodes = { [7] = "Menethil Harbor" }
+S.subZone, S.onTaxi = "Ironforge", false
+WolfpackAddonDB.flights = {}
+ns.ft.taking(7) -- clicking the flight point is where both ends of the route are known
+assert(ns.ft.key() == "Ironforge > Menethil Harbor", "the route: " .. tostring(ns.ft.key()))
+assert(ns.ft.known() == nil, "never flown, so nothing is known about it")
+S.time, S.onTaxi = 1000, true
+ns.ft.tick()
+assert(ns.ft.startedAt == 1000, "the ride is being timed")
+S.time = 1042
+assert(select(1, ns.ft.progress()) == nil, "no total for a route never flown")
+assert(math.abs(select(2, ns.ft.progress()) - 42) < 0.01, "but the time so far is counted")
+S.onTaxi = false
+ns.ft.tick()
+assert(WolfpackAddonDB.flights["Ironforge > Menethil Harbor"] == 42, "and written down on landing")
+-- the next ride down the same route counts down from what was learned
+ns.ft.taking(7)
+S.time, S.onTaxi = 2000, true
+ns.ft.tick()
+S.time = 2010
+assert(select(1, ns.ft.progress()) == 42, "the ride is 42 seconds")
+assert(math.abs(select(2, ns.ft.progress()) - 10) < 0.01, "and you are 10 seconds into it")
+-- and the bar says so, once it is switched on
+prof().regular.bars.flight.show = true
+fire("UNIT_MAXPOWER")
+assert(ns.frames.flight:IsShown(), "the bar joins the stack while you are flying")
+ns.fill(ns.frames.flight)
+assert(ns.frames.flight.segs[1]._max == 42, "the bar is as long as the ride")
+assert(math.abs(ns.frames.flight.segs[1]._value - 32) < 0.01, "and drains with it")
+assert(ns.frames.flight.text._text == "0:32", "the clock reads what is left")
+S.onTaxi = false
+ns.ft.tick()
+-- every completed ride re-learns the route, so a changed flight path corrects itself
+assert(WolfpackAddonDB.flights["Ironforge > Menethil Harbor"] == 10, "the latest ride is the one kept")
+-- a hop of a few seconds is somebody dismounting, not a route worth remembering
+ns.ft.taking(7)
+S.time, S.onTaxi = 3000, true
+ns.ft.tick()
+S.time, S.onTaxi = 3003, false
+ns.ft.tick()
+assert(WolfpackAddonDB.flights["Ironforge > Menethil Harbor"] == 10,
+    "a three second hop does not overwrite what was learned")
+S.onTaxi, WolfpackAddonDB.flights = false, {}
+fire("UNIT_MAXPOWER")
+assert(not ns.frames.flight:IsShown(), "and leaves it again once you are down")
+prof().regular.bars.flight.show = false
 
 -- Macros: kept here without limit, handed to the game one at a time
 login("WARRIOR", 1)
