@@ -795,6 +795,10 @@ assert(WolfpackAddonDB.minimapAngle ~= 220 and not mini._scripts.OnUpdate, "mini
 
 -- Options window: typed numbers apply on Enter and clamp to the slider range (gap: 0-30)
 SlashCmdList.WOLFPACKADDON("")
+assert(ns.cfg:IsShown(), "one click opens it -- the first one built it, which is not a toggle")
+SlashCmdList.WOLFPACKADDON("")
+assert(not ns.cfg:IsShown(), "and the next click closes it again")
+SlashCmdList.WOLFPACKADDON("")
 local boxes = {} -- profile name, gap, group X/Y, width, height, extra above/below, offset X/Y, border,
 -- text size, quest row X/Y/spacing, kill size, loot size, highlight opacity, icon size/X/Y
 for _, f in ipairs(created) do if f._kind == "EditBox" then boxes[#boxes + 1] = f end end

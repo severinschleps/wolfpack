@@ -4264,8 +4264,13 @@ end
 
 function ns.ToggleConfig()
     if not db then return end
-    if not cfg then buildConfig() end
-    cfg:SetShown(not cfg:IsShown())
+    if not cfg then
+        buildConfig() -- a frame is on screen the moment it is made, so there is nothing to flip
+        cfg:Show()
+    else
+        cfg:SetShown(not cfg:IsShown())
+    end
+    ns.cfg = cfg
     if cfg:IsShown() then changed() end
 end
 WolfpackAddon_Toggle = ns.ToggleConfig -- addon compartment (retail only, Forever has none)
