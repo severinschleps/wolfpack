@@ -2754,12 +2754,30 @@ function mc.toGame(entry)
         n = n + 1
         name = want:sub(1, 13) .. " " .. n
     end
-    local ok, made = pcall(CreateMacro, name, icon, body, false)
-    if not ok or type(made) ~= "number" then
-        return nil, "no room left -- the game keeps 120 macro slots, and they are all full"
+    -- the shared list first, then this character's own eighteen when that one is full
+    for _, perCharacter in ipairs({ false, true }) do
+        local ok, made = pcall(CreateMacro, name, icon, body, perCharacter)
+        if ok and type(made) == "number" then
+            entry.slot, entry.perChar = name, perCharacter
+            return made
+        end
     end
-    entry.slot = name
-    return made
+    local shared, mine = 0, 0
+    pcall(function() shared, mine = GetNumMacros() end)
+    return nil, ("no room left -- %d of the 120 shared slots and %d of this character's 18 are "
+        .. "taken. Delete one in the game's macro list and try again."):format(shared or 0, mine or 0)
+end
+
+-- Open the game's own macro window. Dragging out of that one is Blizzard's code doing the
+-- picking up, which is the one route that cannot upset anything.
+function mc.openGameList()
+    if InCombatLockdown() then return false end
+    local ok = pcall(function()
+        if not MacroFrame then UIParentLoadAddOn("Blizzard_MacroUI") end
+        if MacroFrame and MacroFrame:IsShown() then HideUIPanel(MacroFrame)
+        elseif MacroFrame then ShowUIPanel(MacroFrame) end
+    end)
+    return ok
 end
 
 -- Put it on the cursor so it can be dropped on an action bar.
@@ -4909,14 +4927,21 @@ local function buildConfig()
         print("|cff88ccffWolfpack:|r " .. (index and "saved in the game's macro list"
             or (why or "no")))
     end)
+    button(M.page, "Open the game's list", 160, COL[1] + 350, M.EDIT - 218, function()
+        mc.toGame(current())
+        if not mc.openGameList() then print("|cff88ccffWolfpack:|r not while you are fighting") end
+    end)
     local mNote = label(M.page, "Keep as many here as you like -- they are saved with the addon, "
         .. "one shelf per class, and changing profile does not touch them. The game itself only "
         .. "has 120 macro slots, so a macro is written into one at the moment you drag it out or "
         .. "press a button above. Editing one afterwards changes the slot it already has; a name "
-        .. "the game is using already is left alone and this one takes a number beside it.",
+        .. "the game is using already is left alone and this one takes a number beside it.\n\n"
+        .. "If the game starts complaining about action bar cooldowns after you drag one out, "
+        .. "save it in and drag it off the game's own list instead -- that way Blizzard's code "
+        .. "does the picking up, and a /reload clears what has already been upset.",
         "GameFontDisableSmall")
     mNote:SetPoint("TOPLEFT", COL[1] + 8, M.EDIT - 250)
-    mNote:SetWidth(560)
+    mNote:SetWidth(700)
     mNote:SetJustifyH("LEFT")
 
     ----------------------------------------------------------------------------------

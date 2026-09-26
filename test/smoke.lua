@@ -215,11 +215,23 @@ GetMacroIndexByName = function(name)
     for i, m in ipairs(S.gameMacros) do if m.name == name then return i end end
     return 0
 end
-CreateMacro = function(name, icon, body)
+CreateMacro = function(name, icon, body, perChar)
     assert(not S.combat, "the game refuses macros in combat")
-    if #S.gameMacros >= (S.macroRoom or 120) then error("out of macro slots") end
-    S.gameMacros[#S.gameMacros + 1] = { name = name, icon = icon, body = body }
+    perChar = perChar and true or false
+    local room, used = perChar and (S.charRoom or 18) or (S.macroRoom or 120), 0
+    for _, m in ipairs(S.gameMacros) do
+        if (m.perChar and true or false) == perChar then used = used + 1 end
+    end
+    if used >= room then error("out of macro slots") end
+    S.gameMacros[#S.gameMacros + 1] = { name = name, icon = icon, body = body, perChar = perChar }
     return #S.gameMacros
+end
+GetNumMacros = function()
+    local shared, mine = 0, 0
+    for _, m in ipairs(S.gameMacros) do
+        if m.perChar then mine = mine + 1 else shared = shared + 1 end
+    end
+    return shared, mine
 end
 EditMacro = function(i, name, icon, body)
     S.gameMacros[i] = { name = name, icon = icon, body = body }
@@ -1864,10 +1876,17 @@ end
 -- picking one up puts it on the cursor, ready for an action bar
 assert(ns.mc.pickUp(shelf[stocked + 2]) and S.cursor.name == "Charge 2", "it is on the cursor")
 -- the game full, and combat, are both said out loud rather than swallowed
+-- the shared list full, this character's own eighteen take over
 S.macroRoom = #S.gameMacros
-local ok, why = ns.mc.toGame(shelf[stocked + 50])
-assert(not ok and why:find("full"), "no room: " .. tostring(why))
-S.macroRoom = nil
+local spill = shelf[stocked + 50]
+local at = ns.mc.toGame(spill)
+assert(at and S.gameMacros[at].perChar == true, "it goes into a character slot instead")
+assert(spill.perChar == true, "and remembers that is where it lives")
+-- both full, and it says which is which rather than just refusing
+S.charRoom = select(2, GetNumMacros())
+local ok, why = ns.mc.toGame(shelf[stocked + 51])
+assert(not ok and why:find("18") and why:find("120"), "both full: " .. tostring(why))
+S.macroRoom, S.charRoom = nil, nil
 S.combat = true
 ok, why = ns.mc.toGame(shelf[stocked + 50])
 assert(not ok and why:find("fighting"), "not in combat: " .. tostring(why))
