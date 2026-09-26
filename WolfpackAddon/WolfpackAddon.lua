@@ -230,6 +230,8 @@ DEFAULTS.rogue = ns.weaponDefaults(-260)
 DEFAULTS.shaman = ns.weaponDefaults(-260)
 
 -- Warlock: the soul shards in your bags.
+DEFAULTS.training = { hideKnown = true, fromMyLevel = true, showCost = true }
+
 DEFAULTS.warlock = {
     show = true, locked = true, x = 0, y = -220, size = 32, radius = 0,
     armor = true, armorSize = 32, armorFontSize = 12, armorOnlyMissing = true,
@@ -289,7 +291,7 @@ end
 ------------------------------------------------------------------------------------------
 -- store = WolfpackAddonDB, account-wide: { profiles = { [name] = settings }, chars = { [char] = name } }
 -- db = the active profile's settings.
-local changed, placeMini, useProfile, bf, mg, hn, wl, we, seedFromBaked -- defined further down
+local changed, placeMini, useProfile, bf, mg, hn, wl, we, tr, seedFromBaked -- defined below
 
 -- Bars that only show while they are doing something (cast, swing) stay visible while the bars
 -- are unlocked or the options are open, so they can be placed.
@@ -1716,6 +1718,12 @@ end
 
 -- One report per session, printed to chat: Lua errors are hidden by default and this client
 -- stops delivering them after 100.
+-- GetMoneyString is what this client has; GetCoinTextureString is not here at all.
+local function money(c)
+    local ok, text = pcall(GetMoneyString, c)
+    return (ok and text) or tostring(math.floor((c or 0) / 10000)) .. "g"
+end
+
 local function safe(fn, ...)
     local ok, err = pcall(fn, ...)
     if not ok and not ns.errored then
@@ -2504,6 +2512,73 @@ end)
 for _, e in ipairs({ "BAG_UPDATE", "BAG_UPDATE_DELAYED", "PLAYER_ENTERING_WORLD", "PLAYER_LOGIN",
     "UNIT_AURA", "PLAYER_REGEN_ENABLED", "UNIT_SPELLCAST_SUCCEEDED" }) do
     pcall(wlEv.RegisterEvent, wlEv, e)
+end
+
+------------------------------------------------------------------------------------------
+-- Training: what the class trainer still has for you, level by level. The spell tables live
+-- in Data/Training.lua and come from What's Training? (MIT); everything here reads them back.
+
+tr = {}
+ns.tr = tr
+
+function tr.known(id)
+    local ok, yes = pcall(function()
+        if C_SpellBook and C_SpellBook.IsSpellKnown then return C_SpellBook.IsSpellKnown(id) end
+        if IsSpellKnown then return IsSpellKnown(id) end
+        return IsPlayerSpell and IsPlayerSpell(id)
+    end)
+    return ok and yes == true
+end
+
+-- Name and icon, whichever way this build hands them over.
+function tr.spellInfo(id)
+    tr.cache = tr.cache or {}
+    local hit = tr.cache[id]
+    if hit then return hit[1], hit[2] end
+    local ok, name, icon = pcall(function()
+        local info = C_Spell and C_Spell.GetSpellInfo and C_Spell.GetSpellInfo(id)
+        if type(info) == "table" then return info.name, info.iconID end
+        if GetSpellInfo then return (GetSpellInfo(id)), select(3, GetSpellInfo(id)) end
+    end)
+    if not ok or type(name) ~= "string" then name, icon = "Spell " .. id, nil end
+    if type(icon) ~= "number" and type(icon) ~= "string" then
+        local ok2, tex = pcall(function() return C_Spell.GetSpellTexture(id) end)
+        icon = (ok2 and tex) or 134400
+    end
+    tr.cache[id] = { name, icon }
+    return name, icon
+end
+
+function tr.forMe(sp)
+    if sp.faction and sp.faction ~= UnitFactionGroup("player") then return false end
+    if sp.race and sp.race ~= select(3, UnitRace("player")) then return false end
+    return true
+end
+
+-- One flat list to draw: a header for each level, then that level's spells.
+function tr.list()
+    local out, data = {}, ns.training and ns.training[class]
+    if not data or not db then return out end
+    local o, lvl = db.training, UnitLevel("player") or 1
+    local levels = {}
+    for L in pairs(data) do levels[#levels + 1] = L end
+    table.sort(levels)
+    for _, L in ipairs(levels) do
+        if not (o.fromMyLevel and L < lvl) then
+            local spells = {}
+            for _, sp in ipairs(data[L]) do
+                local known = tr.known(sp.id)
+                if tr.forMe(sp) and not (o.hideKnown and known) then
+                    spells[#spells + 1] = { spell = sp, level = L, reached = L <= lvl, known = known }
+                end
+            end
+            if #spells > 0 then
+                out[#out + 1] = { level = L, reached = L <= lvl }
+                for _, row in ipairs(spells) do out[#out + 1] = row end
+            end
+        end
+    end
+    return out
 end
 
 ------------------------------------------------------------------------------------------
@@ -3434,7 +3509,7 @@ local function buildConfig()
         { "buffs", "Buffs", "regular" }, { "mage", "Mage", "regular" },
         { "hunter", "Hunter", "regular" }, { "warlock", "Warlock", "regular" },
         { "rogue", "Rogue", "regular" }, { "shaman", "Shaman", "regular" },
-        { "other", "Other", "regular" } }
+        { "training", "Training", "regular" }, { "other", "Other", "regular" } }
     for i, e in ipairs(SIDEBAR) do
         local b = button(cfg, e[2], 118, 12, -104 - (i - 1) * 26, function()
             section, mode = e[1], e[3]
@@ -3468,9 +3543,11 @@ local function buildConfig()
     roguePage:SetAllPoints(barsPage)
     local shamanPage = CreateFrame("Frame", nil, cfg)
     shamanPage:SetAllPoints(barsPage)
+    local trainPage = CreateFrame("Frame", nil, cfg)
+    trainPage:SetAllPoints(barsPage)
     ns.pages = { combat = barsPage, nameplates = questPage, buffs = buffPage, mage = magePage,
         hunter = hunterPage, warlock = lockPage, rogue = roguePage, shaman = shamanPage,
-        other = otherPage }
+        training = trainPage, other = otherPage }
 
     local title = label(cfg, "Combat Display", "GameFontNormalLarge")
     title:SetPoint("TOPLEFT", 150, -72)
@@ -3488,7 +3565,8 @@ local function buildConfig()
             or section == "hunter" and "Hunter: ammo and pet"
             or section == "warlock" and "Warlock: soul shards"
             or section == "rogue" and "Rogue: weapon poisons"
-            or section == "shaman" and "Shaman: weapon imbues" or "Combat Display")
+            or section == "shaman" and "Shaman: weapon imbues"
+            or section == "training" and "What your trainer still has" or "Combat Display")
         for _, t in ipairs(tabs) do t:SetShown(np) end
         barsPage:SetShown(section == "combat" or (np and sub == "bars"))
         questPage:SetShown(np and sub == "quest")
@@ -3499,6 +3577,7 @@ local function buildConfig()
         lockPage:SetShown(section == "warlock")
         roguePage:SetShown(section == "rogue")
         shamanPage:SetShown(section == "shaman")
+        trainPage:SetShown(section == "training")
     end)
 
     local tabNote = label(barsPage, "", "GameFontDisableSmall")
@@ -4174,6 +4253,101 @@ local function buildConfig()
     end
 
     ----------------------------------------------------------------------------------
+    -- Training page: every spell your trainer has for you, level by level. Read only --
+    -- the list is the point, the three boxes only decide how much of it you see.
+    ----------------------------------------------------------------------------------
+    local T = function() return db.training end
+    local tset = group(trainPage, COL[1], TOP, 202, "What to list")
+    check(trainPage, "Hide what you already know", tset.x, tset:row(ROW),
+        function() return T().hideKnown end, function(v) T().hideKnown = v end)
+    check(trainPage, "Start at my level", tset.x, tset:row(ROW),
+        function() return T().fromMyLevel end, function(v) T().fromMyLevel = v end)
+    check(trainPage, "Show what it costs", tset.x, tset:row(ROW),
+        function() return T().showCost end, function(v) T().showCost = v end)
+    local tsetNote = label(trainPage, "Spell list from What's Training? (MIT licence), the tables "
+        .. "it ships for this client. Pet abilities are not in it.", "GameFontDisableSmall")
+    tsetNote:SetPoint("TOPLEFT", tset.x, tset:row(44))
+    tsetNote:SetWidth(182)
+    tsetNote:SetJustifyH("LEFT")
+    tset:close()
+
+    local trList = CreateFrame("Frame", nil, trainPage)
+    trList:SetPoint("TOPLEFT", COL[2], TOP - 4)
+    trList:SetSize(600, 560)
+    local trBg = trList:CreateTexture(nil, "BACKGROUND")
+    trBg:SetAllPoints()
+    trBg:SetColorTexture(0, 0, 0, 0.35)
+    local trScroll = CreateFrame("ScrollFrame", nil, trList, "UIPanelScrollFrameTemplate")
+    trScroll:SetPoint("TOPLEFT", 6, -6)
+    trScroll:SetPoint("BOTTOMRIGHT", -28, 6)
+    local trChild = CreateFrame("Frame", nil, trScroll)
+    trChild:SetSize(560, 10)
+    trScroll:SetScrollChild(trChild)
+    local trRows = {}
+    local function trRow(i)
+        local r = trRows[i]
+        if not r then
+            r = CreateFrame("Frame", nil, trChild)
+            r:SetSize(556, 20)
+            r.icon = r:CreateTexture(nil, "ARTWORK")
+            r.icon:SetSize(16, 16)
+            r.icon:SetPoint("LEFT", 4, 0)
+            r.icon:SetTexCoord(0.08, 0.92, 0.08, 0.92)
+            r.name = r:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+            r.name:SetPoint("LEFT", r.icon, "RIGHT", 6, 0)
+            r.name:SetJustifyH("LEFT")
+            r.right = r:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+            r.right:SetPoint("RIGHT", -8, 0)
+            r.right:SetJustifyH("RIGHT")
+            trRows[i] = r
+        end
+        return r
+    end
+    local trEmpty = trChild:CreateFontString(nil, "OVERLAY", "GameFontDisable")
+    trEmpty:SetPoint("TOPLEFT", 8, -8)
+    ns.trainRows = trRows
+    onRefresh(function()
+        if section ~= "training" then return end
+        local list = tr.list()
+        trEmpty:SetShown(#list == 0)
+        trEmpty:SetText(ns.training and ns.training[class]
+            and "Nothing left -- your trainer has taught you everything on this list."
+            or "No spell list for this class.")
+        for i, e in ipairs(list) do
+            local r = trRow(i)
+            r:SetPoint("TOPLEFT", 0, -(i - 1) * 20)
+            if e.spell then
+                local name, icon = tr.spellInfo(e.spell.id)
+                r.icon:SetTexture(icon)
+                r.icon:SetShown(true)
+                r.name:SetText(name)
+                if e.known then
+                    r.name:SetTextColor(0.5, 0.5, 0.5)
+                    r.right:SetText("known")
+                    r.right:SetTextColor(0.5, 0.5, 0.5)
+                elseif e.reached then
+                    r.name:SetTextColor(1, 1, 1)
+                    r.right:SetText(T().showCost and money(e.spell.cost) or "ready")
+                    r.right:SetTextColor(1, 0.82, 0)
+                else
+                    r.name:SetTextColor(0.65, 0.65, 0.65)
+                    r.right:SetText(T().showCost and money(e.spell.cost) or "")
+                    r.right:SetTextColor(0.45, 0.45, 0.45)
+                end
+            else -- a level header
+                r.icon:SetShown(false)
+                r.name:SetText("Level " .. e.level)
+                r.name:SetTextColor(e.reached and 1 or 0.7, e.reached and 0.82 or 0.6, 0)
+                r.right:SetText(e.reached and "" or "not yet")
+                r.right:SetTextColor(0.45, 0.45, 0.45)
+            end
+            r:Show()
+        end
+        for i = #list + 1, #trRows do trRows[i]:Hide() end
+        trChild:SetHeight(math.max(#list * 20, 10))
+    end)
+
+    ----------------------------------------------------------------------------------
     -- Buffs page: the out-of-combat check of who is missing what
     ----------------------------------------------------------------------------------
     local B = function() return db.buffs end
@@ -4659,12 +4833,6 @@ local petEv = CreateFrame("Frame") -- same handler as ev, for pet unit events
 -- Auto-sell junk: gray items that have a sell price, one every 0.2 s while the merchant window
 -- is open. Nothing else is ever sold, and closing the window stops it.
 local sellTicker
--- GetMoneyString is what this client has; GetCoinTextureString is not here at all.
-local function money(c)
-    local ok, text = pcall(GetMoneyString, c)
-    return (ok and text) or tostring(math.floor((c or 0) / 10000)) .. "g"
-end
-
 -- Repairs everything at a merchant that can, out of your own money, and says what it cost.
 local function autoRepair()
     if not db.other.autoRepair then return end

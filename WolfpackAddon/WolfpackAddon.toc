@@ -6,4 +6,5 @@
 ## SavedVariables: WolfpackAddonDB
 ## AddonCompartmentFunc: WolfpackAddon_Toggle
 
+Data\Training.lua
 WolfpackAddon.lua

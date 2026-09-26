@@ -189,6 +189,10 @@ RegisterUnitWatch = function(f) f._watched = true end
 GetNumGroupMembers = function() return S.members or 0 end
 UnitIsDeadOrGhost = function() return false end
 UnitLevel = function() return S.level or 60 end
+UnitRace = function() return "Orc", "Orc", S.raceID or 2 end
+UnitFactionGroup = function() return S.faction or "Horde" end
+IsSpellKnown = function(id) return (S.known or {})[id] == true end
+GetMoneyString = function(c) return tostring(math.floor(c / 10000)) .. "g" end
 C_SpellBook = { GetSpellBookItemName = function(i) return (S.book or {})[i] and S.book[i][1] or nil end }
 GetInventorySlotInfo = function() return 0 end
 GetInventoryItemID = function() return S.ammoID end
@@ -374,7 +378,12 @@ UnitHealthMax = function() return 1000 end
 
 DAMAGE_TEXT_FONT = "Fonts\\FRIZQT__.TTF"
 local ns = {}
+assert(loadfile("WolfpackAddon/Data/Training.lua"))("WolfpackAddon", ns) -- loaded first, per the toc
 assert(loadfile("WolfpackAddon/WolfpackAddon.lua"))("WolfpackAddon", ns)
+for _, c in ipairs({ "DRUID", "HUNTER", "MAGE", "PALADIN", "PRIEST", "ROGUE", "SHAMAN",
+    "WARLOCK", "WARRIOR" }) do
+    assert(type(ns.training[c]) == "table", c .. " has a spell list")
+end
 local function fire(e, ...) evFrame._scripts.OnEvent(evFrame, e, ...) end
 -- each class logs in as its own character
 local function login(class, ptype) S.class, S.name, S.ptype = class, class .. "Char", ptype; fire("PLAYER_LOGIN") end
@@ -831,11 +840,15 @@ assert(prof().nameplate.gap == 4 and prof().nameplate.x == -150 and prof().namep
 assert(prof().regular.gap == 30 and prof().regular.x == 0 and prof().regular.bars.health.width == 220, "regular untouched")
 -- every sidebar entry is really there, opens its page, and that page has settings on it
 for _, name in ipairs({ "Combat Display", "Nameplates", "Buffs", "Mage", "Hunter", "Warlock",
-    "Rogue", "Shaman", "Other" }) do
+    "Rogue", "Shaman", "Training", "Other" }) do
     local b = byText(name)
     assert(b, "sidebar entry missing: " .. name)
     b._scripts.OnClick(b, "LeftButton")
 end
+-- the training page fills itself in when it is the one on screen
+byText("Training")._scripts.OnClick(byText("Training"), "LeftButton")
+assert(ns.trainRows[1] and ns.trainRows[1]:IsShown(), "the trainer list has rows on it")
+assert(ns.trainRows[1].name._text:find("Level"), "and it starts with a level heading")
 for section, page in pairs(ns.pages) do
     assert((ns.boxesOn[page] or 0) > 0, "nothing on the " .. section .. " page")
 end
@@ -1611,6 +1624,44 @@ S.bags = keptBags2
 login("ROGUE", 3)
 ns.wlEv._scripts.OnEvent(ns.wlEv, "BAG_UPDATE")
 assert(not ns.wl.panel:IsShown(), "nothing for anyone else")
+
+-- Training: the trainer's list, cut down by level and by what is already learned
+login("PRIEST", 0)
+S.level, S.known = 20, {}
+local tset = prof().training
+tset.hideKnown, tset.fromMyLevel = false, false
+local all = ns.tr.list()
+assert(#all > 0, "a priest has a list")
+local headers, spells = 0, 0
+for _, e in ipairs(all) do
+    if e.spell then spells = spells + 1 else headers = headers + 1 end
+end
+assert(headers > 1 and spells > headers, "levels, each with spells under it")
+assert(all[1].level and all[1].level < all[#all].level, "lowest level first")
+tset.fromMyLevel = true
+local fromMe = ns.tr.list()
+for _, e in ipairs(fromMe) do assert(e.level >= 20, "nothing below my level once asked") end
+assert(#fromMe < #all, "and that is a shorter list")
+-- Power Word: Fortitude, learned at 1, drops out once it is known
+tset.fromMyLevel, tset.hideKnown = false, true
+local before = #ns.tr.list()
+S.known = { [1243] = true }
+local after = ns.tr.list()
+assert(#after < before, "a spell you know is not on the list")
+for _, e in ipairs(after) do assert(not (e.spell and e.spell.id == 1243), "that one, precisely") end
+S.known = {}
+-- a mage's faction-only spells follow the faction
+login("MAGE", 8)
+S.faction = "Horde"
+local horde = {}
+for _, e in ipairs(ns.tr.list()) do if e.spell then horde[e.spell.id] = true end end
+S.faction = "Alliance"
+local ally = {}
+for _, e in ipairs(ns.tr.list()) do if e.spell then ally[e.spell.id] = true end end
+local differs = false
+for id in pairs(horde) do if not ally[id] then differs = true end end
+assert(differs, "the portals each side gets are not the same")
+S.faction = "Horde"
 
 -- Hunter: what is in the ammo slot, and the face the pet is pulling
 S.unitClasses = nil -- the group test above left everyone else's class behind
