@@ -1782,6 +1782,21 @@ assert(not ns.wl.panel:IsShown(), "nothing for anyone else")
 -- Macros: kept here without limit, handed to the game one at a time
 login("WARRIOR", 1)
 S.gameMacros, S.cursor = {}, nil
+-- baked macros are added beside what is already there, and only ever once
+S.gameMacros = {}
+WolfpackAddonDB.macros = { WARRIOR = { { name = "Mine", body = "/cast Charge" } } }
+WolfpackAddonDB.macrosBaked = nil
+fire("PLAYER_LOGIN")
+local war = ns.mc.shelf("WARRIOR")
+assert(war[1].name == "Mine", "what you already had stays where it was")
+assert(#war > 1, "and the baked ones are appended after it")
+local count = #war
+table.remove(war, 2) -- throw one of the baked ones away
+fire("PLAYER_LOGIN")
+assert(#ns.mc.shelf("WARRIOR") == count - 1, "one you delete stays deleted on the next login")
+WolfpackAddonDB.macros, WolfpackAddonDB.macrosBaked = nil, nil
+fire("PLAYER_LOGIN")
+
 -- the shelves arrive with macros already on them, one lot per class
 assert(#ns.mc.shelf("WARRIOR") > 0 and #ns.mc.shelf("PRIEST") > 0, "shelves come stocked")
 assert(#ns.mc.shelf("GENERAL") > 0, "including the ones that suit anybody")
@@ -1814,9 +1829,20 @@ local at = ns.mc.toGame(other)
 assert(at == 3 and S.gameMacros[2].body == "yours from before", "your own macro is untouched")
 assert(S.gameMacros[3].name == "Taken 2", "and this one sits beside it")
 -- a macro casting something known arrives wearing that spell's icon
-S.spellTextures = { Charge = 132337 }
+S.spellTextures = { Charge = 132337, ["mongoose bite"] = 132215, Shoot = 135498,
+    ["Revive Pet"] = 132163 }
 assert(ns.mc.guessIcon("/cast Charge") == 132337, "icon comes from the spell it casts")
 assert(ns.mc.guessIcon("/say hello") == nil, "and nothing to guess from otherwise")
+-- the same icon the game would give it: #showtooltip first, whatever else the macro does
+assert(ns.mc.guessIcon("#showtooltip mongoose bite\n/startattack\n/cast Charge") == 132215,
+    "what its tooltip names wins over what it happens to cast first")
+assert(ns.mc.guessIcon("#showtooltip\n/startattack\n/cast Charge") == 132337,
+    "an empty #showtooltip falls through to the spell")
+assert(ns.mc.guessIcon("/startattack\n/castsequence reset=3 !Shoot, null") == 135498,
+    "a castsequence is read past its reset clause and its bang")
+assert(ns.mc.guessIcon("/cast [mod:shift] Revive Pet; [nopet] Call Pet") == 132163,
+    "and a conditional is stepped over")
+assert(ns.mc.guessIcon("#showtooltip\n/use item:22895") == nil, "an item id is not a spell")
 -- picking one up puts it on the cursor, ready for an action bar
 assert(ns.mc.pickUp(shelf[stocked + 2]) and S.cursor.name == "Charge 2", "it is on the cursor")
 -- the game full, and combat, are both said out loud rather than swallowed

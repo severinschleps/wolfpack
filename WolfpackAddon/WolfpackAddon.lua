@@ -2617,18 +2617,33 @@ function mc.shelf(classToken)
     return store.macros[key]
 end
 
--- The icon of the first thing the macro casts, so a new one does not arrive as a question mark.
+-- The icon the game itself would put on this macro: what its #showtooltip names, else the first
+-- thing it casts or uses. This is the fallback whenever no icon has been chosen by hand.
 function mc.guessIcon(body)
+    local function texture(text)
+        if not text then return nil end
+        text = text:gsub("^%s*reset=%S+%s*", "")   -- a castsequence's reset clause
+        text = text:gsub("%[[^%]]*%]", "")         -- any [conditional]
+        text = text:match("^[^;,]+") or text       -- first of a sequence or a fallback list
+        text = text:gsub("!", ""):gsub("^%s+", ""):gsub("%s+$", "")
+        if text == "" or text:lower() == "null" or text:lower():find("^item:") then return nil end
+        local ok, tex = pcall(function()
+            return C_Spell and C_Spell.GetSpellTexture and C_Spell.GetSpellTexture(text)
+        end)
+        return (ok and tex) or nil
+    end
+    for line in (body or ""):gmatch("[^\r\n]+") do
+        local shown = line:match("^%s*#show%a*%s+(.+)$")
+        if shown then
+            local tex = texture(shown)
+            if tex then return tex end
+        end
+    end
     for line in (body or ""):gmatch("[^\r\n]+") do
         local verb, rest = line:match("^%s*/(%a+)%s+(.+)$")
         if rest and (verb == "cast" or verb == "use" or verb == "castsequence") then
-            rest = rest:gsub("^%b[]%s*", "")            -- drop a [conditional] in front
-            rest = rest:match("^[^;,]+") or rest        -- first of a sequence or a fallback list
-            rest = rest:gsub("^%s+", ""):gsub("%s+$", "")
-            local ok, tex = pcall(function()
-                return C_Spell and C_Spell.GetSpellTexture and C_Spell.GetSpellTexture(rest)
-            end)
-            if ok and tex then return tex end
+            local tex = texture(rest)
+            if tex then return tex end
         end
     end
     return nil
@@ -5742,19 +5757,22 @@ ev:SetScript("OnEvent", function(_, event, unit, arg2, arg3)
         store.minimapAngle = store.minimapAngle or 220
         store.classProfiles = store.classProfiles or {} -- [class token] = profile name
         store.macros = store.macros or {} -- [class token] = { { name, body, icon }, ... }
-        -- a shelf starts with the macros baked in, once: after that it is yours, and one you
-        -- delete stays deleted
-        if not store.macrosSeeded and ns.bakedMacros then
-            for key, rows in pairs(ns.bakedMacros) do
-                store.macros[key] = store.macros[key] or {}
-                if #store.macros[key] == 0 then
-                    for _, m in ipairs(rows) do
-                        store.macros[key][#store.macros[key] + 1] =
-                            { name = m.name, body = m.body, icon = m.icon }
-                    end
+        -- The baked macros are added to whatever is already on a shelf, not instead of it, and
+        -- each is only ever offered once: delete one and it stays deleted, while any that arrive
+        -- in a later version of the addon turn up beside what you have.
+        store.macrosBaked = store.macrosBaked or {}
+        for key, rows in pairs(ns.bakedMacros or {}) do
+            local shelf = store.macros[key] or {}
+            store.macros[key] = shelf
+            local have = {}
+            for _, m in ipairs(shelf) do have[m.name] = true end
+            for _, m in ipairs(rows) do
+                local tag = key .. "|" .. m.name
+                if not store.macrosBaked[tag] and not have[m.name] then
+                    shelf[#shelf + 1] = { name = m.name, body = m.body, icon = m.icon }
                 end
+                store.macrosBaked[tag] = true
             end
-            store.macrosSeeded = true
         end
         seedFromBaked()
         classProfile, class = UnitClass("player")
