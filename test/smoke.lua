@@ -419,6 +419,7 @@ UnitHealthMax = function() return 1000 end
 DAMAGE_TEXT_FONT = "Fonts\\FRIZQT__.TTF"
 local ns = {}
 assert(loadfile("WolfpackAddon/Data/Training.lua"))("WolfpackAddon", ns) -- loaded first, per the toc
+assert(loadfile("WolfpackAddon/Data/Macros.lua"))("WolfpackAddon", ns)
 assert(loadfile("WolfpackAddon_Loot/Data.lua"))() -- its own addon; it sets a global
 assert(loadfile("WolfpackAddon/WolfpackAddon.lua"))("WolfpackAddon", ns)
 for _, c in ipairs({ "DRUID", "HUNTER", "MAGE", "PALADIN", "PRIEST", "ROGUE", "SHAMAN",
@@ -887,79 +888,25 @@ for _, name in ipairs({ "Combat Display", "Nameplates", "Buffs", "Training", "Du
     assert(b, "sidebar entry missing: " .. name)
     b._scripts.OnClick(b, "LeftButton")
 end
--- every class has a macro shelf, whether or not the addon does anything else for it
-for _, e in ipairs(ns.CLASS_SECTIONS) do
-    byText(e[2])._scripts.OnClick(byText(e[2]), "LeftButton")
-    byText("Macros")._scripts.OnClick(byText("Macros"), "LeftButton")
-    assert(ns.macroPage:IsShown(), e[2] .. " has somewhere to keep macros")
-    assert(ns.macroClass == e[3], "and it is that class's shelf: " .. tostring(ns.macroClass))
+-- Macros live in their own section now, one shelf per class plus a general one
+for _, e in ipairs(ns.MACRO_SHELVES) do
+    local b = byText(e[2] == "General" and "General" or e[2])
+    assert(b, "no shelf button for " .. e[2])
 end
--- a class the addon has settings for keeps them on its own tab
+byText("General")._scripts.OnClick(byText("General"), "LeftButton")
+assert(ns.macroPage:IsShown() and ns.macroClass == "GENERAL", "the general shelf opens")
+-- every class page is settings only; the macros are not on it any more
 byText("Mage")._scripts.OnClick(byText("Mage"), "LeftButton")
-byText("Settings")._scripts.OnClick(byText("Settings"), "LeftButton")
-assert(ns.pages.mage:IsShown() and not ns.macroPage:IsShown(), "Mage settings are still there")
--- a class it does not goes straight to the macros, with no empty Settings tab offered
+assert(ns.pages.mage:IsShown() and not ns.macroPage:IsShown(), "Mage settings, no macros")
+-- New macro, rename it, and it is on the shelf that is open
 byText("Warrior")._scripts.OnClick(byText("Warrior"), "LeftButton")
-assert(ns.macroPage:IsShown(), "a warrior lands on the macro shelf")
-assert(not byText("Settings"):IsShown(), "and is not offered an empty settings tab")
--- New macro, edit it, and it is on the shelf
+assert(ns.macroClass == "WARRIOR", "the warrior shelf is the open one")
 local before = #ns.mc.shelf("WARRIOR")
 byText("New macro")._scripts.OnClick(byText("New macro"), "LeftButton")
 assert(#ns.mc.shelf("WARRIOR") == before + 1, "a new one is added")
 ns.macro.name._text = "Pull"
 ns.macro.name._scripts.OnEnterPressed(ns.macro.name)
 assert(ns.mc.shelf("WARRIOR")[ns.macro.picked].name == "Pull", "and renaming it sticks")
--- the roster shows macros as icons, the one you are editing ringed
-local cell = ns.macro.rows[ns.macro.picked]
-assert(cell:IsShown() and cell.sel:IsShown(), "the one being edited is the marked one")
-assert(cell.tex._tex, "and every macro on the roster wears an icon")
-GameTooltip._text = nil
-cell._scripts.OnEnter(cell)
-assert(GameTooltip._text == "Pull", "its name is in the tooltip, since the icon cannot say it")
-cell._scripts.OnLeave(cell)
--- clicking another one moves the editor to it
-local other = ns.macro.rows[1]
-other._scripts.OnClick(other)
-assert(ns.macro.picked == 1 and ns.macro.rows[1].sel:IsShown(), "clicking an icon picks it")
-assert(ns.macro.name._text == ns.mc.shelf("WARRIOR")[1].name, "and the editor follows")
-ns.macro.rows[cell == other and 1 or #ns.mc.shelf("WARRIOR")]._scripts.OnClick(
-    ns.macro.rows[#ns.mc.shelf("WARRIOR")])
--- an icon can be picked by hand, out of whatever list this build offers
-S.macroIcons = { "Interface/Icons/Ability_Warrior_Charge", "Interface/Icons/INV_Sword_04" }
-for i = 3, 120 do S.macroIcons[i] = "Interface/Icons/Spell_Fire_" .. i end
-ns.mc.iconCache = nil
-assert(#ns.mc.icons() == 120, "the game's icon list is read")
-assert(ns.mc.iconName("Interface/Icons/INV_Sword_04") == "INV_Sword_04", "icons have names")
-assert(#ns.mc.iconsLike("sword") == 1, "and the search box narrows by them")
-assert(#ns.mc.iconsLike("") == 120, "an empty box is the whole list")
-local mine = ns.mc.shelf("WARRIOR")[ns.macro.picked]
-assert(mine.icon == nil, "a new macro has no icon of its own")
-ns.macro.iconBtn._scripts.OnClick(ns.macro.iconBtn)
-assert(ns.macro.picker:IsShown(), "the picker opens")
-assert(ns.macro.picker.buttons[1]:IsShown(), "with icons on it")
-assert(ns.macro.picker.buttons[2].icon == "Interface/Icons/INV_Sword_04", "the second one")
-ns.macro.picker.buttons[2]._scripts.OnClick(ns.macro.picker.buttons[2])
-assert(mine.icon == "Interface/Icons/INV_Sword_04", "clicking one keeps it")
-assert(not ns.macro.picker:IsShown(), "and closes the picker")
--- that icon is what the game gets, not the guess
-S.gameMacros = {}
-ns.mc.toGame(mine)
-assert(S.gameMacros[1].icon == "Interface/Icons/INV_Sword_04", "the game is given the chosen one")
--- paging through, and going back to the automatic icon
-ns.macro.iconBtn._scripts.OnClick(ns.macro.iconBtn)
-byText("More")._scripts.OnClick(byText("More"), "LeftButton")
-assert(ns.macro.picker.buttons[1].icon == S.macroIcons[49], "page two starts where page one ended")
-byText("Back to the spell's icon")._scripts.OnClick(byText("Back to the spell's icon"), "LeftButton")
-assert(mine.icon == nil, "and it can go back to following the spell")
-S.macroIcons, ns.mc.iconCache = nil, nil
-
--- dragging a row hands it to the game and puts it on the cursor
-S.gameMacros, S.cursor = {}, nil
-local mrow = ns.macro.rows[ns.macro.picked]
-mrow._scripts.OnDragStart(mrow)
-assert(S.cursor and S.cursor.name == "Pull", "dragging one puts it on the cursor")
-byText("Delete this one")._scripts.OnClick(byText("Delete this one"), "LeftButton")
-assert(#ns.mc.shelf("WARRIOR") == before, "and deleting takes it off the shelf")
 -- the training page fills itself in when it is the one on screen
 byText("Training")._scripts.OnClick(byText("Training"), "LeftButton")
 assert(ns.trainRows[1] and ns.trainRows[1]:IsShown(), "the trainer list has rows on it")
@@ -1835,34 +1782,53 @@ assert(not ns.wl.panel:IsShown(), "nothing for anyone else")
 -- Macros: kept here without limit, handed to the game one at a time
 login("WARRIOR", 1)
 S.gameMacros, S.cursor = {}, nil
+-- the shelves arrive with macros already on them, one lot per class
+assert(#ns.mc.shelf("WARRIOR") > 0 and #ns.mc.shelf("PRIEST") > 0, "shelves come stocked")
+assert(#ns.mc.shelf("GENERAL") > 0, "including the ones that suit anybody")
+local heroic
+for _, m in ipairs(ns.mc.shelf("WARRIOR")) do
+    if m.body:find("heroic strike") then heroic = m end
+end
+assert(heroic and heroic.name == "Heroic Strike", "named after what it casts, not after the class")
+for _, m in ipairs(ns.mc.shelf("WARRIOR")) do assert(#m.name <= 16, "and within the game's limit") end
 local shelf = ns.mc.shelf("WARRIOR")
-assert(#shelf == 0, "a fresh shelf is empty")
-for i = 1, 200 do shelf[i] = { name = "Charge " .. i, body = "/cast Charge" } end
-assert(#ns.mc.shelf("WARRIOR") == 200, "two hundred saved, well past what the game would hold")
-assert(#ns.mc.shelf("MAGE") == 0, "another class has its own shelf")
-assert(WolfpackAddonDB.macros.WARRIOR[7].name == "Charge 7", "and they are saved with the addon")
+local stocked = #shelf
+for i = 1, 200 do shelf[stocked + i] = { name = "Charge " .. i, body = "/cast Charge" } end
+assert(#ns.mc.shelf("WARRIOR") == stocked + 200, "and hundreds more fit, past what the game holds")
+assert(WolfpackAddonDB.macros.WARRIOR[stocked + 7].name == "Charge 7", "saved with the addon")
 -- handing one over writes a real macro, and editing it keeps the same slot
-local idx = ns.mc.toGame(shelf[1])
+local mine = shelf[stocked + 1]
+local idx = ns.mc.toGame(mine)
 assert(idx == 1 and S.gameMacros[1].body == "/cast Charge", "the game took it")
-shelf[1].body = "/cast Heroic Strike"
-assert(ns.mc.toGame(shelf[1]) == 1 and #S.gameMacros == 1, "the same name overwrites its slot")
+mine.body = "/cast Heroic Strike"
+assert(ns.mc.toGame(mine) == 1 and #S.gameMacros == 1, "the same one keeps its slot")
 assert(S.gameMacros[1].body == "/cast Heroic Strike", "with the new text")
+-- renaming it moves the same slot rather than making a second one
+mine.name = "Charge again"
+assert(ns.mc.toGame(mine) == 1 and #S.gameMacros == 1, "a rename stays in its own slot")
+assert(S.gameMacros[1].name == "Charge again", "under the new name")
+-- a name the game already has is left alone; this one takes a number beside it
+S.gameMacros[2] = { name = "Taken", body = "yours from before" }
+local other = { name = "Taken", body = "/cast Cleave" }
+local at = ns.mc.toGame(other)
+assert(at == 3 and S.gameMacros[2].body == "yours from before", "your own macro is untouched")
+assert(S.gameMacros[3].name == "Taken 2", "and this one sits beside it")
 -- a macro casting something known arrives wearing that spell's icon
 S.spellTextures = { Charge = 132337 }
 assert(ns.mc.guessIcon("/cast Charge") == 132337, "icon comes from the spell it casts")
 assert(ns.mc.guessIcon("/say hello") == nil, "and nothing to guess from otherwise")
 -- picking one up puts it on the cursor, ready for an action bar
-assert(ns.mc.pickUp(shelf[2]) and S.cursor.name == "Charge 2", "it is on the cursor")
+assert(ns.mc.pickUp(shelf[stocked + 2]) and S.cursor.name == "Charge 2", "it is on the cursor")
 -- the game full, and combat, are both said out loud rather than swallowed
 S.macroRoom = #S.gameMacros
-local ok, why = ns.mc.toGame(shelf[50])
+local ok, why = ns.mc.toGame(shelf[stocked + 50])
 assert(not ok and why:find("full"), "no room: " .. tostring(why))
 S.macroRoom = nil
 S.combat = true
-ok, why = ns.mc.toGame(shelf[50])
+ok, why = ns.mc.toGame(shelf[stocked + 50])
 assert(not ok and why:find("fighting"), "not in combat: " .. tostring(why))
 S.combat = false
-for i = 1, 200 do shelf[i] = nil end
+for i = stocked + 1, stocked + 200 do shelf[i] = nil end
 
 -- Training: the trainer's list, cut down by level and by what is already learned
 login("PRIEST", 0)

@@ -7,4 +7,5 @@
 ## AddonCompartmentFunc: WolfpackAddon_Toggle
 
 Data\Training.lua
+Data\Macros.lua
 WolfpackAddon.lua

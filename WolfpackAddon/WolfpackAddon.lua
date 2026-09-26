@@ -2604,8 +2604,14 @@ mc = {}
 ns.mc = mc
 mc.DEFAULT_ICON = "INV_Misc_QuestionMark"
 
+-- What a shelf is called on screen.
+function mc.shelfName(key)
+    for _, e in ipairs(ns.MACRO_SHELVES) do if e[1] == key then return e[2] end end
+    return "General"
+end
+
 function mc.shelf(classToken)
-    local key = classToken or class or "WARRIOR"
+    local key = classToken or "GENERAL"
     store.macros = store.macros or {}
     store.macros[key] = store.macros[key] or {}
     return store.macros[key]
@@ -2687,22 +2693,39 @@ function mc.iconsLike(text)
     return out
 end
 
--- Hand one to the game. It keeps its slot across edits, and says plainly when the game is full.
--- Blizzard's own rule: nothing about macros in combat.
+-- Hand one to the game. It remembers which slot it was given and keeps it across edits, so
+-- editing never doubles up. A name the game already has -- one of yours from before, or another
+-- macro on this shelf -- is left alone: this one takes a numbered name beside it rather than
+-- writing over somebody else's work. Blizzard's own rule: nothing about macros in combat.
 function mc.toGame(entry)
-    if not entry or InCombatLockdown() then return nil, "not while you are fighting" end
-    local name = (entry.name or "Macro"):sub(1, 16)
+    if not entry then return nil, "nothing to save" end
+    if InCombatLockdown() then return nil, "not while you are fighting" end
+    local want = (entry.name or "Macro"):sub(1, 16)
     local icon = entry.icon or mc.guessIcon(entry.body) or mc.DEFAULT_ICON
-    local index = select(2, pcall(GetMacroIndexByName, name))
-    if type(index) == "number" and index > 0 then
-        local ok = pcall(EditMacro, index, name, icon, entry.body or "")
-        if not ok then return nil, "the game would not take it" end
-        return index
+    local body = entry.body or ""
+    local function slotOf(name)
+        local at = select(2, pcall(GetMacroIndexByName, name))
+        return type(at) == "number" and at > 0 and at or nil
     end
-    local ok, made = pcall(CreateMacro, name, icon, entry.body or "", false)
+    local mine = entry.slot and slotOf(entry.slot)
+    if mine then
+        local taken = want ~= entry.slot and slotOf(want)
+        if not taken and pcall(EditMacro, mine, want, icon, body) then
+            entry.slot = want
+            return mine
+        end
+        if pcall(EditMacro, mine, entry.slot, icon, body) then return mine end
+    end
+    local name, n = want, 1
+    while slotOf(name) and n < 20 do
+        n = n + 1
+        name = want:sub(1, 13) .. " " .. n
+    end
+    local ok, made = pcall(CreateMacro, name, icon, body, false)
     if not ok or type(made) ~= "number" then
         return nil, "no room left -- the game keeps 120 macro slots, and they are all full"
     end
+    entry.slot = name
     return made
 end
 
@@ -2991,14 +3014,15 @@ end
 ------------------------------------------------------------------------------------------
 -- section = sidebar entry, sub = tab inside Nameplates, mode = which bar layout is being edited
 local cfg, selected, mode, section, sub = nil, "health", "regular", "combat", "bars"
-local csub = "settings" -- class pages: their own settings, or the macro shelf
--- Every class gets a place on the sidebar, whether or not the addon does anything else for it:
--- { section key, label, class token }
-ns.CLASS_SECTIONS = { { "druid", "Druid", "DRUID" }, { "hunter", "Hunter", "HUNTER" },
-    { "mage", "Mage", "MAGE" }, { "paladin", "Paladin", "PALADIN" },
-    { "priest", "Priest", "PRIEST" }, { "rogue", "Rogue", "ROGUE" },
-    { "shaman", "Shaman", "SHAMAN" }, { "warlock", "Warlock", "WARLOCK" },
-    { "warrior", "Warrior", "WARRIOR" } }
+-- Classes the addon has settings of its own for: { section key, label, class token }
+ns.CLASS_SECTIONS = { { "hunter", "Hunter", "HUNTER" }, { "mage", "Mage", "MAGE" },
+    { "rogue", "Rogue", "ROGUE" }, { "shaman", "Shaman", "SHAMAN" },
+    { "warlock", "Warlock", "WARLOCK" } }
+-- Macro shelves: one per class, plus the ones that suit anybody.
+ns.MACRO_SHELVES = { { "GENERAL", "General" }, { "DRUID", "Druid" }, { "HUNTER", "Hunter" },
+    { "MAGE", "Mage" }, { "PALADIN", "Paladin" }, { "PRIEST", "Priest" },
+    { "ROGUE", "Rogue" }, { "SHAMAN", "Shaman" }, { "WARLOCK", "Warlock" },
+    { "WARRIOR", "Warrior" } }
 local refreshers = {}
 
 changed = function()
@@ -3795,16 +3819,38 @@ local function buildConfig()
     for _, e in ipairs(ns.CLASS_SECTIONS) do
         local b = button(cfg, e[2], 118, 12, y, function()
             section, mode = e[1], "regular"
-            if not ns.pages[e[1]] then csub = "macros" end
             changed()
         end)
         onRefresh(function()
             if section == e[1] then b:LockHighlight() else b:UnlockHighlight() end
-            -- your own class reads brighter; the rest are there for writing macros ahead of time
-            local on = e[3] == class
+            local on = e[3] == class -- your own class reads brighter than the rest
             b:GetFontString():SetTextColor(on and 1 or 0.65, on and 0.82 or 0.65, on and 0 or 0.65)
         end)
         y = y - 26
+    end
+
+    y = y - 14
+    local macroLine = cfg:CreateTexture(nil, "ARTWORK")
+    macroLine:SetColorTexture(1, 1, 1, 0.15)
+    macroLine:SetPoint("TOPLEFT", 12, y + 8)
+    macroLine:SetSize(118, 1)
+    local macroHead = label(cfg, "Macros", "GameFontDisableSmall")
+    macroHead:SetPoint("TOPLEFT", 14, y)
+    y = y - 16
+    for _, e in ipairs(ns.MACRO_SHELVES) do
+        local b = button(cfg, e[2], 108, 22, y, function()
+            section, mode, ns.macroClass = "macros", "regular", e[1]
+            ns.macro.picked = 1
+            changed()
+        end)
+        onRefresh(function()
+            local on = section == "macros" and ns.macroClass == e[1]
+            if on then b:LockHighlight() else b:UnlockHighlight() end
+            local mine = e[1] == class or e[1] == "GENERAL"
+            b:GetFontString():SetTextColor(mine and 1 or 0.65, mine and 0.82 or 0.65,
+                mine and 0 or 0.65)
+        end)
+        y = y - 24
     end
     ns.sidebarBottom = y
     local divider = cfg:CreateTexture(nil, "ARTWORK")
@@ -3848,17 +3894,6 @@ local function buildConfig()
         tabs[i] = button(cfg, t[2], 110, 150 + (i - 1) * 116, -68, function() sub = t[1]; changed() end)
         onRefresh(function() if sub == t[1] then tabs[i]:LockHighlight() else tabs[i]:UnlockHighlight() end end)
     end
-    -- class pages carry the same two tabs: what the addon does for the class, and its macros
-    local ctabs = {}
-    for i, t in ipairs({ { "settings", "Settings" }, { "macros", "Macros" } }) do
-        ctabs[i] = button(cfg, t[2], 110, 150 + (i - 1) * 116, -68, function()
-            csub = t[1]
-            changed()
-        end)
-        onRefresh(function()
-            if csub == t[1] then ctabs[i]:LockHighlight() else ctabs[i]:UnlockHighlight() end
-        end)
-    end
     onRefresh(function()
         local np = section == "nameplates"
         title:SetShown(not np)
@@ -3871,26 +3906,19 @@ local function buildConfig()
             or section == "shaman" and "Shaman: weapon imbues"
             or section == "training" and "What your trainer still has"
             or section == "dungeons" and "Dungeons: loot and quests"
-            or section == "druid" and "Druid" or section == "paladin" and "Paladin"
-            or section == "priest" and "Priest" or section == "warrior" and "Warrior"
+            or section == "macros" and ("Macros: " .. mc.shelfName(ns.macroClass))
             or "Combat Display")
         for _, t in ipairs(tabs) do t:SetShown(np) end
-        local klass, hasOwn = nil, ns.pages[section] ~= nil
-        for _, e in ipairs(ns.CLASS_SECTIONS) do if e[1] == section then klass = e[3] end end
-        if klass and not hasOwn then csub = "macros" end
-        ctabs[1]:SetShown(klass ~= nil and hasOwn)
-        ctabs[2]:SetShown(klass ~= nil)
-        ns.macroPage:SetShown(klass ~= nil and csub == "macros")
-        ns.macroClass = klass
+        ns.macroPage:SetShown(section == "macros")
         barsPage:SetShown(section == "combat" or (np and sub == "bars"))
         questPage:SetShown(np and sub == "quest")
         otherPage:SetShown(section == "other")
         buffPage:SetShown(section == "buffs")
-        magePage:SetShown(section == "mage" and csub == "settings")
-        hunterPage:SetShown(section == "hunter" and csub == "settings")
-        lockPage:SetShown(section == "warlock" and csub == "settings")
-        roguePage:SetShown(section == "rogue" and csub == "settings")
-        shamanPage:SetShown(section == "shaman" and csub == "settings")
+        magePage:SetShown(section == "mage")
+        hunterPage:SetShown(section == "hunter")
+        lockPage:SetShown(section == "warlock")
+        roguePage:SetShown(section == "rogue")
+        shamanPage:SetShown(section == "shaman")
         trainPage:SetShown(section == "training")
         dungPage:SetShown(section == "dungeons")
     end)
@@ -4700,6 +4728,7 @@ local function buildConfig()
     M.picked = 1
     M.COLS, M.CELL = 15, 48
 
+    ns.macroClass = ns.macroClass or "GENERAL"
     local function shelf() return mc.shelf(ns.macroClass) end
     local function current() return shelf()[M.picked] end
 
@@ -4850,7 +4879,8 @@ local function buildConfig()
     local mNote = label(M.page, "Keep as many here as you like -- they are saved with the addon, "
         .. "one shelf per class, and changing profile does not touch them. The game itself only "
         .. "has 120 macro slots, so a macro is written into one at the moment you drag it out or "
-        .. "press a button above. A name already in the game's list is overwritten, not doubled.",
+        .. "press a button above. Editing one afterwards changes the slot it already has; a name "
+        .. "the game is using already is left alone and this one takes a number beside it.",
         "GameFontDisableSmall")
     mNote:SetPoint("TOPLEFT", COL[1] + 8, M.EDIT - 250)
     mNote:SetWidth(560)
@@ -5712,6 +5742,20 @@ ev:SetScript("OnEvent", function(_, event, unit, arg2, arg3)
         store.minimapAngle = store.minimapAngle or 220
         store.classProfiles = store.classProfiles or {} -- [class token] = profile name
         store.macros = store.macros or {} -- [class token] = { { name, body, icon }, ... }
+        -- a shelf starts with the macros baked in, once: after that it is yours, and one you
+        -- delete stays deleted
+        if not store.macrosSeeded and ns.bakedMacros then
+            for key, rows in pairs(ns.bakedMacros) do
+                store.macros[key] = store.macros[key] or {}
+                if #store.macros[key] == 0 then
+                    for _, m in ipairs(rows) do
+                        store.macros[key][#store.macros[key] + 1] =
+                            { name = m.name, body = m.body, icon = m.icon }
+                    end
+                end
+            end
+            store.macrosSeeded = true
+        end
         seedFromBaked()
         classProfile, class = UnitClass("player")
         playerName = UnitName("player")
