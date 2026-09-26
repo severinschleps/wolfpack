@@ -909,7 +909,21 @@ assert(#ns.mc.shelf("WARRIOR") == before + 1, "a new one is added")
 ns.macro.name._text = "Pull"
 ns.macro.name._scripts.OnEnterPressed(ns.macro.name)
 assert(ns.mc.shelf("WARRIOR")[ns.macro.picked].name == "Pull", "and renaming it sticks")
-assert(ns.macro.rows[ns.macro.picked]._text == "Pull", "the list shows the new name")
+-- the roster shows macros as icons, the one you are editing ringed
+local cell = ns.macro.rows[ns.macro.picked]
+assert(cell:IsShown() and cell.sel:IsShown(), "the one being edited is the marked one")
+assert(cell.tex._tex, "and every macro on the roster wears an icon")
+GameTooltip._text = nil
+cell._scripts.OnEnter(cell)
+assert(GameTooltip._text == "Pull", "its name is in the tooltip, since the icon cannot say it")
+cell._scripts.OnLeave(cell)
+-- clicking another one moves the editor to it
+local other = ns.macro.rows[1]
+other._scripts.OnClick(other)
+assert(ns.macro.picked == 1 and ns.macro.rows[1].sel:IsShown(), "clicking an icon picks it")
+assert(ns.macro.name._text == ns.mc.shelf("WARRIOR")[1].name, "and the editor follows")
+ns.macro.rows[cell == other and 1 or #ns.mc.shelf("WARRIOR")]._scripts.OnClick(
+    ns.macro.rows[#ns.mc.shelf("WARRIOR")])
 -- an icon can be picked by hand, out of whatever list this build offers
 S.macroIcons = { "Interface/Icons/Ability_Warrior_Charge", "Interface/Icons/INV_Sword_04" }
 for i = 3, 120 do S.macroIcons[i] = "Interface/Icons/Spell_Fire_" .. i end

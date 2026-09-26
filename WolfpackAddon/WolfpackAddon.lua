@@ -4688,8 +4688,9 @@ local function buildConfig()
     end)
 
     ----------------------------------------------------------------------------------
-    -- Macros: a shelf per class, as long as you like. The list on the left, the one you are
-    -- editing on the right. Nothing reaches the game until you drag it out or press the button.
+    -- Macros: a shelf per class, as long as you like. The roster of icons on top, whichever
+    -- one you clicked underneath it. Nothing reaches the game until you drag it out or press
+    -- the button, because the game only has 120 slots and this shelf has none.
     ----------------------------------------------------------------------------------
     local M = { rows = {} }
     ns.macro = M
@@ -4697,25 +4698,40 @@ local function buildConfig()
     M.page:SetAllPoints(barsPage)
     ns.macroPage = M.page
     M.picked = 1
+    M.COLS, M.CELL = 15, 48
 
     local function shelf() return mc.shelf(ns.macroClass) end
     local function current() return shelf()[M.picked] end
 
-    label(M.page, "Saved macros", "GameFontNormal"):SetPoint("TOPLEFT", COL[1] + 6, TOP)
+    label(M.page, "Your macros", "GameFontNormal"):SetPoint("TOPLEFT", COL[1] + 6, TOP)
     M.list = CreateFrame("ScrollFrame", nil, M.page, "UIPanelScrollFrameTemplate")
-    M.list:SetPoint("TOPLEFT", COL[1] + 8, TOP - 24)
-    M.list:SetSize(176, 420)
+    M.list:SetPoint("TOPLEFT", COL[1] + 8, TOP - 22)
+    M.list:SetSize(M.COLS * M.CELL + 4, 200)
     M.listChild = CreateFrame("Frame", nil, M.list)
-    M.listChild:SetSize(176, 10)
+    M.listChild:SetSize(M.COLS * M.CELL, 10)
     M.list:SetScrollChild(M.listChild)
 
     function M.row(i)
         local r = M.rows[i]
         if not r then
-            r = button(M.page, "", 170, 0, 0, function() M.picked = i; changed() end)
-            r:SetParent(M.listChild)
-            r:ClearAllPoints()
-            r:SetPoint("TOPLEFT", 0, -(i - 1) * 24)
+            r = CreateFrame("Button", nil, M.listChild)
+            r:SetSize(42, 42)
+            r:SetPoint("TOPLEFT", ((i - 1) % M.COLS) * M.CELL,
+                -math.floor((i - 1) / M.COLS) * M.CELL)
+            r.tex = r:CreateTexture(nil, "ARTWORK")
+            r.tex:SetAllPoints()
+            r.tex:SetTexCoord(0.08, 0.92, 0.08, 0.92)
+            r.sel = r:CreateTexture(nil, "OVERLAY")
+            r.sel:SetPoint("TOPLEFT", -2, 2)
+            r.sel:SetPoint("BOTTOMRIGHT", 2, -2)
+            r.sel:SetColorTexture(1, 0.82, 0, 0.9)
+            r.sel:SetDrawLayer("BACKGROUND")
+            r:SetHighlightTexture("Interface\\Buttons\\ButtonHilight-Square", "ADD")
+            r:SetScript("OnClick", function()
+                M.picked = i
+                M.picker:Hide()
+                changed()
+            end)
             r:RegisterForDrag("LeftButton")
             -- drag it straight onto an action bar: the game gets a real macro at that moment
             r:SetScript("OnDragStart", function()
@@ -4730,7 +4746,7 @@ local function buildConfig()
                 for line in (e.body or ""):gmatch("[^\r\n]+") do
                     GameTooltip:AddLine(line, 0.8, 0.8, 0.8)
                 end
-                GameTooltip:AddLine("Drag it onto an action bar", 0.2, 1, 0.2)
+                GameTooltip:AddLine("Click to change it, drag it onto an action bar", 0.2, 1, 0.2)
                 GameTooltip:Show()
             end)
             r:SetScript("OnLeave", function() GameTooltip:Hide() end)
@@ -4741,30 +4757,50 @@ local function buildConfig()
 
     M.empty = label(M.page, "", "GameFontDisableSmall")
     M.empty:SetPoint("TOPLEFT", COL[1] + 12, TOP - 30)
-    M.empty:SetWidth(170)
+    M.empty:SetWidth(400)
     M.empty:SetJustifyH("LEFT")
 
-    button(M.page, "New macro", 176, COL[1] + 8, TOP - 452, function()
+    button(M.page, "New macro", 120, COL[1] + 8, TOP - 230, function()
         local list = shelf()
         list[#list + 1] = { name = "New macro", body = "/cast " }
         M.picked = #list
         changed()
     end)
-    button(M.page, "Delete this one", 176, COL[1] + 8, TOP - 480, function()
+    button(M.page, "Delete this one", 130, COL[1] + 134, TOP - 230, function()
         local list = shelf()
         table.remove(list, M.picked)
         M.picked = math.max(1, math.min(M.picked, #list))
         changed()
     end)
+    M.count = label(M.page, "", "GameFontDisableSmall")
+    M.count:SetPoint("TOPLEFT", COL[1] + 276, TOP - 224)
 
-    label(M.page, "Name", "GameFontNormal"):SetPoint("TOPLEFT", COL[2], TOP)
-    -- the icon sits beside the name, and opens the picker
+    ----------------------------------------------------------------------------------
+    -- Underneath: the one you clicked
+    ----------------------------------------------------------------------------------
+    M.EDIT = TOP - 268
+    label(M.page, "Name", "GameFontNormal"):SetPoint("TOPLEFT", COL[1] + 6, M.EDIT)
+    M.name = CreateFrame("EditBox", nil, M.page, "InputBoxTemplate")
+    M.name:SetPoint("TOPLEFT", COL[1] + 60, M.EDIT + 4)
+    M.name:SetSize(260, 22)
+    M.name:SetAutoFocus(false)
+    M.name:SetMaxLetters(16) -- the game's own limit on a macro name
+    M.name:SetScript("OnEnterPressed", function(self)
+        local e = current()
+        if e then e.name = self:GetText() end
+        self:ClearFocus()
+        changed()
+    end)
+    M.name:SetScript("OnEscapePressed", function(self) self:ClearFocus() changed() end)
+
+    -- the icon sits beside the name and opens the picker
     M.iconBtn = CreateFrame("Button", nil, M.page)
-    M.iconBtn:SetPoint("TOPLEFT", COL[2] + 320, TOP - 18)
-    M.iconBtn:SetSize(26, 26)
+    M.iconBtn:SetPoint("TOPLEFT", COL[1] + 332, M.EDIT + 6)
+    M.iconBtn:SetSize(28, 28)
     M.iconBtn.tex = M.iconBtn:CreateTexture(nil, "ARTWORK")
     M.iconBtn.tex:SetAllPoints()
     M.iconBtn.tex:SetTexCoord(0.08, 0.92, 0.08, 0.92)
+    M.iconBtn:SetHighlightTexture("Interface\\Buttons\\ButtonHilight-Square", "ADD")
     M.iconBtn:SetScript("OnClick", function()
         M.picker:SetShown(not M.picker:IsShown())
         changed()
@@ -4777,23 +4813,11 @@ local function buildConfig()
         GameTooltip:Show()
     end)
     M.iconBtn:SetScript("OnLeave", function() GameTooltip:Hide() end)
-    M.name = CreateFrame("EditBox", nil, M.page, "InputBoxTemplate")
-    M.name:SetPoint("TOPLEFT", COL[2] + 6, TOP - 20)
-    M.name:SetSize(300, 22)
-    M.name:SetAutoFocus(false)
-    M.name:SetMaxLetters(16) -- the game's own limit on a macro name
-    M.name:SetScript("OnEnterPressed", function(self)
-        local e = current()
-        if e then e.name = self:GetText() end
-        self:ClearFocus()
-        changed()
-    end)
-    M.name:SetScript("OnEscapePressed", function(self) self:ClearFocus() changed() end)
 
-    label(M.page, "What it does", "GameFontNormal"):SetPoint("TOPLEFT", COL[2], TOP - 52)
+    label(M.page, "What it does", "GameFontNormal"):SetPoint("TOPLEFT", COL[1] + 6, M.EDIT - 30)
     M.bodyBox = CreateFrame("Frame", nil, M.page)
-    M.bodyBox:SetPoint("TOPLEFT", COL[2] + 6, TOP - 76)
-    M.bodyBox:SetSize(560, 300)
+    M.bodyBox:SetPoint("TOPLEFT", COL[1] + 8, M.EDIT - 50)
+    M.bodyBox:SetSize(560, 160)
     local mbg = M.bodyBox:CreateTexture(nil, "BACKGROUND")
     mbg:SetAllPoints()
     mbg:SetColorTexture(0, 0, 0, 0.5)
@@ -4813,12 +4837,12 @@ local function buildConfig()
     end)
     M.bodyScroll:SetScrollChild(M.body)
 
-    button(M.page, "Put it on my cursor", 176, COL[2] + 6, TOP - 382, function()
+    button(M.page, "Put it on my cursor", 160, COL[1] + 8, M.EDIT - 218, function()
         local ok, why = mc.pickUp(current())
         print("|cff88ccffWolfpack:|r " .. (ok and "there it is -- click an action bar slot"
             or (why or "no")))
     end)
-    button(M.page, "Save it into the game", 186, COL[2] + 190, TOP - 382, function()
+    button(M.page, "Save it into the game", 170, COL[1] + 174, M.EDIT - 218, function()
         local index, why = mc.toGame(current())
         print("|cff88ccffWolfpack:|r " .. (index and "saved in the game's macro list"
             or (why or "no")))
@@ -4828,15 +4852,15 @@ local function buildConfig()
         .. "has 120 macro slots, so a macro is written into one at the moment you drag it out or "
         .. "press a button above. A name already in the game's list is overwritten, not doubled.",
         "GameFontDisableSmall")
-    mNote:SetPoint("TOPLEFT", COL[2] + 6, TOP - 414)
+    mNote:SetPoint("TOPLEFT", COL[1] + 8, M.EDIT - 250)
     mNote:SetWidth(560)
     mNote:SetJustifyH("LEFT")
 
     ----------------------------------------------------------------------------------
     -- The icon picker: a page of them at a time, with a box to narrow the list down.
     ----------------------------------------------------------------------------------
-    M.picker = CreateFrame("Frame", nil, M.page, "BackdropTemplate")
-    M.picker:SetPoint("TOPLEFT", COL[2] + 6, TOP - 46)
+    M.picker = CreateFrame("Frame", nil, M.page)
+    M.picker:SetPoint("TOPLEFT", COL[1] + 380, M.EDIT + 20)
     M.picker:SetSize(356, 280)
     M.picker:SetFrameLevel(M.page:GetFrameLevel() + 10)
     M.picker:EnableMouse(true)
@@ -4920,14 +4944,15 @@ local function buildConfig()
         M.picked = math.max(1, math.min(M.picked, math.max(#list, 1)))
         for i, e in ipairs(list) do
             local r = M.row(i)
-            r:SetText(e.name or "Macro")
-            if i == M.picked then r:LockHighlight() else r:UnlockHighlight() end
+            r.tex:SetTexture(e.icon or mc.guessIcon(e.body) or mc.DEFAULT_ICON)
+            r.sel:SetShown(i == M.picked)
             r:Show()
         end
         for i = #list + 1, #M.rows do M.rows[i]:Hide() end
-        M.listChild:SetHeight(math.max(#list * 24, 10))
+        M.listChild:SetHeight(math.max(math.ceil(#list / M.COLS) * M.CELL, 10))
         M.empty:SetShown(#list == 0)
         M.empty:SetText("Nothing here yet. Press New macro.")
+        M.count:SetText(#list == 0 and "" or (#list .. (#list == 1 and " macro" or " macros")))
         local e = current()
         M.name:SetShown(e ~= nil)
         M.bodyBox:SetShown(e ~= nil)
