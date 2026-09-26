@@ -2555,7 +2555,18 @@ function tr.forMe(sp)
     return true
 end
 
+-- A spell you have the level for is only really trainable once the rank below it is yours.
+function tr.trainable(sp)
+    for _, id in ipairs(sp.requiredIds or {}) do
+        if not tr.known(id) then return false end
+    end
+    return true
+end
+
 -- One flat list to draw: a header for each level, then that level's spells.
+--
+-- A level you have passed is skipped only when there is nothing left to learn there. Walk
+-- past a trainer for ten levels and those spells are exactly the ones you want to see.
 function tr.list()
     local out, data = {}, ns.training and ns.training[class]
     if not data or not db then return out end
@@ -2564,18 +2575,18 @@ function tr.list()
     for L in pairs(data) do levels[#levels + 1] = L end
     table.sort(levels)
     for _, L in ipairs(levels) do
-        if not (o.fromMyLevel and L < lvl) then
-            local spells = {}
-            for _, sp in ipairs(data[L]) do
-                local known = tr.known(sp.id)
-                if tr.forMe(sp) and not (o.hideKnown and known) then
-                    spells[#spells + 1] = { spell = sp, level = L, reached = L <= lvl, known = known }
-                end
+        local spells, missed = {}, false
+        for _, sp in ipairs(data[L]) do
+            local known = tr.known(sp.id)
+            if not known and L <= lvl then missed = true end
+            if tr.forMe(sp) and not (o.hideKnown and known) then
+                spells[#spells + 1] = { spell = sp, level = L, reached = L <= lvl, known = known,
+                    trainable = L <= lvl and not known and tr.trainable(sp) }
             end
-            if #spells > 0 then
-                out[#out + 1] = { level = L, reached = L <= lvl }
-                for _, row in ipairs(spells) do out[#out + 1] = row end
-            end
+        end
+        if #spells > 0 and (missed or not (o.fromMyLevel and L < lvl)) then
+            out[#out + 1] = { level = L, reached = L <= lvl, missed = missed and L < lvl }
+            for _, row in ipairs(spells) do out[#out + 1] = row end
         end
     end
     return out
@@ -4260,13 +4271,15 @@ local function buildConfig()
     local tset = group(trainPage, COL[1], TOP, 202, "What to list")
     check(trainPage, "Hide what you already know", tset.x, tset:row(ROW),
         function() return T().hideKnown end, function(v) T().hideKnown = v end)
-    check(trainPage, "Start at my level", tset.x, tset:row(ROW),
+    check(trainPage, "Hide levels you are done with", tset.x, tset:row(ROW),
         function() return T().fromMyLevel end, function(v) T().fromMyLevel = v end)
     check(trainPage, "Show what it costs", tset.x, tset:row(ROW),
         function() return T().showCost end, function(v) T().showCost = v end)
-    local tsetNote = label(trainPage, "Spell list from What's Training? (MIT licence), the tables "
-        .. "it ships for this client. Pet abilities are not in it.", "GameFontDisableSmall")
-    tsetNote:SetPoint("TOPLEFT", tset.x, tset:row(44))
+    local tsetNote = label(trainPage, "Green is trainable right now, white needs the rank below "
+        .. "it first, grey is still ahead of you. A level you walked past keeps its place in "
+        .. "the list while anything there is unlearned. Spell list from What's Training? (MIT "
+        .. "licence); pet abilities are not in it.", "GameFontDisableSmall")
+    tsetNote:SetPoint("TOPLEFT", tset.x, tset:row(84))
     tsetNote:SetWidth(182)
     tsetNote:SetJustifyH("LEFT")
     tset:close()
@@ -4325,10 +4338,14 @@ local function buildConfig()
                     r.name:SetTextColor(0.5, 0.5, 0.5)
                     r.right:SetText("known")
                     r.right:SetTextColor(0.5, 0.5, 0.5)
-                elseif e.reached then
+                elseif e.trainable then
+                    r.name:SetTextColor(0.2, 1, 0.2)
+                    r.right:SetText(T().showCost and money(e.spell.cost) or "train it")
+                    r.right:SetTextColor(0.2, 1, 0.2)
+                elseif e.reached then -- level is there, the rank below it is not
                     r.name:SetTextColor(1, 1, 1)
-                    r.right:SetText(T().showCost and money(e.spell.cost) or "ready")
-                    r.right:SetTextColor(1, 0.82, 0)
+                    r.right:SetText(T().showCost and money(e.spell.cost) or "needs the rank below")
+                    r.right:SetTextColor(0.8, 0.8, 0.8)
                 else
                     r.name:SetTextColor(0.65, 0.65, 0.65)
                     r.right:SetText(T().showCost and money(e.spell.cost) or "")
@@ -4338,7 +4355,7 @@ local function buildConfig()
                 r.icon:SetShown(false)
                 r.name:SetText("Level " .. e.level)
                 r.name:SetTextColor(e.reached and 1 or 0.7, e.reached and 0.82 or 0.6, 0)
-                r.right:SetText(e.reached and "" or "not yet")
+                r.right:SetText(e.missed and "still to learn" or e.reached and "" or "not yet")
                 r.right:SetTextColor(0.45, 0.45, 0.45)
             end
             r:Show()

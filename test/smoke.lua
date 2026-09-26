@@ -1640,8 +1640,34 @@ assert(headers > 1 and spells > headers, "levels, each with spells under it")
 assert(all[1].level and all[1].level < all[#all].level, "lowest level first")
 tset.fromMyLevel = true
 local fromMe = ns.tr.list()
-for _, e in ipairs(fromMe) do assert(e.level >= 20, "nothing below my level once asked") end
-assert(#fromMe < #all, "and that is a shorter list")
+local below = false
+for _, e in ipairs(fromMe) do if e.level < 20 then below = true end end
+assert(below, "a level walked past stays while there is anything there left to learn")
+for _, e in ipairs(fromMe) do
+    if e.spell and e.level == 1 then
+        assert(e.trainable, "and a spell down there is trainable right now, not 'not yet'")
+    end
+end
+-- learn everything up to 10 and those levels drop off
+S.known = {}
+for L, spells in pairs(ns.training.PRIEST) do
+    if L <= 10 then for _, sp in ipairs(spells) do S.known[sp.id] = true end end
+end
+local done = ns.tr.list()
+for _, e in ipairs(done) do assert(e.level > 10, "a level you are finished with is gone") end
+assert(#done < #fromMe, "and that is a shorter list")
+S.known = {}
+-- a rank whose predecessor is missing is listed, but not as something you can train
+S.level = 60
+local gated = false
+for _, e in ipairs(ns.tr.list()) do
+    if e.spell and e.spell.requiredIds and #e.spell.requiredIds > 0 then
+        assert(not e.trainable, "the rank below it is not known, so it is not trainable")
+        gated = true
+    end
+end
+assert(gated, "a priest has ranks that build on each other")
+S.level = 20
 -- Power Word: Fortitude, learned at 1, drops out once it is known
 tset.fromMyLevel, tset.hideKnown = false, true
 local before = #ns.tr.list()
