@@ -353,6 +353,8 @@ C_QuestLog = {
     GetNumQuestLogEntries = function() return #S.quests end,
     GetInfo = function(i) return S.quests[i].info end,
     GetQuestObjectives = function(id) for _, q in ipairs(S.quests) do if q.info.questID == id then return q.objectives end end end,
+    IsQuestFlaggedCompleted = function(id) return (S.questDone or {})[id] == true end,
+    GetLogIndexForQuestID = function(id) return (S.questLog or {})[id] end,
 }
 UnitClass = function(unit) -- "Rogue", "ROGUE"
     local token = (S.unitClasses or {})[unit] or (unit == "target" and S.targetClass) or S.class
@@ -861,6 +863,33 @@ for _, r in ipairs(ns.dung.rows) do
     if r:IsShown() and r.itemID then sawItem = true elseif r:IsShown() then sawBoss = true end
 end
 assert(sawBoss and sawItem, "bosses with items under them")
+-- every quest says where you stand with it
+local dm
+for _, d in ipairs(WolfpackAddonLootData) do if d.name == "The Deadmines" then dm = d end end
+assert(dm and #dm.quests > 0, "Deadmines has quests")
+local qu = dm.quests[1] -- { id, name, level, min, side }
+S.level, S.faction, S.questDone, S.questLog = 60, "Alliance", {}, {}
+assert(ns.lt.questState(qu) == "open", "level is there and it is your side: pick it up")
+S.questDone = { [qu[1]] = true }
+assert(ns.lt.questState(qu) == "done", "handed in already")
+S.questDone, S.questLog = {}, { [qu[1]] = 3 }
+assert(ns.lt.questState(qu) == "log", "it is in your log right now")
+S.questLog = {}
+S.level = 2
+assert(ns.lt.questState(qu) == "low", "too low for it yet")
+S.level, S.faction = 60, "Horde"
+assert(ns.lt.questState(qu) == "faction", "an Alliance quest is not yours to take")
+S.faction = "Alliance"
+-- and the page paints that state next to the name
+byText("Dungeons")._scripts.OnClick(byText("Dungeons"), "LeftButton")
+local sawState = false
+for _, r in ipairs(ns.dung.rows) do
+    if r:IsShown() and r.questName then
+        assert(r.right._text ~= "", "a quest row carries its state: " .. tostring(r.right._text))
+        sawState = true
+    end
+end
+assert(sawState, "quests are on the page at all")
 -- and with that addon switched off the page says so instead of falling over
 local keptLoot = WolfpackAddonLootData
 WolfpackAddonLootData = nil

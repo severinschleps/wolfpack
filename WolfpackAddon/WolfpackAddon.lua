@@ -2620,6 +2620,38 @@ function lt.forMyLevel()
     return best
 end
 
+-- Where you stand with one quest. Every call is wrapped: a secret value raises rather than
+-- answers, and an unknown quest is better left unclaimed than guessed at.
+function lt.questState(qu)
+    local id, min, side = qu[1], qu[4], qu[5]
+    local ok, done = pcall(function()
+        if C_QuestLog and C_QuestLog.IsQuestFlaggedCompleted then
+            return C_QuestLog.IsQuestFlaggedCompleted(id)
+        end
+        return IsQuestFlaggedCompleted and IsQuestFlaggedCompleted(id)
+    end)
+    if ok and done == true then return "done" end
+    local inLog = select(2, pcall(function()
+        if C_QuestLog and C_QuestLog.GetLogIndexForQuestID then
+            return C_QuestLog.GetLogIndexForQuestID(id)
+        end
+    end))
+    if type(inLog) == "number" then return "log" end
+    if side == 1 or side == 2 then
+        if side ~= (UnitFactionGroup("player") == "Alliance" and 1 or 2) then return "faction" end
+    end
+    if (UnitLevel("player") or 1) < (min or 0) then return "low" end
+    return "open"
+end
+
+lt.questLook = {
+    done = { "done", 0.5, 0.5, 0.5 },
+    log = { "in your log", 1, 0.82, 0 },
+    open = { "pick it up", 0.2, 1, 0.2 },
+    low = { "too low", 0.8, 0.4, 0.4 },
+    faction = { "other side", 0.6, 0.6, 0.6 },
+}
+
 -- One flat list for the chosen dungeon: a boss, then its items, then the quests.
 function lt.rows(dungeon)
     local out, o = {}, db and db.dungeons or {}
@@ -4544,14 +4576,19 @@ local function buildConfig()
             elseif e.quest then
                 r.questName = e.quest[2]
                 r.icon:Hide()
+                local how = lt.questLook[lt.questState(e.quest)] or lt.questLook.open
                 r.name:SetText(e.quest[2])
-                r.name:SetTextColor(1, 0.82, 0)
-                r.right:SetText("level " .. (e.quest[3] or 0))
+                r.name:SetTextColor(how[2], how[3], how[4])
+                local why = how[1]
+                if why == "too low" then why = "needs level " .. (e.quest[4] or 0) end
+                r.right:SetText(why)
+                r.right:SetTextColor(how[2], how[3], how[4])
             else
                 r.icon:Hide()
                 r.name:SetText(e.boss)
                 r.name:SetTextColor(0.6, 0.85, 1)
                 r.right:SetText("")
+                r.right:SetTextColor(0.5, 0.5, 0.5)
             end
             r:Show()
         end

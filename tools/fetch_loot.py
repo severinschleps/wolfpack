@@ -222,7 +222,8 @@ def zone(zid, refresh=False, jobs=2):
     for qu in listview(html, "quests"):
         if qu.get("id"):
             quests.append({"id": qu["id"], "name": qu.get("name", "?"),
-                           "level": qu.get("level") or 0, "min": qu.get("reqlevel") or 0})
+                           "level": qu.get("level") or 0, "min": qu.get("reqlevel") or 0,
+                           "side": qu.get("side") or 3})  # 1 Alliance, 2 Horde, 3 both
     quests.sort(key=lambda r: (r["level"], r["name"]))
     return bosses, quests
 
@@ -267,7 +268,7 @@ def main():
              '-- reach the network itself, so this table is the only way the data gets in.',
              '--',
              '-- WolfpackAddonLootData[i] = { id, name, lo, hi, bosses = { { id, name, items = { {id, name, quality,',
-             '-- level, percent, change}, ... } } }, quests = { {id, name, level, min}, ... } }',
+             '-- level, percent, change}, ... } } }, quests = { {id, name, level, min, side}, ... } }',
              '-- Its own addon so it can be switched off in the addon list: a global, not a',
              '-- namespace, is how the main addon finds it.',
              'WolfpackAddonLootData = {']
@@ -283,8 +284,8 @@ def main():
             lines.append('        } },')
         lines.append('    }, quests = {')
         for qu in d["quests"]:
-            lines.append('        { %s, %s, %s, %s },'
-                         % (qu["id"], q(qu["name"]), qu["level"], qu["min"]))
+            lines.append('        { %s, %s, %s, %s, %s },'
+                         % (qu["id"], q(qu["name"]), qu["level"], qu["min"], qu["side"]))
         lines.append('    } },')
     lines.append('}')
     os.makedirs(os.path.dirname(OUT), exist_ok=True)
