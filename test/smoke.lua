@@ -36,7 +36,7 @@ function M:SetGradient(orient, c1, c2) self._grad = { orient, c1, c2 } end
 function M:SetTexture(t) self._tex = t end
 function M:SetScale(v) self._scale = v end
 function M:SetTextureSliceMargins(...) self._slice = { ... } end
-function M:SetAlpha(v) self._alpha = v end
+function M:SetAlpha(v) self._alpha, self._alphaSets = v, (self._alphaSets or 0) + 1 end
 function M:SetDesaturated(v) self._desat = v end
 function M:SetAtlas(a) self._atlas = a end
 function M:SetTexCoord(...) self._coords = { ... } end
@@ -1188,6 +1188,21 @@ assert(MainActionBar._alpha == 1, "shown on hover")
 S.mouseOver, S.editMode = false, true; tick(nil, 1)
 assert(MainActionBar._alpha == 1, "Edit Mode shows everything")
 S.editMode = false
+-- Blizzard's bar is only ever touched while the fade is actually moving: touching a settled
+-- one taints it, and then its own cooldowns cannot be drawn
+S.mouseOver = true
+tick(nil, 5) -- all the way in, and staying there
+local settled = MainActionBar._alphaSets
+for _ = 1, 10 do tick(nil, 0.1) end
+assert(MainActionBar._alphaSets == settled, "a bar that is not moving is left alone")
+S.mouseOver = false
+tick(nil, 0.1)
+assert(MainActionBar._alphaSets > settled, "and is touched again the moment it does move")
+tick(nil, 5) -- all the way out
+local hidden = MainActionBar._alphaSets
+for _ = 1, 10 do tick(nil, 0.1) end
+assert(MainActionBar._alphaSets == hidden, "the same once it has faded all the way out")
+S.mouseOver = true; tick(nil, 5)
 oth.hover.bar1 = nil; fire("UNIT_MAXPOWER")
 assert(MainActionBar._alpha == 1 and not ns.hoverTicker._scripts.OnUpdate, "off: back to normal, no polling")
 

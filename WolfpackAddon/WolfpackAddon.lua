@@ -1228,6 +1228,9 @@ local faded = {} -- frame -> alpha we set
 
 local hoverTicker = CreateFrame("Frame")
 ns.hoverTicker = hoverTicker
+-- Touching one of Blizzard's own bars is what taints it, and a tainted bar cannot be given the
+-- secret numbers its cooldowns are made of -- so it is touched only when the alpha really
+-- moves, never once it has settled at either end.
 local function hoverTick(_, elapsed)
     local editing = EditModeManagerFrame and EditModeManagerFrame:IsEditModeActive()
     local step = math.min(elapsed / ns.FADE_TIME, 1)
@@ -1235,11 +1238,15 @@ local function hoverTick(_, elapsed)
         local f = _G[e[3]]
         if f and db.other.hover[e[1]] then
             local want = (editing or f:IsMouseOver()) and 1 or 0
-            local a = faded[f] or f:GetAlpha()
-            a = a + math.max(-step, math.min(step, want - a))
-            f:SetAlpha(a)
-            faded[f] = a
-        elseif f and faded[f] then -- option turned off: back to normal
+            local was = faded[f] or f:GetAlpha()
+            local a = was + math.max(-step, math.min(step, want - was))
+            if math.abs(a - was) > 0.001 then
+                f:SetAlpha(a)
+                faded[f] = a
+            else
+                faded[f] = was
+            end
+        elseif f and faded[f] then -- option turned off: back to normal, once
             f:SetAlpha(1)
             faded[f] = nil
         end
@@ -4349,9 +4356,11 @@ local function buildConfig()
         check(otherPage, e[2], hover.x, hover:row(22),
             function() return db.other.hover[e[1]] end, function(v) db.other.hover[e[1]] = v or nil end)
     end
-    local hnote = label(otherPage, "They fade in under the cursor, stay clickable and show while Edit Mode is "
-        .. "open.", "GameFontDisableSmall")
-    hnote:SetPoint("TOPLEFT", hover.x, hover:row(40))
+    local hnote = label(otherPage, "They fade in under the cursor, stay clickable and show while "
+        .. "Edit Mode is open.\n\nFading one of Blizzard's own bars means touching it, and a "
+        .. "touched bar can start complaining that its cooldowns cannot be drawn. If you are "
+        .. "seeing that, turn the bars here off and reload.", "GameFontDisableSmall")
+    hnote:SetPoint("TOPLEFT", hover.x, hover:row(74))
     hnote:SetWidth(182)
     hnote:SetJustifyH("LEFT")
     hover:close()
