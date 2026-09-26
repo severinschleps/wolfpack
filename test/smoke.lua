@@ -1622,6 +1622,8 @@ S.ammoID, S.ammoCount, S.ammoIcon, S.happiness, S.petHP = 2512, 143, 4321, 3, 40
 ns.hnEv._scripts.OnEvent(ns.hnEv, "BAG_UPDATE")
 SlashCmdList.WOLFPACKADDON("pet") -- the probe walks every route without blowing up
 assert(not ns.errored, "the pet probe runs clean")
+SlashCmdList.WOLFPACKADDON("loot") -- and so does the one that asks about the encounter journal
+assert(not ns.errored, "the loot probe runs clean")
 local ammo, pet = ns.hn.entries[1], ns.hn.entries[2]
 assert(ns.hn.panel:IsShown() and ammo:IsShown() and pet:IsShown(), "both icons up for a hunter")
 assert(ammo.icon._tex == 4321 and ammo.text._text == 143, "the ammo, with how many you carry")

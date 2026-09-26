@@ -4465,12 +4465,48 @@ function ns.PetReport()
     say("what we would draw: " .. (look and (look.atlas or tostring(look.tex)) or "the old file"))
 end
 
+-- /wp loot -- does this client carry its own Encounter Journal? If it does, dungeon bosses and
+-- their loot come from the game itself and no loot tables need shipping with the addon.
+function ns.LootReport()
+    local function say(t) print("|cff88ccffWolfpack:|r " .. t) end
+    say("C_EncounterJournal: " .. type(C_EncounterJournal))
+    say("EJ_GetInstanceByIndex: " .. type(EJ_GetInstanceByIndex)
+        .. ", EJ_GetEncounterInfoByIndex: " .. type(EJ_GetEncounterInfoByIndex)
+        .. ", EJ_GetNumLoot: " .. type(EJ_GetNumLoot))
+    local names = {}
+    pcall(function()
+        for i = 1, 40 do
+            local id, name = EJ_GetInstanceByIndex(i, false) -- false: dungeons, not raids
+            if not id then break end
+            names[#names + 1] = name or ("#" .. id)
+        end
+    end)
+    say("dungeons it knows: " .. (#names > 0 and table.concat(names, ", ") or "none"))
+    pcall(function()
+        local id = select(1, EJ_GetInstanceByIndex(1, false))
+        if not id then return end
+        EJ_SelectInstance(id)
+        local bosses = {}
+        for i = 1, 20 do
+            local name = EJ_GetEncounterInfoByIndex(i, id)
+            if not name then break end
+            bosses[#bosses + 1] = name
+        end
+        say("  first one's bosses: " .. (#bosses > 0 and table.concat(bosses, ", ") or "none"))
+        local ok, n = pcall(EJ_GetNumLoot)
+        say("  loot rows there: " .. (ok and tostring(n) or "no answer"))
+    end)
+    say("AtlasLoot loaded: " .. tostring(C_AddOns and C_AddOns.IsAddOnLoaded
+        and select(1, C_AddOns.IsAddOnLoaded("AtlasLoot")) or "unknown"))
+end
+
 SlashCmdList.WOLFPACKADDON = function(msg)
     msg = (msg or ""):lower()
     if msg:find("aura") then return safe(ns.AuraReport, (msg:gsub("^%s*auras?%s*", ""))) end
     if msg:find("crit") then return safe(ns.CritReport) end
     if msg:find("armor") then return safe(ns.ArmorReport) end
     if msg:find("pet") then return safe(ns.PetReport) end
+    if msg:find("loot") then return safe(ns.LootReport) end
     safe(ns.ToggleConfig)
 end
 
