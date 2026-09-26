@@ -1843,6 +1843,24 @@ assert(ns.mc.guessIcon("/startattack\n/castsequence reset=3 !Shoot, null") == 13
 assert(ns.mc.guessIcon("/cast [mod:shift] Revive Pet; [nopet] Call Pet") == 132163,
     "and a conditional is stepped over")
 assert(ns.mc.guessIcon("#showtooltip\n/use item:22895") == nil, "an item id is not a spell")
+-- what actually gets drawn: chosen first, then the macro's own, then a question mark
+assert(ns.mc.iconOf({ icon = 4242, body = "/cast Charge" }) == 4242, "a chosen icon wins")
+assert(ns.mc.iconOf({ icon = "7831521", body = "" }) == 7831521,
+    "a file id written down as text is still a file id, not a path that draws nothing")
+assert(ns.mc.iconOf({ body = "/cast Charge" }) == 132337, "then the one the game would give it")
+assert(ns.mc.iconOf({ body = "/say hi" }) == 134400, "and a question mark when nothing else says")
+assert(ns.mc.iconOf(nil) == 134400, "nothing at all still draws something")
+assert(ns.mc.texture("INV_Misc_QuestionMark") == "Interface\\Icons\\INV_Misc_QuestionMark",
+    "a bare icon name is given its folder")
+assert(ns.mc.texture("Interface/Icons/INV_Sword_04") == "Interface/Icons/INV_Sword_04",
+    "a path is left alone")
+-- and the roster draws that, rather than a blank square
+byText("General")._scripts.OnClick(byText("General"), "LeftButton")
+for i, e in ipairs(ns.mc.shelf("GENERAL")) do
+    assert(ns.macro.rows[i].tex._tex, "every macro on the roster draws something")
+    assert(type(ns.macro.rows[i].tex._tex) ~= "string"
+        or ns.macro.rows[i].tex._tex:find("Interface"), "and it is a real texture, not a bare id")
+end
 -- picking one up puts it on the cursor, ready for an action bar
 assert(ns.mc.pickUp(shelf[stocked + 2]) and S.cursor.name == "Charge 2", "it is on the cursor")
 -- the game full, and combat, are both said out loud rather than swallowed

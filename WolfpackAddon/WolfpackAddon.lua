@@ -2602,7 +2602,25 @@ end
 
 mc = {}
 ns.mc = mc
-mc.DEFAULT_ICON = "INV_Misc_QuestionMark"
+mc.DEFAULT_ICON = 134400 -- the question mark, by file id: a bare name draws nothing
+
+-- What to hand SetTexture. An icon can arrive as a file id, as a file id written down as text,
+-- or as a bare name like INV_Misc_QuestionMark, and only the first of those draws by itself.
+function mc.texture(icon)
+    if type(icon) == "number" then return icon end
+    if type(icon) ~= "string" or icon == "" then return mc.DEFAULT_ICON end
+    local id = tonumber(icon)
+    if id then return id end
+    if icon:find("\\") or icon:find("/") then return icon end
+    return "Interface\\Icons\\" .. icon
+end
+
+-- The icon to draw for a macro: the one chosen by hand, then the one the game would give it
+-- itself, and a question mark when neither says anything.
+function mc.iconOf(entry)
+    if not entry then return mc.DEFAULT_ICON end
+    return mc.texture(entry.icon or mc.guessIcon(entry.body) or mc.DEFAULT_ICON)
+end
 
 -- What a shelf is called on screen.
 function mc.shelfName(key)
@@ -2716,7 +2734,7 @@ function mc.toGame(entry)
     if not entry then return nil, "nothing to save" end
     if InCombatLockdown() then return nil, "not while you are fighting" end
     local want = (entry.name or "Macro"):sub(1, 16)
-    local icon = entry.icon or mc.guessIcon(entry.body) or mc.DEFAULT_ICON
+    local icon = mc.iconOf(entry)
     local body = entry.body or ""
     local function slotOf(name)
         local at = select(2, pcall(GetMacroIndexByName, name))
@@ -4977,7 +4995,7 @@ local function buildConfig()
         for i, b in ipairs(M.picker.buttons) do
             local icon = found[first + i]
             b.icon = icon
-            b.tex:SetTexture(icon)
+            b.tex:SetTexture(mc.texture(icon))
             b:SetShown(icon ~= nil)
         end
         M.pickerCount:SetText(("%d icons, page %d of %d"):format(#found, M.page.pickerPage, pages))
@@ -4989,7 +5007,7 @@ local function buildConfig()
         M.picked = math.max(1, math.min(M.picked, math.max(#list, 1)))
         for i, e in ipairs(list) do
             local r = M.row(i)
-            r.tex:SetTexture(e.icon or mc.guessIcon(e.body) or mc.DEFAULT_ICON)
+            r.tex:SetTexture(mc.iconOf(e))
             r.sel:SetShown(i == M.picked)
             r:Show()
         end
@@ -5005,7 +5023,7 @@ local function buildConfig()
         if e then
             if not M.name:HasFocus() then M.name:SetText(e.name or "") end
             if not M.body:HasFocus() then M.body:SetText(e.body or "") end
-            M.iconBtn.tex:SetTexture(e.icon or mc.guessIcon(e.body) or mc.DEFAULT_ICON)
+            M.iconBtn.tex:SetTexture(mc.iconOf(e))
         else
             M.picker:Hide()
         end
