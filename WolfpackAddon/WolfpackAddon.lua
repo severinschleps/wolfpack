@@ -3108,6 +3108,15 @@ function lt.mapFor(name)
     return nil
 end
 
+-- Is the place in the list the one you are standing in? The zone text is the only thing this
+-- build will say inside a dungeon.
+function lt.inHere(name)
+    if not name then return false end
+    local ok, zone = pcall(GetZoneText)
+    if not ok or type(zone) ~= "string" or zone == "" then return false end
+    return zone == name or zone:find(name, 1, true) ~= nil or name:find(zone, 1, true) ~= nil
+end
+
 -- The map you are on right now, whatever it is called.
 function lt.whereAmI()
     local ok, at = pcall(function()
@@ -3130,6 +3139,39 @@ function lt.floors(mapID)
         end
     end)
     return out
+end
+
+-- The older way of asking, from before map ids: the world map is pointed at where you are and
+-- gives back the name of the folder its art lives in. Twelve tiles, four across, three down.
+-- Instances name the floor as well. Nothing here needs a map id, which is what this build will
+-- not give inside a dungeon.
+function lt.oldArt()
+    local ok, folder = pcall(function()
+        if SetMapToCurrentZone then SetMapToCurrentZone() end
+        return GetMapInfo and GetMapInfo()
+    end)
+    if not ok or type(folder) ~= "string" or folder == "" then return nil end
+    local floor = select(2, pcall(function()
+        return GetCurrentMapDungeonLevel and GetCurrentMapDungeonLevel()
+    end))
+    local stem = "Interface\\WorldMap\\" .. folder .. "\\" .. folder
+    if type(floor) == "number" and floor > 0 then stem = stem .. floor .. "_" end
+    local tiles = {}
+    for i = 1, 12 do tiles[i] = stem .. i end
+    return { layerWidth = 1002, layerHeight = 668, tileWidth = 256, tileHeight = 256,
+        old = true, folder = folder }, tiles
+end
+
+-- Where the old API puts you, for the same reason.
+function lt.oldHere()
+    local ok, x, y = pcall(function()
+        if SetMapToCurrentZone then SetMapToCurrentZone() end
+        if not GetPlayerMapPosition then return nil end
+        return GetPlayerMapPosition("player")
+    end)
+    if not ok or type(x) ~= "number" or (x == 0 and y == 0) then return nil end
+    local facing = select(2, pcall(GetPlayerFacing))
+    return x, y, type(facing) == "number" and facing or nil
 end
 
 -- The tiles of one map, and how they are laid out.
@@ -5520,21 +5562,27 @@ local function buildConfig()
         for i = #floors + 1, #D.floorBtns do D.floorBtns[i]:Hide() end
         local shown = floors[pick] and floors[pick].id or mapID
         local layer, tiles = shown and lt.art(shown)
+        -- this build gives no map id inside a dungeon, so the older way is tried as well, and
+        -- only for the place you are actually standing in -- it can only draw that one
+        if not layer and (not mapID or (here and lt.inHere(here.name))) then
+            layer, tiles = lt.oldArt()
+        end
         if not layer then
             for _, t in ipairs(D.tiles) do t:Hide() end
             D.you:Hide()
             D.dot:Hide()
-            local mine = lt.whereAmI()
-            D.mapNote:SetText(((mapID and ("The game has no map art for " .. (here and here.name
-                or "?") .. " (map %d).") or ("This build has no map called " .. (here and here.name
-                or "?") .. "."))):format(mapID or 0)
-                .. "  You are on map " .. tostring(mine and mine.id) .. ", "
-                .. tostring(mine and mine.name) .. ".")
+            local mine, count = lt.whereAmI(), 0
+            for _ in pairs(lt.mapIndex()) do count = count + 1 end
+            D.mapNote:SetText(("No map art for %s. You are on map %s (%s), zone %s. The client's "
+                .. "map table holds %d maps; the old way names the folder %s."):format(
+                here and here.name or "?", tostring(mine and mine.id), tostring(mine and mine.name),
+                tostring(select(2, pcall(GetZoneText))), count,
+                tostring(select(2, pcall(function() return GetMapInfo and GetMapInfo() end)))))
             return
         end
         local scale = math.min(D.canvas:GetWidth() / layer.layerWidth,
             D.canvas:GetHeight() / layer.layerHeight)
-        local across = math.ceil(layer.layerWidth / layer.tileWidth)
+        local across = layer.old and 4 or math.ceil(layer.layerWidth / layer.tileWidth)
         local left = (D.canvas:GetWidth() - layer.layerWidth * scale) / 2
         local top = (D.canvas:GetHeight() - layer.layerHeight * scale) / 2
         for i, file in ipairs(tiles) do
@@ -5548,7 +5596,9 @@ local function buildConfig()
             t:Show()
         end
         for i = #tiles + 1, #D.tiles do D.tiles[i]:Hide() end
-        local x, y, facing = lt.youAreHere(shown)
+        local x, y, facing = nil, nil, nil
+        if layer.old then x, y, facing = lt.oldHere()
+        elseif shown then x, y, facing = lt.youAreHere(shown) end
         D.you:SetShown(x ~= nil and facing ~= nil)
         D.dot:SetShown(x ~= nil and facing == nil)
         if x then
