@@ -233,7 +233,8 @@ DEFAULTS.shaman = ns.weaponDefaults(-260)
 -- Warlock: the soul shards in your bags.
 DEFAULTS.training = { hideKnown = true, fromMyLevel = true, showCost = true }
 
-DEFAULTS.dungeons = { pick = 0, blueOnly = false, showChance = true, quests = true }
+DEFAULTS.dungeons = { pick = 0, blueOnly = false, showChance = true, quests = true,
+    tab = "loot", floor = 1 }
 
 DEFAULTS.warlock = {
     show = true, locked = true, x = 0, y = -220, size = 32, radius = 0,
@@ -3028,30 +3029,11 @@ function lt.questState(qu)
     return "open"
 end
 
--- Wowhead names the zone, the game numbers it, so the map tree is walked once and indexed by
--- name. Zone maps win over continents and instance floors that happen to share a name.
+-- Wowhead names a zone, the game numbers it, so the map table is read once and indexed by
+-- name. One index serves both the quest waypoints and the dungeon maps.
 function lt.mapByName(name)
     if not name then return nil end
-    if not lt.maps then
-        lt.maps = {}
-        pcall(function()
-            local queue, seen = { 946, 947, 12, 13, 1414, 1415 }, {}
-            while #queue > 0 do
-                local id = table.remove(queue)
-                if not seen[id] then
-                    seen[id] = true
-                    local info = C_Map.GetMapInfo(id)
-                    if info and info.name and (not lt.maps[info.name] or info.mapType == 3) then
-                        lt.maps[info.name] = id
-                    end
-                    for _, child in ipairs(C_Map.GetMapChildrenInfo(id) or {}) do
-                        if child.mapID then queue[#queue + 1] = child.mapID end
-                    end
-                end
-            end
-        end)
-    end
-    return lt.maps[name]
+    return lt.mapIndex()[name]
 end
 
 -- Open the map where the quest is handed out, and drop the waypoint pin on the spot.
@@ -3082,6 +3064,85 @@ lt.questLook = {
     low = { "too low", 0.8, 0.4, 0.4 },
     faction = { "other side", 0.6, 0.6, 0.6 },
 }
+
+-- Maps. The game carries the art for every one of these places already -- the same tiles the
+-- world map draws -- so nothing is fetched or shipped: it is asked for by map id.
+--
+-- Wowhead names a dungeon, the game numbers it, and the numbers are not the same, so the whole
+-- map table is read once and indexed by name. Instances are not children of anything, so the
+-- tree cannot be walked to them: the ids are simply counted through.
+function lt.mapIndex()
+    if lt.maps then return lt.maps end
+    lt.maps = {}
+    pcall(function()
+        for id = 1, 2600 do
+            local info = C_Map.GetMapInfo(id)
+            if info and info.name then
+                local at = lt.maps[info.name]
+                -- a dungeon floor and its parent share a name: keep the one with the floors
+                if not at or (info.mapType or 0) < (C_Map.GetMapInfo(at).mapType or 0) then
+                    lt.maps[info.name] = id
+                end
+            end
+        end
+    end)
+    return lt.maps
+end
+
+function lt.mapFor(name)
+    if not name then return nil end
+    local index = lt.mapIndex()
+    if index[name] then return index[name] end
+    -- Wowhead calls it Sunken Temple, the game The Temple of Atal'Hakkar and so on
+    for mapName, id in pairs(index) do
+        if mapName:find(name, 1, true) or name:find(mapName, 1, true) then return id end
+    end
+    return nil
+end
+
+-- The floors of a place, parent first, so a dungeon on several levels can be paged through.
+function lt.floors(mapID)
+    local out = { { id = mapID, name = "Main" } }
+    pcall(function()
+        local info = C_Map.GetMapInfo(mapID)
+        if info and info.name then out[1].name = info.name end
+        for _, child in ipairs(C_Map.GetMapChildrenInfo(mapID, 4) or {}) do
+            if child.mapID then out[#out + 1] = { id = child.mapID, name = child.name or "?" } end
+        end
+    end)
+    return out
+end
+
+-- The tiles of one map, and how they are laid out.
+function lt.art(mapID)
+    local ok, layer, tiles = pcall(function()
+        local layers = C_Map.GetMapArtLayers(mapID)
+        if not layers or not layers[1] then return nil end
+        return layers[1], C_Map.GetMapArtLayerTextures(mapID, 1)
+    end)
+    if not ok or not layer or not tiles or #tiles == 0 then return nil end
+    return layer, tiles
+end
+
+-- Where you are on a given map, 0-1 across and down, and which way you are looking.
+-- Which way you are looking, in words. Zero is north, and the angle runs clockwise.
+function ns.compass(facing)
+    local points = { "north", "north-west", "west", "south-west", "south", "south-east",
+        "east", "north-east" }
+    local at = math.floor((facing % (math.pi * 2)) / (math.pi / 4) + 0.5) % 8
+    return points[at + 1]
+end
+
+function lt.youAreHere(mapID)
+    local ok, x, y = pcall(function()
+        local at = C_Map.GetPlayerMapPosition(mapID, "player")
+        if not at then return nil end
+        return at:GetXY()
+    end)
+    if not ok or type(x) ~= "number" or (x == 0 and y == 0) then return nil end
+    local facing = select(2, pcall(GetPlayerFacing))
+    return x, y, type(facing) == "number" and facing or nil
+end
 
 -- One flat list for the chosen dungeon: a boss, then its items, then the quests.
 function lt.rows(dungeon)
@@ -4039,7 +4100,7 @@ local function buildConfig()
     -- Sidebar: everything that is about the screen first, then a class shelf of its own.
     local SIDEBAR = { { "combat", "Combat Display", "regular" }, { "nameplates", "Nameplates", "nameplate" },
         { "buffs", "Buffs", "regular" }, { "training", "Training", "regular" },
-        { "dungeons", "Dungeons", "regular" }, { "other", "Other", "regular" } }
+        { "dungeons", "Dungeons & Raids", "regular" }, { "other", "Other", "regular" } }
     local y = -104
     for _, e in ipairs(SIDEBAR) do
         local b = button(cfg, e[2], 118, 12, y, function()
@@ -4146,7 +4207,7 @@ local function buildConfig()
             or section == "rogue" and "Rogue: weapon poisons"
             or section == "shaman" and "Shaman: weapon imbues"
             or section == "training" and "What your trainer still has"
-            or section == "dungeons" and "Dungeons: loot and quests"
+            or section == "dungeons" and "Dungeons and raids"
             or section == "macros" and ("Macros: " .. mc.shelfName(ns.macroClass))
             or "Combat Display")
         for _, t in ipairs(tabs) do t:SetShown(np) end
@@ -5281,6 +5342,18 @@ local function buildConfig()
     D.leftChild:SetSize(176, 10)
     D.left:SetScrollChild(D.leftChild)
 
+    D.tabs = {}
+    for i, t in ipairs({ { "loot", "Loot & quests" }, { "map", "Map" } }) do
+        D.tabs[i] = button(dungPage, t[2], 120, COL[2] + (i - 1) * 126, TOP + 22, function()
+            DG().tab = t[1]
+            changed()
+        end)
+        onRefresh(function()
+            if (DG().tab or "loot") == t[1] then D.tabs[i]:LockHighlight()
+            else D.tabs[i]:UnlockHighlight() end
+        end)
+    end
+
     D.right = CreateFrame("Frame", nil, dungPage)
     D.right:SetPoint("TOPLEFT", COL[2], TOP - 4)
     D.right:SetSize(620, 560)
@@ -5363,6 +5436,112 @@ local function buildConfig()
         return b
     end
 
+    ----------------------------------------------------------------------------------
+    -- The map: the game's own tiles, with you on it
+    ----------------------------------------------------------------------------------
+    D.map = CreateFrame("Frame", nil, dungPage)
+    D.map:SetPoint("TOPLEFT", COL[2], TOP - 4)
+    D.map:SetSize(620, 560)
+    D.map.bg = D.map:CreateTexture(nil, "BACKGROUND")
+    D.map.bg:SetAllPoints()
+    D.map.bg:SetColorTexture(0, 0, 0, 0.5)
+    D.canvas = CreateFrame("Frame", nil, D.map)
+    D.canvas:SetPoint("TOPLEFT", 8, -34)
+    D.canvas:SetSize(604, 480)
+    D.canvas:SetClipsChildren(true)
+    D.tiles = {}
+    D.mapNote = label(D.map, "", "GameFontDisableSmall")
+    D.mapNote:SetPoint("BOTTOMLEFT", 10, 8)
+    D.mapNote:SetWidth(600)
+    D.mapNote:SetJustifyH("LEFT")
+    D.floorBtns = {}
+
+    D.you = D.canvas:CreateTexture(nil, "OVERLAY")
+    D.you:SetSize(24, 24)
+    D.you:SetTexture("Interface\\Minimap\\MinimapArrow")
+    D.you:Hide()
+    D.dot = D.canvas:CreateTexture(nil, "OVERLAY")
+    D.dot:SetSize(10, 10)
+    D.dot:SetColorTexture(1, 0.9, 0.2, 1)
+    D.dot:Hide()
+
+    function D.tile(i)
+        local t = D.tiles[i]
+        if not t then
+            t = D.canvas:CreateTexture(nil, "ARTWORK")
+            D.tiles[i] = t
+        end
+        return t
+    end
+
+    function D.floorBtn(i)
+        local b = D.floorBtns[i]
+        if not b then
+            b = button(D.map, "", 110, 8 + (i - 1) * 116, -6, function()
+                DG().floor = i
+                changed()
+            end)
+            D.floorBtns[i] = b
+        end
+        return b
+    end
+
+    -- Redrawn on a ticker while the page is open, so the arrow keeps up with you
+    function D.drawMap()
+        local here = lt.all()[DG().pick]
+        local mapID = here and lt.mapFor(here.name)
+        local floors = mapID and lt.floors(mapID) or {}
+        local pick = math.max(1, math.min(DG().floor or 1, math.max(#floors, 1)))
+        for i, f in ipairs(floors) do
+            local b = D.floorBtn(i)
+            b:SetText(f.name)
+            if i == pick then b:LockHighlight() else b:UnlockHighlight() end
+            b:SetShown(#floors > 1)
+        end
+        for i = #floors + 1, #D.floorBtns do D.floorBtns[i]:Hide() end
+        local shown = floors[pick] and floors[pick].id or mapID
+        local layer, tiles = shown and lt.art(shown)
+        if not layer then
+            for _, t in ipairs(D.tiles) do t:Hide() end
+            D.you:Hide()
+            D.dot:Hide()
+            D.mapNote:SetText(mapID and ("The game has no map art for " .. (here and here.name or "?")
+                .. ".") or ("This build has no map called " .. (here and here.name or "?") .. "."))
+            return
+        end
+        local scale = math.min(D.canvas:GetWidth() / layer.layerWidth,
+            D.canvas:GetHeight() / layer.layerHeight)
+        local across = math.ceil(layer.layerWidth / layer.tileWidth)
+        local left = (D.canvas:GetWidth() - layer.layerWidth * scale) / 2
+        local top = (D.canvas:GetHeight() - layer.layerHeight * scale) / 2
+        for i, file in ipairs(tiles) do
+            local t = D.tile(i)
+            local col, row = (i - 1) % across, math.floor((i - 1) / across)
+            t:SetTexture(file)
+            t:ClearAllPoints()
+            t:SetPoint("TOPLEFT", D.canvas, "TOPLEFT",
+                left + col * layer.tileWidth * scale, -(top + row * layer.tileHeight * scale))
+            t:SetSize(layer.tileWidth * scale, layer.tileHeight * scale)
+            t:Show()
+        end
+        for i = #tiles + 1, #D.tiles do D.tiles[i]:Hide() end
+        local x, y, facing = lt.youAreHere(shown)
+        D.you:SetShown(x ~= nil and facing ~= nil)
+        D.dot:SetShown(x ~= nil and facing == nil)
+        if x then
+            for _, mark in ipairs({ D.you, D.dot }) do
+                mark:ClearAllPoints()
+                mark:SetPoint("CENTER", D.canvas, "TOPLEFT",
+                    left + x * layer.layerWidth * scale, -(top + y * layer.layerHeight * scale))
+            end
+            if facing then D.you:SetRotation(-facing) end
+            D.mapNote:SetText(("You are at %d, %d on this floor, looking %s."):format(x * 100,
+                y * 100, facing and ns.compass(facing) or "somewhere"))
+        else
+            D.mapNote:SetText("The game only says where you are once you are inside the place.")
+        end
+    end
+
     onRefresh(function()
         if section ~= "dungeons" then return end
         local all = lt.all()
@@ -5420,6 +5599,20 @@ local function buildConfig()
         end
         for i = #list + 1, #D.rows do D.rows[i]:Hide() end
         D.child:SetHeight(math.max(#list * 18, 10))
+        local onMap = (DG().tab or "loot") == "map"
+        D.right:SetShown(not onMap)
+        D.map:SetShown(onMap)
+        if onMap then safe(D.drawMap) end
+    end)
+
+    -- while the map is up, keep the arrow with you
+    D.ticker = CreateFrame("Frame")
+    D.ticker.since = 0
+    D.ticker:SetScript("OnUpdate", function(self, elapsed)
+        self.since = self.since + elapsed
+        if self.since < 0.1 or not D.map:IsShown() then return end
+        self.since = 0
+        safe(D.drawMap)
     end)
 
     ----------------------------------------------------------------------------------

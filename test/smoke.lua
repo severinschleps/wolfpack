@@ -162,12 +162,19 @@ GetNetStats = function() return 0, 0, 30, 42 end
 date = function() return "12:34" end
 C_Map = {
     GetBestMapForUnit = function() return 84 end,
-    GetPlayerMapPosition = function() return { GetXY = function() return 0.253, 0.607 end } end,
+    GetMapArtLayers = function(id) return (S.mapArt or {})[id] and { S.mapArt[id].layer } or nil end,
+    GetMapArtLayerTextures = function(id) return (S.mapArt or {})[id]
+        and S.mapArt[id].tiles or nil end,
+    GetPlayerMapPosition = function()
+        if S.playerX == false then return nil end -- outside the place: the game says nothing
+        return { GetXY = function() return S.playerX or 0.253, S.playerY or 0.607 end }
+    end,
     -- a small map tree: the world, one continent, two zones
     GetMapInfo = function(id) return ({ [947] = { name = "Azeroth", mapType = 2 },
         [13] = { name = "Eastern Kingdoms", mapType = 2 },
         [52] = { name = "Westfall", mapType = 3 },
-        [84] = { name = "Stormwind City", mapType = 3 } })[id] end,
+        [84] = { name = "Stormwind City", mapType = 3 },
+        [291] = { name = "The Deadmines", mapType = 4 } })[id] end,
     GetMapChildrenInfo = function(id)
         if id == 947 then return { { mapID = 13 } } end
         if id == 13 then return { { mapID = 52 }, { mapID = 84 } } end
@@ -175,6 +182,7 @@ C_Map = {
     end,
     SetUserWaypoint = function(point) S.waypoint = point end,
 }
+GetPlayerFacing = function() return S.facing end
 UiMapPoint = { CreateFromCoordinates = function(m, x, y) return { map = m, x = x, y = y } end }
 C_SuperTrack = { SetSuperTrackedUserWaypoint = function(on) S.superTrack = on end }
 WorldMapFrame = new()
@@ -897,9 +905,8 @@ boxes[5]._text = "90"; boxes[5]._scripts.OnEnterPressed(boxes[5])
 assert(prof().nameplate.gap == 4 and prof().nameplate.x == -150 and prof().nameplate.bars.health.width == 90, "nameplate edits")
 assert(prof().regular.gap == 30 and prof().regular.x == 0 and prof().regular.bars.health.width == 220, "regular untouched")
 -- every sidebar entry is really there, opens its page, and that page has settings on it
-for _, name in ipairs({ "Combat Display", "Nameplates", "Buffs", "Training", "Dungeons",
-    "Other", "Druid", "Hunter", "Mage", "Paladin", "Priest", "Rogue", "Shaman", "Warlock",
-    "Warrior" }) do
+for _, name in ipairs({ "Combat Display", "Nameplates", "Buffs", "Training",
+    "Dungeons & Raids", "Other", "Hunter", "Mage", "Rogue", "Shaman", "Warlock" }) do
     local b = byText(name)
     assert(b, "sidebar entry missing: " .. name)
     b._scripts.OnClick(b, "LeftButton")
@@ -940,7 +947,7 @@ local trHeader = ns.trainRows[1]
 trHeader._scripts.OnEnter(trHeader) -- a level heading has nothing to show
 assert(not ns.errored, "and a heading is simply passed over")
 -- and so does the dungeon page: a place is picked for you, its bosses and loot drawn
-byText("Dungeons")._scripts.OnClick(byText("Dungeons"), "LeftButton")
+byText("Dungeons & Raids")._scripts.OnClick(byText("Dungeons & Raids"), "LeftButton")
 assert(#WolfpackAddonLootData > 0, "the dungeon addon is loaded")
 assert(prof().dungeons.pick > 0, "one is picked, near your level")
 assert(ns.dung.picks[1] and ns.dung.picks[1]:IsShown(), "the dungeon list is drawn")
@@ -968,7 +975,7 @@ S.level, S.faction = 60, "Horde"
 assert(ns.lt.questState(qu) == "faction", "an Alliance quest is not yours to take")
 S.faction = "Alliance"
 -- and the page paints that state next to the name
-byText("Dungeons")._scripts.OnClick(byText("Dungeons"), "LeftButton")
+byText("Dungeons & Raids")._scripts.OnClick(byText("Dungeons & Raids"), "LeftButton")
 local sawState = false
 for _, r in ipairs(ns.dung.rows) do
     if r:IsShown() and r.quest then
@@ -977,6 +984,31 @@ for _, r in ipairs(ns.dung.rows) do
     end
 end
 assert(sawState, "quests are on the page at all")
+-- the map tab draws the game's own tiles and puts you on them
+S.mapArt = { [291] = { layer = { layerWidth = 1000, layerHeight = 800, tileWidth = 500,
+    tileHeight = 400 }, tiles = { 11, 12, 13, 14 } } }
+ns.lt.maps = nil -- rebuilt from the mock's own map table below
+assert(ns.lt.mapFor("The Deadmines") == 291, "the dungeon's own map is found by name")
+assert(ns.lt.mapFor("Deadmines") == 291, "and a near enough name finds it too")
+assert(select(1, ns.lt.art(291)).layerWidth == 1000, "the game hands over its tiles")
+assert(ns.lt.art(999) == nil, "and says nothing for a map it has no art for")
+-- you are only on it once the game will say where you are
+S.playerX = false
+assert(ns.lt.youAreHere(291) == nil, "outside, the game says nothing")
+S.playerX, S.playerY, S.facing = 0, 0, nil
+assert(ns.lt.youAreHere(291) == nil, "and a flat zero is the same as saying nothing")
+S.playerX, S.playerY, S.facing = 0.4, 0.6, math.pi
+assert(select(1, ns.lt.youAreHere(291)) == 0.4, "inside, it puts you on the map")
+assert(select(3, ns.lt.youAreHere(291)) == math.pi, "facing the way you are looking")
+assert(ns.compass(0) == "north" and ns.compass(math.pi) == "south", "the compass reads plainly")
+assert(ns.compass(math.pi / 2) == "west", "and west is a quarter turn round")
+prof().dungeons.tab = "map"
+byText("Dungeons & Raids")._scripts.OnClick(byText("Dungeons & Raids"), "LeftButton")
+assert(not ns.errored, "the map tab draws without complaint")
+prof().dungeons.tab = "loot"
+byText("Dungeons & Raids")._scripts.OnClick(byText("Dungeons & Raids"), "LeftButton")
+S.playerX, S.playerY, S.facing, S.mapArt = nil, nil, nil, nil
+
 -- clicking a quest opens the map where it is handed out and pins the spot
 local withGiver
 for _, d in ipairs(WolfpackAddonLootData) do
@@ -1013,11 +1045,11 @@ S.combat = false
 -- and with that addon switched off the page says so instead of falling over
 local keptLoot = WolfpackAddonLootData
 WolfpackAddonLootData = nil
-byText("Dungeons")._scripts.OnClick(byText("Dungeons"), "LeftButton")
+byText("Dungeons & Raids")._scripts.OnClick(byText("Dungeons & Raids"), "LeftButton")
 assert(not ns.errored, "no data, no error")
 assert(ns.dung.empty:IsShown() and ns.dung.empty._text:find("not loaded"), "it explains itself")
 WolfpackAddonLootData = keptLoot
-byText("Dungeons")._scripts.OnClick(byText("Dungeons"), "LeftButton")
+byText("Dungeons & Raids")._scripts.OnClick(byText("Dungeons & Raids"), "LeftButton")
 for section, page in pairs(ns.pages) do
     assert((ns.boxesOn[page] or 0) > 0, "nothing on the " .. section .. " page")
 end
