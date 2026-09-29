@@ -3141,21 +3141,42 @@ function lt.floors(mapID)
     return out
 end
 
--- Boss pins. Wowhead marks nothing inside an instance -- its dungeon maps carry no pins at all
--- -- and the game will not say where anything is in there either, so these are placed by hand
--- and kept account-wide, one set per dungeon.
+-- Where the bosses stand. Wowhead marks nothing inside an instance and the game will not say
+-- where anything is in there, so the positions ride along in the loot tables, taken from
+-- SimpleDungeonMap. Anything you place by hand sits on top of those and wins.
 function lt.pins(zoneID)
     store.bossPins = store.bossPins or {}
     store.bossPins[zoneID] = store.bossPins[zoneID] or {}
     return store.bossPins[zoneID]
 end
 
--- The next boss without a spot, so marking a dungeon is click, click, click.
+function lt.spots(dungeon)
+    local out = {}
+    if not dungeon then return out end
+    for _, spot in ipairs(dungeon.spots or {}) do
+        out[#out + 1] = { name = spot[1], x = spot[2] / 100, y = spot[3] / 100 }
+    end
+    for name, at in pairs(lt.pins(dungeon.id)) do
+        local found
+        for _, spot in ipairs(out) do
+            if spot.name == name then found = spot end
+        end
+        if found then
+            found.x, found.y, found.mine = at.x, at.y, true
+        else
+            out[#out + 1] = { name = name, x = at.x, y = at.y, mine = true }
+        end
+    end
+    return out
+end
+
+-- A boss nobody has a spot for, so the odd missing one can be filled in.
 function lt.unmarked(dungeon)
     if not dungeon then return nil end
-    local pins = lt.pins(dungeon.id)
+    local have = {}
+    for _, spot in ipairs(lt.spots(dungeon)) do have[spot.name] = true end
     for _, b in ipairs(dungeon.bosses or {}) do
-        if not pins[b.name] then return b.name end
+        if not have[b.name] then return b.name end
     end
     return nil
 end
@@ -5514,7 +5535,7 @@ local function buildConfig()
         changed()
     end)
     onRefresh(function()
-        D.markBtn:SetText(DG().marking and "Done marking" or "Mark the bosses")
+        D.markBtn:SetText(DG().marking and "Done" or "Add a missing boss")
     end)
     button(D.map, "Clear this one", 120, 516, -6, function()
         local here = lt.all()[DG().pick]
@@ -5571,6 +5592,9 @@ local function buildConfig()
             pin.ring:SetPoint("TOPLEFT", -2, 2)
             pin.ring:SetPoint("BOTTOMRIGHT", 2, -2)
             pin.ring:SetColorTexture(0, 0, 0, 0.8)
+            pin.label = pin:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+            pin.label:SetPoint("LEFT", pin, "RIGHT", 4, 0)
+            pin.label:SetTextColor(1, 0.9, 0.4)
             pin:EnableMouse(true)
             pin:SetScript("OnEnter", function(self)
                 GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
@@ -5661,20 +5685,21 @@ local function buildConfig()
             t:Show()
         end
         for i = #tiles + 1, #D.tiles do D.tiles[i]:Hide() end
-        -- the bosses you have marked
-        local pins, drawn = lt.pins(here.id), 0
-        for _, b in ipairs(here.bosses or {}) do
-            local at = pins[b.name]
-            if at then
-                drawn = drawn + 1
-                local pin = D.pin(drawn)
-                pin.boss = b.name
-                pin:ClearAllPoints()
-                pin:SetPoint("CENTER", D.canvas, "TOPLEFT",
-                    D.shape.left + at.x * D.shape.width, -(D.shape.top + at.y * D.shape.height))
-                pin:Show()
-            end
+        -- where the bosses stand
+        local spots = lt.spots(here)
+        for i, spot in ipairs(spots) do
+            local pin = D.pin(i)
+            pin.boss = spot.name
+            pin.dot:SetColorTexture(spot.mine and 0.3 or 1, spot.mine and 0.7 or 0.2,
+                spot.mine and 1 or 0.2, 1)
+            pin.label:SetText(spot.name)
+            pin.label:SetShown(DG().bossNames ~= false)
+            pin:ClearAllPoints()
+            pin:SetPoint("CENTER", D.canvas, "TOPLEFT",
+                D.shape.left + spot.x * D.shape.width, -(D.shape.top + spot.y * D.shape.height))
+            pin:Show()
         end
+        local drawn = #spots
         for i = drawn + 1, #D.pins do D.pins[i]:Hide() end
 
         local x, y, facing = nil, nil, nil
@@ -5693,20 +5718,18 @@ local function buildConfig()
         else
             local next_ = DG().marking and lt.unmarked(here)
             if next_ then
-                D.mapNote:SetText("Click where |cffffd100" .. next_ .. "|r stands. Right-click to "
-                    .. "take back the last one. " .. drawn .. " of "
-                    .. #(here.bosses or {}) .. " marked.")
+                D.mapNote:SetText("Click where |cffffd100" .. next_ .. "|r stands, or press Done. "
+                    .. "Right-click takes back the last one you placed.")
                 return
             elseif DG().marking then
-                D.mapNote:SetText("Every boss on this one is marked. " .. drawn .. " pins.")
+                D.mapNote:SetText("Every boss here has a spot already. Right-click one to take it "
+                    .. "back if it is in the wrong place.")
                 return
             end
-            D.mapNote:SetText(layer.shipped
-                and (here.name .. " -- the picture travels with the addon, because this client "
-                    .. "carries map art for outdoor zones only. Inside an instance it will not "
-                    .. "say where you are or which way you are facing -- UnitPosition hands back "
-                    .. "the instance and withholds the rest -- so there is no arrow to place.")
-                or "The game only says where you are once you are inside the place.")
+            D.mapNote:SetText(("%s -- %d bosses marked. The picture and the spots both travel "
+                .. "with the addon, since this client has neither. It will not say where you are "
+                .. "inside an instance either, so there is no arrow for you."):format(
+                here.name, drawn))
         end
     end
 

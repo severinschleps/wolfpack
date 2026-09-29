@@ -2,13 +2,21 @@
 -- tools/fetch_loot.py. Rerun that when Forever patches -- an addon cannot
 -- reach the network itself, so this table is the only way the data gets in.
 --
--- WolfpackAddonLootData[i] = { id, name, lo, hi, bosses = { { id, name, items = { {id, name, quality,
+-- Boss positions (spots) come from SimpleDungeonMap by Babilounet, MIT licence:
+-- { name, x, y, floor } as a percentage across the map picture.
+--
+-- WolfpackAddonLootData[i] = { id, name, lo, hi, spots, bosses = { { id, name, items = { {id, name, quality,
 -- level, percent, change}, ... } } }, quests = { {id, name, level, min, side,
 -- giver, zone, x, y}, ... } }
 -- Its own addon so it can be switched off in the addon list: a global, not a
 -- namespace, is how the main addon finds it.
 WolfpackAddonLootData = {
-    { id = 2437, name = "Ragefire Chasm", lo = 15, hi = 25, bosses = {
+    { id = 2437, name = "Ragefire Chasm", lo = 15, hi = 25,
+        spots = {
+            { "Taragaman the Hungerer", 52.6, 25.4, 1 },
+            { "Jergosh the Invoker", 39.8, 50.1, 1 },
+        },
+        bosses = {
         { id = 11518, name = "Jergosh the Invoker", items = {
             { 14150, "Robe of Evocation", 3, 13, 36.8, "Rare instead of Uncommon" },
             { 14147, "Cavedweller Bracers", 3, 13, 33.7, "Rare instead of Uncommon" },
@@ -27,7 +35,15 @@ WolfpackAddonLootData = {
         { 5761, "Slaying the Beast", 16, 9, 2, "Neeru Fireblade", "Orgrimmar", 49.6, 50.4 },
         { 5725, "The Power to Destroy...", 16, 9, 2, "Varimathras", "Undercity", 56.2, 92.6 },
     } },
-    { id = 1581, name = "The Deadmines", lo = 15, hi = 25, bosses = {
+    { id = 1581, name = "The Deadmines", lo = 15, hi = 25,
+        spots = {
+            { "Miner Johnson", 50.9, 43.7, 1 },
+            { "Sneed", 49.2, 75.3, 1 },
+            { "Sneed's Shredder", 46.3, 75.3, 1 },
+            { "Captain Greenskin", 59.2, 32.7, 2 },
+            { "Edwin VanCleef", 59.4, 39.2, 2 },
+        },
+        bosses = {
         { id = 647, name = "Captain Greenskin", items = {
             { 5201, "Emberstone Staff", 3, 17, 38.2, "Item level 22 instead of 23" },
             { 5200, "Impaling Harpoon", 3, 17, 28.2, "Rare instead of Uncommon" },
@@ -201,7 +217,16 @@ WolfpackAddonLootData = {
         { 373, "The Unsent Letter", 22, 16, 1, nil, nil, 0, 0 },
         { 7938, "Your Fortune Awaits You...", 60, 10, 3, nil, nil, 0, 0 },
     } },
-    { id = 718, name = "Wailing Caverns", lo = 17, hi = 27, bosses = {
+    { id = 718, name = "Wailing Caverns", lo = 17, hi = 27,
+        spots = {
+            { "Lady Anacondra", 30.1, 37.3, 1 },
+            { "Kresh", 37.6, 30.4, 1 },
+            { "Lord Pythas", 69.0, 54.7, 1 },
+            { "Lord Serpentis", 60.1, 46.7, 1 },
+            { "Mutanus the Devourer", 54.0, 40.6, 1 },
+            { "Deviate Faerie Dragon", 60.4, 64.0, 1 },
+        },
+        bosses = {
         { id = 5912, name = "Deviate Faerie Dragon", items = {
             { 6632, "Feyscale Cloak", 3, 16, 46.1, "Rare instead of Uncommon" },
             { 5243, "Firebelcher", 3, 18, 41.2, "Item level 23 instead of 20" },
@@ -284,7 +309,13 @@ WolfpackAddonLootData = {
         { 6981, "The Glowing Shard", 26, 15, 3, nil, nil, 0, 0 },
         { 7944, "Your Fortune Awaits You...", 60, 10, 3, nil, nil, 0, 0 },
     } },
-    { id = 719, name = "Blackfathom Deeps", lo = 22, hi = 32, bosses = {
+    { id = 719, name = "Blackfathom Deeps", lo = 22, hi = 32,
+        spots = {
+            { "Ghamoo-ra", 32.1, 52.6, 1 },
+            { "Baron Aquanis", 39.8, 68.0, 2 },
+            { "Twilight Lord Kelris", 51.6, 71.1, 2 },
+        },
+        bosses = {
         { id = 4829, name = "Aku'mai", items = {
             { 6911, "Moss Cinch", 3, 25, 38.1, "Item level 30 instead of 31" },
             { 6910, "Leech Pants", 3, 24, 36.7, "Item level 29 instead of 31" },
@@ -370,7 +401,13 @@ WolfpackAddonLootData = {
         { 909, "Baron Aquanis", 30, 25, 2, nil, nil, 0, 0 },
         { 6922, "Baron Aquanis", 30, 21, 2, nil, nil, 0, 0 },
     } },
-    { id = 209, name = "Shadowfang Keep", lo = 22, hi = 30, bosses = {
+    { id = 209, name = "Shadowfang Keep", lo = 22, hi = 30,
+        spots = {
+            { "Deathsworn Captain", 54.2, 44.3, 7 },
+            { "Fenrus the Devourer", 53.1, 46.8, 4 },
+            { "The Book of Ur", 44.9, 54.1, 4 },
+        },
+        bosses = {
         { id = 4275, name = "Archmage Arugal", items = {
             { 6324, "Robes of Arugal", 3, 23, 35.2, "Item level 28 instead of 29" },
             { 6392, "Belt of Arugal", 3, 23, 34.3, "Item level 28 instead of 29" },
@@ -476,7 +513,11 @@ WolfpackAddonLootData = {
         { 1013, "The Book of Ur", 26, 16, 2, "Keeper Bel'dugur", "Undercity", 53.6, 54 },
         { 1014, "Arugal Must Die", 27, 18, 2, "Dalar Dawnweaver", "Silverpine Forest", 44.2, 39.8 },
     } },
-    { id = 717, name = "The Stockade", lo = 22, hi = 32, bosses = {
+    { id = 717, name = "The Stockade", lo = 22, hi = 32,
+        spots = {
+            { "Bruegal Ironknuckle", 29.5, 38.1, 1 },
+        },
+        bosses = {
         { id = 1720, name = "Bruegal Ironknuckle", items = {
             { 3228, "Jimmied Handcuffs", 3, 23, 55.1, "Item level 28 instead of 26" },
             { 2941, "Prison Shank", 3, 23, 19.3, "Item level 28 instead of 26" },
@@ -490,7 +531,13 @@ WolfpackAddonLootData = {
         { 378, "The Fury Runs Deep", 27, 22, 1, "Motley Garmason", "Wetlands", 49.6, 18.2 },
         { 391, "The Stockade Riots", 29, 16, 1, "Warden Thelwater", "Stormwind City", 41.2, 58 },
     } },
-    { id = 721, name = "Gnomeregan", lo = 26, hi = 36, bosses = {
+    { id = 721, name = "Gnomeregan", lo = 26, hi = 36,
+        spots = {
+            { "Techbot", 48.3, 43.2, 1 },
+            { "Viscous Fallout", 74.1, 40.5, 2 },
+            { "Crowd Pummeler 9-60", 42.1, 76.4, 3 },
+        },
+        bosses = {
         { id = 6229, name = "Crowd Pummeler 9-60", items = {
             { 9450, "Gnomebot Operating Boots", 3, 29, 65.1, "Rare instead of Uncommon" },
             { 9449, "Manual Crowd Pummeler", 3, 29, 33.1, "Unique Unique added" },
@@ -562,7 +609,14 @@ WolfpackAddonLootData = {
         { 2841, "Rig Wars", 35, 25, 2, "Nogg", "Orgrimmar", 75.8, 25.2 },
         { 2929, "The Grand Betrayal", 35, 25, 1, "High Tinker Mekkatorque", "Ironforge", 69, 49 },
     } },
-    { id = 796, name = "Scarlet Monastery", lo = 26, hi = 45, bosses = {
+    { id = 796, name = "Scarlet Monastery", lo = 26, hi = 45,
+        spots = {
+            { "Azshir the Sleepless", 70.5, 51.7, 1 },
+            { "Ironspine", 70.8, 48.5, 1 },
+            { "Bloodmage Thalnos", 23.5, 48.8, 1 },
+            { "Scorn", 73.6, 50.2, 1 },
+        },
+        bosses = {
         { id = 6487, name = "Arcanist Doan", items = {
             { 7714, "Hypnotic Blade", 3, 34, 47.5, "Damage 17 - 32 instead of 26 - 49" },
             { 7713, "Illusionary Rod", 3, 34, 46.8, "Damage 70 - 105 instead of 94 - 142" },
@@ -701,7 +755,11 @@ WolfpackAddonLootData = {
         { 1053, "In the Name of the Light", 40, 34, 1, "Raleigh the Devout", "Hillsbrad Foothills", 51.4, 58.4 },
         { 1048, "Into The Scarlet Monastery", 42, 33, 2, "Varimathras", "Undercity", 56.2, 92.6 },
     } },
-    { id = 491, name = "Razorfen Kraul", lo = 32, hi = 42, bosses = {
+    { id = 491, name = "Razorfen Kraul", lo = 32, hi = 42,
+        spots = {
+            { "Earthcaller Halmgar", 47.5, 40.1, 1 },
+        },
+        bosses = {
         { id = 4422, name = "Agathelos the Raging", items = {
             { 6690, "Ferine Leggings", 3, 29, 62.3, "Rare instead of Uncommon" },
             { 6691, "Swinetusk Shank", 3, 30, 33.3, "Type Dagger (Main Hand) instead of Dagger (One-Hand)" },
@@ -904,7 +962,15 @@ WolfpackAddonLootData = {
         { 1101, "The Crone of the Kraul", 34, 29, 1, "Falfindel Waywarder", "Feralas", 89.6, 46.4 },
         { 6522, "An Unholy Alliance", 36, 28, 2, nil, nil, 0, 0 },
     } },
-    { id = 722, name = "Razorfen Downs", lo = 37, hi = 47, bosses = {
+    { id = 722, name = "Razorfen Downs", lo = 37, hi = 47,
+        spots = {
+            { "Tuten'kash", 57.8, 29.6, 1 },
+            { "Glutton", 33.8, 58.0, 1 },
+            { "Ragglesnout", 34.9, 42.0, 1 },
+            { "Amnennar the Coldbringer", 43.4, 52.5, 1 },
+            { "Plaguemaw the Rotting", 49.3, 60.5, 1 },
+        },
+        bosses = {
         { id = 7358, name = "Amnennar the Coldbringer", items = {
             { 10762, "Robes of the Lich", 3, 38, 38.9, "Item level 43 instead of 44" },
             { 10763, "Icemetal Barbute", 3, 40, 36.9, "Item level 43 instead of 44" },
@@ -1022,7 +1088,16 @@ WolfpackAddonLootData = {
         { 3341, "Bring the End", 42, 37, 2, "Andrew Brownell", "Undercity", 74, 32.8 },
         { 3636, "Bring the Light", 42, 39, 1, "Archbishop Benedictus", "Stormwind City", 39.6, 27.4 },
     } },
-    { id = 2100, name = "Maraudon", lo = 42, hi = 52, bosses = {
+    { id = 2100, name = "Maraudon", lo = 42, hi = 52,
+        spots = {
+            { "Veng", 44.5, 16.2, 1 },
+            { "Lord Vyletongue", 36.8, 61.4, 1 },
+            { "Meshlok the Harvester", 22.6, 60.6, 1 },
+            { "Landslide", 40.3, 42.6, 2 },
+            { "Tinkerer Gizlock", 49.6, 56.6, 2 },
+            { "Rotgrip", 40.5, 71.0, 2 },
+        },
+        bosses = {
         { id = 12225, name = "Celebras the Cursed", items = {
             { 17739, "Grovekeeper's Drape", 3, 47, 32.4, "Effects added" },
             { 17738, "Claw of Celebras", 3, 47, 31.9, "Effects: 13 instead of 9, 1 instead of 2, 7 instead of 20" },
@@ -1232,7 +1307,23 @@ WolfpackAddonLootData = {
         { 7066, "Seed of Life", 51, 39, 3, nil, nil, 0, 0 },
         { 8635, "Splitrock the Elder", 60, 1, 3, nil, nil, 0, 0 },
     } },
-    { id = 1337, name = "Uldaman", lo = 42, hi = 52, bosses = {
+    { id = 1337, name = "Uldaman", lo = 42, hi = 52,
+        spots = {
+            { "Baelog", 59.9, 80.2, 1 },
+            { "Olaf", 54.3, 80.1, 1 },
+            { "Revelosh", 52.2, 63.0, 1 },
+            { "Ironaya", 36.1, 64.1, 1 },
+            { "Obsidian Sentinel", 28.3, 52.2, 1 },
+            { "Ancient Stone Keeper", 46.5, 38.3, 1 },
+            { "Galgann Firehammer", 25.8, 28.3, 1 },
+            { "Grimlok", 21.3, 22.6, 1 },
+            { "Archaedas", 40.8, 14.3, 1 },
+            { "Baelog's Chest", 62.6, 80.2, 1 },
+            { "Conspicuous Urn", 56.8, 83.4, 1 },
+            { "Shadowforge Cache", 22.6, 29.1, 1 },
+            { "Tablet of Will", 24.8, 31.3, 1 },
+        },
+        bosses = {
         { id = 7206, name = "Ancient Stone Keeper", items = {
             { 9411, "Rockshard Pauldrons", 3, 41, 46.9, "Rare instead of Uncommon" },
             { 9918, "Brigade Defender", 2, 40, 1.9, nil },
@@ -1315,7 +1406,12 @@ WolfpackAddonLootData = {
         { 2279, "The Platinum Discs", 47, 40, 1, nil, nil, 0, 0 },
         { 2280, "The Platinum Discs", 47, 40, 2, nil, nil, 0, 0 },
     } },
-    { id = 2557, name = "Dire Maul", lo = 44, hi = 54, bosses = {
+    { id = 2557, name = "Dire Maul", lo = 44, hi = 54,
+        spots = {
+            { "Pusillin", 42.9, 41.4, 5 },
+            { "Lethtendris", 52.4, 62.0, 6 },
+        },
+        bosses = {
         { id = 11501, name = "King Gordok", items = {
             { 18401, "Nostro's Compendium of Dragon Slaying", 4, 60, 0.4, "Starts a quest Foror's Compendium instead of Nostro's Compendium" },
             { 18780, "Top Half of Advanced Armorsmithing: Volume I", 3, 50, 8.9, nil },
@@ -1400,7 +1496,20 @@ WolfpackAddonLootData = {
         { 1318, "Unfinished Gordok Business", 60, 56, 3, nil, nil, 0, 0 },
         { 7703, "Unfinished Gordok Business", 60, 56, 3, nil, nil, 0, 0 },
     } },
-    { id = 1176, name = "Zul'Farrak", lo = 46, hi = 56, bosses = {
+    { id = 1176, name = "Zul'Farrak", lo = 46, hi = 56,
+        spots = {
+            { "Antu'sul", 62.9, 23.9, 1 },
+            { "Theka the Martyr", 51.6, 22.8, 1 },
+            { "Sandarr Dunereaver", 43.3, 15.3, 1 },
+            { "Witch Doctor Zum'rah", 28.8, 14.8, 1 },
+            { "Nekrum Gutchewer", 29.8, 18.3, 1 },
+            { "Shadowpriest Sezz'ziz", 24.0, 15.2, 1 },
+            { "Sandfury Executioner", 27.5, 32.6, 1 },
+            { "Sergeant Bly", 30.7, 35.5, 1 },
+            { "Hydromancer Velratha", 41.4, 29.1, 1 },
+            { "Gahz'rilla", 62.7, 63.3, 1 },
+        },
+        bosses = {
         { id = 8127, name = "Antu'sul", items = {
             { 9640, "Vice Grips", 3, 45, 31.8, "Item level 50 instead of 48" },
             { 9639, "The Hand of Antu'sul", 3, 45, 17.8, "Item level 50 instead of 48" },
@@ -1599,7 +1708,18 @@ WolfpackAddonLootData = {
         { 2770, "Gahz'rilla", 50, 40, 3, "Wizzle Brassbolts", "Thousand Needles", 78, 77 },
         { 8676, "Wildmane the Elder", 60, 1, 3, nil, nil, 0, 0 },
     } },
-    { id = 2017, name = "Stratholme", lo = 48, hi = 58, bosses = {
+    { id = 2017, name = "Stratholme", lo = 48, hi = 58,
+        spots = {
+            { "Timmy the Cruel", 38.4, 24.7, 1 },
+            { "Archivist Galford", 26.6, 65.1, 1 },
+            { "Magistrate Barthilas", 61.0, 65.3, 2 },
+            { "Baroness Anastari", 66.0, 43.7, 2 },
+            { "Black Guard Swordsmith", 72.5, 40.1, 2 },
+            { "Nerub'enkan", 55.8, 40.4, 2 },
+            { "Maleki the Pallid", 66.1, 18.9, 2 },
+            { "Ramstein the Gorger", 44.3, 17.1, 2 },
+        },
+        bosses = {
         { id = 10811, name = "Archivist Galford", items = {
             { 13387, "Foresight Girdle", 3, 56, 21.2, "Health per 5 sec 15 instead of 5" },
             { 16692, "Devout Gloves", 3, 54, 18.0, "Stamina 8 instead of 9" },
@@ -1867,7 +1987,20 @@ WolfpackAddonLootData = {
         { 8733, "Eranikus, Tyrant of the Dream", 60, 60, 3, nil, nil, 0, 0 },
         { 8713, "Starsong the Elder", 60, 1, 3, nil, nil, 0, 0 },
     } },
-    { id = 1477, name = "The Temple of Atal'Hakkar", lo = 50, hi = 60, bosses = {
+    { id = 1477, name = "The Temple of Atal'Hakkar", lo = 50, hi = 60,
+        spots = {
+            { "Balcony Minibosses", 56.4, 13.3, 1 },
+            { "Spawn of Hakkar", 48.9, 35.4, 1 },
+            { "Avatar of Hakkar", 23.5, 39.4, 1 },
+            { "Jammal'an the Prophet", 74.4, 39.7, 1 },
+            { "Ogom the Wretched", 76.8, 36.9, 1 },
+            { "Dreamscythe", 51.9, 41.5, 1 },
+            { "Weaver", 45.7, 41.7, 1 },
+            { "Hazzas", 48.7, 75.5, 1 },
+            { "Morphaz", 45.5, 75.5, 1 },
+            { "Shade of Eranikus", 65.0, 76.3, 1 },
+        },
+        bosses = {
         { id = 224258, name = "Atal'ai High Priest", items = {
             { 221279, "Eight of Wilds", 3, 0, 6.7, nil },
             { 221297, "Eight of Dunes", 3, 0, 0.1, nil },
@@ -1946,7 +2079,19 @@ WolfpackAddonLootData = {
         { 8733, "Eranikus, Tyrant of the Dream", 60, 60, 3, nil, nil, 0, 0 },
         { 8713, "Starsong the Elder", 60, 1, 3, nil, nil, 0, 0 },
     } },
-    { id = 1584, name = "Blackrock Depths", lo = 52, hi = 60, bosses = {
+    { id = 1584, name = "Blackrock Depths", lo = 52, hi = 60,
+        spots = {
+            { "Grizzle", 57.6, 10.0, 1 },
+            { "Eviscerator", 72.8, 10.0, 1 },
+            { "Dark Coffer", 42.4, 30.0, 1 },
+            { "Warder Stilgiss", 57.6, 30.0, 1 },
+            { "Bael'Gar", 42.4, 50.0, 1 },
+            { "General Angerforge", 57.6, 50.0, 1 },
+            { "Panzor the Invincible", 42.4, 70.0, 1 },
+            { "Plans", 27.2, 90.0, 1 },
+            { "Theldren", 42.4, 90.0, 1 },
+        },
+        bosses = {
         { id = 9031, name = "Anub'shiah", items = {
             { 11731, "Savage Gladiator Greaves", 3, 52, 9.2, "Strength 9 instead of 10" },
         } },
@@ -2150,7 +2295,7 @@ WolfpackAddonLootData = {
         { 3802, "Dark Iron Legacy", 52, 48, 3, nil, nil, 0, 0 },
         { 4081, "KILL ON SIGHT: Dark Iron Dwarves", 52, 48, 2, "WANTED", "Badlands", 3.8, 47.5 },
         { 4136, "Ribbly Screwspigot", 53, 48, 3, "Yuka Screwspigot", "Burning Steppes", 66, 22 },
-        { 4324, "Yuka Screwspigot", 53, 48, 3, nil, nil, 0, 0 },
+        { 4324, "Yuka Screwspigot", 53, 48, 3, "Yorba Screwspigot", "Tanaris", 67, 24 },
         { 4242, "Abandoned Hope", 54, 48, 1, nil, nil, 0, 0 },
         { 4082, "KILL ON SIGHT: High Ranking Dark Iron Officials", 54, 50, 2, "KILL ON SIGHT", "Badlands", 4, 46.8 },
         { 4241, "Marshal Windsor", 54, 48, 1, "Marshal Maxwell", "Burning Steppes", 84.6, 68.8 },
@@ -2208,7 +2353,27 @@ WolfpackAddonLootData = {
         { 9015, "The Challenge", 60, 58, 3, nil, nil, 0, 0 },
         { 4004, "The Princess Saved?", 60, 48, 3, nil, nil, 0, 0 },
     } },
-    { id = 1583, name = "Blackrock Spire", lo = 55, hi = 60, bosses = {
+    { id = 1583, name = "Blackrock Spire", lo = 55, hi = 60,
+        spots = {
+            { "Burning Felguard", 12.0, 10.0, 1 },
+            { "Spirestone Butcher", 27.2, 10.0, 1 },
+            { "Highlord Omokk", 42.4, 10.0, 1 },
+            { "Spirestone Battle Lord", 57.6, 10.0, 1 },
+            { "Spirestone Lord Magus", 72.8, 10.0, 1 },
+            { "Shadow Hunter Vosh'gajin", 88.0, 10.0, 1 },
+            { "War Master Voone", 12.0, 30.0, 1 },
+            { "Bannok Grimaxe", 27.2, 30.0, 1 },
+            { "Mother Smolderweb", 42.4, 30.0, 1 },
+            { "Crystal Fang", 57.6, 30.0, 1 },
+            { "Urok Doomhowl", 72.8, 30.0, 1 },
+            { "Quartermaster Zigris", 88.0, 30.0, 1 },
+            { "Halycon", 12.0, 50.0, 1 },
+            { "Gizrul the Slavener", 27.2, 50.0, 1 },
+            { "Ghok Bashguud", 42.4, 50.0, 1 },
+            { "Overlord Wyrmthalak", 57.6, 50.0, 1 },
+            { "Mor Grayhoof", 72.8, 50.0, 1 },
+        },
+        bosses = {
         { id = 9596, name = "Bannok Grimaxe", items = {
             { 12838, "Plans: Arcanite Reaper", 3, 0, 8.2, nil },
         } },
@@ -2524,7 +2689,16 @@ WolfpackAddonLootData = {
         { 4769, "Vivian Lagrave and the Darkstone Tablet", 60, 57, 2, "Apothecary Zinge", "Undercity", 50, 68.4 },
         { 4903, "Warlord's Command", 60, 55, 2, nil, nil, 0, 0 },
     } },
-    { id = 2057, name = "Scholomance", lo = 55, hi = 60, bosses = {
+    { id = 2057, name = "Scholomance", lo = 55, hi = 60,
+        spots = {
+            { "Kirtonos the Herald", 31.0, 10.0, 1 },
+            { "Vectus", 31.0, 36.7, 1 },
+            { "Ras Frostwhisper", 50.0, 36.7, 1 },
+            { "Instructor Malicia", 69.0, 36.7, 1 },
+            { "The Ravenian", 31.0, 63.3, 1 },
+            { "Kormok", 31.0, 90.0, 1 },
+        },
+        bosses = {
         { id = 1853, name = "Darkmaster Gandling", items = {
             { 14514, "Pattern: Robe of the Void", 4, 0, 8.8, "Skill Tailoring (295) instead of Tailoring (300)" },
             { 16677, "Beaststalker's Cap", 3, 57, 12.8, "Intellect 13 instead of 10" },

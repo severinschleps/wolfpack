@@ -1051,21 +1051,32 @@ assert(ns.dung.hasMap == true, "shipped pictures bring the tab back")
 assert(ns.dung.tiles[1]:IsShown(), "and they are drawn")
 assert(not ns.dung.you:IsShown() and not ns.dung.dot:IsShown(),
     "with no arrow, since the client will not say where you are")
--- bosses can be pinned by hand, since nothing will say where they stand
-local dungeon = WolfpackAddonLootData[1]
-assert(#dungeon.bosses > 0, "that dungeon has bosses to mark")
+-- the boss spots ride along in the loot tables and simply appear
+local dungeon
+for _, d in ipairs(WolfpackAddonLootData) do
+    if d.spots and #d.spots > 2 then dungeon = d break end
+end
+assert(dungeon, "some dungeon ships boss positions")
 WolfpackAddonDB.bossPins = nil
-assert(ns.lt.unmarked(dungeon) == dungeon.bosses[1].name, "the first one is asked for first")
-ns.lt.pins(dungeon.id)[dungeon.bosses[1].name] = { x = 0.5, y = 0.25 }
-assert(ns.lt.unmarked(dungeon) == dungeon.bosses[2].name, "then the next one along")
+assert(#ns.lt.spots(dungeon) == #dungeon.spots, "every one of them is a pin")
+assert(ns.lt.spots(dungeon)[1].x > 0 and ns.lt.spots(dungeon)[1].x < 1, "as a fraction across")
+WolfpackAddonMapData[dungeon.id] = { name = dungeon.name, across = 3, down = 2,
+    tiles = { "a", "b", "c", "d", "e", "f" } }
+for i, d in ipairs(WolfpackAddonLootData) do
+    if d == dungeon then prof().dungeons.pick = i end
+end
+ns.dung.hasMap = nil
 byText("Dungeons & Raids")._scripts.OnClick(byText("Dungeons & Raids"), "LeftButton")
-assert(ns.dung.pins[1]:IsShown(), "a marked boss shows on the map")
-assert(ns.dung.pins[1].boss == dungeon.bosses[1].name, "wearing its name")
-assert(not (ns.dung.pins[2] and ns.dung.pins[2]:IsShown()), "and an unmarked one shows nothing")
--- the pins survive an update, since they live where the profiles do
-assert(WolfpackAddonDB.bossPins[dungeon.id][dungeon.bosses[1].name].x == 0.5, "saved with the addon")
+assert(ns.dung.pins[1]:IsShown() and ns.dung.pins[1].boss == dungeon.spots[1][1],
+    "the bosses are on the map without anybody placing them")
+-- one placed by hand sits on top and wins
+ns.lt.pins(dungeon.id)[dungeon.spots[1][1]] = { x = 0.5, y = 0.25 }
+assert(ns.lt.spots(dungeon)[1].x == 0.5 and ns.lt.spots(dungeon)[1].mine,
+    "your own spot beats the shipped one")
+assert(#ns.lt.spots(dungeon) == #dungeon.spots, "and does not double it up")
+assert(WolfpackAddonDB.bossPins[dungeon.id][dungeon.spots[1][1]].x == 0.5, "saved with the addon")
 byText("Clear this one")._scripts.OnClick(byText("Clear this one"), "LeftButton")
-assert(ns.lt.unmarked(dungeon) == dungeon.bosses[1].name, "clearing starts the dungeon over")
+assert(not ns.lt.spots(dungeon)[1].mine, "clearing leaves the shipped ones standing")
 WolfpackAddonMapData, ns.dung.hasMap = nil, nil
 prof().dungeons.tab = "loot"
 S.mapArt = { [291] = { layer = { layerWidth = 1000, layerHeight = 800, tileWidth = 500,

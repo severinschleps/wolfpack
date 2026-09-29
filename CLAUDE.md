@@ -45,6 +45,14 @@ real bug gets a test that fails without the fix.
   patches:
   `python3 tools/fetch_loot.py` (add `--refresh` to ignore the cache).
 
+- boss positions inside that same file (`spots`), added by `tools/fetch_bosses.py` from
+  SimpleDungeonMap (MIT, Babilounet). Run it after `fetch_loot.py`, which it expects to
+  have just rebuilt the file:
+  `python3 tools/fetch_loot.py && python3 tools/fetch_bosses.py --check`
+  `--check` draws a picture per dungeon under `tools/.cache/check` with the pins on it.
+  A position that lands on black is dropped rather than shipped in the wrong place, which
+  is what happens to the other floors of a multi-floor dungeon.
+
 An addon cannot reach the network at runtime, so shipping a generated table is the
 only way this data gets in. Keep `tools/.cache/` out of git.
 
