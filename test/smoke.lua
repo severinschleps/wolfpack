@@ -1035,9 +1035,17 @@ assert(select(1, ns.lt.youAreHere(291)) == 0.4, "inside, it puts you on the map"
 assert(select(3, ns.lt.youAreHere(291)) == math.pi, "facing the way you are looking")
 assert(ns.compass(0) == "north" and ns.compass(math.pi) == "south", "the compass reads plainly")
 assert(ns.compass(math.pi / 2) == "west", "and west is a quarter turn round")
+ns.dung.hasMap = nil -- ask again now the mock has art for one of them
 prof().dungeons.tab = "map"
 byText("Dungeons & Raids")._scripts.OnClick(byText("Dungeons & Raids"), "LeftButton")
 assert(not ns.errored, "the map tab draws without complaint")
+assert(ns.dung.hasMap == true, "a client with dungeon art is offered the map tab")
+-- and a client with none is not offered a tab that can only disappoint
+S.mapArt, ns.lt.maps, ns.dung.hasMap = nil, nil, nil
+byText("Dungeons & Raids")._scripts.OnClick(byText("Dungeons & Raids"), "LeftButton")
+assert(ns.dung.hasMap == false and prof().dungeons.tab == "loot", "no art, no tab")
+S.mapArt = { [291] = { layer = { layerWidth = 1000, layerHeight = 800, tileWidth = 500,
+    tileHeight = 400 }, tiles = { 11, 12, 13, 14 } } }
 prof().dungeons.tab = "loot"
 byText("Dungeons & Raids")._scripts.OnClick(byText("Dungeons & Raids"), "LeftButton")
 S.playerX, S.playerY, S.facing, S.mapArt = nil, nil, nil, nil

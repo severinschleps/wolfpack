@@ -5412,6 +5412,8 @@ local function buildConfig()
         onRefresh(function()
             if (DG().tab or "loot") == t[1] then D.tabs[i]:LockHighlight()
             else D.tabs[i]:UnlockHighlight() end
+            -- no dungeon maps on this build; the tab appears by itself if that ever changes
+            if t[1] == "map" then D.tabs[i]:SetShown(D.hasMap == true) end
         end)
     end
 
@@ -5615,6 +5617,17 @@ local function buildConfig()
     onRefresh(function()
         if section ~= "dungeons" then return end
         local all = lt.all()
+        if D.hasMap == nil then -- asked once: does this client draw any of these places at all?
+            D.hasMap = false
+            for _, d in ipairs(all) do
+                local id = lt.mapFor(d.name)
+                if id and lt.art(id) then
+                    D.hasMap = true
+                    break
+                end
+            end
+            if not D.hasMap then DG().tab = "loot" end
+        end
         if DG().pick == 0 or not all[DG().pick] then DG().pick = lt.forMyLevel() end
         for i, d in ipairs(all) do
             local b = D.pick(i)
