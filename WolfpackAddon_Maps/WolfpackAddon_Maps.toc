@@ -1,0 +1,7 @@
+## Interface: 16001
+## Title: Wolfpack Addon |cff888888- Dungeon Maps|r
+## Notes: Pictures of the dungeons for the Dungeons & Raids panel, taken from Wowhead. Untick it to save the space; everything else carries on without it.
+## Author: severin
+## Version: 1.0.0
+
+Data.lua

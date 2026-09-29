@@ -47,3 +47,16 @@ real bug gets a test that fails without the fix.
 
 An addon cannot reach the network at runtime, so shipping a generated table is the
 only way this data gets in. Keep `tools/.cache/` out of git.
+
+## Dungeon maps
+
+`WolfpackAddon_Maps/` is a third addon folder, built by `tools/fetch_maps.py` from
+Wowhead's Forever map pictures (`classicplus` tree, 1002x668 originals cut into six
+256x256 TGA tiles each). It exists because this client ships map art for outdoor
+zones only and gives no map position inside an instance. Install it alongside the
+other two:
+
+```bash
+rsync -a --delete WolfpackAddon_Maps/ \
+  "/Users/severin/Games/World of Warcraft/_classic_beta_/Interface/AddOns/WolfpackAddon_Maps/"
+```

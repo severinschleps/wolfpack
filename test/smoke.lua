@@ -1044,6 +1044,21 @@ assert(ns.dung.hasMap == true, "a client with dungeon art is offered the map tab
 S.mapArt, ns.lt.maps, ns.dung.hasMap = nil, nil, nil
 byText("Dungeons & Raids")._scripts.OnClick(byText("Dungeons & Raids"), "LeftButton")
 assert(ns.dung.hasMap == false and prof().dungeons.tab == "loot", "no art, no tab")
+-- unless the pictures travel with the addon, which is this client's only way to see one
+local aZone = WolfpackAddonLootData[1].id
+WolfpackAddonMapData = { [aZone] = { name = "X", across = 3, down = 2,
+    tiles = { "a", "b", "c", "d", "e", "f" } } }
+assert(select(1, ns.lt.shipped({ id = aZone })).across == 3, "a shipped map has its own shape")
+assert(ns.lt.shipped({ id = -1 }) == nil, "and a dungeon without one has nothing")
+ns.dung.hasMap = nil
+prof().dungeons.tab, prof().dungeons.pick = "map", 1 -- the one the picture is for
+byText("Dungeons & Raids")._scripts.OnClick(byText("Dungeons & Raids"), "LeftButton")
+assert(ns.dung.hasMap == true, "shipped pictures bring the tab back")
+assert(ns.dung.tiles[1]:IsShown(), "and they are drawn")
+assert(not ns.dung.you:IsShown() and not ns.dung.dot:IsShown(),
+    "with no arrow, since the client will not say where you are")
+WolfpackAddonMapData, ns.dung.hasMap = nil, nil
+prof().dungeons.tab = "loot"
 S.mapArt = { [291] = { layer = { layerWidth = 1000, layerHeight = 800, tileWidth = 500,
     tileHeight = 400 }, tiles = { 11, 12, 13, 14 } } }
 prof().dungeons.tab = "loot"

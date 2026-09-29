@@ -3159,7 +3159,7 @@ function lt.oldArt()
     local tiles = {}
     for i = 1, 12 do tiles[i] = stem .. i end
     return { layerWidth = 1002, layerHeight = 668, tileWidth = 256, tileHeight = 256,
-        old = true, folder = folder }, tiles
+        across = 4, old = true, folder = folder }, tiles
 end
 
 -- Where the old API puts you, for the same reason.
@@ -3172,6 +3172,16 @@ function lt.oldHere()
     if not ok or type(x) ~= "number" or (x == 0 and y == 0) then return nil end
     local facing = select(2, pcall(GetPlayerFacing))
     return x, y, type(facing) == "number" and facing or nil
+end
+
+-- The pictures that travel with the addon, for the places the game will not draw. Keyed by
+-- Wowhead's zone id, which is what the loot tables are keyed by too.
+function lt.shipped(dungeon)
+    local all = WolfpackAddonMapData
+    local art = dungeon and all and all[dungeon.id]
+    if not art then return nil end
+    return { layerWidth = art.across * 256, layerHeight = art.down * 256, tileWidth = 256,
+        tileHeight = 256, across = art.across, shipped = true }, art.tiles
 end
 
 -- The tiles of one map, and how they are laid out.
@@ -5569,6 +5579,7 @@ local function buildConfig()
         if not layer and (not mapID or (here and lt.inHere(here.name))) then
             layer, tiles = lt.oldArt()
         end
+        if not layer then layer, tiles = lt.shipped(here) end -- the pictures we ship
         if not layer then
             for _, t in ipairs(D.tiles) do t:Hide() end
             D.you:Hide()
@@ -5581,7 +5592,7 @@ local function buildConfig()
         end
         local scale = math.min(D.canvas:GetWidth() / layer.layerWidth,
             D.canvas:GetHeight() / layer.layerHeight)
-        local across = layer.old and 4 or math.ceil(layer.layerWidth / layer.tileWidth)
+        local across = layer.across or math.ceil(layer.layerWidth / layer.tileWidth)
         local left = (D.canvas:GetWidth() - layer.layerWidth * scale) / 2
         local top = (D.canvas:GetHeight() - layer.layerHeight * scale) / 2
         for i, file in ipairs(tiles) do
@@ -5597,7 +5608,7 @@ local function buildConfig()
         for i = #tiles + 1, #D.tiles do D.tiles[i]:Hide() end
         local x, y, facing = nil, nil, nil
         if layer.old then x, y, facing = lt.oldHere()
-        elseif shown then x, y, facing = lt.youAreHere(shown) end
+        elseif not layer.shipped and shown then x, y, facing = lt.youAreHere(shown) end
         D.you:SetShown(x ~= nil and facing ~= nil)
         D.dot:SetShown(x ~= nil and facing == nil)
         if x then
@@ -5610,7 +5621,11 @@ local function buildConfig()
             D.mapNote:SetText(("You are at %d, %d on this floor, looking %s."):format(x * 100,
                 y * 100, facing and ns.compass(facing) or "somewhere"))
         else
-            D.mapNote:SetText("The game only says where you are once you are inside the place.")
+            D.mapNote:SetText(layer.shipped
+                and (here.name .. " -- the picture travels with the addon, because this client "
+                    .. "draws no dungeon maps. It cannot say where you are inside one either, "
+                    .. "so there is no arrow to put on it.")
+                or "The game only says where you are once you are inside the place.")
         end
     end
 
@@ -5621,7 +5636,7 @@ local function buildConfig()
             D.hasMap = false
             for _, d in ipairs(all) do
                 local id = lt.mapFor(d.name)
-                if id and lt.art(id) then
+                if (id and lt.art(id)) or lt.shipped(d) then
                     D.hasMap = true
                     break
                 end
@@ -6139,6 +6154,12 @@ function ns.MapReport()
     say("WorldMapFrame map id: " .. tostring(select(2, pcall(function()
         return WorldMapFrame and WorldMapFrame:GetMapID()
     end))))
+    -- world coordinates need no map id at all; if these answer, an arrow is still possible
+    local ok, x, y, z, inst = pcall(UnitPosition, "player")
+    say(("UnitPosition: %s %s %s %s %s"):format(tostring(ok), tostring(x), tostring(y),
+        tostring(z), tostring(inst)))
+    say("GetPlayerFacing: " .. tostring(select(2, pcall(GetPlayerFacing))))
+    say("shipped maps: " .. tostring(WolfpackAddonMapData and "loaded" or "not loaded"))
 end
 
 SlashCmdList.WOLFPACKADDON = function(msg)
