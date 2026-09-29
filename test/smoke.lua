@@ -1051,6 +1051,21 @@ assert(ns.dung.hasMap == true, "shipped pictures bring the tab back")
 assert(ns.dung.tiles[1]:IsShown(), "and they are drawn")
 assert(not ns.dung.you:IsShown() and not ns.dung.dot:IsShown(),
     "with no arrow, since the client will not say where you are")
+-- bosses can be pinned by hand, since nothing will say where they stand
+local dungeon = WolfpackAddonLootData[1]
+assert(#dungeon.bosses > 0, "that dungeon has bosses to mark")
+WolfpackAddonDB.bossPins = nil
+assert(ns.lt.unmarked(dungeon) == dungeon.bosses[1].name, "the first one is asked for first")
+ns.lt.pins(dungeon.id)[dungeon.bosses[1].name] = { x = 0.5, y = 0.25 }
+assert(ns.lt.unmarked(dungeon) == dungeon.bosses[2].name, "then the next one along")
+byText("Dungeons & Raids")._scripts.OnClick(byText("Dungeons & Raids"), "LeftButton")
+assert(ns.dung.pins[1]:IsShown(), "a marked boss shows on the map")
+assert(ns.dung.pins[1].boss == dungeon.bosses[1].name, "wearing its name")
+assert(not (ns.dung.pins[2] and ns.dung.pins[2]:IsShown()), "and an unmarked one shows nothing")
+-- the pins survive an update, since they live where the profiles do
+assert(WolfpackAddonDB.bossPins[dungeon.id][dungeon.bosses[1].name].x == 0.5, "saved with the addon")
+byText("Clear this one")._scripts.OnClick(byText("Clear this one"), "LeftButton")
+assert(ns.lt.unmarked(dungeon) == dungeon.bosses[1].name, "clearing starts the dungeon over")
 WolfpackAddonMapData, ns.dung.hasMap = nil, nil
 prof().dungeons.tab = "loot"
 S.mapArt = { [291] = { layer = { layerWidth = 1000, layerHeight = 800, tileWidth = 500,

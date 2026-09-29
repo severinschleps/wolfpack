@@ -234,7 +234,7 @@ DEFAULTS.shaman = ns.weaponDefaults(-260)
 DEFAULTS.training = { hideKnown = true, fromMyLevel = true, showCost = true }
 
 DEFAULTS.dungeons = { pick = 0, blueOnly = false, showChance = true, quests = true,
-    tab = "loot", floor = 1 }
+    tab = "loot", floor = 1, marking = false }
 
 DEFAULTS.warlock = {
     show = true, locked = true, x = 0, y = -220, size = 32, radius = 0,
@@ -3141,6 +3141,25 @@ function lt.floors(mapID)
     return out
 end
 
+-- Boss pins. Wowhead marks nothing inside an instance -- its dungeon maps carry no pins at all
+-- -- and the game will not say where anything is in there either, so these are placed by hand
+-- and kept account-wide, one set per dungeon.
+function lt.pins(zoneID)
+    store.bossPins = store.bossPins or {}
+    store.bossPins[zoneID] = store.bossPins[zoneID] or {}
+    return store.bossPins[zoneID]
+end
+
+-- The next boss without a spot, so marking a dungeon is click, click, click.
+function lt.unmarked(dungeon)
+    if not dungeon then return nil end
+    local pins = lt.pins(dungeon.id)
+    for _, b in ipairs(dungeon.bosses or {}) do
+        if not pins[b.name] then return b.name end
+    end
+    return nil
+end
+
 -- The pictures that travel with the addon, for the places the game will not draw. Keyed by
 -- Wowhead's zone id, which is what the loot tables are keyed by too.
 function lt.shipped(dungeon)
@@ -5490,11 +5509,80 @@ local function buildConfig()
     D.canvas:SetSize(604, 480)
     D.canvas:SetClipsChildren(true)
     D.tiles = {}
+    D.markBtn = button(D.map, "", 150, 360, -6, function()
+        DG().marking = not DG().marking
+        changed()
+    end)
+    onRefresh(function()
+        D.markBtn:SetText(DG().marking and "Done marking" or "Mark the bosses")
+    end)
+    button(D.map, "Clear this one", 120, 516, -6, function()
+        local here = lt.all()[DG().pick]
+        if here then
+            store.bossPins = store.bossPins or {}
+            store.bossPins[here.id] = nil
+            D.lastPinned = nil
+            changed()
+        end
+    end)
     D.mapNote = label(D.map, "", "GameFontDisableSmall")
     D.mapNote:SetPoint("BOTTOMLEFT", 10, 8)
     D.mapNote:SetWidth(600)
     D.mapNote:SetJustifyH("LEFT")
     D.floorBtns = {}
+
+    -- clicking the canvas drops the next boss's pin where you clicked
+    D.canvas:EnableMouse(true)
+    D.canvas:SetScript("OnMouseUp", function(self, button)
+        local here = lt.all()[DG().pick]
+        if not here or not D.shape then return end
+        local pins = lt.pins(here.id)
+        if button == "RightButton" then -- take back the last one placed
+            if D.lastPinned then
+                pins[D.lastPinned] = nil
+                D.lastPinned = nil
+                changed()
+            end
+            return
+        end
+        if not DG().marking then return end
+        local boss = lt.unmarked(here)
+        if not boss then return end
+        local mx, my = GetCursorPosition()
+        local scale = self:GetEffectiveScale()
+        local x = (mx / scale - self:GetLeft() - D.shape.left) / D.shape.width
+        local y = (self:GetTop() - my / scale - D.shape.top) / D.shape.height
+        if x < 0 or x > 1 or y < 0 or y > 1 then return end
+        pins[boss] = { x = x, y = y }
+        D.lastPinned = boss
+        changed()
+    end)
+    D.pins = {}
+
+    function D.pin(i)
+        local pin = D.pins[i]
+        if not pin then
+            pin = CreateFrame("Frame", nil, D.canvas)
+            pin:SetSize(12, 12)
+            pin.dot = pin:CreateTexture(nil, "OVERLAY")
+            pin.dot:SetAllPoints()
+            pin.dot:SetColorTexture(1, 0.2, 0.2, 1)
+            pin.ring = pin:CreateTexture(nil, "ARTWORK")
+            pin.ring:SetPoint("TOPLEFT", -2, 2)
+            pin.ring:SetPoint("BOTTOMRIGHT", 2, -2)
+            pin.ring:SetColorTexture(0, 0, 0, 0.8)
+            pin:EnableMouse(true)
+            pin:SetScript("OnEnter", function(self)
+                GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+                GameTooltip:SetText(self.boss or "")
+                GameTooltip:AddLine("Right-click the map to take back the last pin", 0.7, 0.7, 0.7)
+                GameTooltip:Show()
+            end)
+            pin:SetScript("OnLeave", function() GameTooltip:Hide() end)
+            D.pins[i] = pin
+        end
+        return pin
+    end
 
     D.you = D.canvas:CreateTexture(nil, "OVERLAY")
     D.you:SetSize(24, 24)
@@ -5556,6 +5644,9 @@ local function buildConfig()
         end
         local scale = math.min(D.canvas:GetWidth() / layer.layerWidth,
             D.canvas:GetHeight() / layer.layerHeight)
+        D.shape = { left = (D.canvas:GetWidth() - layer.layerWidth * scale) / 2,
+            top = (D.canvas:GetHeight() - layer.layerHeight * scale) / 2,
+            width = layer.layerWidth * scale, height = layer.layerHeight * scale }
         local across = layer.across or math.ceil(layer.layerWidth / layer.tileWidth)
         local left = (D.canvas:GetWidth() - layer.layerWidth * scale) / 2
         local top = (D.canvas:GetHeight() - layer.layerHeight * scale) / 2
@@ -5570,6 +5661,22 @@ local function buildConfig()
             t:Show()
         end
         for i = #tiles + 1, #D.tiles do D.tiles[i]:Hide() end
+        -- the bosses you have marked
+        local pins, drawn = lt.pins(here.id), 0
+        for _, b in ipairs(here.bosses or {}) do
+            local at = pins[b.name]
+            if at then
+                drawn = drawn + 1
+                local pin = D.pin(drawn)
+                pin.boss = b.name
+                pin:ClearAllPoints()
+                pin:SetPoint("CENTER", D.canvas, "TOPLEFT",
+                    D.shape.left + at.x * D.shape.width, -(D.shape.top + at.y * D.shape.height))
+                pin:Show()
+            end
+        end
+        for i = drawn + 1, #D.pins do D.pins[i]:Hide() end
+
         local x, y, facing = nil, nil, nil
         if not layer.shipped and shown then x, y, facing = lt.youAreHere(shown) end
         D.you:SetShown(x ~= nil and facing ~= nil)
@@ -5584,6 +5691,16 @@ local function buildConfig()
             D.mapNote:SetText(("You are at %d, %d on this floor, looking %s."):format(x * 100,
                 y * 100, facing and ns.compass(facing) or "somewhere"))
         else
+            local next_ = DG().marking and lt.unmarked(here)
+            if next_ then
+                D.mapNote:SetText("Click where |cffffd100" .. next_ .. "|r stands. Right-click to "
+                    .. "take back the last one. " .. drawn .. " of "
+                    .. #(here.bosses or {}) .. " marked.")
+                return
+            elseif DG().marking then
+                D.mapNote:SetText("Every boss on this one is marked. " .. drawn .. " pins.")
+                return
+            end
             D.mapNote:SetText(layer.shipped
                 and (here.name .. " -- the picture travels with the addon, because this client "
                     .. "carries map art for outdoor zones only. Inside an instance it will not "
