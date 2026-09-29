@@ -1005,24 +1005,18 @@ assert(ns.lt.mapFor("The Deadmines") == 291, "even with nothing in the index at 
 S.bestMap = nil
 SlashCmdList.WOLFPACKADDON("map")
 assert(not ns.errored, "the map probe runs clean")
--- when the client will not hand over a map id, the old way still draws the place you are in
-S.oldFolder, S.oldFloor = "RagefireChasm", 0
-assert(select(1, ns.lt.oldArt()).folder == "RagefireChasm", "the old way names its art folder")
-assert(select(2, ns.lt.oldArt())[1] ==
-    "Interface\\WorldMap\\RagefireChasm\\RagefireChasm1", "and its twelve tiles")
-assert(#select(2, ns.lt.oldArt()) == 12, "twelve of them, four across")
-S.oldFloor = 2
-assert(select(2, ns.lt.oldArt())[1] ==
-    "Interface\\WorldMap\\RagefireChasm\\RagefireChasm2_1", "a floor is named in the file")
-S.oldFloor = 0
-S.oldX, S.oldY = 0.31, 0.72
-assert(select(1, ns.lt.oldHere()) == 0.31, "and it still says where you are")
-S.oldX, S.oldY = 0, 0
-assert(ns.lt.oldHere() == nil, "a flat zero means it does not know")
 S.zone = "Ragefire Chasm"
 assert(ns.lt.inHere("Ragefire Chasm"), "the zone text says which place you are in")
 assert(not ns.lt.inHere("The Deadmines"), "and which you are not")
-S.oldFolder, S.zone = nil, nil
+-- and walking into one opens the list on it
+S.zone, ns.dung.lastZone = "The Deadmines", nil
+byText("Dungeons & Raids")._scripts.OnClick(byText("Dungeons & Raids"), "LeftButton")
+assert(WolfpackAddonLootData[prof().dungeons.pick].name == "The Deadmines",
+    "the list opens on the place you walked into")
+prof().dungeons.pick = 1
+byText("Dungeons & Raids")._scripts.OnClick(byText("Dungeons & Raids"), "LeftButton")
+assert(prof().dungeons.pick == 1, "and picking another one afterwards still sticks")
+S.zone, ns.dung.lastZone = nil, nil
 assert(select(1, ns.lt.art(291)).layerWidth == 1000, "the game hands over its tiles")
 assert(ns.lt.art(999) == nil, "and says nothing for a map it has no art for")
 -- you are only on it once the game will say where you are

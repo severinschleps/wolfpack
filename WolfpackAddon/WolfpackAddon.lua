@@ -3141,39 +3141,6 @@ function lt.floors(mapID)
     return out
 end
 
--- The older way of asking, from before map ids: the world map is pointed at where you are and
--- gives back the name of the folder its art lives in. Twelve tiles, four across, three down.
--- Instances name the floor as well. Nothing here needs a map id, which is what this build will
--- not give inside a dungeon.
-function lt.oldArt()
-    local ok, folder = pcall(function()
-        if SetMapToCurrentZone then SetMapToCurrentZone() end
-        return GetMapInfo and GetMapInfo()
-    end)
-    if not ok or type(folder) ~= "string" or folder == "" then return nil end
-    local floor = select(2, pcall(function()
-        return GetCurrentMapDungeonLevel and GetCurrentMapDungeonLevel()
-    end))
-    local stem = "Interface\\WorldMap\\" .. folder .. "\\" .. folder
-    if type(floor) == "number" and floor > 0 then stem = stem .. floor .. "_" end
-    local tiles = {}
-    for i = 1, 12 do tiles[i] = stem .. i end
-    return { layerWidth = 1002, layerHeight = 668, tileWidth = 256, tileHeight = 256,
-        across = 4, old = true, folder = folder }, tiles
-end
-
--- Where the old API puts you, for the same reason.
-function lt.oldHere()
-    local ok, x, y = pcall(function()
-        if SetMapToCurrentZone then SetMapToCurrentZone() end
-        if not GetPlayerMapPosition then return nil end
-        return GetPlayerMapPosition("player")
-    end)
-    if not ok or type(x) ~= "number" or (x == 0 and y == 0) then return nil end
-    local facing = select(2, pcall(GetPlayerFacing))
-    return x, y, type(facing) == "number" and facing or nil
-end
-
 -- The pictures that travel with the addon, for the places the game will not draw. Keyed by
 -- Wowhead's zone id, which is what the loot tables are keyed by too.
 function lt.shipped(dungeon)
@@ -5576,9 +5543,6 @@ local function buildConfig()
         local layer, tiles = shown and lt.art(shown)
         -- this build gives no map id inside a dungeon, so the older way is tried as well, and
         -- only for the place you are actually standing in -- it can only draw that one
-        if not layer and (not mapID or (here and lt.inHere(here.name))) then
-            layer, tiles = lt.oldArt()
-        end
         if not layer then layer, tiles = lt.shipped(here) end -- the pictures we ship
         if not layer then
             for _, t in ipairs(D.tiles) do t:Hide() end
@@ -5607,8 +5571,7 @@ local function buildConfig()
         end
         for i = #tiles + 1, #D.tiles do D.tiles[i]:Hide() end
         local x, y, facing = nil, nil, nil
-        if layer.old then x, y, facing = lt.oldHere()
-        elseif not layer.shipped and shown then x, y, facing = lt.youAreHere(shown) end
+        if not layer.shipped and shown then x, y, facing = lt.youAreHere(shown) end
         D.you:SetShown(x ~= nil and facing ~= nil)
         D.dot:SetShown(x ~= nil and facing == nil)
         if x then
@@ -5623,8 +5586,9 @@ local function buildConfig()
         else
             D.mapNote:SetText(layer.shipped
                 and (here.name .. " -- the picture travels with the addon, because this client "
-                    .. "draws no dungeon maps. It cannot say where you are inside one either, "
-                    .. "so there is no arrow to put on it.")
+                    .. "carries map art for outdoor zones only. Inside an instance it will not "
+                    .. "say where you are or which way you are facing -- UnitPosition hands back "
+                    .. "the instance and withholds the rest -- so there is no arrow to place.")
                 or "The game only says where you are once you are inside the place.")
         end
     end
@@ -5632,6 +5596,18 @@ local function buildConfig()
     onRefresh(function()
         if section ~= "dungeons" then return end
         local all = lt.all()
+        -- walk into a place and the list opens on it; the zone text says which, and it is only
+        -- followed while it changes, so clicking another dungeon afterwards still sticks
+        local zone = select(2, pcall(GetZoneText))
+        if type(zone) == "string" and zone ~= "" and zone ~= D.lastZone then
+            D.lastZone = zone
+            for i, d in ipairs(all) do
+                if lt.inHere(d.name) then
+                    DG().pick = i
+                    break
+                end
+            end
+        end
         if D.hasMap == nil then -- asked once: does this client draw any of these places at all?
             D.hasMap = false
             for _, d in ipairs(all) do
