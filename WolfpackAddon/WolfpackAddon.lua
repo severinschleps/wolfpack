@@ -5571,13 +5571,10 @@ local function buildConfig()
             for _, t in ipairs(D.tiles) do t:Hide() end
             D.you:Hide()
             D.dot:Hide()
-            local mine, count = lt.whereAmI(), 0
-            for _ in pairs(lt.mapIndex()) do count = count + 1 end
-            D.mapNote:SetText(("No map art for %s. You are on map %s (%s), zone %s. The client's "
-                .. "map table holds %d maps; the old way names the folder %s."):format(
-                here and here.name or "?", tostring(mine and mine.id), tostring(mine and mine.name),
-                tostring(select(2, pcall(GetZoneText))), count,
-                tostring(select(2, pcall(function() return GetMapInfo and GetMapInfo() end)))))
+            D.mapNote:SetText("This client carries map art for the outdoor zones only -- 57 of "
+                .. "them, and not one dungeon -- so there is nothing here to draw. It also gives "
+                .. "no map position inside an instance, which is why no arrow can be put on a "
+                .. "dungeon map even if the picture came from somewhere else.")
             return
         end
         local scale = math.min(D.canvas:GetWidth() / layer.layerWidth,
