@@ -6106,15 +6106,29 @@ function ns.MapReport()
         for _, f in ipairs(lt.floors(mine.id)) do kids[#kids + 1] = f.name .. "=" .. f.id end
         say("floors: " .. table.concat(kids, ", "))
     end
-    local n, sample = 0, {}
+    -- every map this client admits to, and which of them carry art
+    local all = {}
     for name, at in pairs(lt.mapIndex()) do
-        n = n + 1
-        if n <= 6 then sample[#sample + 1] = name .. "=" .. at.id end
+        local layer = lt.art(at.id)
+        all[#all + 1] = ("%s[%d%s]"):format(name, at.id, layer and "*" or "")
     end
-    say(n .. " maps in this client's table, e.g. " .. table.concat(sample, ", "))
-    for _, want in ipairs({ "Ragefire Chasm", "The Deadmines", "Blackrock Depths" }) do
-        say(("%-20s -> %s"):format(want, tostring(lt.mapFor(want))))
+    table.sort(all)
+    say(#all .. " maps in this client's table (* = has art):")
+    local line = ""
+    for _, entry in ipairs(all) do
+        if #line + #entry > 150 then
+            say("  " .. line)
+            line = ""
+        end
+        line = line .. (line == "" and "" or ", ") .. entry
     end
+    if line ~= "" then say("  " .. line) end
+    say("old API: SetMapToCurrentZone " .. type(SetMapToCurrentZone) .. ", GetMapInfo "
+        .. type(GetMapInfo) .. ", GetPlayerMapPosition " .. type(GetPlayerMapPosition)
+        .. ", GetCurrentMapAreaID " .. type(GetCurrentMapAreaID))
+    say("WorldMapFrame map id: " .. tostring(select(2, pcall(function()
+        return WorldMapFrame and WorldMapFrame:GetMapID()
+    end))))
 end
 
 SlashCmdList.WOLFPACKADDON = function(msg)
