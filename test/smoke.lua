@@ -161,7 +161,7 @@ Minimap._regions = { strayCount }
 GetNetStats = function() return 0, 0, 30, 42 end
 date = function() return "12:34" end
 C_Map = {
-    GetBestMapForUnit = function() return 84 end,
+    GetBestMapForUnit = function() return S.bestMap or 84 end,
     GetMapArtLayers = function(id) return (S.mapArt or {})[id] and { S.mapArt[id].layer } or nil end,
     GetMapArtLayerTextures = function(id) return (S.mapArt or {})[id]
         and S.mapArt[id].tiles or nil end,
@@ -990,6 +990,16 @@ S.mapArt = { [291] = { layer = { layerWidth = 1000, layerHeight = 800, tileWidth
 ns.lt.maps = nil -- rebuilt from the mock's own map table below
 assert(ns.lt.mapFor("The Deadmines") == 291, "the dungeon's own map is found by name")
 assert(ns.lt.mapFor("Deadmines") == 291, "and a near enough name finds it too")
+assert(ns.lt.mapFor("the deadmines") == 291, "case does not matter")
+-- and the surest answer of all: the map you are standing on
+assert(ns.lt.whereAmI().id == 84, "the game says which map you are on")
+S.bestMap = 291
+assert(ns.lt.mapFor("The Deadmines") == 291, "standing in it, that is the map, index or no index")
+ns.lt.maps = nil
+assert(ns.lt.mapFor("The Deadmines") == 291, "even with nothing in the index at all")
+S.bestMap = nil
+SlashCmdList.WOLFPACKADDON("map")
+assert(not ns.errored, "the map probe runs clean")
 assert(select(1, ns.lt.art(291)).layerWidth == 1000, "the game hands over its tiles")
 assert(ns.lt.art(999) == nil, "and says nothing for a map it has no art for")
 -- you are only on it once the game will say where you are

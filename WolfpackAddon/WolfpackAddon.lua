@@ -3033,7 +3033,8 @@ end
 -- name. One index serves both the quest waypoints and the dungeon maps.
 function lt.mapByName(name)
     if not name then return nil end
-    return lt.mapIndex()[name]
+    local at = lt.mapIndex()[name:lower()]
+    return at and at.id or nil
 end
 
 -- Open the map where the quest is handed out, and drop the waypoint pin on the spot.
@@ -3074,30 +3075,48 @@ lt.questLook = {
 function lt.mapIndex()
     if lt.maps then return lt.maps end
     lt.maps = {}
-    pcall(function()
-        for id = 1, 2600 do
-            local info = C_Map.GetMapInfo(id)
-            if info and info.name then
-                local at = lt.maps[info.name]
-                -- a dungeon floor and its parent share a name: keep the one with the floors
-                if not at or (info.mapType or 0) < (C_Map.GetMapInfo(at).mapType or 0) then
-                    lt.maps[info.name] = id
-                end
+    -- one call at a time: a single id the client dislikes must not cost us the whole table
+    for id = 1, 4000 do
+        local ok, info = pcall(C_Map.GetMapInfo, id)
+        if ok and type(info) == "table" and type(info.name) == "string" and info.name ~= "" then
+            local key = info.name:lower()
+            local at = lt.maps[key]
+            -- a dungeon and its floors share a name: keep the outermost one, which holds them
+            if not at or (info.mapType or 9) < (at.mapType or 9) then
+                lt.maps[key] = { id = id, mapType = info.mapType }
             end
         end
-    end)
+    end
     return lt.maps
 end
 
+-- The map id for a place. The name the game uses is not always the name Wowhead uses, and the
+-- surest answer of all is the one the game gives while you are standing in it.
 function lt.mapFor(name)
     if not name then return nil end
+    local mine = lt.whereAmI()
+    if mine and mine.name and (mine.name == name or mine.name:find(name, 1, true)
+        or name:find(mine.name, 1, true)) then
+        return mine.id
+    end
     local index = lt.mapIndex()
-    if index[name] then return index[name] end
-    -- Wowhead calls it Sunken Temple, the game The Temple of Atal'Hakkar and so on
-    for mapName, id in pairs(index) do
-        if mapName:find(name, 1, true) or name:find(mapName, 1, true) then return id end
+    local want = name:lower()
+    if index[want] then return index[want].id end
+    for mapName, entry in pairs(index) do
+        if mapName:find(want, 1, true) or want:find(mapName, 1, true) then return entry.id end
     end
     return nil
+end
+
+-- The map you are on right now, whatever it is called.
+function lt.whereAmI()
+    local ok, at = pcall(function()
+        local id = C_Map.GetBestMapForUnit("player")
+        if not id then return nil end
+        local info = C_Map.GetMapInfo(id)
+        return { id = id, name = info and info.name }
+    end)
+    return ok and at or nil
 end
 
 -- The floors of a place, parent first, so a dungeon on several levels can be paged through.
@@ -5505,8 +5524,12 @@ local function buildConfig()
             for _, t in ipairs(D.tiles) do t:Hide() end
             D.you:Hide()
             D.dot:Hide()
-            D.mapNote:SetText(mapID and ("The game has no map art for " .. (here and here.name or "?")
-                .. ".") or ("This build has no map called " .. (here and here.name or "?") .. "."))
+            local mine = lt.whereAmI()
+            D.mapNote:SetText(((mapID and ("The game has no map art for " .. (here and here.name
+                or "?") .. " (map %d).") or ("This build has no map called " .. (here and here.name
+                or "?") .. "."))):format(mapID or 0)
+                .. "  You are on map " .. tostring(mine and mine.id) .. ", "
+                .. tostring(mine and mine.name) .. ".")
             return
         end
         local scale = math.min(D.canvas:GetWidth() / layer.layerWidth,
@@ -6017,6 +6040,33 @@ function ns.FlightReport()
     say(n .. " routes remembered")
 end
 
+-- /wp map -- what the client says about the place you are in, and about its own map table.
+function ns.MapReport()
+    local function say(t) print("|cff88ccffWolfpack:|r " .. t) end
+    local mine = lt.whereAmI()
+    say(("standing on map %s, %s"):format(tostring(mine and mine.id), tostring(mine and mine.name)))
+    if mine then
+        local layer, tiles = lt.art(mine.id)
+        say(("art here: %s"):format(layer
+            and ("%dx%d in %d tiles"):format(layer.layerWidth, layer.layerHeight, #tiles)
+            or "none"))
+        local x, y, facing = lt.youAreHere(mine.id)
+        say(("you: %s, %s facing %s"):format(tostring(x), tostring(y), tostring(facing)))
+        local kids = {}
+        for _, f in ipairs(lt.floors(mine.id)) do kids[#kids + 1] = f.name .. "=" .. f.id end
+        say("floors: " .. table.concat(kids, ", "))
+    end
+    local n, sample = 0, {}
+    for name, at in pairs(lt.mapIndex()) do
+        n = n + 1
+        if n <= 6 then sample[#sample + 1] = name .. "=" .. at.id end
+    end
+    say(n .. " maps in this client's table, e.g. " .. table.concat(sample, ", "))
+    for _, want in ipairs({ "Ragefire Chasm", "The Deadmines", "Blackrock Depths" }) do
+        say(("%-20s -> %s"):format(want, tostring(lt.mapFor(want))))
+    end
+end
+
 SlashCmdList.WOLFPACKADDON = function(msg)
     msg = (msg or ""):lower()
     if msg:find("aura") then return safe(ns.AuraReport, (msg:gsub("^%s*auras?%s*", ""))) end
@@ -6026,6 +6076,7 @@ SlashCmdList.WOLFPACKADDON = function(msg)
     if msg:find("loot") then return safe(ns.LootReport) end
     if msg:find("macro") then return safe(ns.MacroReport) end
     if msg:find("flight") then return safe(ns.FlightReport) end
+    if msg:find("map") then return safe(ns.MapReport) end
     safe(ns.ToggleConfig)
 end
 
