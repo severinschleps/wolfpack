@@ -1818,6 +1818,11 @@ S.subZone, S.onTaxi = "Ironforge", false
 WolfpackAddonDB.flights = {}
 ns.ft.taking(7) -- clicking the flight point is where both ends of the route are known
 assert(ns.ft.key() == "Ironforge > Menethil Harbor", "the route: " .. tostring(ns.ft.key()))
+-- a click the game tells us nothing about must not wipe a route we did catch
+ns.ft.taking(99)
+assert(ns.ft.key() == "Ironforge > Menethil Harbor", "an unknown slot leaves the route alone")
+SlashCmdList.WOLFPACKADDON("flight")
+assert(not ns.errored, "the flight probe runs clean")
 assert(ns.ft.known() == nil, "never flown, so nothing is known about it")
 S.time, S.onTaxi = 1000, true
 ns.ft.tick()
@@ -1825,6 +1830,17 @@ assert(ns.ft.startedAt == 1000, "the ride is being timed")
 S.time = 1042
 assert(select(1, ns.ft.progress()) == nil, "no total for a route never flown")
 assert(math.abs(select(2, ns.ft.progress()) - 42) < 0.01, "but the time so far is counted")
+-- and if the route was never caught the bar says so, rather than looking like a first flight
+prof().regular.bars.flight.show = true
+fire("UNIT_MAXPOWER")
+ns.fill(ns.frames.flight)
+assert(ns.frames.flight.text._text == "0:42 so far", "a caught route counts up quietly")
+ns.ft.route = nil
+ns.fill(ns.frames.flight)
+assert(ns.frames.flight.text._text:find("not caught"), "a missed one says so: "
+    .. ns.frames.flight.text._text)
+ns.ft.route = { from = "Ironforge", to = "Menethil Harbor" }
+prof().regular.bars.flight.show = false
 S.onTaxi = false
 ns.ft.tick()
 assert(WolfpackAddonDB.flights["Ironforge > Menethil Harbor"] == 42, "and written down on landing")

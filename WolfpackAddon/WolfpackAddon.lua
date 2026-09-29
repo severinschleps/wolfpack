@@ -350,9 +350,29 @@ function ft.here()
     return (ok2 and zone ~= "" and zone) or (select(2, pcall(GetZoneText)))
 end
 
--- Clicking a flight point is the only moment both ends of the route are known.
+-- Clicking a flight point is the only moment both ends of the route are known. Which call the
+-- flight map makes has moved between builds, so every one of them is hooked and whichever fires
+-- wins; ft.hooked says which were there to hook at all.
 function ft.taking(slot)
-    ft.route = { from = ft.here() or "?", to = ft.nodeName(slot) or "?" }
+    local from, to = ft.here(), ft.nodeName(slot)
+    if not to then return end -- a call that told us nothing is not a route
+    ft.route = { from = from or "?", to = to }
+    ft.caught = GetTime()
+end
+
+function ft.hook()
+    ft.hooked = {}
+    for _, name in ipairs({ "TakeTaxiNode", "TaxiNodeOnButtonEnter" }) do
+        if type(_G[name]) == "function" then ft.hooked[#ft.hooked + 1] = name end
+    end
+    pcall(hooksecurefunc, "TakeTaxiNode", function(slot) safe(ft.taking, slot) end)
+    -- some builds route the click through the map frame's own handler instead
+    pcall(function()
+        if TaxiFrame and TaxiFrame.TakeTaxiNode then
+            hooksecurefunc(TaxiFrame, "TakeTaxiNode", function(_, slot) safe(ft.taking, slot) end)
+            ft.hooked[#ft.hooked + 1] = "TaxiFrame:TakeTaxiNode"
+        end
+    end)
 end
 
 function ft.key()
@@ -809,7 +829,7 @@ local function fillFlight(f)
     else -- never flown this one: a full bar, and the time so far
         f.segs[1]:SetMinMaxValues(0, 1)
         f.segs[1]:SetValue(1)
-        f.text:SetText(clock(gone) .. " so far")
+        f.text:SetText(clock(gone) .. (ft.route and " so far" or " -- route not caught"))
     end
 end
 
@@ -5782,6 +5802,28 @@ function ns.MacroReport()
     say(#made .. " of the six were taken, and have been deleted again")
 end
 
+-- /wp flight -- whether the route is being caught, and what is remembered.
+function ns.FlightReport()
+    local function say(t) print("|cff88ccffWolfpack:|r " .. t) end
+    say("on a taxi: " .. tostring(ft.flying()) .. ", timing since: " .. tostring(ft.startedAt))
+    say("hooked: " .. (ft.hooked and #ft.hooked > 0 and table.concat(ft.hooked, ", ") or "nothing"))
+    say("TakeTaxiNode is a " .. type(TakeTaxiNode) .. ", TaxiNodeName a " .. type(TaxiNodeName)
+        .. ", C_TaxiMap a " .. type(C_TaxiMap))
+    say("standing at: " .. tostring(ft.here()))
+    local nodes = {}
+    pcall(function()
+        for _, n in ipairs(C_TaxiMap.GetAllTaxiNodes(C_Map.GetBestMapForUnit("player")) or {}) do
+            nodes[#nodes + 1] = ("%s[%s/%s]"):format(n.name or "?", tostring(n.slotIndex),
+                tostring(n.state))
+        end
+    end)
+    say("flight map: " .. (#nodes > 0 and table.concat(nodes, ", "):sub(1, 260) or "nothing open"))
+    say("last route caught: " .. (ft.key() or "none") .. ", known: " .. tostring(ft.known()))
+    local n = 0
+    for _ in pairs((store and store.flights) or {}) do n = n + 1 end
+    say(n .. " routes remembered")
+end
+
 SlashCmdList.WOLFPACKADDON = function(msg)
     msg = (msg or ""):lower()
     if msg:find("aura") then return safe(ns.AuraReport, (msg:gsub("^%s*auras?%s*", ""))) end
@@ -5790,6 +5832,7 @@ SlashCmdList.WOLFPACKADDON = function(msg)
     if msg:find("pet") then return safe(ns.PetReport) end
     if msg:find("loot") then return safe(ns.LootReport) end
     if msg:find("macro") then return safe(ns.MacroReport) end
+    if msg:find("flight") then return safe(ns.FlightReport) end
     safe(ns.ToggleConfig)
 end
 
@@ -6034,7 +6077,7 @@ ev:SetScript("OnEvent", function(_, event, unit, arg2, arg3)
         store.classProfiles = store.classProfiles or {} -- [class token] = profile name
         store.macros = store.macros or {} -- [class token] = { { name, body, icon }, ... }
         store.flights = store.flights or {} -- ["Ironforge > Menethil Harbor"] = seconds
-        pcall(hooksecurefunc, "TakeTaxiNode", function(slot) safe(ft.taking, slot) end)
+        safe(ft.hook)
         -- The baked macros are added to whatever is already on a shelf, not instead of it, and
         -- each is only ever offered once: delete one and it stays deleted, while any that arrive
         -- in a later version of the addon turn up beside what you have.
