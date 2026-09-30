@@ -914,8 +914,8 @@ assert(prof().nameplate.gap == 4 and prof().nameplate.x == -150 and prof().namep
 assert(prof().regular.gap == 30 and prof().regular.x == 0 and prof().regular.bars.health.width == 220, "regular untouched")
 -- every sidebar entry is really there, opens its page, and that page has settings on it
 for _, name in ipairs({ "Combat Display", "Nameplates", "Buffs", "Training",
-    "Dungeons & Raids", "Attunement", "Other", "Hunter", "Mage", "Rogue", "Shaman",
-    "Warlock" }) do
+    "Dungeons & Raids", "Dungeon quests", "Attunement", "Other", "Hunter", "Mage", "Rogue",
+    "Shaman", "Warlock" }) do
     local b = byText(name)
     assert(b, "sidebar entry missing: " .. name)
     b._scripts.OnClick(b, "LeftButton")
@@ -1987,6 +1987,27 @@ S.onTaxi, WolfpackAddonDB.flights = false, {}
 fire("UNIT_MAXPOWER")
 assert(not ns.frames.flight:IsShown(), "and leaves it again once you are down")
 prof().regular.bars.flight.show = false
+
+-- Dungeon quests: every quest a place has, with who hands it out and what comes first
+byText("Dungeon quests")._scripts.OnClick(byText("Dungeon quests"), "LeftButton")
+assert(ns.dqPanel.picks[1]:IsShown(), "the dungeon list is drawn")
+assert(ns.dqPanel.picks[1]._text:find("%d+%-%d+"), "with the level the place wants: "
+    .. ns.dqPanel.picks[1]._text)
+assert(ns.dqPanel.rows[1]:IsShown() and ns.dqPanel.rows[1].quest, "and its quests beside it")
+-- a quest in a chain says where in the chain it sits
+S.chained = nil
+for _, d in ipairs(WolfpackAddonLootData) do
+    for _, x in ipairs(d.quests) do if (x[11] or 0) > 1 and x[12] then S.chained = x end end
+end
+assert(S.chained, "some quest knows what comes before it")
+assert(S.chained[12] ~= "" and S.chained[10] > 0, "a step number and the one before it")
+-- the two filters cut the list down
+prof().dungeons.openOnly = true
+byText("Dungeon quests")._scripts.OnClick(byText("Dungeon quests"), "LeftButton")
+for _, r in ipairs(ns.dqPanel.rows) do
+    if r:IsShown() then assert(ns.lt.questState(r.quest) == "open", "only the ones you can take") end
+end
+prof().dungeons.openOnly = false
 
 -- Attunements: keys you carry, chains you have finished, standings you have reached
 assert(#ns.attune > 0, "the attunement list shipped with the addon")

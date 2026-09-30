@@ -226,12 +226,39 @@ def zone(zid, refresh=False, jobs=2):
             except Exception as e:  # one odd quest page must not cost the whole run
                 print("    no map for quest %s (%s)" % (qu["id"], e))
                 where = (None, None, 0, 0)
+            try:
+                chain = series(qu["id"], refresh)
+            except Exception:
+                chain = None
             quests.append({"id": qu["id"], "name": qu.get("name", "?"),
                            "level": qu.get("level") or 0, "min": qu.get("reqlevel") or 0,
                            "side": qu.get("side") or 3,  # 1 Alliance, 2 Horde, 3 both
-                           "giver": where[0], "zone": where[1], "x": where[2], "y": where[3]})
+                           "giver": where[0], "zone": where[1], "x": where[2], "y": where[3],
+                           "step": chain[0] if chain else 0, "of": chain[1] if chain else 0,
+                           "after": chain[2] if chain else None})
     quests.sort(key=lambda r: (r["level"], r["name"]))
     return bosses, quests
+
+
+def series(quest_id, refresh=False):
+    """The chain a quest belongs to: (which step this is, how many, the one before it).
+
+    The quest page prints its chain as a little table, the current step in bold, so the page we
+    already read for the giver says this too -- no second visit."""
+    html = get("/quest=%d" % quest_id, refresh)
+    block = re.search(r'<table class="series">(.*?)</table>', html, re.S)
+    if not block:
+        return None
+    steps = []
+    for row in re.finditer(r"<div>(?:<b>(.*?)</b>|<a [^>]*>(.*?)</a>)</div>", block.group(1)):
+        name = row.group(1) or row.group(2) or ""
+        steps.append((re.sub(r"<[^>]+>", "", name).strip(), row.group(1) is not None))
+    if len(steps) < 2:
+        return None
+    at = next((i for i, one in enumerate(steps) if one[1]), None)
+    if at is None:
+        return None
+    return at + 1, len(steps), (steps[at - 1][0] if at > 0 else None)
 
 
 def giver(quest_id, refresh=False):
@@ -309,7 +336,7 @@ def main():
              '-- reach the network itself, so this table is the only way the data gets in.',
              '--',
              '-- WolfpackAddonLootData[i] = { id, name, lo, hi, bosses = { { id, name, items = { {id, name, quality,',
-             '-- level, percent, change}, ... } } }, quests = { {id, name, level, min, side,\n-- giver, zone, x, y}, ... } }',
+             '-- level, percent, change}, ... } } }, quests = { {id, name, level, min, side,\n-- giver, zone, x, y, step, of, after}, ... } }',
              '-- Its own addon so it can be switched off in the addon list: a global, not a',
              '-- namespace, is how the main addon finds it.',
              'WolfpackAddonLootData = {']
@@ -325,10 +352,12 @@ def main():
             lines.append('        } },')
         lines.append('    }, quests = {')
         for qu in d["quests"]:
-            lines.append('        { %s, %s, %s, %s, %s, %s, %s, %s, %s },'
+            lines.append('        { %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s },'
                          % (qu["id"], q(qu["name"]), qu["level"], qu["min"], qu["side"],
                             q(qu["giver"]) if qu["giver"] else "nil",
-                            q(qu["zone"]) if qu["zone"] else "nil", qu["x"], qu["y"]))
+                            q(qu["zone"]) if qu["zone"] else "nil", qu["x"], qu["y"],
+                            qu["step"], qu["of"],
+                            q(qu["after"]) if qu["after"] else "nil"))
         lines.append('    } },')
     lines.append('}')
     os.makedirs(os.path.dirname(OUT), exist_ok=True)

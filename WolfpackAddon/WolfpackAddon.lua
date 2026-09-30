@@ -234,7 +234,7 @@ DEFAULTS.shaman = ns.weaponDefaults(-260)
 DEFAULTS.training = { hideKnown = true, fromMyLevel = true, showCost = true }
 
 DEFAULTS.dungeons = { pick = 0, blueOnly = false, showChance = true, quests = true,
-    tab = "loot", floor = 1, marking = false }
+    tab = "loot", floor = 1, marking = false, hideDoneQuests = false, openOnly = false }
 
 DEFAULTS.warlock = {
     show = true, locked = true, x = 0, y = -220, size = 32, radius = 0,
@@ -4243,7 +4243,8 @@ local function buildConfig()
     -- Sidebar: everything that is about the screen first, then a class shelf of its own.
     local SIDEBAR = { { "combat", "Combat Display", "regular" }, { "nameplates", "Nameplates", "nameplate" },
         { "buffs", "Buffs", "regular" }, { "training", "Training", "regular" },
-        { "dungeons", "Dungeons & Raids", "regular" }, { "attune", "Attunement", "regular" },
+        { "dungeons", "Dungeons & Raids", "regular" }, { "quests", "Dungeon quests", "regular" },
+        { "attune", "Attunement", "regular" },
         { "other", "Other", "regular" } }
     local y = -104
     for _, e in ipairs(SIDEBAR) do
@@ -4296,7 +4297,7 @@ local function buildConfig()
             b:GetFontString():SetTextColor(mine and 1 or 0.65, mine and 0.82 or 0.65,
                 mine and 0 or 0.65)
         end)
-        y = y - 24
+        y = y - 22
     end
     ns.sidebarBottom = y
     local divider = cfg:CreateTexture(nil, "ARTWORK")
@@ -4331,9 +4332,12 @@ local function buildConfig()
     dungPage:SetAllPoints(barsPage)
     local attunePage = CreateFrame("Frame", nil, cfg)
     attunePage:SetAllPoints(barsPage)
+    local dqPage = CreateFrame("Frame", nil, cfg)
+    dqPage:SetAllPoints(barsPage)
     ns.pages = { combat = barsPage, nameplates = questPage, buffs = buffPage, mage = magePage,
         hunter = hunterPage, warlock = lockPage, rogue = roguePage, shaman = shamanPage,
-        training = trainPage, dungeons = dungPage, attune = attunePage, other = otherPage }
+        training = trainPage, dungeons = dungPage, attune = attunePage, quests = dqPage,
+        other = otherPage }
 
     local title = label(cfg, "Combat Display", "GameFontNormalLarge")
     title:SetPoint("TOPLEFT", 150, -72)
@@ -4355,6 +4359,7 @@ local function buildConfig()
             or section == "training" and "What your trainer still has"
             or section == "dungeons" and "Dungeons and raids"
             or section == "attune" and "Attunement: the locked doors"
+            or section == "quests" and "Dungeon quests: where they come from"
             or section == "macros" and ("Macros: " .. mc.shelfName(ns.macroClass))
             or "Combat Display")
         for _, t in ipairs(tabs) do t:SetShown(np) end
@@ -4371,6 +4376,7 @@ local function buildConfig()
         trainPage:SetShown(section == "training")
         dungPage:SetShown(section == "dungeons")
         attunePage:SetShown(section == "attune")
+        dqPage:SetShown(section == "quests")
     end)
 
     local tabNote = label(barsPage, "", "GameFontDisableSmall")
@@ -5469,6 +5475,141 @@ local function buildConfig()
     end)
 
     ----------------------------------------------------------------------------------
+    -- Dungeon quests: every quest a place has, who hands it out, and what comes first
+    ----------------------------------------------------------------------------------
+    local Q = { rows = {}, picks = {} }
+    ns.dqPanel = Q
+    local QG = function() return db.dungeons end -- the same settings the dungeon page uses
+    local qset = group(dqPage, COL[1], TOP, 202, "What this is")
+    check(dqPage, "Hide the ones you have done", qset.x, qset:row(ROW),
+        function() return QG().hideDoneQuests end, function(v) QG().hideDoneQuests = v end)
+    check(dqPage, "Only what I can take now", qset.x, qset:row(ROW),
+        function() return QG().openOnly end, function(v) QG().openOnly = v end)
+    local qsetNote = label(dqPage, "Every quest the place has, who hands it out and where, and "
+        .. "which quest comes before it. Click one to put its giver on the map.",
+        "GameFontDisableSmall")
+    qsetNote:SetPoint("TOPLEFT", qset.x, qset:row(64))
+    qsetNote:SetWidth(182)
+    qsetNote:SetJustifyH("LEFT")
+    qset:close()
+
+    Q.left = CreateFrame("ScrollFrame", nil, dqPage, "UIPanelScrollFrameTemplate")
+    Q.left:SetPoint("TOPLEFT", COL[1] + 8, TOP - 150)
+    Q.left:SetSize(176, 400)
+    Q.leftChild = CreateFrame("Frame", nil, Q.left)
+    Q.leftChild:SetSize(176, 10)
+    Q.left:SetScrollChild(Q.leftChild)
+
+    Q.frame = CreateFrame("Frame", nil, dqPage)
+    Q.frame:SetPoint("TOPLEFT", COL[2], TOP - 4)
+    Q.frame:SetSize(620, 560)
+    local qbg = Q.frame:CreateTexture(nil, "BACKGROUND")
+    qbg:SetAllPoints()
+    qbg:SetColorTexture(0, 0, 0, 0.35)
+    Q.scroll = CreateFrame("ScrollFrame", nil, Q.frame, "UIPanelScrollFrameTemplate")
+    Q.scroll:SetPoint("TOPLEFT", 6, -6)
+    Q.scroll:SetPoint("BOTTOMRIGHT", -28, 6)
+    Q.child = CreateFrame("Frame", nil, Q.scroll)
+    Q.child:SetSize(580, 10)
+    Q.scroll:SetScrollChild(Q.child)
+    Q.empty = label(Q.child, "", "GameFontDisable")
+    Q.empty:SetPoint("TOPLEFT", 8, -8)
+
+    function Q.pick(i)
+        local b = Q.picks[i]
+        if not b then
+            b = button(dqPage, "", 170, 0, 0, function()
+                QG().pick = i
+                changed()
+            end)
+            b:SetParent(Q.leftChild)
+            b:ClearAllPoints()
+            b:SetPoint("TOPLEFT", 0, -(i - 1) * 22)
+            Q.picks[i] = b
+        end
+        return b
+    end
+
+    function Q.row(i)
+        local r = Q.rows[i]
+        if not r then
+            r = CreateFrame("Button", nil, Q.child)
+            r:SetSize(576, 17)
+            r.name = r:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+            r.name:SetPoint("LEFT", 8, 0)
+            r.name:SetJustifyH("LEFT")
+            r.right = r:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
+            r.right:SetPoint("RIGHT", -8, 0)
+            r:SetScript("OnEnter", function(self)
+                if not self.quest then return end
+                GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+                GameTooltip:SetText(self.quest[2])
+                GameTooltip:AddLine(("Level %d, needs level %d"):format(self.quest[3] or 0,
+                    self.quest[4] or 0), 1, 1, 1)
+                if self.quest[6] then
+                    GameTooltip:AddLine(("From %s, %s  %.1f, %.1f"):format(self.quest[6],
+                        self.quest[7] or "?", self.quest[8] or 0, self.quest[9] or 0), 1, 1, 1)
+                    GameTooltip:AddLine("Click to put it on the map", 0.2, 1, 0.2)
+                else
+                    GameTooltip:AddLine("Starts on an item or inside the place", 0.7, 0.7, 0.7)
+                end
+                if self.quest[12] then
+                    GameTooltip:AddLine("Comes after: " .. self.quest[12], 1, 0.82, 0)
+                end
+                GameTooltip:Show()
+            end)
+            r:SetScript("OnLeave", function() GameTooltip:Hide() end)
+            r:SetScript("OnClick", function(self)
+                if self.quest then lt.showOnMap(self.quest) end
+            end)
+            Q.rows[i] = r
+        end
+        return r
+    end
+
+    onRefresh(function()
+        if section ~= "quests" then return end
+        local all = lt.all()
+        if QG().pick == 0 or not all[QG().pick] then QG().pick = lt.forMyLevel() end
+        for i, d in ipairs(all) do
+            local b = Q.pick(i)
+            b:SetText(((d.lo or 0) > 0 and ("%s  |cff888888%d-%d|r"):format(d.name, d.lo, d.hi)
+                or d.name))
+            if i == QG().pick then b:LockHighlight() else b:UnlockHighlight() end
+            b:Show()
+        end
+        for i = #all + 1, #Q.picks do Q.picks[i]:Hide() end
+        Q.leftChild:SetHeight(math.max(#all * 22, 10))
+
+        local here = all[QG().pick]
+        local shown = 0
+        for _, qu in ipairs(here and here.quests or {}) do
+            local how = lt.questState(qu)
+            local skip = (QG().hideDoneQuests and how == "done")
+                or (QG().openOnly and how ~= "open")
+            if not skip then
+                shown = shown + 1
+                local r = Q.row(shown)
+                r.quest = qu
+                r:SetPoint("TOPLEFT", 0, -(shown - 1) * 17)
+                local look = lt.questLook[how] or lt.questLook.open
+                local chain = (qu[11] or 0) > 1 and ("  |cff888888step %d of %d|r"):format(qu[10],
+                    qu[11]) or ""
+                r.name:SetText(("%s  |cff666666(%d)|r%s"):format(qu[2], qu[4] or 0, chain))
+                r.name:SetTextColor(look[2], look[3], look[4])
+                r.right:SetText(qu[6] and (look[1] .. "  -  " .. (qu[7] or "?")) or look[1])
+                r.right:SetTextColor(look[2], look[3], look[4])
+                r:Show()
+            end
+        end
+        for i = shown + 1, #Q.rows do Q.rows[i]:Hide() end
+        Q.child:SetHeight(math.max(shown * 17, 10))
+        Q.empty:SetShown(shown == 0)
+        Q.empty:SetText(here and "Nothing here matches what you asked for."
+            or "The dungeon tables are not loaded.")
+    end)
+
+    ----------------------------------------------------------------------------------
     -- Attunement page: every locked door, and how far along you are
     ----------------------------------------------------------------------------------
     local A = { rows = {} }
@@ -5910,7 +6051,8 @@ local function buildConfig()
         if DG().pick == 0 or not all[DG().pick] then DG().pick = lt.forMyLevel() end
         for i, d in ipairs(all) do
             local b = D.pick(i)
-            b:SetText(d.name)
+            b:SetText(((d.lo or 0) > 0 and ("%s  |cff888888%d-%d|r"):format(d.name, d.lo, d.hi)
+                or d.name))
             if i == DG().pick then b:LockHighlight() else b:UnlockHighlight() end
             b:Show()
         end
