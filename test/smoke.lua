@@ -914,8 +914,7 @@ assert(prof().nameplate.gap == 4 and prof().nameplate.x == -150 and prof().namep
 assert(prof().regular.gap == 30 and prof().regular.x == 0 and prof().regular.bars.health.width == 220, "regular untouched")
 -- every sidebar entry is really there, opens its page, and that page has settings on it
 for _, name in ipairs({ "Combat Display", "Nameplates", "Buffs", "Training",
-    "Dungeons & Raids", "Dungeon quests", "Attunement", "Other", "Hunter", "Mage", "Rogue",
-    "Shaman", "Warlock" }) do
+    "Dungeons & Raids", "Other", "Hunter", "Mage", "Rogue", "Shaman", "Warlock" }) do
     local b = byText(name)
     assert(b, "sidebar entry missing: " .. name)
     b._scripts.OnClick(b, "LeftButton")
@@ -1988,8 +1987,14 @@ fire("UNIT_MAXPOWER")
 assert(not ns.frames.flight:IsShown(), "and leaves it again once you are down")
 prof().regular.bars.flight.show = false
 
--- Dungeon quests: every quest a place has, with who hands it out and what comes first
-byText("Dungeon quests")._scripts.OnClick(byText("Dungeon quests"), "LeftButton")
+-- Dungeon quests: a tab of Dungeons & Raids now, not a shelf of its own
+byText("Dungeons & Raids")._scripts.OnClick(byText("Dungeons & Raids"), "LeftButton")
+byText("Quests")._scripts.OnClick(byText("Quests"), "LeftButton")
+assert(ns.tabPages.quests:IsShown() and not ns.pages.dungeons:IsShown(), "the quests tab opens")
+-- and back to the loot, which is what the section opens on
+byText("Loot")._scripts.OnClick(byText("Loot"), "LeftButton")
+assert(ns.pages.dungeons:IsShown() and not ns.tabPages.quests:IsShown(), "the loot tab comes back")
+byText("Quests")._scripts.OnClick(byText("Quests"), "LeftButton")
 assert(ns.dqPanel.picks[1]:IsShown(), "the dungeon list is drawn")
 assert(ns.dqPanel.picks[1]._text:find("%d+%-%d+"), "with the level the place wants: "
     .. ns.dqPanel.picks[1]._text)
@@ -2003,7 +2008,7 @@ assert(S.chained, "some quest knows what comes before it")
 assert(S.chained[12] ~= "" and S.chained[10] > 0, "a step number and the one before it")
 -- the two filters cut the list down
 prof().dungeons.openOnly = true
-byText("Dungeon quests")._scripts.OnClick(byText("Dungeon quests"), "LeftButton")
+byText("Quests")._scripts.OnClick(byText("Quests"), "LeftButton")
 for _, r in ipairs(ns.dqPanel.rows) do
     if r:IsShown() then assert(ns.lt.questState(r.quest) == "open", "only the ones you can take") end
 end
@@ -2043,8 +2048,10 @@ for _, row in ipairs(ns.attune) do
     if row.side == "alliance" then assert(ns.at.forMe(row), "an Alliance one is") end
     if row.side == "both" then assert(ns.at.forMe(row), "and everyone gets the shared ones") end
 end
--- the page draws places with their steps under them
+-- the page draws places with their steps under them, on its own tab
+byText("Dungeons & Raids")._scripts.OnClick(byText("Dungeons & Raids"), "LeftButton")
 byText("Attunement")._scripts.OnClick(byText("Attunement"), "LeftButton")
+assert(ns.tabPages.attune:IsShown(), "the attunement tab opens")
 assert(ns.attunePanel.rows[1]:IsShown(), "the list is drawn")
 assert(ns.attunePanel.rows[1].right._text:find(" of "), "a place counts its steps")
 assert(ns.attunePanel.rows[2].right._text ~= "", "and a step says what kind it is")

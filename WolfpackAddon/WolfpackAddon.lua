@@ -4240,14 +4240,23 @@ local function buildConfig()
     button(cfg, "Export", 64, 668, -33, function() openIO("export") end)
     button(cfg, "Import", 64, 738, -33, function() openIO("import") end)
 
-    -- Sidebar: everything that is about the screen first, then a class shelf of its own.
-    local SIDEBAR = { { "combat", "Combat Display", "regular" }, { "nameplates", "Nameplates", "nameplate" },
-        { "buffs", "Buffs", "regular" }, { "training", "Training", "regular" },
-        { "dungeons", "Dungeons & Raids", "regular" }, { "quests", "Dungeon quests", "regular" },
-        { "attune", "Attunement", "regular" },
-        { "other", "Other", "regular" } }
+    -- Sidebar: four shelves, each with its heading -- what dresses the screen, what you do
+    -- out in the world, your classes, and your macros.
     local y = -104
-    for _, e in ipairs(SIDEBAR) do
+    local function shelf(title)
+        y = y - 14
+        local line = cfg:CreateTexture(nil, "ARTWORK")
+        line:SetColorTexture(1, 1, 1, 0.15)
+        line:SetPoint("TOPLEFT", 12, y + 8)
+        line:SetSize(118, 1)
+        label(cfg, title, "GameFontDisableSmall"):SetPoint("TOPLEFT", 14, y)
+        y = y - 16
+    end
+
+    shelf("UI")
+    for _, e in ipairs({ { "combat", "Combat Display", "regular" },
+        { "nameplates", "Nameplates", "nameplate" }, { "buffs", "Buffs", "regular" },
+        { "other", "Other", "regular" } }) do
         local b = button(cfg, e[2], 118, 12, y, function()
             section, mode = e[1], e[3]
             changed()
@@ -4255,14 +4264,18 @@ local function buildConfig()
         onRefresh(function() if section == e[1] then b:LockHighlight() else b:UnlockHighlight() end end)
         y = y - 24
     end
-    y = y - 14
-    local shelfLine = cfg:CreateTexture(nil, "ARTWORK")
-    shelfLine:SetColorTexture(1, 1, 1, 0.15)
-    shelfLine:SetPoint("TOPLEFT", 12, y + 8)
-    shelfLine:SetSize(118, 1)
-    local shelf = label(cfg, "Classes", "GameFontDisableSmall")
-    shelf:SetPoint("TOPLEFT", 14, y)
-    y = y - 16
+
+    shelf("Adventure")
+    for _, e in ipairs({ { "dungeons", "Dungeons & Raids" }, { "training", "Training" } }) do
+        local b = button(cfg, e[2], 118, 12, y, function()
+            section, mode = e[1], "regular"
+            changed()
+        end)
+        onRefresh(function() if section == e[1] then b:LockHighlight() else b:UnlockHighlight() end end)
+        y = y - 24
+    end
+
+    shelf("Classes")
     for _, e in ipairs(ns.CLASS_SECTIONS) do
         local b = button(cfg, e[2], 118, 12, y, function()
             section, mode = e[1], "regular"
@@ -4276,14 +4289,7 @@ local function buildConfig()
         y = y - 24
     end
 
-    y = y - 14
-    local macroLine = cfg:CreateTexture(nil, "ARTWORK")
-    macroLine:SetColorTexture(1, 1, 1, 0.15)
-    macroLine:SetPoint("TOPLEFT", 12, y + 8)
-    macroLine:SetSize(118, 1)
-    local macroHead = label(cfg, "Macros", "GameFontDisableSmall")
-    macroHead:SetPoint("TOPLEFT", 14, y)
-    y = y - 16
+    shelf("Macros")
     for _, e in ipairs(ns.MACRO_SHELVES) do
         local b = button(cfg, e[2], 108, 22, y, function()
             section, mode, ns.macroClass = "macros", "regular", e[1]
@@ -4336,11 +4342,28 @@ local function buildConfig()
     dqPage:SetAllPoints(barsPage)
     ns.pages = { combat = barsPage, nameplates = questPage, buffs = buffPage, mage = magePage,
         hunter = hunterPage, warlock = lockPage, rogue = roguePage, shaman = shamanPage,
-        training = trainPage, dungeons = dungPage, attune = attunePage, quests = dqPage,
-        other = otherPage }
+        training = trainPage, dungeons = dungPage, other = otherPage }
+    ns.tabPages = { quests = dqPage, attune = attunePage } -- tabs of Dungeons & Raids
 
     local title = label(cfg, "Combat Display", "GameFontNormalLarge")
     title:SetPoint("TOPLEFT", 150, -72)
+    -- Dungeons & Raids keeps four tabs of its own, on the window so that swapping the page
+    -- underneath them does not take them with it
+    local dtabs = {}
+    for i, t in ipairs({ { "loot", "Loot" }, { "quests", "Quests" }, { "map", "Map" },
+        { "attune", "Attunement" } }) do
+        dtabs[i] = button(cfg, t[2], 106, 150 + (i - 1) * 112, -68, function()
+            db.dungeons.tab = t[1]
+            changed()
+        end)
+        onRefresh(function()
+            local on = (db.dungeons.tab or "loot") == t[1]
+            if on then dtabs[i]:LockHighlight() else dtabs[i]:UnlockHighlight() end
+            dtabs[i]:SetShown(section == "dungeons"
+                and (t[1] ~= "map" or ns.dung.hasMap == true))
+        end)
+    end
+
     local tabs = {}
     for i, t in ipairs({ { "bars", "Bars" }, { "quest", "Quest mobs" } }) do
         tabs[i] = button(cfg, t[2], 110, 150 + (i - 1) * 116, -68, function() sub = t[1]; changed() end)
@@ -4358,8 +4381,10 @@ local function buildConfig()
             or section == "shaman" and "Shaman: weapon imbues"
             or section == "training" and "What your trainer still has"
             or section == "dungeons" and "Dungeons and raids"
-            or section == "attune" and "Attunement: the locked doors"
-            or section == "quests" and "Dungeon quests: where they come from"
+            or section == "dungeons" and (db.dungeons.tab == "attune"
+                and "Attunement: the locked doors"
+                or db.dungeons.tab == "quests" and "Dungeon quests: where they come from"
+                or "Dungeons and raids")
             or section == "macros" and ("Macros: " .. mc.shelfName(ns.macroClass))
             or "Combat Display")
         for _, t in ipairs(tabs) do t:SetShown(np) end
@@ -4374,9 +4399,10 @@ local function buildConfig()
         roguePage:SetShown(section == "rogue")
         shamanPage:SetShown(section == "shaman")
         trainPage:SetShown(section == "training")
-        dungPage:SetShown(section == "dungeons")
-        attunePage:SetShown(section == "attune")
-        dqPage:SetShown(section == "quests")
+        local onDung, dtab = section == "dungeons", db.dungeons.tab or "loot"
+        dungPage:SetShown(onDung and (dtab == "loot" or dtab == "map"))
+        dqPage:SetShown(onDung and dtab == "quests")
+        attunePage:SetShown(onDung and dtab == "attune")
     end)
 
     local tabNote = label(barsPage, "", "GameFontDisableSmall")
@@ -5568,7 +5594,7 @@ local function buildConfig()
     end
 
     onRefresh(function()
-        if section ~= "quests" then return end
+        if section ~= "dungeons" or (db.dungeons.tab or "loot") ~= "quests" then return end
         local all = lt.all()
         if QG().pick == 0 or not all[QG().pick] then QG().pick = lt.forMyLevel() end
         for i, d in ipairs(all) do
@@ -5658,7 +5684,7 @@ local function buildConfig()
     end
 
     onRefresh(function()
-        if section ~= "attune" then return end
+        if section ~= "dungeons" or (db.dungeons.tab or "loot") ~= "attune" then return end
         local list = at.list()
         A.empty:SetShown(#list == 0)
         for i, e in ipairs(list) do
@@ -5708,20 +5734,6 @@ local function buildConfig()
     D.leftChild = CreateFrame("Frame", nil, D.left)
     D.leftChild:SetSize(176, 10)
     D.left:SetScrollChild(D.leftChild)
-
-    D.tabs = {}
-    for i, t in ipairs({ { "loot", "Loot & quests" }, { "map", "Map" } }) do
-        D.tabs[i] = button(dungPage, t[2], 120, COL[2] + (i - 1) * 126, TOP + 22, function()
-            DG().tab = t[1]
-            changed()
-        end)
-        onRefresh(function()
-            if (DG().tab or "loot") == t[1] then D.tabs[i]:LockHighlight()
-            else D.tabs[i]:UnlockHighlight() end
-            -- no dungeon maps on this build; the tab appears by itself if that ever changes
-            if t[1] == "map" then D.tabs[i]:SetShown(D.hasMap == true) end
-        end)
-    end
 
     D.right = CreateFrame("Frame", nil, dungPage)
     D.right:SetPoint("TOPLEFT", COL[2], TOP - 4)
@@ -6023,7 +6035,7 @@ local function buildConfig()
     end
 
     onRefresh(function()
-        if section ~= "dungeons" then return end
+        if section ~= "dungeons" or not dungPage:IsShown() then return end
         local all = lt.all()
         -- walk into a place and the list opens on it; the zone text says which, and it is only
         -- followed while it changes, so clicking another dungeon afterwards still sticks
