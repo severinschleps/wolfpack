@@ -982,16 +982,22 @@ assert(ns.lt.questState(qu) == "low", "too low for it yet")
 S.level, S.faction = 60, "Horde"
 assert(ns.lt.questState(qu) == "faction", "an Alliance quest is not yours to take")
 S.faction = "Alliance"
--- and the page paints that state next to the name
+-- the quests tab paints that state next to the name; the loot tab has only loot on it
 byText("Dungeons & Raids")._scripts.OnClick(byText("Dungeons & Raids"), "LeftButton")
-local sawState = false
+byText("Loot")._scripts.OnClick(byText("Loot"), "LeftButton")
 for _, r in ipairs(ns.dung.rows) do
+    assert(not (r:IsShown() and r.quest), "no quests among the loot")
+end
+byText("Quests")._scripts.OnClick(byText("Quests"), "LeftButton")
+S.sawState = false
+for _, r in ipairs(ns.dqPanel.rows) do
     if r:IsShown() and r.quest then
         assert(r.right._text ~= "", "a quest row carries its state: " .. tostring(r.right._text))
-        sawState = true
+        S.sawState = true
     end
 end
-assert(sawState, "quests are on the page at all")
+assert(S.sawState, "quests are on their own tab")
+byText("Loot")._scripts.OnClick(byText("Loot"), "LeftButton")
 -- the map tab draws the game's own tiles and puts you on them
 S.mapArt = { [291] = { layer = { layerWidth = 1000, layerHeight = 800, tileWidth = 500,
     tileHeight = 400 }, tiles = { 11, 12, 13, 14 } } }
@@ -1109,12 +1115,14 @@ S.waypoint, S.mapShown = nil, nil
 assert(not ns.lt.showOnMap({ 1, "?", 1, 1, 3, "Someone", "Elsewhen", 10, 10 }), "no such zone")
 assert(not ns.lt.showOnMap({ 1, "?", 1, 1, 3, nil, nil, 0, 0 }), "nobody hands it out")
 assert(S.mapShown == nil and S.waypoint == nil, "and nothing was poked either time")
--- clicking the row itself goes through the same door
+-- clicking a row on the quests tab goes through the same door
+byText("Quests")._scripts.OnClick(byText("Quests"), "LeftButton")
 local row
-for _, r in ipairs(ns.dung.rows) do if r:IsShown() and r.quest then row = r break end end
-assert(row, "a quest row is on the page")
+for _, r in ipairs(ns.dqPanel.rows) do if r:IsShown() and r.quest then row = r break end end
+assert(row, "a quest row is on the quests tab")
 row._scripts.OnClick(row)
 assert(not ns.errored, "clicking one never errors, wherever it points")
+byText("Loot")._scripts.OnClick(byText("Loot"), "LeftButton")
 -- in a fight nothing is touched
 S.combat = true
 S.waypoint, S.mapShown = nil, nil

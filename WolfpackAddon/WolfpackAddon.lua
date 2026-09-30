@@ -233,7 +233,7 @@ DEFAULTS.shaman = ns.weaponDefaults(-260)
 -- Warlock: the soul shards in your bags.
 DEFAULTS.training = { hideKnown = true, fromMyLevel = true, showCost = true }
 
-DEFAULTS.dungeons = { pick = 0, blueOnly = false, showChance = true, quests = true,
+DEFAULTS.dungeons = { pick = 0, blueOnly = false, showChance = true,
     tab = "loot", floor = 1, marking = false, hideDoneQuests = false, openOnly = false }
 
 DEFAULTS.warlock = {
@@ -3302,10 +3302,6 @@ function lt.rows(dungeon)
             for _, it in ipairs(items) do out[#out + 1] = { item = it } end
         end
     end
-    if o.quests and #(dungeon.quests or {}) > 0 then
-        out[#out + 1] = { boss = "Quests for this place" }
-        for _, qu in ipairs(dungeon.quests) do out[#out + 1] = { quest = qu } end
-    end
     return out
 end
 
@@ -5724,8 +5720,6 @@ local function buildConfig()
         function() return DG().blueOnly end, function(v) DG().blueOnly = v end)
     check(dungPage, "Show drop chance", dset.x, dset:row(ROW),
         function() return DG().showChance end, function(v) DG().showChance = v end)
-    check(dungPage, "List the quests too", dset.x, dset:row(ROW),
-        function() return DG().quests end, function(v) DG().quests = v end)
     dset:close()
 
     D.left = CreateFrame("ScrollFrame", nil, dungPage, "UIPanelScrollFrameTemplate")
@@ -5769,34 +5763,13 @@ local function buildConfig()
             r.right = r:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
             r.right:SetPoint("RIGHT", -8, 0)
             r:SetScript("OnEnter", function(self)
-                if not self.itemID and not self.quest then return end
+                if not self.itemID then return end
                 GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
-                if self.itemID then
-                    local ok = pcall(GameTooltip.SetItemByID, GameTooltip, self.itemID)
-                    if not ok then GameTooltip:SetText(self.name:GetText() or "") end
-                else
-                    GameTooltip:SetText(self.quest[2])
-                    if self.quest[6] then
-                        GameTooltip:AddLine("From " .. self.quest[6], 1, 1, 1)
-                        GameTooltip:AddLine(("%s  %.1f, %.1f"):format(self.quest[7] or "?",
-                            self.quest[8] or 0, self.quest[9] or 0), 0.7, 0.7, 0.7)
-                        GameTooltip:AddLine("Click to put it on the map", 0.2, 1, 0.2)
-                    else
-                        GameTooltip:AddLine("Nobody hands this one out -- it starts on an item "
-                            .. "or inside the place.", 0.7, 0.7, 0.7, true)
-                    end
-                end
+                local ok = pcall(GameTooltip.SetItemByID, GameTooltip, self.itemID)
+                if not ok then GameTooltip:SetText(self.name:GetText() or "") end
                 GameTooltip:Show()
             end)
             r:SetScript("OnLeave", function() GameTooltip:Hide() end)
-            r:SetScript("OnClick", function(self)
-                if not self.quest then return end
-                if not lt.showOnMap(self.quest) then
-                    print("|cff88ccffWolfpack:|r " .. (InCombatLockdown()
-                        and "not while you are fighting"
-                        or "no map spot for that one"))
-                end
-            end)
             D.rows[i] = r
         end
         return r
@@ -6077,7 +6050,7 @@ local function buildConfig()
         for i, e in ipairs(list) do
             local r = D.row(i)
             r:SetPoint("TOPLEFT", 0, -(i - 1) * 18)
-            r.itemID, r.quest = nil, nil
+            r.itemID = nil
             if e.item then
                 local id, name, quality, need, pct, change = e.item[1], e.item[2], e.item[3],
                     e.item[4], e.item[5], e.item[6]
@@ -6094,16 +6067,6 @@ local function buildConfig()
                     note = (note ~= "" and note .. "  " or "") .. pct .. "%"
                 end
                 r.right:SetText(note)
-            elseif e.quest then
-                r.quest = e.quest
-                r.icon:Hide()
-                local how = lt.questLook[lt.questState(e.quest)] or lt.questLook.open
-                r.name:SetText(e.quest[2])
-                r.name:SetTextColor(how[2], how[3], how[4])
-                local why = how[1]
-                if why == "too low" then why = "needs level " .. (e.quest[4] or 0) end
-                r.right:SetText(why)
-                r.right:SetTextColor(how[2], how[3], how[4])
             else
                 r.icon:Hide()
                 r.name:SetText(e.boss)
