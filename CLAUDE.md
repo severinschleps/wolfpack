@@ -53,6 +53,11 @@ real bug gets a test that fails without the fix.
   A position that lands on black is dropped rather than shipped in the wrong place, which
   is what happens to the other floors of a multi-floor dungeon.
 
+- `Attune.lua` — what each locked door wants, built by `tools/bake_attune.py`. The table of
+  ids lives in that script and every one is checked against Wowhead's Forever pages before
+  it ships; a name that does not come back the same is dropped. Nothing is taken from the
+  Attune addon, which is All Rights Reserved.
+
 An addon cannot reach the network at runtime, so shipping a generated table is the
 only way this data gets in. Keep `tools/.cache/` out of git.
 

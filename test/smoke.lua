@@ -415,6 +415,8 @@ ColorPickerFrame = {
 S.plates, S.tips, S.related, S.quests = {}, {}, {}, {}
 C_NamePlate = { GetNamePlateForUnit = function(unit) return unit == "target" and S.plate or S.plates[unit] end }
 C_TooltipInfo = { GetUnit = function(unit) return { lines = S.tips[unit] or {} } end }
+GetItemCount = function(id) return (S.items or {})[id] or 0 end
+GetFactionInfoByID = function(id) return "Faction", "", (S.standing or {})[id] or 4 end
 C_QuestLog = {
     UnitIsRelatedToActiveQuest = function(unit) return S.related[unit] or false end,
     GetNumQuestLogEntries = function() return #S.quests end,
@@ -449,6 +451,7 @@ DAMAGE_TEXT_FONT = "Fonts\\FRIZQT__.TTF"
 local ns = {}
 assert(loadfile("WolfpackAddon/Data/Training.lua"))("WolfpackAddon", ns) -- loaded first, per the toc
 assert(loadfile("WolfpackAddon/Data/Macros.lua"))("WolfpackAddon", ns)
+assert(loadfile("WolfpackAddon/Data/Attune.lua"))("WolfpackAddon", ns)
 assert(loadfile("WolfpackAddon_Loot/Data.lua"))() -- its own addon; it sets a global
 assert(loadfile("WolfpackAddon/WolfpackAddon.lua"))("WolfpackAddon", ns)
 for _, c in ipairs({ "DRUID", "HUNTER", "MAGE", "PALADIN", "PRIEST", "ROGUE", "SHAMAN",
@@ -911,7 +914,8 @@ assert(prof().nameplate.gap == 4 and prof().nameplate.x == -150 and prof().namep
 assert(prof().regular.gap == 30 and prof().regular.x == 0 and prof().regular.bars.health.width == 220, "regular untouched")
 -- every sidebar entry is really there, opens its page, and that page has settings on it
 for _, name in ipairs({ "Combat Display", "Nameplates", "Buffs", "Training",
-    "Dungeons & Raids", "Other", "Hunter", "Mage", "Rogue", "Shaman", "Warlock" }) do
+    "Dungeons & Raids", "Attunement", "Other", "Hunter", "Mage", "Rogue", "Shaman",
+    "Warlock" }) do
     local b = byText(name)
     assert(b, "sidebar entry missing: " .. name)
     b._scripts.OnClick(b, "LeftButton")
@@ -1983,6 +1987,47 @@ S.onTaxi, WolfpackAddonDB.flights = false, {}
 fire("UNIT_MAXPOWER")
 assert(not ns.frames.flight:IsShown(), "and leaves it again once you are down")
 prof().regular.bars.flight.show = false
+
+-- Attunements: keys you carry, chains you have finished, standings you have reached
+assert(#ns.attune > 0, "the attunement list shipped with the addon")
+S.faction, S.questDone, S.items, S.standing = "Horde", {}, {}, {}
+for _, e in ipairs(ns.at.list()) do
+    if e.place then assert(e.done == 0, e.place .. " starts shut") end
+end
+-- a quest you have finished, a key you carry, a standing you have reached
+S.steps = {}
+for _, row in ipairs(ns.attune) do
+    if row.place == "Molten Core" then S.steps.quest = row.steps[1] end
+    if row.place == "Scholomance" then S.steps.key = row.steps[1] end
+end
+assert(S.steps.quest[1] == "q" and S.steps.key[1] == "i", "one of each kind is in there")
+assert(not ns.at.done(S.steps.quest), "the core is shut")
+S.questDone[S.steps.quest[2]] = true
+assert(ns.at.done(S.steps.quest), "until that quest is behind you")
+assert(not ns.at.done(S.steps.key), "no key, no Scholomance")
+S.items[S.steps.key[2]] = 1
+assert(ns.at.done(S.steps.key), "carrying it is what counts")
+S.items[S.steps.key[2]] = 0
+assert(not ns.at.done(S.steps.key), "and losing it shuts the door again")
+assert(not ns.at.done({ "r", 529, "Argent Dawn" }), "neutral is not enough for Naxxramas")
+S.standing[529] = 6
+assert(ns.at.done({ "r", 529, "Argent Dawn" }), "honoured is")
+-- the side you are on decides which chain you are shown
+S.sides = {}
+for _, row in ipairs(ns.attune) do S.sides[row.side] = true end
+assert(S.sides.alliance and S.sides.horde, "both sides have a chain of their own in there")
+S.faction = "Alliance"
+for _, row in ipairs(ns.attune) do
+    if row.side == "horde" then assert(not ns.at.forMe(row), "a Horde chain is not yours") end
+    if row.side == "alliance" then assert(ns.at.forMe(row), "an Alliance one is") end
+    if row.side == "both" then assert(ns.at.forMe(row), "and everyone gets the shared ones") end
+end
+-- the page draws places with their steps under them
+byText("Attunement")._scripts.OnClick(byText("Attunement"), "LeftButton")
+assert(ns.attunePanel.rows[1]:IsShown(), "the list is drawn")
+assert(ns.attunePanel.rows[1].right._text:find(" of "), "a place counts its steps")
+assert(ns.attunePanel.rows[2].right._text ~= "", "and a step says what kind it is")
+S.questDone, S.items, S.standing, S.faction = {}, {}, {}, "Horde"
 
 -- Macros: kept here without limit, handed to the game one at a time
 login("WARRIOR", 1)

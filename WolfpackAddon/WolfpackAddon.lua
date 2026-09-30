@@ -295,7 +295,7 @@ end
 ------------------------------------------------------------------------------------------
 -- store = WolfpackAddonDB, account-wide: { profiles = { [name] = settings }, chars = { [char] = name } }
 -- db = the active profile's settings.
-local changed, placeMini, useProfile, bf, mg, hn, wl, we, tr, lt, mc, ft, seedFromBaked
+local changed, placeMini, useProfile, bf, mg, hn, wl, we, tr, lt, mc, ft, at, seedFromBaked
 
 -- Bars that only show while they are doing something (cast, swing) stay visible while the bars
 -- are unlocked or the options are open, so they can be placed.
@@ -2736,6 +2736,72 @@ function tr.list()
 end
 
 ------------------------------------------------------------------------------------------
+-- Attunements: what stands between you and each locked door. The steps live in Data/Attune.lua,
+-- every one of them checked against Wowhead before it shipped. Nothing here is taken from the
+-- Attune addon, which is All Rights Reserved -- which quest opens a place is a fact, its code
+-- is not.
+
+at = {}
+ns.at = at
+
+-- Is one step behind you? A quest you have finished, an item you are carrying, or a standing
+-- you have reached. Every call is wrapped: a value can be secret on this client, and raising is
+-- what that looks like.
+function at.done(step)
+    local kind, id = step[1], step[2]
+    if kind == "q" then
+        local ok, yes = pcall(function()
+            if C_QuestLog and C_QuestLog.IsQuestFlaggedCompleted then
+                return C_QuestLog.IsQuestFlaggedCompleted(id)
+            end
+            return IsQuestFlaggedCompleted and IsQuestFlaggedCompleted(id)
+        end)
+        return ok and yes == true
+    elseif kind == "i" then
+        local ok, many = pcall(function()
+            if C_Item and C_Item.GetItemCount then return C_Item.GetItemCount(id, true) end
+            return GetItemCount and GetItemCount(id, true)
+        end)
+        return ok and type(many) == "number" and many > 0
+    elseif kind == "r" then
+        local ok, standing = pcall(function()
+            if C_Reputation and C_Reputation.GetFactionDataByID then
+                local data = C_Reputation.GetFactionDataByID(id)
+                return data and data.reaction
+            end
+            return select(3, GetFactionInfoByID(id))
+        end)
+        return ok and type(standing) == "number" and standing >= 6 -- honoured or better
+    end
+    return false
+end
+
+function at.forMe(row)
+    if row.side == "both" then return true end
+    local ok, mine = pcall(UnitFactionGroup, "player")
+    if not ok or type(mine) ~= "string" then return true end
+    return row.side == mine:lower()
+end
+
+-- One flat list to draw: a place, then its steps, with where you stand on each.
+function at.list()
+    local out = {}
+    for _, row in ipairs(ns.attune or {}) do
+        if at.forMe(row) then
+            local done, steps = 0, {}
+            for _, step in ipairs(row.steps) do
+                local had = at.done(step)
+                if had then done = done + 1 end
+                steps[#steps + 1] = { step = step, done = had }
+            end
+            out[#out + 1] = { place = row.place, done = done, of = #row.steps }
+            for _, one in ipairs(steps) do out[#out + 1] = one end
+        end
+    end
+    return out
+end
+
+------------------------------------------------------------------------------------------
 -- Macros. Keep as many as you like here -- they live in the saved variables, account-wide, one
 -- shelf per class, and switching profile does not touch them. The game itself has room for
 -- only 120 macros plus 18 on the character, so one is written into a real slot at the moment
@@ -3940,7 +4006,6 @@ StaticPopupDialogs.WOLFPACKADDON_DELETE = {
 
 local openStops -- the gradient points dialog, defined below
 
-local ioFrame
 
 function ns.textArea(parent, y, h) -- on the namespace: this chunk is at Lua's 200-local ceiling
     local area = CreateFrame("Frame", nil, parent)
@@ -3967,7 +4032,7 @@ function ns.textArea(parent, y, h) -- on the namespace: this chunk is at Lua's 2
 end
 
 local function openIO(mode)
-    local f = ioFrame
+    local f = ns.ioFrame
     if not f then
         f = CreateFrame("Frame", "WolfpackAddonIO", UIParent, "BasicFrameTemplateWithInset")
         f:SetSize(540, 400)
@@ -4020,7 +4085,7 @@ local function openIO(mode)
                 if extra then f.area2.box:SetText(extra) end
             end
         end)
-        ioFrame = f
+        ns.ioFrame = f
     end
     local export = mode == "export"
     f.title:SetText(export and "Export" or "Import profile")
@@ -4178,7 +4243,8 @@ local function buildConfig()
     -- Sidebar: everything that is about the screen first, then a class shelf of its own.
     local SIDEBAR = { { "combat", "Combat Display", "regular" }, { "nameplates", "Nameplates", "nameplate" },
         { "buffs", "Buffs", "regular" }, { "training", "Training", "regular" },
-        { "dungeons", "Dungeons & Raids", "regular" }, { "other", "Other", "regular" } }
+        { "dungeons", "Dungeons & Raids", "regular" }, { "attune", "Attunement", "regular" },
+        { "other", "Other", "regular" } }
     local y = -104
     for _, e in ipairs(SIDEBAR) do
         local b = button(cfg, e[2], 118, 12, y, function()
@@ -4186,7 +4252,7 @@ local function buildConfig()
             changed()
         end)
         onRefresh(function() if section == e[1] then b:LockHighlight() else b:UnlockHighlight() end end)
-        y = y - 26
+        y = y - 24
     end
     y = y - 14
     local shelfLine = cfg:CreateTexture(nil, "ARTWORK")
@@ -4206,7 +4272,7 @@ local function buildConfig()
             local on = e[3] == class -- your own class reads brighter than the rest
             b:GetFontString():SetTextColor(on and 1 or 0.65, on and 0.82 or 0.65, on and 0 or 0.65)
         end)
-        y = y - 26
+        y = y - 24
     end
 
     y = y - 14
@@ -4263,9 +4329,11 @@ local function buildConfig()
     trainPage:SetAllPoints(barsPage)
     local dungPage = CreateFrame("Frame", nil, cfg)
     dungPage:SetAllPoints(barsPage)
+    local attunePage = CreateFrame("Frame", nil, cfg)
+    attunePage:SetAllPoints(barsPage)
     ns.pages = { combat = barsPage, nameplates = questPage, buffs = buffPage, mage = magePage,
         hunter = hunterPage, warlock = lockPage, rogue = roguePage, shaman = shamanPage,
-        training = trainPage, dungeons = dungPage, other = otherPage }
+        training = trainPage, dungeons = dungPage, attune = attunePage, other = otherPage }
 
     local title = label(cfg, "Combat Display", "GameFontNormalLarge")
     title:SetPoint("TOPLEFT", 150, -72)
@@ -4286,6 +4354,7 @@ local function buildConfig()
             or section == "shaman" and "Shaman: weapon imbues"
             or section == "training" and "What your trainer still has"
             or section == "dungeons" and "Dungeons and raids"
+            or section == "attune" and "Attunement: the locked doors"
             or section == "macros" and ("Macros: " .. mc.shelfName(ns.macroClass))
             or "Combat Display")
         for _, t in ipairs(tabs) do t:SetShown(np) end
@@ -4301,6 +4370,7 @@ local function buildConfig()
         shamanPage:SetShown(section == "shaman")
         trainPage:SetShown(section == "training")
         dungPage:SetShown(section == "dungeons")
+        attunePage:SetShown(section == "attune")
     end)
 
     local tabNote = label(barsPage, "", "GameFontDisableSmall")
@@ -5396,6 +5466,84 @@ local function buildConfig()
         else
             M.picker:Hide()
         end
+    end)
+
+    ----------------------------------------------------------------------------------
+    -- Attunement page: every locked door, and how far along you are
+    ----------------------------------------------------------------------------------
+    local A = { rows = {} }
+    ns.attunePanel = A
+    local aset = group(attunePage, COL[1], TOP, 202, "What this is")
+    local asetNote = label(attunePage, "Every door that wants a key or a finished quest chain, "
+        .. "and where you stand on each. Green is behind you.\n\nThe steps were checked against "
+        .. "Wowhead's own Forever pages one at a time; anything that did not come back the same "
+        .. "was left out rather than shown wrong.", "GameFontDisableSmall")
+    asetNote:SetPoint("TOPLEFT", aset.x, aset:row(120))
+    asetNote:SetWidth(182)
+    asetNote:SetJustifyH("LEFT")
+    aset:close()
+
+    A.frame = CreateFrame("Frame", nil, attunePage)
+    A.frame:SetPoint("TOPLEFT", COL[2], TOP - 4)
+    A.frame:SetSize(620, 560)
+    local abg = A.frame:CreateTexture(nil, "BACKGROUND")
+    abg:SetAllPoints()
+    abg:SetColorTexture(0, 0, 0, 0.35)
+    A.scroll = CreateFrame("ScrollFrame", nil, A.frame, "UIPanelScrollFrameTemplate")
+    A.scroll:SetPoint("TOPLEFT", 6, -6)
+    A.scroll:SetPoint("BOTTOMRIGHT", -28, 6)
+    A.child = CreateFrame("Frame", nil, A.scroll)
+    A.child:SetSize(580, 10)
+    A.scroll:SetScrollChild(A.child)
+    A.empty = label(A.child, "No attunement list shipped with this copy.", "GameFontDisable")
+    A.empty:SetPoint("TOPLEFT", 8, -8)
+
+    function A.row(i)
+        local r = A.rows[i]
+        if not r then
+            r = CreateFrame("Frame", nil, A.child)
+            r:SetSize(576, 18)
+            r.mark = r:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+            r.mark:SetPoint("LEFT", 8, 0)
+            r.mark:SetWidth(18)
+            r.name = r:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+            r.name:SetPoint("LEFT", r.mark, "RIGHT", 4, 0)
+            r.name:SetJustifyH("LEFT")
+            r.right = r:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
+            r.right:SetPoint("RIGHT", -8, 0)
+            A.rows[i] = r
+        end
+        return r
+    end
+
+    onRefresh(function()
+        if section ~= "attune" then return end
+        local list = at.list()
+        A.empty:SetShown(#list == 0)
+        for i, e in ipairs(list) do
+            local r = A.row(i)
+            r:SetPoint("TOPLEFT", 0, -(i - 1) * 18)
+            if e.place then
+                r.mark:SetText("")
+                r.name:SetText(e.place)
+                r.name:SetTextColor(0.6, 0.85, 1)
+                r.right:SetText(("%d of %d"):format(e.done, e.of))
+                r.right:SetTextColor(e.done == e.of and 0.2 or 0.6, e.done == e.of and 1 or 0.6,
+                    e.done == e.of and 0.2 or 0.6)
+            else
+                local kind = e.step[1]
+                r.mark:SetText(e.done and "|cff33ff33*|r" or "|cff888888-|r")
+                r.name:SetText("   " .. e.step[3])
+                r.name:SetTextColor(e.done and 0.3 or 0.8, e.done and 1 or 0.8,
+                    e.done and 0.3 or 0.8)
+                r.right:SetText(kind == "q" and "quest" or kind == "i" and "carry it"
+                    or "honoured")
+                r.right:SetTextColor(0.5, 0.5, 0.5)
+            end
+            r:Show()
+        end
+        for i = #list + 1, #A.rows do A.rows[i]:Hide() end
+        A.child:SetHeight(math.max(#list * 18, 10))
     end)
 
     ----------------------------------------------------------------------------------
