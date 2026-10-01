@@ -236,6 +236,8 @@ DEFAULTS.training = { hideKnown = true, fromMyLevel = true, showCost = true }
 DEFAULTS.dungeons = { pick = 0, blueOnly = false, showChance = true,
     tab = "loot", floor = 1, marking = false, hideDoneQuests = false, openOnly = false }
 
+DEFAULTS.quests = { hideDone = true, openOnly = false, mineOnly = true, zone = "" }
+
 DEFAULTS.warlock = {
     show = true, locked = true, x = 0, y = -220, size = 32, radius = 0,
     armor = true, armorSize = 32, armorFontSize = 12, armorOnlyMissing = true,
@@ -1345,6 +1347,21 @@ end
 
 -- IsMouseOver works without EnableMouse, so the highlight never blocks clicks.
 local function checkHover() setHover(anchor:IsMouseOver()) end
+
+-- Blizzard's raid and party frames get a see-through overlay while hovered. Kept in a table of
+-- our own rather than on the frame, so nothing of Blizzard's secure frame table is written to.
+-- ponytail: fixed white at 20%, a color option when someone asks for one
+ns.raidHover = setmetatable({}, { __mode = "k" }) -- frame -> overlay texture
+pcall(hooksecurefunc, "CompactUnitFrame_SetUpFrame", function(frame)
+    if ns.raidHover[frame] then return end
+    local tex = frame:CreateTexture(nil, "OVERLAY", nil, 7)
+    tex:SetAllPoints()
+    tex:SetColorTexture(1, 1, 1, 0.2)
+    tex:Hide()
+    ns.raidHover[frame] = tex
+    frame:HookScript("OnEnter", function() tex:Show() end)
+    frame:HookScript("OnLeave", function() tex:Hide() end)
+end)
 
 -- Blizzard UI elements that can show only on mouseover. Protected bars may not be hidden in
 -- combat, but their alpha may change: invisible, still clickable, keybinds still work.
@@ -3207,6 +3224,67 @@ function lt.floors(mapID)
     return out
 end
 
+-- The three quest piles. The data is its own addon, so it can be switched off.
+-- A row is { id, name, level, min, side, class, zone, giver, giverZone, x, y, step, of, after }.
+lt.QUEST_PILES = { { "qdungeon", "Dungeon quests", "dungeon" },
+    { "qraid", "Raid quests", "raid" }, { "qnormal", "Normal quests", "normal" } }
+
+function lt.pile(which)
+    local all = WolfpackAddonQuestData
+    return (all and all[which]) or {}
+end
+
+-- The classes a quest is for. Blizzard's own order, as a bitmask; nothing set means anybody.
+ns.CLASS_BITS = { WARRIOR = 1, PALADIN = 2, HUNTER = 4, ROGUE = 8, PRIEST = 16,
+    DEATHKNIGHT = 32, SHAMAN = 64, MAGE = 128, WARLOCK = 256, DRUID = 1024 }
+
+-- Where you stand with one quest from those piles: the same words the dungeon tab uses, plus
+-- the two this one can also tell -- a quest for somebody else's class, and one you have
+-- outgrown. The row is shaped differently, so the fields are named rather than counted.
+function lt.pileState(row)
+    local id, level, need, side, bits = row[1], row[3], row[4], row[5], row[6]
+    local ok, done = pcall(function()
+        if C_QuestLog and C_QuestLog.IsQuestFlaggedCompleted then
+            return C_QuestLog.IsQuestFlaggedCompleted(id)
+        end
+        return IsQuestFlaggedCompleted and IsQuestFlaggedCompleted(id)
+    end)
+    if ok and done == true then return "done" end
+    local inLog = select(2, pcall(function()
+        if C_QuestLog and C_QuestLog.GetLogIndexForQuestID then
+            return C_QuestLog.GetLogIndexForQuestID(id)
+        end
+    end))
+    if type(inLog) == "number" then return "log" end
+    if side == 1 or side == 2 then
+        if side ~= (UnitFactionGroup("player") == "Alliance" and 1 or 2) then return "faction" end
+    end
+    if (bits or 0) > 0 then
+        local mine = ns.CLASS_BITS[class or ""] or 0
+        -- bit.band is not everywhere; the bitmask is small enough to walk
+        local has, bit = false, 1
+        for _ = 1, 12 do
+            if bit == mine and math.floor(bits / bit) % 2 == 1 then has = true end
+            bit = bit * 2
+        end
+        if not has then return "class" end
+    end
+    local lvl = UnitLevel("player") or 1
+    if lvl < (need or 0) then return "low" end
+    if (level or 0) > 0 and lvl > level + 8 then return "trivial" end
+    return "open"
+end
+
+lt.pileLook = {
+    done = { "done", 0.5, 0.5, 0.5 },
+    log = { "in your log", 1, 0.82, 0 },
+    open = { "pick it up", 0.2, 1, 0.2 },
+    low = { "too low", 0.8, 0.4, 0.4 },
+    trivial = { "outgrown", 0.5, 0.5, 0.5 },
+    class = { "another class", 0.6, 0.6, 0.6 },
+    faction = { "other side", 0.6, 0.6, 0.6 },
+}
+
 -- Where the bosses stand. Wowhead marks nothing inside an instance and the game will not say
 -- where anything is in there, so the positions ride along in the loot tables, taken from
 -- SimpleDungeonMap. Anything you place by hand sits on top of those and wins.
@@ -4277,7 +4355,9 @@ local function buildConfig()
     end
 
     shelf("Adventure")
-    for _, e in ipairs({ { "dungeons", "Dungeons & Raids" }, { "training", "Training" } }) do
+    for _, e in ipairs({ { "dungeons", "Dungeons & Raids" }, { "qdungeon", "Dungeon quests" },
+        { "qraid", "Raid quests" }, { "qnormal", "Normal quests" },
+        { "training", "Training" } }) do
         local b = button(cfg, e[2], 118, 12, y, function()
             section, mode = e[1], "regular"
             changed()
@@ -4351,9 +4431,12 @@ local function buildConfig()
     attunePage:SetAllPoints(barsPage)
     local dqPage = CreateFrame("Frame", nil, cfg)
     dqPage:SetAllPoints(barsPage)
+    local pilePage = CreateFrame("Frame", nil, cfg)
+    pilePage:SetAllPoints(barsPage)
     ns.pages = { combat = barsPage, nameplates = questPage, buffs = buffPage, mage = magePage,
         hunter = hunterPage, warlock = lockPage, rogue = roguePage, shaman = shamanPage,
-        training = trainPage, dungeons = dungPage, other = otherPage }
+        training = trainPage, dungeons = dungPage, other = otherPage,
+        qdungeon = pilePage, qraid = pilePage, qnormal = pilePage }
     ns.tabPages = { quests = dqPage, attune = attunePage } -- tabs of Dungeons & Raids
 
     local title = label(cfg, "Combat Display", "GameFontNormalLarge")
@@ -4392,6 +4475,9 @@ local function buildConfig()
             or section == "shaman" and "Shaman: weapon imbues"
             or section == "training" and "What your trainer still has"
             or section == "dungeons" and "Dungeons and raids"
+            or section == "qdungeon" and "Dungeon quests"
+            or section == "qraid" and "Raid quests"
+            or section == "qnormal" and "Quests out in the world"
             or section == "dungeons" and (db.dungeons.tab == "attune"
                 and "Attunement: the locked doors"
                 or db.dungeons.tab == "quests" and "Dungeon quests: where they come from"
@@ -4413,6 +4499,7 @@ local function buildConfig()
         local onDung, dtab = section == "dungeons", db.dungeons.tab or "loot"
         dungPage:SetShown(onDung and (dtab == "loot" or dtab == "map"))
         dqPage:SetShown(onDung and dtab == "quests")
+        pilePage:SetShown(section == "qdungeon" or section == "qraid" or section == "qnormal")
         attunePage:SetShown(onDung and dtab == "attune")
     end)
 
@@ -5509,6 +5596,133 @@ local function buildConfig()
         else
             M.picker:Hide()
         end
+    end)
+
+    ----------------------------------------------------------------------------------
+    -- The three quest piles, on one page: which one is open depends on the shelf you clicked
+    ----------------------------------------------------------------------------------
+    local P = { rows = {} }
+    ns.pilePanel = P
+    local PG = function() return db.quests end
+    local function pileKey()
+        for _, e in ipairs(lt.QUEST_PILES) do
+            if e[1] == section then return e[3] end
+        end
+        return "dungeon"
+    end
+
+    local pset = group(pilePage, COL[1], TOP, 202, "Show me")
+    check(pilePage, "Only mine to take", pset.x, pset:row(ROW),
+        function() return PG().mineOnly end, function(v) PG().mineOnly = v end)
+    check(pilePage, "Hide the ones I have done", pset.x, pset:row(ROW),
+        function() return PG().hideDone end, function(v) PG().hideDone = v end)
+    check(pilePage, "Only what I can take now", pset.x, pset:row(ROW),
+        function() return PG().openOnly end, function(v) PG().openOnly = v end)
+    label(pilePage, "Zone", "GameFontNormal"):SetPoint("TOPLEFT", pset.x, pset:row(20))
+    P.zone = CreateFrame("EditBox", nil, pilePage, "InputBoxTemplate")
+    P.zone:SetPoint("TOPLEFT", pset.x + 8, pset:row(30))
+    P.zone:SetSize(170, 22)
+    P.zone:SetAutoFocus(false)
+    P.zone:SetScript("OnTextChanged", function() changed() end)
+    P.zone:SetScript("OnEscapePressed", function(self) self:SetText("") self:ClearFocus() end)
+    P.count = label(pilePage, "", "GameFontDisableSmall")
+    P.count:SetPoint("TOPLEFT", pset.x, pset:row(26))
+    local psetNote = label(pilePage, "Your own side's quests, with the chain each belongs to and "
+        .. "what it wants of you. Click one to put whoever hands it out on the map.",
+        "GameFontDisableSmall")
+    psetNote:SetPoint("TOPLEFT", pset.x, pset:row(60))
+    psetNote:SetWidth(182)
+    psetNote:SetJustifyH("LEFT")
+    pset:close()
+
+    P.frame = CreateFrame("Frame", nil, pilePage)
+    P.frame:SetPoint("TOPLEFT", COL[2], TOP - 4)
+    P.frame:SetSize(620, 560)
+    local pbg = P.frame:CreateTexture(nil, "BACKGROUND")
+    pbg:SetAllPoints()
+    pbg:SetColorTexture(0, 0, 0, 0.35)
+    P.scroll = CreateFrame("ScrollFrame", nil, P.frame, "UIPanelScrollFrameTemplate")
+    P.scroll:SetPoint("TOPLEFT", 6, -6)
+    P.scroll:SetPoint("BOTTOMRIGHT", -28, 6)
+    P.child = CreateFrame("Frame", nil, P.scroll)
+    P.child:SetSize(580, 10)
+    P.scroll:SetScrollChild(P.child)
+    P.empty = label(P.child, "", "GameFontDisable")
+    P.empty:SetPoint("TOPLEFT", 8, -8)
+
+    function P.row(i)
+        local r = P.rows[i]
+        if not r then
+            r = CreateFrame("Button", nil, P.child)
+            r:SetSize(576, 17)
+            r.name = r:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+            r.name:SetPoint("LEFT", 8, 0)
+            r.name:SetJustifyH("LEFT")
+            r.right = r:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
+            r.right:SetPoint("RIGHT", -8, 0)
+            r:SetScript("OnEnter", function(self)
+                local q = self.quest
+                if not q then return end
+                GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+                GameTooltip:SetText(q[2])
+                GameTooltip:AddLine(("Level %d, needs level %d"):format(q[3] or 0, q[4] or 0), 1, 1, 1)
+                if q[7] then GameTooltip:AddLine("In " .. q[7], 0.8, 0.8, 0.8) end
+                if q[8] then
+                    GameTooltip:AddLine(("From %s, %s  %.1f, %.1f"):format(q[8], q[9] or "?",
+                        q[10] or 0, q[11] or 0), 1, 1, 1)
+                    GameTooltip:AddLine("Click to put it on the map", 0.2, 1, 0.2)
+                end
+                if (q[13] or 0) > 1 then
+                    GameTooltip:AddLine(("Step %d of %d"):format(q[12], q[13]), 1, 0.82, 0)
+                end
+                if q[14] then GameTooltip:AddLine("Comes after: " .. q[14], 1, 0.82, 0) end
+                GameTooltip:Show()
+            end)
+            r:SetScript("OnLeave", function() GameTooltip:Hide() end)
+            r:SetScript("OnClick", function(self)
+                local q = self.quest
+                -- showOnMap wants the dungeon tables' shape: id, name, level, min, side, giver,
+                -- zone, x, y
+                if q and q[8] then
+                    lt.showOnMap({ q[1], q[2], q[3], q[4], q[5], q[8], q[9], q[10], q[11] })
+                end
+            end)
+            P.rows[i] = r
+        end
+        return r
+    end
+
+    onRefresh(function()
+        if not pilePage:IsShown() then return end
+        local rows, want = lt.pile(pileKey()), (P.zone:GetText() or ""):lower()
+        local shown, of = 0, #rows
+        for _, q in ipairs(rows) do
+            local how = lt.pileState(q)
+            local skip = (PG().mineOnly and (how == "faction" or how == "class"))
+                or (PG().hideDone and how == "done")
+                or (PG().openOnly and how ~= "open")
+                or (want ~= "" and not (q[7] or ""):lower():find(want, 1, true))
+            if not skip and shown < 400 then -- a wall of five thousand rows helps nobody
+                shown = shown + 1
+                local r = P.row(shown)
+                r.quest = q
+                r:SetPoint("TOPLEFT", 0, -(shown - 1) * 17)
+                local look = lt.pileLook[how] or lt.pileLook.open
+                local chain = (q[13] or 0) > 1
+                    and ("  |cff888888%d/%d|r"):format(q[12], q[13]) or ""
+                r.name:SetText(("%s  |cff666666(%d)|r%s"):format(q[2], q[4] or 0, chain))
+                r.name:SetTextColor(look[2], look[3], look[4])
+                r.right:SetText(q[7] and (look[1] .. "  -  " .. q[7]) or look[1])
+                r.right:SetTextColor(look[2], look[3], look[4])
+                r:Show()
+            end
+        end
+        for i = shown + 1, #P.rows do P.rows[i]:Hide() end
+        P.child:SetHeight(math.max(shown * 17, 10))
+        P.count:SetText(("%d of %d"):format(shown, of))
+        P.empty:SetShown(shown == 0)
+        P.empty:SetText(of == 0 and "The quest tables are not loaded."
+            or "Nothing here matches what you asked for.")
     end)
 
     ----------------------------------------------------------------------------------

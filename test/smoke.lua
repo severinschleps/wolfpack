@@ -449,10 +449,12 @@ UnitHealthMax = function() return 1000 end
 
 DAMAGE_TEXT_FONT = "Fonts\\FRIZQT__.TTF"
 local ns = {}
+CompactUnitFrame_SetUpFrame = function() end -- Blizzard's; the addon hooks it
 assert(loadfile("WolfpackAddon/Data/Training.lua"))("WolfpackAddon", ns) -- loaded first, per the toc
 assert(loadfile("WolfpackAddon/Data/Macros.lua"))("WolfpackAddon", ns)
 assert(loadfile("WolfpackAddon/Data/Attune.lua"))("WolfpackAddon", ns)
 assert(loadfile("WolfpackAddon_Loot/Data.lua"))() -- its own addon; it sets a global
+assert(loadfile("WolfpackAddon_Quests/Data.lua"))()
 assert(loadfile("WolfpackAddon/WolfpackAddon.lua"))("WolfpackAddon", ns)
 for _, c in ipairs({ "DRUID", "HUNTER", "MAGE", "PALADIN", "PRIEST", "ROGUE", "SHAMAN",
     "WARLOCK", "WARRIOR" }) do
@@ -914,7 +916,8 @@ assert(prof().nameplate.gap == 4 and prof().nameplate.x == -150 and prof().namep
 assert(prof().regular.gap == 30 and prof().regular.x == 0 and prof().regular.bars.health.width == 220, "regular untouched")
 -- every sidebar entry is really there, opens its page, and that page has settings on it
 for _, name in ipairs({ "Combat Display", "Nameplates", "Buffs", "Training",
-    "Dungeons & Raids", "Other", "Hunter", "Mage", "Rogue", "Shaman", "Warlock" }) do
+    "Dungeons & Raids", "Dungeon quests", "Raid quests", "Normal quests", "Other",
+    "Hunter", "Mage", "Rogue", "Shaman", "Warlock" }) do
     local b = byText(name)
     assert(b, "sidebar entry missing: " .. name)
     b._scripts.OnClick(b, "LeftButton")
@@ -1226,8 +1229,9 @@ assert(Q.kill.icon == 135274 and Q.kill.size == 32 and Q.loot.size == 20 and Q.x
 assert(h.kill._tex == 135274 and h.kill._w == 32 and h.box._w == 54 and h.box._point[4] == -5, "live plate row restyled")
 byText("Combat Display")._scripts.OnClick(byText("Combat Display"), "LeftButton")
 
--- The options window sizes itself to its tallest column; 990x740 still fits a 1080p screen
-assert(ns.configHeight > 400 and ns.configHeight < 740, "window height " .. ns.configHeight)
+-- The options window sizes itself to its tallest column -- now the sidebar, with four shelves
+-- on it. It clamps to the screen, so this only guards against it growing without anyone noticing.
+assert(ns.configHeight > 400 and ns.configHeight < 840, "window height " .. ns.configHeight)
 
 -- Other: gryphons hidden via texture alpha only, untouched until the option is used
 local caps = MainActionBar.EndCaps
@@ -2031,6 +2035,56 @@ for _, r in ipairs(ns.dqPanel.rows) do
 end
 prof().dungeons.openOnly = false
 
+-- The three quest piles: dungeon, raid and everything out in the world
+assert(#ns.lt.pile("dungeon") > 100 and #ns.lt.pile("raid") > 100
+    and #ns.lt.pile("normal") > 1000, "all three piles shipped")
+S.questDone, S.questLog, S.level, S.faction = {}, {}, 60, "Horde"
+S.aQuest = ns.lt.pile("dungeon")[1]
+assert(ns.lt.pileState(S.aQuest) ~= nil, "every quest has a standing")
+-- the five ways a quest can be out of reach, and the one way it is not
+S.aQuest = { 1, "Test", 30, 25, 3, 0, "Durotar" }
+S.level = 30
+assert(ns.lt.pileState(S.aQuest) == "open", "your level, your side, anybody's class")
+S.level = 10
+assert(ns.lt.pileState(S.aQuest) == "low", "under the level it wants")
+S.level = 60
+assert(ns.lt.pileState(S.aQuest) == "trivial", "and far enough past it to have outgrown it")
+S.level = 30
+S.aQuest[5] = 1
+assert(ns.lt.pileState(S.aQuest) == "faction", "an Alliance quest on a Horde character")
+S.aQuest[5] = 3
+S.aQuest[6] = ns.CLASS_BITS[select(2, UnitClass("player")) == "MAGE" and "DRUID" or "MAGE"]
+assert(ns.lt.pileState(S.aQuest) == "class", "somebody else's class quest")
+S.aQuest[6] = ns.CLASS_BITS[select(2, UnitClass("player"))]
+assert(ns.lt.pileState(S.aQuest) == "open", "and their own is theirs to take")
+S.aQuest[6] = 0
+S.questDone[1] = true
+assert(ns.lt.pileState(S.aQuest) == "done", "one you have handed in")
+S.questDone[1], S.questLog[1] = nil, 3
+assert(ns.lt.pileState(S.aQuest) == "log", "and one you are carrying")
+S.questLog[1] = nil
+-- the page lists them, counts them, and cuts them down
+byText("Dungeon quests")._scripts.OnClick(byText("Dungeon quests"), "LeftButton")
+assert(ns.pilePanel.rows[1]:IsShown(), "the dungeon pile is drawn")
+assert(ns.pilePanel.count._text:find(" of "), "with a count: " .. ns.pilePanel.count._text)
+S.beforeFilter = tonumber(ns.pilePanel.count._text:match("^(%d+)"))
+prof().quests.openOnly = true
+byText("Raid quests")._scripts.OnClick(byText("Raid quests"), "LeftButton")
+for _, r in ipairs(ns.pilePanel.rows) do
+    if r:IsShown() then assert(ns.lt.pileState(r.quest) == "open", "only what you can take") end
+end
+prof().quests.openOnly = false
+byText("Normal quests")._scripts.OnClick(byText("Normal quests"), "LeftButton")
+assert(ns.pilePanel.rows[1]:IsShown(), "and the world pile too")
+-- the zone box narrows it
+ns.pilePanel.zone._text = "durotar"
+byText("Normal quests")._scripts.OnClick(byText("Normal quests"), "LeftButton")
+for _, r in ipairs(ns.pilePanel.rows) do
+    if r:IsShown() then assert((r.quest[7] or ""):lower():find("durotar"), "only that zone") end
+end
+ns.pilePanel.zone._text = ""
+S.questDone, S.questLog, S.faction = {}, {}, "Horde"
+
 -- Attunements: keys you carry, chains you have finished, standings you have reached
 assert(#ns.attune > 0, "the attunement list shipped with the addon")
 S.faction, S.questDone, S.items, S.standing = "Horde", {}, {}, {}
@@ -2444,6 +2498,16 @@ C_Spell.IsSpellInRange = function(name, unit)
     end
 end
 IsActionInRange = function(slot) return slot <= 2 end
+-- a raid frame shows its overlay only while the cursor is on it, and is set up only once
+(function()
+    local rf = new()
+    CompactUnitFrame_SetUpFrame(rf)
+    CompactUnitFrame_SetUpFrame(rf)
+    local ov = ns.raidHover[rf]
+    assert(ov and not ov:IsShown(), "raid frame overlay starts hidden")
+    rf._scripts.OnEnter(); assert(ov:IsShown(), "overlay shows on hover")
+    rf._scripts.OnLeave(); assert(not ov:IsShown(), "and hides on leave")
+end)()
 SlashCmdList.WOLFPACKADDON("crit")
 SlashCmdList.WOLFPACKADDON("auras") -- the probe must not error, whatever the client has
 SlashCmdList.WOLFPACKADDON("")

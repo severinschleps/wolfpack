@@ -61,6 +61,20 @@ real bug gets a test that fails without the fix.
 An addon cannot reach the network at runtime, so shipping a generated table is the
 only way this data gets in. Keep `tools/.cache/` out of git.
 
+## Quests
+
+`WolfpackAddon_Quests/` is a fourth addon folder, built by `tools/fetch_quests.py` from
+Wowhead's listings: every zone's own page plus the whole list sliced into level bands,
+which together reach 99% of Forever's 5,202 quests (one listing caps at 1,000). Three
+piles -- dungeon, raid, and everything else. `--detail` reads each quest's own page for
+the giver, the spot and the chain, which takes hours the first time and is cached after.
+
+```bash
+python3 tools/fetch_quests.py --detail
+rsync -a --delete WolfpackAddon_Quests/ \
+  "/Users/severin/Games/World of Warcraft/_classic_beta_/Interface/AddOns/WolfpackAddon_Quests/"
+```
+
 ## Dungeon maps
 
 `WolfpackAddon_Maps/` is a third addon folder, built by `tools/fetch_maps.py` from

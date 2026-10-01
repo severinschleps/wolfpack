@@ -1,0 +1,7 @@
+## Interface: 16001
+## Title: Wolfpack Addon |cff888888- Quests|r
+## Notes: Every quest Wowhead lists for Forever, for the Adventure panels. Untick it to save the memory; everything else carries on without it.
+## Author: severin
+## Version: 1.0.0
+
+Data.lua
