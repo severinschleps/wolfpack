@@ -1241,7 +1241,7 @@ prof().other.hideGryphons = true; fire("UNIT_MAXPOWER")
 assert(caps.LeftEndCap.Texture._alpha == 0 and caps.RightEndCap.Texture._alpha == 0, "hidden")
 prof().other.hideGryphons = false; fire("UNIT_MAXPOWER")
 assert(caps.LeftEndCap.Texture._alpha == 1, "shown again")
-local opBox = boxes[18] -- highlight opacity (%)
+local opBox = boxes[19] -- highlight opacity (%), after the party/raid one
 opBox._text = "60"; opBox._scripts.OnEnterPressed(opBox)
 assert(math.abs(prof().regular.highlight.color[4] - 0.6) < 1e-9 and opBox._text == "60", "opacity typed")
 byText("Combat Display")._scripts.OnClick(byText("Combat Display"), "LeftButton")
@@ -1769,6 +1769,21 @@ assert(hb.over:IsShown() and hb.over._max == 1000 and hb.over._value == 250, "in
 assert(hb.over._reverseFill == false and hb.over._sbc[4] == 0.45, "grows right, in the heal color")
 S.incomingHeal = 0; fire("UNIT_HEAL_PREDICTION", "player")
 assert(hb.over._value == 0, "heals landed: nothing left to draw")
+-- a client with no prediction calculator falls back to the plain call rather than drawing zero
+S.keptCalc, S.keptDetail = CreateUnitHealPredictionCalculator, UnitGetDetailedHealPrediction
+UnitGetDetailedHealPrediction = nil
+UnitGetIncomingHeals = function() return S.plainHeal or 0 end
+S.plainHeal = 175
+fire("UNIT_HEAL_PREDICTION", "player")
+assert(hb.over._value == 175, "the plain call carries it: " .. tostring(hb.over._value))
+assert(hb.over._max == UnitHealthMax("player"), "scaled against your health")
+-- and a client with neither draws nothing rather than erroring
+UnitGetIncomingHeals = nil
+fire("UNIT_HEAL_PREDICTION", "player")
+assert(hb.over._value == 0 and not ns.errored, "neither call, no heals, no error")
+UnitGetDetailedHealPrediction, S.plainHeal = S.keptDetail, nil
+SlashCmdList.WOLFPACKADDON("heal")
+assert(not ns.errored, "the heal probe runs clean")
 prof().regular.bars.power.cost = true
 S.costs[8] = { { type = 3, cost = 35 } } -- an energy cost, for the rogue this test ends as
 fire("UNIT_SPELLCAST_START", "player", "c1", 8)
@@ -2500,13 +2515,21 @@ end
 IsActionInRange = function(slot) return slot <= 2 end
 -- a raid frame shows its overlay only while the cursor is on it, and is set up only once
 (function()
+    local plate = new()
+    plate._name = "NamePlate1UnitFrame"
+    CompactUnitFrame_SetUpFrame(plate)
+    assert(not ns.raidHover[plate], "nameplates get no hover overlay")
     local rf = new()
+    rf._name = "CompactRaidFrame1"
     CompactUnitFrame_SetUpFrame(rf)
     CompactUnitFrame_SetUpFrame(rf)
     local ov = ns.raidHover[rf]
     assert(ov and not ov:IsShown(), "raid frame overlay starts hidden")
+    prof().other.raidHover.show = true -- earlier checks click every box on the page
     rf._scripts.OnEnter(); assert(ov:IsShown(), "overlay shows on hover")
     rf._scripts.OnLeave(); assert(not ov:IsShown(), "and hides on leave")
+    prof().other.raidHover.show = false
+    rf._scripts.OnEnter(); assert(not ov:IsShown(), "switched off, hovering shows nothing")
 end)()
 SlashCmdList.WOLFPACKADDON("crit")
 SlashCmdList.WOLFPACKADDON("auras") -- the probe must not error, whatever the client has

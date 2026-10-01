@@ -208,6 +208,7 @@ local DEFAULTS = {
         autoRepair = false,
         hover = {},         -- [key from HOVER_FRAMES] = true: that Blizzard element shows only on mouseover
         bagsOnOpen = false, -- bag bar only while bags are open, attached to them
+        raidHover = { show = true, color = { 1, 1, 1, 0.2 } }, -- overlay on hovered party/raid frames
         combatFont = "",    -- damage-number font; "" = WoW's own, picked on purpose
         minimap = { square = false, border = false, radius = 0, tray = false, trayBlizzard = false,
             infoBar = false, hideDayNight = false, x = 0, y = 0 },
@@ -872,15 +873,28 @@ local function fillOverlay(f, max)
         if castCost.have then f.over:SetValue(castCost.value) else f.over:SetValue(0) end
         return
     end
-    if not healCalc then return f.over:SetValue(0) end
-    local ok = pcall(function()
-        healCalc:SetIncomingHealClampMode(0) -- 0 = stop at missing health, no overheal drawn
-        healCalc:SetIncomingHealOverflowPercent(1.0)
-        UnitGetDetailedHealPrediction(f.unit or "player", "player", healCalc)
-        f.over:SetMinMaxValues(0, healCalc:GetMaximumHealth())
-        f.over:SetValue(healCalc:GetIncomingHeals())
+    local unit = f.unit or "player"
+    -- the calculator is the good way, where the client has one
+    if healCalc and UnitGetDetailedHealPrediction then
+        local ok = pcall(function()
+            healCalc:SetIncomingHealClampMode(0) -- 0 = stop at missing health, no overheal
+            healCalc:SetIncomingHealOverflowPercent(1.0)
+            UnitGetDetailedHealPrediction(unit, "player", healCalc)
+            f.over:SetMinMaxValues(0, healCalc:GetMaximumHealth())
+            f.over:SetValue(healCalc:GetIncomingHeals())
+        end)
+        if ok then return end
+    end
+    -- and the plain one otherwise. The number may be secret, which a bar can still be given.
+    local ok, heals = pcall(function()
+        if UnitGetIncomingHeals then return UnitGetIncomingHeals(unit) end
     end)
-    if not ok then f.over:SetValue(0) end
+    if ok and heals ~= nil then
+        f.over:SetMinMaxValues(0, max)
+        f.over:SetValue(heals)
+    else
+        f.over:SetValue(0)
+    end
 end
 
 -- on the namespace rather than a local: this chunk is at Lua's 200-local ceiling, and the
@@ -1350,16 +1364,20 @@ local function checkHover() setHover(anchor:IsMouseOver()) end
 
 -- Blizzard's raid and party frames get a see-through overlay while hovered. Kept in a table of
 -- our own rather than on the frame, so nothing of Blizzard's secure frame table is written to.
--- ponytail: fixed white at 20%, a color option when someone asks for one
+-- Nameplates are set up by the same function; only the named party and raid frames are wanted.
 ns.raidHover = setmetatable({}, { __mode = "k" }) -- frame -> overlay texture
 pcall(hooksecurefunc, "CompactUnitFrame_SetUpFrame", function(frame)
-    if ns.raidHover[frame] then return end
+    local name = frame:GetName() or ""
+    if ns.raidHover[frame] or not (name:find("^CompactParty") or name:find("^CompactRaid")) then return end
     local tex = frame:CreateTexture(nil, "OVERLAY", nil, 7)
     tex:SetAllPoints()
-    tex:SetColorTexture(1, 1, 1, 0.2)
     tex:Hide()
     ns.raidHover[frame] = tex
-    frame:HookScript("OnEnter", function() tex:Show() end)
+    frame:HookScript("OnEnter", function()
+        if not db.other.raidHover.show then return end
+        tex:SetColorTexture(unpack(db.other.raidHover.color))
+        tex:Show()
+    end)
     frame:HookScript("OnLeave", function() tex:Hide() end)
 end)
 
@@ -4798,6 +4816,13 @@ local function buildConfig()
     bagNote:SetPoint("TOPLEFT", blizz.x, blizz:row(34))
     bagNote:SetWidth(182)
     bagNote:SetJustifyH("LEFT")
+    blizz:row(6)
+    check(otherPage, "Party/raid frame hover highlight", blizz.x, blizz:row(ROW),
+        function() return db.other.raidHover.show end, function(v) db.other.raidHover.show = v end)
+    swatch(otherPage, "Highlight color", blizz.x, blizz:row(SWATCH), function() return db.other.raidHover.color end)
+    slider(otherPage, "Highlight opacity (%)", blizz.x, blizz:row(SLIDER), 0, 100,
+        function() return math.floor(db.other.raidHover.color[4] * 100 + 0.5) end,
+        function(v) db.other.raidHover.color[4] = v / 100 end)
     blizz:close()
 
     -- Other page, column 4: what the mouse does over the bars, and the regen spinner
@@ -6763,6 +6788,27 @@ function ns.MapReport()
     say("shipped maps: " .. tostring(WolfpackAddonMapData and "loaded" or "not loaded"))
 end
 
+-- /wp heal -- which of the incoming-heal calls this build has, and what they say right now.
+function ns.HealReport()
+    local function say(t) print("|cff88ccffWolfpack:|r " .. t) end
+    say("CreateUnitHealPredictionCalculator: " .. type(CreateUnitHealPredictionCalculator)
+        .. ", the calculator itself: " .. type(healCalc))
+    say("UnitGetDetailedHealPrediction: " .. type(UnitGetDetailedHealPrediction)
+        .. ", UnitGetIncomingHeals: " .. type(UnitGetIncomingHeals))
+    local ok, heals = pcall(function() return UnitGetIncomingHeals("player") end)
+    say(("UnitGetIncomingHeals(player): %s %s"):format(tostring(ok),
+        readable(heals) and tostring(heals) or "<secret>"))
+    if healCalc and UnitGetDetailedHealPrediction then
+        local ok2, got = pcall(function()
+            UnitGetDetailedHealPrediction("player", "player", healCalc)
+            return healCalc:GetIncomingHeals()
+        end)
+        say(("the calculator says: %s %s"):format(tostring(ok2),
+            readable(got) and tostring(got) or "<secret>"))
+    end
+    say("the bar is switched on: " .. tostring(db and db.regular.bars.health.heal))
+end
+
 SlashCmdList.WOLFPACKADDON = function(msg)
     msg = (msg or ""):lower()
     if msg:find("aura") then return safe(ns.AuraReport, (msg:gsub("^%s*auras?%s*", ""))) end
@@ -6773,6 +6819,7 @@ SlashCmdList.WOLFPACKADDON = function(msg)
     if msg:find("macro") then return safe(ns.MacroReport) end
     if msg:find("flight") then return safe(ns.FlightReport) end
     if msg:find("map") then return safe(ns.MapReport) end
+    if msg:find("heal") then return safe(ns.HealReport) end
     safe(ns.ToggleConfig)
 end
 
