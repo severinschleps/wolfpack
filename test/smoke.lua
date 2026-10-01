@@ -1038,13 +1038,13 @@ assert(select(1, ns.lt.youAreHere(291)) == 0.4, "inside, it puts you on the map"
 assert(select(3, ns.lt.youAreHere(291)) == math.pi, "facing the way you are looking")
 assert(ns.compass(0) == "north" and ns.compass(math.pi) == "south", "the compass reads plainly")
 assert(ns.compass(math.pi / 2) == "west", "and west is a quarter turn round")
-ns.dung.hasMap = nil -- ask again now the mock has art for one of them
+ns.lt.hasMap, ns.dung.hasMap = nil, nil -- ask again now the mock has art for one
 prof().dungeons.tab = "map"
 byText("Dungeons & Raids")._scripts.OnClick(byText("Dungeons & Raids"), "LeftButton")
 assert(not ns.errored, "the map tab draws without complaint")
 assert(ns.dung.hasMap == true, "a client with dungeon art is offered the map tab")
 -- and a client with none is not offered a tab that can only disappoint
-S.mapArt, ns.lt.maps, ns.dung.hasMap = nil, nil, nil
+S.mapArt, ns.lt.maps, ns.lt.hasMap, ns.dung.hasMap = nil, nil, nil, nil
 byText("Dungeons & Raids")._scripts.OnClick(byText("Dungeons & Raids"), "LeftButton")
 assert(ns.dung.hasMap == false and prof().dungeons.tab == "loot", "no art, no tab")
 -- unless the pictures travel with the addon, which is this client's only way to see one
@@ -1053,7 +1053,7 @@ WolfpackAddonMapData = { [aZone] = { name = "X", across = 3, down = 2,
     tiles = { "a", "b", "c", "d", "e", "f" } } }
 assert(select(1, ns.lt.shipped({ id = aZone })).across == 3, "a shipped map has its own shape")
 assert(ns.lt.shipped({ id = -1 }) == nil, "and a dungeon without one has nothing")
-ns.dung.hasMap = nil
+ns.lt.hasMap, ns.dung.hasMap = nil, nil
 prof().dungeons.tab, prof().dungeons.pick = "map", 1 -- the one the picture is for
 byText("Dungeons & Raids")._scripts.OnClick(byText("Dungeons & Raids"), "LeftButton")
 assert(ns.dung.hasMap == true, "shipped pictures bring the tab back")
@@ -1086,7 +1086,7 @@ assert(#ns.lt.spots(dungeon) == #dungeon.spots, "and does not double it up")
 assert(WolfpackAddonDB.bossPins[dungeon.id][dungeon.spots[1][1]].x == 0.5, "saved with the addon")
 byText("Clear this one")._scripts.OnClick(byText("Clear this one"), "LeftButton")
 assert(not ns.lt.spots(dungeon)[1].mine, "clearing leaves the shipped ones standing")
-WolfpackAddonMapData, ns.dung.hasMap = nil, nil
+WolfpackAddonMapData, ns.lt.hasMap, ns.dung.hasMap = nil, nil, nil
 prof().dungeons.tab = "loot"
 S.mapArt = { [291] = { layer = { layerWidth = 1000, layerHeight = 800, tileWidth = 500,
     tileHeight = 400 }, tiles = { 11, 12, 13, 14 } } }
@@ -1994,6 +1994,15 @@ S.onTaxi, WolfpackAddonDB.flights = false, {}
 fire("UNIT_MAXPOWER")
 assert(not ns.frames.flight:IsShown(), "and leaves it again once you are down")
 prof().regular.bars.flight.show = false
+
+-- the map tab is offered the moment the section opens, not after it has drawn once
+ns.lt.hasMap, ns.dung.hasMap = nil, nil
+WolfpackAddonMapData = { [WolfpackAddonLootData[1].id] = { name = "X", across = 3, down = 2,
+    tiles = { "a", "b", "c", "d", "e", "f" } } }
+byText("Other")._scripts.OnClick(byText("Other"), "LeftButton")
+byText("Dungeons & Raids")._scripts.OnClick(byText("Dungeons & Raids"), "LeftButton")
+assert(byText("Map"):IsShown(), "the map tab is there on the first look")
+WolfpackAddonMapData, ns.lt.hasMap, ns.dung.hasMap = nil, nil, nil
 
 -- Dungeon quests: a tab of Dungeons & Raids now, not a shelf of its own
 byText("Dungeons & Raids")._scripts.OnClick(byText("Dungeons & Raids"), "LeftButton")

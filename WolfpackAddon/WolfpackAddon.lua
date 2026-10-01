@@ -3247,6 +3247,21 @@ function lt.unmarked(dungeon)
     return nil
 end
 
+-- Can this client draw any of these places at all? Asked once, and not from inside the page
+-- that wants to know -- that page has not drawn yet the first time the tabs are laid out.
+function lt.anyMap()
+    if lt.hasMap ~= nil then return lt.hasMap end
+    lt.hasMap = false
+    for _, d in ipairs(lt.all()) do
+        local id = lt.mapFor(d.name)
+        if (id and lt.art(id)) or lt.shipped(d) then
+            lt.hasMap = true
+            break
+        end
+    end
+    return lt.hasMap
+end
+
 -- The pictures that travel with the addon, for the places the game will not draw. Keyed by
 -- Wowhead's zone id, which is what the loot tables are keyed by too.
 function lt.shipped(dungeon)
@@ -4355,8 +4370,7 @@ local function buildConfig()
         onRefresh(function()
             local on = (db.dungeons.tab or "loot") == t[1]
             if on then dtabs[i]:LockHighlight() else dtabs[i]:UnlockHighlight() end
-            dtabs[i]:SetShown(section == "dungeons"
-                and (t[1] ~= "map" or ns.dung.hasMap == true))
+            dtabs[i]:SetShown(section == "dungeons" and (t[1] ~= "map" or lt.anyMap()))
         end)
     end
 
@@ -4367,7 +4381,8 @@ local function buildConfig()
     end
     onRefresh(function()
         local np = section == "nameplates"
-        title:SetShown(not np)
+        -- the tab row stands where the title would: the tabs are the heading on those pages
+        title:SetShown(not np and section ~= "dungeons")
         title:SetText(section == "other" and "Other"
             or section == "buffs" and "Buff check"
             or section == "mage" and "Mage: food and water"
@@ -6022,17 +6037,8 @@ local function buildConfig()
                 end
             end
         end
-        if D.hasMap == nil then -- asked once: does this client draw any of these places at all?
-            D.hasMap = false
-            for _, d in ipairs(all) do
-                local id = lt.mapFor(d.name)
-                if (id and lt.art(id)) or lt.shipped(d) then
-                    D.hasMap = true
-                    break
-                end
-            end
-            if not D.hasMap then DG().tab = "loot" end
-        end
+        D.hasMap = lt.anyMap()
+        if not D.hasMap and DG().tab == "map" then DG().tab = "loot" end
         if DG().pick == 0 or not all[DG().pick] then DG().pick = lt.forMyLevel() end
         for i, d in ipairs(all) do
             local b = D.pick(i)
