@@ -18,7 +18,8 @@ M.HookScript = M.SetScript
 function M:GetName() return self._name end
 function M:GetText() return self._text end
 function M:SetText(t) self._text = t end
-function M:HasFocus() return false end
+function M:HasFocus() return self._focus == true end
+function M:Insert(t) self._text = (self._text or "") .. t end
 function M:SetMinMaxValues(a, b) self._min, self._max = a, b end
 function M:SetValue(v) self._value = v end
 function M:GetValue() return type(self._value) == "number" and self._value or 0 end
@@ -941,6 +942,15 @@ assert(#ns.mc.shelf("WARRIOR") == before + 1, "a new one is added")
 ns.macro.name._text = "Pull"
 ns.macro.name._scripts.OnEnterPressed(ns.macro.name)
 assert(ns.mc.shelf("WARRIOR")[ns.macro.picked].name == "Pull", "and renaming it sticks")
+-- shift-clicking a spell or an item drops its name into the macro you are editing
+ns.macro.body._focus, ns.macro.body._text = true, "/cast "
+assert(ns.mc.takeLink("|cff71d5ff|Hspell:1234|h[Shadow Word: Pain]|h|r"), "a spell link is taken")
+assert(ns.macro.body._text:find("Shadow Word: Pain"), "by name, not as a link: "
+    .. ns.macro.body._text)
+assert(ns.mc.takeLink("|cffffffff|Hitem:858|h[Lesser Healing Potion]|h|r"), "and an item link")
+assert(not ns.mc.takeLink(nil), "nothing at all is not taken")
+ns.macro.body._focus = false
+assert(not ns.mc.takeLink("|Hspell:1|h[Something]|h"), "nothing is taken while you are elsewhere")
 -- the training page fills itself in when it is the one on screen
 byText("Training")._scripts.OnClick(byText("Training"), "LeftButton")
 assert(ns.trainRows[1] and ns.trainRows[1]:IsShown(), "the trainer list has rows on it")

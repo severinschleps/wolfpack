@@ -2699,13 +2699,48 @@ end
 tr = {}
 ns.tr = tr
 
-function tr.known(id)
-    local ok, yes = pcall(function()
-        if C_SpellBook and C_SpellBook.IsSpellKnown then return C_SpellBook.IsSpellKnown(id) end
-        if IsSpellKnown then return IsSpellKnown(id) end
-        return IsPlayerSpell and IsPlayerSpell(id)
-    end)
-    return ok and yes == true
+-- Does the game say you have this exact spell? Each call is asked in turn: one build answers
+-- on one of them and not the others.
+function tr.hasSpell(id)
+    for _, ask in ipairs({
+        function() return C_SpellBook.IsSpellKnown(id) end,
+        function() return IsSpellKnown(id) end,
+        function() return IsPlayerSpell(id) end,
+    }) do
+        local ok, yes = pcall(ask)
+        if ok and yes == true then return true end
+    end
+    return false
+end
+
+-- Which spell supersedes which. A rank lists the rank below it in requiredIds, so knowing
+-- Rank 5 means Ranks 1 to 4 are behind you even where the game will not say so for each id.
+function tr.replaces()
+    if tr.laterRank then return tr.laterRank end
+    tr.laterRank = {}
+    for _, levels in pairs(ns.training or {}) do
+        for _, spells in pairs(levels) do
+            for _, sp in ipairs(spells) do
+                for _, older in ipairs(sp.requiredIds or {}) do
+                    tr.laterRank[older] = tr.laterRank[older] or {}
+                    table.insert(tr.laterRank[older], sp.id)
+                end
+            end
+        end
+    end
+    return tr.laterRank
+end
+
+function tr.known(id, seen)
+    if tr.hasSpell(id) then return true end
+    -- ...or anything that replaced it is
+    seen = seen or {}
+    if seen[id] then return false end
+    seen[id] = true
+    for _, newer in ipairs(tr.replaces()[id] or {}) do
+        if tr.known(newer, seen) then return true end
+    end
+    return false
 end
 
 -- Name and icon, whichever way this build hands them over.
@@ -3057,6 +3092,28 @@ function mc.shelfToGame(key)
     end
     local shared, own = mc.room()
     return put, why, shared, own
+end
+
+-- Shift-clicking a spell or an item puts it into the macro you are editing, by name -- a macro
+-- wants the name, not the link. The game offers the link to whichever box is taking one; these
+-- are the two doors it comes through, and both are hooked so it works from the spellbook, the
+-- bags and the character sheet alike.
+function mc.takeLink(link)
+    local box = ns.macro and ns.macro.body
+    if not box or not box:HasFocus() then return false end -- focus is enough: you cannot
+    -- have it on a box that is not on screen
+    local text = type(link) == "string" and (link:match("%[(.-)%]") or link) or nil
+    if not text or text == "" then return false end
+    box:Insert(text)
+    return true
+end
+
+function mc.hookLinks()
+    for _, name in ipairs({ "ChatEdit_InsertLink", "HandleModifiedItemClick" }) do
+        if type(_G[name]) == "function" then
+            pcall(hooksecurefunc, name, function(link) safe(mc.takeLink, link) end)
+        end
+    end
 end
 
 -- Open the game's own macro window. Dragging out of that one is Blizzard's code doing the
@@ -5455,7 +5512,8 @@ local function buildConfig()
     end)
     M.iconBtn:SetScript("OnLeave", function() GameTooltip:Hide() end)
 
-    label(M.page, "What it does", "GameFontNormal"):SetPoint("TOPLEFT", COL[1] + 6, M.EDIT - 30)
+    label(M.page, "What it does  |cff888888(shift-click a spell or item to drop its name in)|r",
+        "GameFontNormal"):SetPoint("TOPLEFT", COL[1] + 6, M.EDIT - 30)
     M.bodyBox = CreateFrame("Frame", nil, M.page)
     M.bodyBox:SetPoint("TOPLEFT", COL[1] + 8, M.EDIT - 50)
     M.bodyBox:SetSize(560, 160)
@@ -6809,6 +6867,26 @@ function ns.HealReport()
     say("the bar is switched on: " .. tostring(db and db.regular.bars.health.heal))
 end
 
+-- /wp train -- what the game says about the spells your trainer list is showing.
+function ns.TrainReport()
+    local function say(t) print("|cff88ccffWolfpack:|r " .. t) end
+    say("IsSpellKnown " .. type(IsSpellKnown) .. ", IsPlayerSpell " .. type(IsPlayerSpell)
+        .. ", C_SpellBook.IsSpellKnown "
+        .. type(C_SpellBook and C_SpellBook.IsSpellKnown))
+    local data, shown = ns.training and ns.training[class], 0
+    if not data then return say("no spell list for " .. tostring(class)) end
+    for _, level in ipairs({ 1, 2, 4, 6, 8, 10 }) do
+        for _, sp in ipairs(data[level] or {}) do
+            if shown < 8 then
+                shown = shown + 1
+                local direct, counts = tr.hasSpell(sp.id), tr.known(sp.id)
+                say(("%-26s id %-7d itself %-5s with its later ranks %s"):format(
+                    (tr.spellInfo(sp.id)), sp.id, tostring(direct), tostring(counts)))
+            end
+        end
+    end
+end
+
 SlashCmdList.WOLFPACKADDON = function(msg)
     msg = (msg or ""):lower()
     if msg:find("aura") then return safe(ns.AuraReport, (msg:gsub("^%s*auras?%s*", ""))) end
@@ -6820,6 +6898,7 @@ SlashCmdList.WOLFPACKADDON = function(msg)
     if msg:find("flight") then return safe(ns.FlightReport) end
     if msg:find("map") then return safe(ns.MapReport) end
     if msg:find("heal") then return safe(ns.HealReport) end
+    if msg:find("train") then return safe(ns.TrainReport) end
     safe(ns.ToggleConfig)
 end
 
@@ -7065,6 +7144,7 @@ ev:SetScript("OnEvent", function(_, event, unit, arg2, arg3)
         store.macros = store.macros or {} -- [class token] = { { name, body, icon }, ... }
         store.flights = store.flights or {} -- ["Ironforge > Menethil Harbor"] = seconds
         safe(ft.hook)
+        safe(mc.hookLinks)
         -- The baked macros are added to whatever is already on a shelf, not instead of it, and
         -- each is only ever offered once: delete one and it stays deleted, while any that arrive
         -- in a later version of the addon turn up beside what you have.
