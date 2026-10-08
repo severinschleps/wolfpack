@@ -886,13 +886,14 @@ end
 
 -- Your target's cast, drained by the game's own duration object where there is one.
 function ns.fillTargetCast(f)
-    -- Everything here is held, never tested: on this client a target's cast comes back secret,
-    -- and a secret may be handed to a bar or a font string but not compared. Which of the two
-    -- calls to ask comes from the events, since asking the cast itself would mean reading it.
+    -- Nothing here is compared, tested for truth, or checked against nil: on this client a
+    -- target's cast comes back secret, and a secret may be handed to a bar or a font string but
+    -- not looked at in any way. Which of the two calls to ask, and whether anything is being
+    -- cast at all, come from the events instead -- asking the cast would mean reading it.
     local channel = ns.targetChannelling == true
     local info = { pcall(channel and UnitChannelInfo or UnitCastingInfo, "target") }
     local name, icon = info[2], info[4]
-    local locked = channel and info[8] or info[9]
+    local locked = info[channel and 8 or 9]  -- picked by index: choosing it with `and` reads it
 
     -- the color is only known once the cast is read, which is after the bar was laid out
     local function wear(kind)
@@ -902,7 +903,7 @@ function ns.fillTargetCast(f)
         if pick then f.segs[1]:SetStatusBarColor(pick[1], pick[2], pick[3], pick[4] or 1) end
     end
 
-    if not (ns.targetCasting or ns.previewing()) or name == nil then -- nothing being cast
+    if ns.targetCasting ~= true then -- previewing, or nothing being cast
         f.text:SetText(BARS.targetcast.label)
         f.icon:SetTexture(134400)
         f.segs[1]:SetMinMaxValues(0, 1)
@@ -911,18 +912,17 @@ function ns.fillTargetCast(f)
         return
     end
 
-    -- the duration object is asked for whatever the name turned out to be: it is what drains
-    -- the bar, in C, and a bar with none of it just sits there full
-    local length = select(2, pcall(channel and UnitChannelDuration or UnitCastingDuration, "target"))
-    if length ~= nil then
-        pcall(f.segs[1].SetTimerDuration, f.segs[1], length, 0,
-            channel and TIMER_REMAINING or TIMER_ELAPSED)
-    else -- nobody will say how long: an empty bar is less of a lie than a full one
+    -- The duration object is what drains the bar, in C. Whether one came back is counted, not
+    -- compared: a call that returned nothing leaves the table one long.
+    local got = { pcall(channel and UnitChannelDuration or UnitCastingDuration, "target") }
+    local ticking = #got > 1 and pcall(f.segs[1].SetTimerDuration, f.segs[1], got[2], 0,
+        channel and TIMER_REMAINING or TIMER_ELAPSED)
+    if not ticking then -- nobody will say how long: an empty bar is less of a lie than a full one
         f.segs[1]:SetMinMaxValues(0, 1)
         f.segs[1]:SetValue(0)
     end
-    pcall(f.text.SetText, f.text, name)   -- a secret name still draws
-    if icon ~= nil then pcall(f.icon.SetTexture, f.icon, icon) end
+    pcall(f.text.SetText, f.text, name)        -- a secret name still draws
+    pcall(f.icon.SetTexture, f.icon, icon)
     wear(ns.castKind(name, locked))
 end
 

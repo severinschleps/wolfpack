@@ -1856,6 +1856,14 @@ S.secretLocked = setmetatable({}, { __eq = function() error("secret compared") e
     __lt = function() error("secret compared") end })
 S.secretName = setmetatable({}, { __index = function() error("secret read") end })
 S.secrets = { [S.secretLocked] = true, [S.secretName] = true }
+-- a secret may not be compared, truth-tested, or checked against nil: the real client raises
+-- on every one of those, so the mock does too and the fill must survive it
+S.strictSecret = setmetatable({}, {
+    __eq = function() error("a secret was compared") end,
+    __lt = function() error("a secret was compared") end,
+    __index = function() error("a secret was read") end,
+    __call = function() error("a secret was called") end,
+})
 issecretvalue = function(v) return (S.secrets or {})[v] == true end
 assert(ns.castKind("Greater Heal", S.secretLocked) == "heal",
     "a secret flag decides nothing, and the name still can")
@@ -1863,6 +1871,12 @@ assert(ns.castKind(S.secretName, false) == "harm", "a secret name decides nothin
 S.targetCast, S.targetLocked = "Shadow Bolt", S.secretLocked
 fire("UNIT_SPELLCAST_START", "target")
 assert(not ns.errored, "and the bar is drawn without any of it being compared")
+-- the same with a flag that raises on any look at all, which is what the client really does
+S.secrets[S.strictSecret] = true
+S.targetLocked = S.strictSecret
+ns.fill(ns.frames.targetcast)
+assert(not ns.errored, "a flag that bites back is held, never looked at")
+assert(ns.frames.targetcast.castKind == "harm", "so it decides nothing")
 assert(ns.frames.targetcast:IsShown(), "it is still shown")
 S.targetLocked, S.secrets = false, nil
 issecretvalue = nil
