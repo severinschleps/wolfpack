@@ -1816,6 +1816,21 @@ fire("UNIT_SPELLCAST_CHANNEL_STOP", "target")
 assert(not ns.frames.targetcast:IsShown(), "and goes when they stop")
 SlashCmdList.WOLFPACKADDON("cast")
 assert(not ns.errored, "the cast probe runs clean")
+-- on this client the name and the cannot-be-stopped flag can both be secret: held, never read
+S.secretLocked = setmetatable({}, { __eq = function() error("secret compared") end,
+    __lt = function() error("secret compared") end })
+S.secretName = setmetatable({}, { __index = function() error("secret read") end })
+S.secrets = { [S.secretLocked] = true, [S.secretName] = true }
+issecretvalue = function(v) return (S.secrets or {})[v] == true end
+assert(ns.castKind("Greater Heal", S.secretLocked) == "heal",
+    "a secret flag decides nothing, and the name still can")
+assert(ns.castKind(S.secretName, false) == "harm", "a secret name decides nothing either")
+S.targetCast, S.targetLocked = "Shadow Bolt", S.secretLocked
+fire("UNIT_SPELLCAST_START", "target")
+assert(not ns.errored, "and the bar is drawn without any of it being compared")
+assert(ns.frames.targetcast:IsShown(), "it is still shown")
+S.targetLocked, S.secrets = false, nil
+issecretvalue = nil
 prof().regular.bars.targetcast.show = false
 fire("UNIT_MAXPOWER")
 -- a profile saved before this bar existed still gets it, at the end of the order

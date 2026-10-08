@@ -483,11 +483,16 @@ local BARS = {
     },
     targetcast = {
         label = "Target Cast",
-        -- only while your target is casting. Like your own cast bar, the gap closes when it
-        -- goes; previewing keeps it up while you are placing it.
+        -- Only while your target is casting. What comes back can be secret on this client, and
+        -- a secret may not even be tested for truth -- so the test is wrapped, and a refusal is
+        -- taken as a yes: the game only has something to hide when there is something there.
         state = function()
-            return (ns.previewing() or UnitCastingInfo("target") or UnitChannelInfo("target"))
-                and true or false, 1
+            if ns.previewing() then return true, 1 end
+            local ok, casting = pcall(function()
+                return (UnitCastingInfo("target") or UnitChannelInfo("target")) and true or false
+            end)
+            if not ok then return true, 1 end
+            return casting == true, 1
         end,
     },
     flight = {
@@ -848,20 +853,30 @@ for _, name in ipairs({ "Heal", "Lesser Heal", "Greater Heal", "Flash Heal", "Re
     ns.HEALING_CASTS[name:lower()] = true
 end
 
--- "locked" when it cannot be stopped, "heal" when it mends, "harm" for the rest.
+-- "locked" when it cannot be stopped, "heal" when it mends, "harm" for the rest. Either of
+-- those can arrive secret, which may be passed on but never looked at -- so an unreadable one
+-- simply does not decide anything.
 function ns.castKind(name, locked)
-    if locked == true then return "locked" end
-    if type(name) == "string" and ns.HEALING_CASTS[name:lower()] then return "heal" end
+    if readable(locked) and locked == true then return "locked" end
+    if readable(name) and type(name) == "string" and ns.HEALING_CASTS[name:lower()] then
+        return "heal"
+    end
     return "harm"
 end
 
 -- Your target's cast, drained by the game's own duration object where there is one.
 function ns.fillTargetCast(f)
-    local name, _, icon, _, _, _, _, locked = UnitCastingInfo("target")
-    local duration, direction, channel = name and UnitCastingDuration("target"), TIMER_ELAPSED, false
-    if not name then
-        name, _, icon, _, _, _, locked = UnitChannelInfo("target")
-        duration, direction, channel = name and UnitChannelDuration("target"), TIMER_REMAINING, true
+    -- everything here is held, never tested: on this client the name and the cannot-be-stopped
+    -- flag can both be secret, and a bar will take a secret where an `if` will not
+    local got = { pcall(UnitCastingInfo, "target") }
+    local name, icon, locked = got[2], got[4], got[9]
+    local duration, direction = nil, TIMER_ELAPSED
+    if readable(name) then duration = select(2, pcall(UnitCastingDuration, "target")) end
+    if not readable(name) and got[1] and got[2] == nil then
+        got = { pcall(UnitChannelInfo, "target") }
+        name, icon, locked = got[2], got[4], got[8]
+        direction = TIMER_REMAINING
+        if readable(name) then duration = select(2, pcall(UnitChannelDuration, "target")) end
     end
     -- the kind is only known once the cast is read, which is after the bar was laid out, so
     -- the color is put on here rather than waiting for the next pass
@@ -871,16 +886,16 @@ function ns.fillTargetCast(f)
         local pick = c and c[kind .. "Color"]
         if pick then f.segs[1]:SetStatusBarColor(pick[1], pick[2], pick[3], pick[4] or 1) end
     end
-    if not name then -- previewing: nothing is being cast
+    if name == nil then -- previewing: nothing is being cast
         f.text:SetText(BARS.targetcast.label)
         f.icon:SetTexture(134400)
         wear("harm")
         return
     end
-    if duration then f.segs[1]:SetTimerDuration(duration, 0, direction) end
-    f.text:SetText(name)
-    f.icon:SetTexture(icon)
-    wear(ns.castKind(name, locked == true))
+    if duration then pcall(f.segs[1].SetTimerDuration, f.segs[1], duration, 0, direction) end
+    pcall(f.text.SetText, f.text, name)   -- a secret name still draws
+    if icon ~= nil then pcall(f.icon.SetTexture, f.icon, icon) end
+    wear(ns.castKind(name, locked))
 end
 
 -- The flight bar drains for a route we have flown before, and counts up the first time so the
