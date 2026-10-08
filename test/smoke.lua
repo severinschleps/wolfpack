@@ -318,8 +318,20 @@ CreateUnitHealPredictionCalculator = function()
     }
 end
 UnitGetDetailedHealPrediction = function() end
-UnitCastingInfo = function() if S.cast then return S.cast, "", 136116 end end
-UnitChannelInfo = function() if S.channel then return S.channel, "", 136197 end end
+UnitCastingInfo = function(unit)
+    if unit == "target" then
+        if S.targetCast then return S.targetCast, "", 136116, 0, 0, false, nil, S.targetLocked end
+        return nil
+    end
+    if S.cast then return S.cast, "", 136116 end
+end
+UnitChannelInfo = function(unit)
+    if unit == "target" then
+        if S.targetChannel then return S.targetChannel, "", 136197, 0, 0, false, S.targetLocked end
+        return nil
+    end
+    if S.channel then return S.channel, "", 136197 end
+end
 UnitCastingDuration = function() return S.cast and "castDuration" end
 UnitChannelDuration = function() return S.channel and "channelDuration" end
 QuestGetAutoAccept = function() return S.autoQuest end
@@ -1587,7 +1599,7 @@ assert(#bad == 32 and bp.evil == nil and bp.locked == true, "unknown key dropped
 assert(bp.other.hover.bar1 and bp.other.hover.nope == nil and bp.other.hover.bar2 == nil, "hover: known and true only")
 assert(bp.other.combatFont == "", "unknown combat font path refused")
 assert(bp.regular.gap == 2 and bp.regular.x == 0, "out-of-range numbers defaulted")
-assert(bp.regular.order[1] == "health" and bp.regular.order[2] == "castbar" and #bp.regular.order == 10, "order repaired")
+assert(bp.regular.order[1] == "health" and bp.regular.order[2] == "castbar" and #bp.regular.order == 11, "order repaired")
 local ns2 = bp.nameplate.bars.power.stops
 assert(#ns2 == 2 and ns2[1].pos == 10 and ns2[2].pos == 90 and ns2[1].color[1] == 1, "gradient points checked")
 local hb2 = bp.regular.bars.health
@@ -1689,8 +1701,8 @@ for _, m in ipairs({ "regular", "nameplate" }) do
     local seen = {}
     for _, k in ipairs(prof()[m].order) do seen[k] = true end
     assert(seen.health and seen.power and seen.combo and seen.druidmana and seen.castbar and seen.pethealth
-        and seen.swing and seen.totems and seen.absorb and seen.flight and #prof()[m].order == 10,
-        "order intact")
+        and seen.swing and seen.totems and seen.absorb and seen.flight and seen.targetcast
+        and #prof()[m].order == 11, "order intact")
 end
 
 -- Totems: four element segments, each draining on its own; the bar is shaman-only and
@@ -1768,6 +1780,42 @@ assert(ab.segs[1]._value == 105 and ab.segs[1]._max == 420, "later changes are d
 S.absorb = 0; fire("UNIT_ABSORB_AMOUNT_CHANGED", "player")
 assert(ab.segs[1]._value == 0 and ab.segs[1]._max == 420, "shield gone: empty bar")
 prof().regular.bars.absorb.show = false
+
+-- The target's cast bar: shown while they cast, colored by what kind of cast it is
+assert(ns.castKind("Shadow Bolt", false) == "harm", "a nasty one")
+assert(ns.castKind("Greater Heal", false) == "heal", "a mending one")
+assert(ns.castKind("greater heal", false) == "heal", "whatever its capitals")
+assert(ns.castKind("Greater Heal", true) == "locked", "one you cannot stop beats both")
+assert(ns.castKind(nil, false) == "harm", "and nothing known is treated as harm")
+prof().regular.bars.targetcast.show = true
+S.targetCast, S.targetLocked = nil, false
+fire("UNIT_MAXPOWER")
+assert(not ns.frames.targetcast:IsShown(), "nothing cast, no bar")
+S.targetCast = "Shadow Bolt"
+fire("UNIT_SPELLCAST_START", "target")
+assert(ns.frames.targetcast:IsShown(), "they started casting, so the bar joined the stack")
+assert(ns.frames.targetcast.text._text == "Shadow Bolt", "wearing the spell's name")
+assert(ns.frames.targetcast.icon._tex == 136116, "and its icon")
+assert(ns.frames.targetcast.castKind == "harm", "a damaging cast")
+assert(ns.frames.targetcast.segs[1]._sbc[1] > 0.5 and ns.frames.targetcast.segs[1]._sbc[2] < 0.5,
+    "drawn in the damage color")
+S.targetCast = "Greater Heal"
+fire("UNIT_SPELLCAST_START", "target")
+assert(ns.frames.targetcast.castKind == "heal", "a heal, which is the one to stop")
+assert(ns.frames.targetcast.segs[1]._sbc[2] > 0.5, "drawn in the healing color")
+S.targetLocked = true
+fire("UNIT_SPELLCAST_START", "target")
+assert(ns.frames.targetcast.castKind == "locked", "one the game says you cannot stop")
+S.targetCast, S.targetLocked = nil, false
+S.targetChannel = "Drain Life"
+fire("UNIT_SPELLCAST_CHANNEL_START", "target")
+assert(ns.frames.targetcast:IsShown() and ns.frames.targetcast.text._text == "Drain Life",
+    "a channel shows the same way")
+S.targetChannel = nil
+fire("UNIT_SPELLCAST_CHANNEL_STOP", "target")
+assert(not ns.frames.targetcast:IsShown(), "and goes when they stop")
+prof().regular.bars.targetcast.show = false
+fire("UNIT_MAXPOWER")
 
 -- Prediction overlays: incoming heals grow right from the health fill, a cast's cost grows left
 -- from the power fill (the bar clips whatever runs past its edge).

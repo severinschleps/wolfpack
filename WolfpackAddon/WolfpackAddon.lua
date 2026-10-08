@@ -158,8 +158,8 @@ end
 local function layoutDefaults(show, x, y, gap, width, h1, h2, h3, h4, h5, h6, h7, h8, h9, h10)
     local l = {
         x = x, y = y, gap = gap, grow = "down", -- "up": the group's bottom edge stays put instead
-        order = { "health", "power", "combo", "druidmana", "castbar", "pethealth", "swing", "totems",
-            "absorb", "flight" },
+        order = { "health", "power", "combo", "druidmana", "castbar", "targetcast", "pethealth",
+            "swing", "totems", "absorb", "flight" },
         bars = {
             health = barDefaults(show, width, h1, 0.2, 0.8, 0.2, show),
             power = barDefaults(show, width, h2, 1, 0.85, 0.1, show),
@@ -171,10 +171,18 @@ local function layoutDefaults(show, x, y, gap, width, h1, h2, h3, h4, h5, h6, h7
             totems = barDefaults(show, width, h8, 0.6, 0.6, 0.6, false), -- colored per element instead
             absorb = barDefaults(false, width, h9, 0.9, 0.9, 0.7, true), -- text = points left
             flight = barDefaults(false, width, h10 or h5, 0.4, 0.7, 1, true), -- text = time left
+            -- the color is picked from what is being cast, so its own is only a fallback
+            targetcast = barDefaults(false, width, h5, 0.8, 0.3, 0.3, true),
         },
     }
     l.bars.power.colorMode = "power"
     l.bars.castbar.icon, l.bars.castbar.iconSide = true, "left"
+    l.bars.targetcast.icon, l.bars.targetcast.iconSide = true, "left"
+    -- what your target is casting: one color each for a cast you cannot stop, a heal, and
+    -- everything else
+    l.bars.targetcast.lockedColor = { 0.6, 0.6, 0.65, 1 }
+    l.bars.targetcast.healColor = { 0.2, 0.9, 0.3, 1 }
+    l.bars.targetcast.harmColor = { 0.9, 0.3, 0.2, 1 }
     l.bars.swing.main, l.bars.swing.off, l.bars.swing.ranged = true, false, false
     l.bars.health.heal, l.bars.health.healColor = false, { 0.4, 1, 0.5, 0.45 } -- incoming heals
     l.bars.power.cost, l.bars.power.costColor = false, { 1, 1, 1, 0.35 } -- what the cast will take
@@ -473,6 +481,15 @@ local BARS = {
         label = "Swing Timer",
         state = function() return true, 1 end, -- a row per ticked weapon, each only while that one swings
     },
+    targetcast = {
+        label = "Target Cast",
+        -- only while your target is casting. Like your own cast bar, the gap closes when it
+        -- goes; previewing keeps it up while you are placing it.
+        state = function()
+            return (ns.previewing() or UnitCastingInfo("target") or UnitChannelInfo("target"))
+                and true or false, 1
+        end,
+    },
     flight = {
         label = "Flight",
         -- only while the griffin has you. Nobody will say how long a route takes, so the first
@@ -669,6 +686,10 @@ end
 -- A bar's fill and border colors after the color modes. Alpha always comes from the swatch.
 local function barColors(f, c)
     local r, g, b = unpack(c.color)
+    if f.key == "targetcast" then
+        local pick = c[(f.castKind or "harm") .. "Color"]
+        if pick then r, g, b = pick[1], pick[2], pick[3] end
+    end
     if c.colorMode == "power" and f.key == "power" then
         local pc = PowerBarColor and PowerBarColor[select(2, UnitPowerType("player"))]
         if pc then r, g, b = pc.r, pc.g, pc.b end
@@ -691,9 +712,9 @@ local function layoutBar(f, n, width)
     width = width or c.width
     f.width = width
     local r, g, b, br, bg, bb, ba = barColors(f, c)
-    -- Cast bar spell icon: a square at one end, inside the bar's width.
+    -- Cast bar spell icon: a square at one end, inside the bar's width. Both cast bars have one.
     local lead, iconSpace = 0, 0
-    if f.key == "castbar" then
+    if f.key == "castbar" or f.key == "targetcast" then
         f.icon = f.icon or f:CreateTexture(nil, "ARTWORK")
         f.icon:SetTexCoord(0.08, 0.92, 0.08, 0.92) -- trim the icon's built-in border
         f.icon:SetSize(c.height, c.height)
@@ -813,6 +834,55 @@ local function fillCast(f)
     f.icon:SetTexture(icon)
 end
 
+-- What your target is casting, as far as anything will say. Whether it can be stopped the game
+-- tells us outright. Whether it heals it does not, and no list of spells on Wowhead separates
+-- heals from buffs cleanly, so these are matched by name -- the names that matter are the ones
+-- a mob healer casts at you from across the room.
+ns.HEALING_CASTS = {}
+for _, name in ipairs({ "Heal", "Lesser Heal", "Greater Heal", "Flash Heal", "Renew",
+    "Prayer of Healing", "Holy Light", "Flash of Light", "Holy Nova", "Healing Wave",
+    "Lesser Healing Wave", "Chain Heal", "Healing Touch", "Regrowth", "Rejuvenation",
+    "Mend Pet", "Dark Mending", "Healing Ward", "Healing Totem", "Renew Life",
+    "Lay on Hands", "Divine Shield", "Shield of Reckoning", "Bandage", "First Aid",
+    "Mending", "Greater Healing Wave", "Holy Smite Heal" }) do
+    ns.HEALING_CASTS[name:lower()] = true
+end
+
+-- "locked" when it cannot be stopped, "heal" when it mends, "harm" for the rest.
+function ns.castKind(name, locked)
+    if locked == true then return "locked" end
+    if type(name) == "string" and ns.HEALING_CASTS[name:lower()] then return "heal" end
+    return "harm"
+end
+
+-- Your target's cast, drained by the game's own duration object where there is one.
+function ns.fillTargetCast(f)
+    local name, _, icon, _, _, _, _, locked = UnitCastingInfo("target")
+    local duration, direction, channel = name and UnitCastingDuration("target"), TIMER_ELAPSED, false
+    if not name then
+        name, _, icon, _, _, _, locked = UnitChannelInfo("target")
+        duration, direction, channel = name and UnitChannelDuration("target"), TIMER_REMAINING, true
+    end
+    -- the kind is only known once the cast is read, which is after the bar was laid out, so
+    -- the color is put on here rather than waiting for the next pass
+    local function wear(kind)
+        f.castKind = kind
+        local c = db[f.mode] and db[f.mode].bars.targetcast
+        local pick = c and c[kind .. "Color"]
+        if pick then f.segs[1]:SetStatusBarColor(pick[1], pick[2], pick[3], pick[4] or 1) end
+    end
+    if not name then -- previewing: nothing is being cast
+        f.text:SetText(BARS.targetcast.label)
+        f.icon:SetTexture(134400)
+        wear("harm")
+        return
+    end
+    if duration then f.segs[1]:SetTimerDuration(duration, 0, direction) end
+    f.text:SetText(name)
+    f.icon:SetTexture(icon)
+    wear(ns.castKind(name, locked == true))
+end
+
 -- The flight bar drains for a route we have flown before, and counts up the first time so the
 -- ride is at least measured while it happens.
 local function fillFlight(f)
@@ -901,6 +971,7 @@ end
 -- flight ticker needs to reach it
 function ns.fill(f)
     if f.key == "castbar" then return fillCast(f) end
+    if f.key == "targetcast" then return ns.fillTargetCast(f) end
     if f.key == "flight" then return fillFlight(f) end
     if f.key == "swing" then return fillSwing(f) end
     if f.key == "totems" then -- the bar drains itself from the duration object, in C
@@ -4698,6 +4769,14 @@ local function buildConfig()
         cur().iconSide = cur().iconSide == "right" and "left" or "right"
         changed()
     end)
+    -- one color per kind of cast, for your target's bar
+    local castKinds = {}
+    for i, k in ipairs({ { "harmColor", "Damage" }, { "healColor", "Healing" },
+        { "lockedColor", "Cannot be stopped" } }) do
+        castKinds[i] = swatch(barsPage, k[2], only.x, only:row(SWATCH), function()
+            return cur()[k[1]] or { 1, 1, 1, 1 }
+        end)
+    end
     local onlyNote = label(barsPage, "", "GameFontDisableSmall")
     onlyNote:SetPoint("TOPLEFT", only.x, only:row(16))
     onRefresh(function()
@@ -4710,15 +4789,22 @@ local function buildConfig()
         for _, row in ipairs(totemRows) do
             for _, w in ipairs(row) do w:SetShown(selected == "totems") end
         end
-        castIcon:SetShown(selected == "castbar")
-        castSide:SetShown(selected == "castbar" and cur().icon or false)
+        castIcon:SetShown(selected == "castbar" or selected == "targetcast")
+        for _, w in ipairs(castKinds) do w:SetShown(selected == "targetcast") end
+        castSide:SetShown((selected == "castbar" or selected == "targetcast")
+            and cur().icon or false)
         castSide:SetText("Icon side: " .. (cur().iconSide == "right" and "Right" or "Left"))
         local none = not (selected == "castbar" or selected == "swing" or selected == "power"
-            or selected == "health")
+            or selected == "health" or selected == "targetcast")
         if selected == "range" then
             onlyNote:SetText("Asks your own spells whether they would reach. The whole bar takes "
                 .. "the color of where your target stands, and says so: in melee, in the gap "
                 .. "nothing covers, in range, or too far.")
+        elseif selected == "targetcast" then
+            onlyNote:SetText("What your target is casting. The bar takes the color of the kind: "
+                .. "one the game says you cannot stop, a heal, or anything else. Whether it can "
+                .. "be stopped the game tells us outright; whether it heals is matched by name, "
+                .. "from the list of heals a mob actually casts.")
         elseif selected == "flight" then
             onlyNote:SetText("Shows only while a griffin has you. Nothing in the game will say how "
                 .. "long a route takes, so the first time you fly one it is timed and written "
@@ -7170,7 +7256,7 @@ ev:SetScript("OnEvent", function(_, event, unit, arg2, arg3)
             "UNIT_SPELLCAST_SUCCEEDED",
             "UNIT_SPELLCAST_INTERRUPTED", "UNIT_SPELLCAST_DELAYED", "UNIT_SPELLCAST_CHANNEL_START",
             "UNIT_SPELLCAST_CHANNEL_STOP", "UNIT_SPELLCAST_CHANNEL_UPDATE" }) do
-            listen(e, "player")
+            listen(e, "player", "target")
         end
         listen("UNIT_HEALTH", "player", "target")
         listen("UNIT_MAXHEALTH", "player", "target")
