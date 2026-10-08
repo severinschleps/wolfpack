@@ -845,12 +845,14 @@ ns.targetCasting = false
 
 function ns.watchTargetCast(event, unit)
     if event == "PLAYER_TARGET_CHANGED" then
-        ns.targetCasting = false
+        ns.targetCasting, ns.targetChannelling = false, false
         return true
     end
     if unit ~= "target" then return false end
-    if event == "UNIT_SPELLCAST_START" or event == "UNIT_SPELLCAST_CHANNEL_START" then
-        ns.targetCasting = true
+    if event == "UNIT_SPELLCAST_START" then
+        ns.targetCasting, ns.targetChannelling = true, false
+    elseif event == "UNIT_SPELLCAST_CHANNEL_START" then
+        ns.targetCasting, ns.targetChannelling = true, true
     elseif event == "UNIT_SPELLCAST_STOP" or event == "UNIT_SPELLCAST_FAILED"
         or event == "UNIT_SPELLCAST_INTERRUPTED" or event == "UNIT_SPELLCAST_CHANNEL_STOP"
         or event == "UNIT_SPELLCAST_SUCCEEDED" then
@@ -884,33 +886,41 @@ end
 
 -- Your target's cast, drained by the game's own duration object where there is one.
 function ns.fillTargetCast(f)
-    -- everything here is held, never tested: on this client the name and the cannot-be-stopped
-    -- flag can both be secret, and a bar will take a secret where an `if` will not
-    local got = { pcall(UnitCastingInfo, "target") }
-    local name, icon, locked = got[2], got[4], got[9]
-    local duration, direction = nil, TIMER_ELAPSED
-    if readable(name) then duration = select(2, pcall(UnitCastingDuration, "target")) end
-    if not readable(name) and got[1] and got[2] == nil then
-        got = { pcall(UnitChannelInfo, "target") }
-        name, icon, locked = got[2], got[4], got[8]
-        direction = TIMER_REMAINING
-        if readable(name) then duration = select(2, pcall(UnitChannelDuration, "target")) end
-    end
-    -- the kind is only known once the cast is read, which is after the bar was laid out, so
-    -- the color is put on here rather than waiting for the next pass
+    -- Everything here is held, never tested: on this client a target's cast comes back secret,
+    -- and a secret may be handed to a bar or a font string but not compared. Which of the two
+    -- calls to ask comes from the events, since asking the cast itself would mean reading it.
+    local channel = ns.targetChannelling == true
+    local info = { pcall(channel and UnitChannelInfo or UnitCastingInfo, "target") }
+    local name, icon = info[2], info[4]
+    local locked = channel and info[8] or info[9]
+
+    -- the color is only known once the cast is read, which is after the bar was laid out
     local function wear(kind)
         f.castKind = kind
         local c = db[f.mode] and db[f.mode].bars.targetcast
         local pick = c and c[kind .. "Color"]
         if pick then f.segs[1]:SetStatusBarColor(pick[1], pick[2], pick[3], pick[4] or 1) end
     end
-    if name == nil then -- previewing: nothing is being cast
+
+    if not (ns.targetCasting or ns.previewing()) or name == nil then -- nothing being cast
         f.text:SetText(BARS.targetcast.label)
         f.icon:SetTexture(134400)
+        f.segs[1]:SetMinMaxValues(0, 1)
+        f.segs[1]:SetValue(ns.previewing() and 1 or 0)
         wear("harm")
         return
     end
-    if duration then pcall(f.segs[1].SetTimerDuration, f.segs[1], duration, 0, direction) end
+
+    -- the duration object is asked for whatever the name turned out to be: it is what drains
+    -- the bar, in C, and a bar with none of it just sits there full
+    local length = select(2, pcall(channel and UnitChannelDuration or UnitCastingDuration, "target"))
+    if length ~= nil then
+        pcall(f.segs[1].SetTimerDuration, f.segs[1], length, 0,
+            channel and TIMER_REMAINING or TIMER_ELAPSED)
+    else -- nobody will say how long: an empty bar is less of a lie than a full one
+        f.segs[1]:SetMinMaxValues(0, 1)
+        f.segs[1]:SetValue(0)
+    end
     pcall(f.text.SetText, f.text, name)   -- a secret name still draws
     if icon ~= nil then pcall(f.icon.SetTexture, f.icon, icon) end
     wear(ns.castKind(name, locked))

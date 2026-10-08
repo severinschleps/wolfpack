@@ -332,8 +332,14 @@ UnitChannelInfo = function(unit)
     end
     if S.channel then return S.channel, "", 136197 end
 end
-UnitCastingDuration = function() return S.cast and "castDuration" end
-UnitChannelDuration = function() return S.channel and "channelDuration" end
+UnitCastingDuration = function(unit)
+    if unit == "target" then return S.targetCast and "targetCastDuration" or nil end
+    return S.cast and "castDuration"
+end
+UnitChannelDuration = function(unit)
+    if unit == "target" then return S.targetChannel and "targetChannelDuration" or nil end
+    return S.channel and "channelDuration"
+end
 QuestGetAutoAccept = function() return S.autoQuest end
 QuestIsFromAreaTrigger = function() return S.areaTrigger end
 CompleteQuest = record("complete")
@@ -1803,6 +1809,9 @@ assert(ns.frames.targetcast._points[1][2] == ns.frames.health._points[1][2],
 assert(ns.frames.targetcast.text._text == "Shadow Bolt", "wearing the spell's name")
 assert(ns.frames.targetcast.icon._tex == 136116, "and its icon")
 assert(ns.frames.targetcast.castKind == "harm", "a damaging cast")
+assert(ns.frames.targetcast.segs[1]._timer
+    and ns.frames.targetcast.segs[1]._timer == "targetCastDuration",
+    "the game's own duration drains it, rather than it sitting there full")
 assert(ns.frames.targetcast.segs[1]._sbc[1] > 0.5 and ns.frames.targetcast.segs[1]._sbc[2] < 0.5,
     "drawn in the damage color")
 S.targetCast = "Greater Heal"
@@ -1817,6 +1826,16 @@ S.targetChannel = "Drain Life"
 fire("UNIT_SPELLCAST_CHANNEL_START", "target")
 assert(ns.frames.targetcast:IsShown() and ns.frames.targetcast.text._text == "Drain Life",
     "a channel shows the same way")
+assert(ns.frames.targetcast.segs[1]._timer == "targetChannelDuration",
+    "drained by the channel's own duration, not the cast's")
+-- and a cast nobody will time reads empty rather than full
+S.targetChannel, S.targetCast = nil, "Mystery"
+fire("UNIT_SPELLCAST_START", "target")
+S.keptDur, UnitCastingDuration = UnitCastingDuration, function() return nil end
+ns.fill(ns.frames.targetcast)
+assert(ns.frames.targetcast.segs[1]._value == 0, "no duration, an empty bar rather than a full one")
+UnitCastingDuration = S.keptDur
+S.targetCast = nil
 S.targetChannel = nil
 fire("UNIT_SPELLCAST_CHANNEL_STOP", "target")
 assert(not ns.frames.targetcast:IsShown(), "and goes when they stop")
