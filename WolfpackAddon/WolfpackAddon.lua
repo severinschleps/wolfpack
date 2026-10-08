@@ -3975,8 +3975,29 @@ end
 ------------------------------------------------------------------------------------------
 -- Profiles (account-wide). Each character starts on its class profile, e.g. "Rogue".
 ------------------------------------------------------------------------------------------
+-- A profile saved before a bar existed keeps its own order, and merge leaves a list it already
+-- has alone -- so without this a new bar would never appear for anybody who had played before.
+-- Unknown names are dropped at the same time, which is what a removed bar leaves behind.
+function ns.repairOrder(layout, default)
+    if type(layout) ~= "table" or type(layout.order) ~= "table" then return end
+    local seen, kept = {}, {}
+    for _, key in ipairs(layout.order) do
+        if BARS[key] and not seen[key] then
+            seen[key] = true
+            kept[#kept + 1] = key
+        end
+    end
+    for _, key in ipairs(default) do
+        if not seen[key] then kept[#kept + 1] = key end
+    end
+    layout.order = kept
+end
+
 useProfile = function(name)
     store.profiles[name] = merge(store.profiles[name] or ns.freshProfile(name), DEFAULTS)
+    for _, which in ipairs({ "regular", "nameplate" }) do
+        ns.repairOrder(store.profiles[name][which], DEFAULTS[which].order)
+    end
     store.chars[charKey] = name
     db = store.profiles[name]
     applyCombatFont() -- the font travels with the profile
@@ -6973,6 +6994,28 @@ function ns.TrainReport()
     end
 end
 
+-- /wp cast -- what the game will say about your target's casting, and whether the bar is on.
+function ns.CastReport()
+    local function say(t) print("|cff88ccffWolfpack:|r " .. t) end
+    local c = db and db.regular.bars.targetcast
+    say("the bar is on: " .. tostring(c and c.show) .. ", in the list at: "
+        .. tostring((function()
+            for i, k in ipairs(db and db.regular.order or {}) do
+                if k == "targetcast" then return i end
+            end
+        end)()))
+    say("frame exists: " .. tostring(ns.frames.targetcast ~= nil) .. ", shown: "
+        .. tostring(ns.frames.targetcast and ns.frames.targetcast:IsShown()))
+    local got = { pcall(UnitCastingInfo, "target") }
+    say(("UnitCastingInfo(target): %s %s icon %s cannot-stop %s"):format(tostring(got[1]),
+        tostring(got[2]), tostring(got[4]), tostring(got[9])))
+    local chan = { pcall(UnitChannelInfo, "target") }
+    say(("UnitChannelInfo(target): %s %s"):format(tostring(chan[1]), tostring(chan[2])))
+    say("UnitCastingDuration: " .. type(UnitCastingDuration) .. ", for the target: "
+        .. tostring(({ pcall(UnitCastingDuration, "target") })[2]))
+    say("your own cast right now: " .. tostring(({ pcall(UnitCastingInfo, "player") })[2]))
+end
+
 SlashCmdList.WOLFPACKADDON = function(msg)
     msg = (msg or ""):lower()
     if msg:find("aura") then return safe(ns.AuraReport, (msg:gsub("^%s*auras?%s*", ""))) end
@@ -6985,6 +7028,7 @@ SlashCmdList.WOLFPACKADDON = function(msg)
     if msg:find("map") then return safe(ns.MapReport) end
     if msg:find("heal") then return safe(ns.HealReport) end
     if msg:find("train") then return safe(ns.TrainReport) end
+    if msg:find("cast") then return safe(ns.CastReport) end
     safe(ns.ToggleConfig)
 end
 
@@ -7227,6 +7271,13 @@ ev:SetScript("OnEvent", function(_, event, unit, arg2, arg3)
         WolfpackAddonDB = store
         store.minimapAngle = store.minimapAngle or 220
         store.classProfiles = store.classProfiles or {} -- [class token] = profile name
+        -- every profile, not just the one in use: a bar added since it was saved belongs on all
+        -- of them, and switching to one later should not be the first time it appears
+        for _, prof in pairs(store.profiles) do
+            for _, which in ipairs({ "regular", "nameplate" }) do
+                ns.repairOrder(prof[which], DEFAULTS[which].order)
+            end
+        end
         store.macros = store.macros or {} -- [class token] = { { name, body, icon }, ... }
         store.flights = store.flights or {} -- ["Ironforge > Menethil Harbor"] = seconds
         safe(ft.hook)

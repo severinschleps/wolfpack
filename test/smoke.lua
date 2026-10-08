@@ -1814,8 +1814,20 @@ assert(ns.frames.targetcast:IsShown() and ns.frames.targetcast.text._text == "Dr
 S.targetChannel = nil
 fire("UNIT_SPELLCAST_CHANNEL_STOP", "target")
 assert(not ns.frames.targetcast:IsShown(), "and goes when they stop")
+SlashCmdList.WOLFPACKADDON("cast")
+assert(not ns.errored, "the cast probe runs clean")
 prof().regular.bars.targetcast.show = false
 fire("UNIT_MAXPOWER")
+-- a profile saved before this bar existed still gets it, at the end of the order
+S.oldOrder = { "health", "power", "combo", "druidmana", "castbar", "pethealth", "swing",
+    "totems", "absorb" }
+WolfpackAddonDB.profiles.OldOne = { regular = { order = S.oldOrder } }
+fire("PLAYER_LOGIN")
+S.repaired = WolfpackAddonDB.profiles.OldOne.regular.order
+S.found = false
+for _, k in ipairs(S.repaired) do if k == "targetcast" then S.found = true end end
+assert(S.found, "an older profile is given the new bar rather than never seeing it")
+WolfpackAddonDB.profiles.OldOne = nil
 
 -- Prediction overlays: incoming heals grow right from the health fill, a cast's cost grows left
 -- from the power fill (the bar clips whatever runs past its edge).
