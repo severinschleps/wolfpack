@@ -1793,7 +1793,13 @@ fire("UNIT_MAXPOWER")
 assert(not ns.frames.targetcast:IsShown(), "nothing cast, no bar")
 S.targetCast = "Shadow Bolt"
 fire("UNIT_SPELLCAST_START", "target")
+assert(ns.targetCasting, "the event said they started, which is what the bar goes by")
 assert(ns.frames.targetcast:IsShown(), "they started casting, so the bar joined the stack")
+-- it sits in the stack with the rest, not floating over them
+S.above = ns.frames.castbar
+assert(ns.frames.targetcast._points and ns.frames.targetcast._points[1], "it is placed at all")
+assert(ns.frames.targetcast._points[1][2] == ns.frames.health._points[1][2],
+    "against the same anchor as every other bar")
 assert(ns.frames.targetcast.text._text == "Shadow Bolt", "wearing the spell's name")
 assert(ns.frames.targetcast.icon._tex == 136116, "and its icon")
 assert(ns.frames.targetcast.castKind == "harm", "a damaging cast")
@@ -1814,6 +1820,16 @@ assert(ns.frames.targetcast:IsShown() and ns.frames.targetcast.text._text == "Dr
 S.targetChannel = nil
 fire("UNIT_SPELLCAST_CHANNEL_STOP", "target")
 assert(not ns.frames.targetcast:IsShown(), "and goes when they stop")
+-- somebody else's cast is not your target's, and a new target starts quiet
+S.targetCast = "Shadow Bolt"
+fire("UNIT_SPELLCAST_START", "target")
+assert(ns.frames.targetcast:IsShown(), "your target is casting again")
+fire("UNIT_SPELLCAST_START", "party1")
+assert(ns.targetCasting, "a party member's cast changes nothing either way")
+fire("PLAYER_TARGET_CHANGED")
+assert(not ns.targetCasting and not ns.frames.targetcast:IsShown(),
+    "and a new target is quiet until it says otherwise")
+S.targetCast = nil
 SlashCmdList.WOLFPACKADDON("cast")
 assert(not ns.errored, "the cast probe runs clean")
 -- on this client the name and the cannot-be-stopped flag can both be secret: held, never read

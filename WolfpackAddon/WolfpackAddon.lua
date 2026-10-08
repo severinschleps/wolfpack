@@ -487,12 +487,7 @@ local BARS = {
         -- a secret may not even be tested for truth -- so the test is wrapped, and a refusal is
         -- taken as a yes: the game only has something to hide when there is something there.
         state = function()
-            if ns.previewing() then return true, 1 end
-            local ok, casting = pcall(function()
-                return (UnitCastingInfo("target") or UnitChannelInfo("target")) and true or false
-            end)
-            if not ok then return true, 1 end
-            return casting == true, 1
+            return (ns.previewing() or ns.targetCasting == true) and true or false, 1
         end,
     },
     flight = {
@@ -843,6 +838,29 @@ end
 -- tells us outright. Whether it heals it does not, and no list of spells on Wowhead separates
 -- heals from buffs cleanly, so these are matched by name -- the names that matter are the ones
 -- a mob healer casts at you from across the room.
+-- Whether your target is casting is tracked from the events rather than asked for: the events
+-- say which unit plainly, where the cast itself comes back secret and cannot even be tested for
+-- truth. A refusal to read is not the same as a cast, which is what made the bar sit there.
+ns.targetCasting = false
+
+function ns.watchTargetCast(event, unit)
+    if event == "PLAYER_TARGET_CHANGED" then
+        ns.targetCasting = false
+        return true
+    end
+    if unit ~= "target" then return false end
+    if event == "UNIT_SPELLCAST_START" or event == "UNIT_SPELLCAST_CHANNEL_START" then
+        ns.targetCasting = true
+    elseif event == "UNIT_SPELLCAST_STOP" or event == "UNIT_SPELLCAST_FAILED"
+        or event == "UNIT_SPELLCAST_INTERRUPTED" or event == "UNIT_SPELLCAST_CHANNEL_STOP"
+        or event == "UNIT_SPELLCAST_SUCCEEDED" then
+        ns.targetCasting = false
+    else
+        return false
+    end
+    return true
+end
+
 ns.HEALING_CASTS = {}
 for _, name in ipairs({ "Heal", "Lesser Heal", "Greater Heal", "Flash Heal", "Renew",
     "Prayer of Healing", "Holy Light", "Flash of Light", "Holy Nova", "Healing Wave",
@@ -7354,6 +7372,9 @@ ev:SetScript("OnEvent", function(_, event, unit, arg2, arg3)
     elseif event == "UNIT_HEAL_PREDICTION" then
         fillShown("health")
         if targetFrame:IsShown() then safe(ns.fill, targetFrame) end
+    elseif event == "PLAYER_TARGET_CHANGED" then
+        safe(ns.watchTargetCast, event) -- a new target is not mid-cast until it says so
+        safe(Refresh)
     elseif event == "UNIT_ABSORB_AMOUNT_CHANGED" then
         if GetTime() - absorb.castAt <= ABSORB_CAST_WINDOW then -- our cast just put a shield up
             local ok, points = pcall(UnitGetTotalAbsorbs, "player")
@@ -7367,6 +7388,7 @@ ev:SetScript("OnEvent", function(_, event, unit, arg2, arg3)
     elseif event == "UNIT_POWER_FREQUENT" then
         fillShown("power", "combo", "druidmana")
     elseif event:find("^UNIT_SPELLCAST_") then
+        safe(ns.watchTargetCast, event, unit)
         if unit == "player" then
             safe(fsr.cast, fsr, event, arg2, arg3)
             safe(castCost.track, castCost, event, arg3)
