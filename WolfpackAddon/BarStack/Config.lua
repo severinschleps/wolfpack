@@ -440,18 +440,13 @@ local function build(parent)
   text(r, "Name", x, -40)
   f.name = input(r, x, -56, W3 - 24, false, function(v) selected.name = v end)
   text(r, "Show", x, -92)
-  f.vis = dropdown(r, x, -108, 202, function()
+  f.vis = dropdown(r, x, -108, W3 - 24, function()
     local out = {}
     for _, v in ipairs(VIS) do
       out[#out + 1] = { VIS_TEXT[v], function() return selected and selected.visibility == v end,
         function() selected.visibility = v; changed() end }
     end
     return out
-  end)
-  text(r, "Group", x + 210, -92)
-  f.barGroup = dropdown(r, x + 210, -108, 114, function()
-    return groupItems({ current = function() return selected and BS.GroupOf(selected) end,
-      set = function(g) if BS.MoveToGroup(selected, g) then group = g; changed() end end })
   end)
   f.orient = button(r, "", 110, x, -144, function()
     selected.orientation = selected.orientation == "vertical" and "horizontal" or "vertical"
@@ -530,7 +525,6 @@ function BS.RefreshConfig()
   if not b then return end
   if not f.name:HasFocus() then f.name:SetText(b.name) end
   f.vis:GenerateMenu()
-  f.barGroup:GenerateMenu()
   for _, sl in ipairs(barSliders) do sl.sync() end
   f.orient:SetText(b.orientation == "vertical" and "Vertical" or "Horizontal")
   f.add:SetEnabled(#b.spells < MAX_SPELLS)

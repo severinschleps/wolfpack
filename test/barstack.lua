@@ -101,14 +101,13 @@ assert(not BS.MoveBar(low, -1), "nothing above the top layer")
 assert(BS.MoveBar(low, 1) and g1.bars[2] == low, "Move down puts it back")
 assert(not BS.MoveBar(low, 1), "nothing below the bottom layer")
 
--- groups: each is a stack of its own; a bar moves between them, and only an empty group goes
+-- groups: each is a stack of its own, and only an empty group goes
 local g2 = BS.NewGroup()
 assert(#BS.profile.groups == 2 and g2.name == "Stack 2" and g2.stack.y == -180, "a new group starts as its own stack")
 assert(g2.stack ~= g1.stack, "with settings of its own")
-assert(BS.MoveToGroup(high, g2) and g2.bars[1] == high and BS.GroupOf(high) == g2, "a bar moves to another group")
-assert(#g1.bars == 1 and not tContains(g1.bars, high), "and leaves the old one")
-assert(not BS.DeleteGroup(g2), "a group with bars is kept")
-BS.MoveToGroup(high, g1)
+local inG2 = BS.NewBar(g2)
+assert(BS.GroupOf(inG2) == g2 and not BS.DeleteGroup(g2), "a group with bars is kept")
+table.remove(g2.bars, 1)
 assert(BS.DeleteGroup(g2) and #BS.profile.groups == 1, "an empty one goes")
 assert(not BS.DeleteGroup(g1), "the last group always stays")
 

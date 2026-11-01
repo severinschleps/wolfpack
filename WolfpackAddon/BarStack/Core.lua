@@ -159,15 +159,6 @@ function BS.MoveBar(bar, d)
   return true
 end
 
--- Into another group's stack, as its top layer.
-function BS.MoveToGroup(bar, g)
-  local from = BS.GroupOf(bar)
-  if not from or from == g then return false end
-  table.remove(from.bars, tIndexOf(from.bars, bar))
-  table.insert(g.bars, 1, bar)
-  return true
-end
-
 ------------------------------------------------------------------------
 -- Storage: every save writes all backends, load takes the newest `updated`.
 -- 1. SavedVariables BarStackDB  2. account CVar chunks  3. export string (manual, Config window)
