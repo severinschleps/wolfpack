@@ -176,6 +176,10 @@ local function layoutDefaults(show, x, y, gap, width, h1, h2, h3, h4, h5, h6, h7
         },
     }
     l.bars.power.colorMode = "power"
+    -- "Power type color": one color per power, Blizzard's own to start with; any other power
+    -- (runic power, astral power...) keeps Blizzard's
+    l.bars.power.powerColors = { RAGE = { 1, 0, 0, 1 }, ENERGY = { 1, 1, 0, 1 }, MANA = { 0, 0, 1, 1 },
+        FOCUS = { 1, 0.5, 0.25, 1 } }
     l.bars.castbar.icon, l.bars.castbar.iconSide = true, "left"
     l.bars.targetcast.icon, l.bars.targetcast.iconSide = true, "left"
     -- what your target is casting: one color each for a cast you cannot stop, a heal, and
@@ -685,8 +689,9 @@ local function barColors(f, c)
         if pick then r, g, b = pick[1], pick[2], pick[3] end
     end
     if c.colorMode == "power" and f.key == "power" then
-        local pc = PowerBarColor and PowerBarColor[select(2, UnitPowerType("player"))]
-        if pc then r, g, b = pc.r, pc.g, pc.b end
+        local token = select(2, UnitPowerType("player"))
+        local own, pc = c.powerColors and c.powerColors[token], PowerBarColor and PowerBarColor[token]
+        if own then r, g, b = own[1], own[2], own[3] elseif pc then r, g, b = pc.r, pc.g, pc.b end
     elseif c.colorMode == "class" then
         local cr, cg, cb = classRGB(f.unit or "player")
         if cr then r, g, b = cr, cg, cb end
@@ -3900,6 +3905,14 @@ local function buildConfig()
         function() return cur().cost end, function(v) cur().cost = v end)
     local costColor = swatch(barsPage, "Cost color", only.x, only:row(0) - ROW,
         function() return cur().costColor or { 0, 0, 0, 1 } end)
+    -- the power bar's color per power, under its cost options, while it wears its power's color
+    local POWERS = { { "RAGE", "Rage" }, { "ENERGY", "Energy" }, { "MANA", "Mana" }, { "FOCUS", "Focus" } }
+    local powerSwatches = {}
+    for i, p in ipairs(POWERS) do
+        powerSwatches[i] = swatch(barsPage, p[2], only.x, only:row(0) - (i + 1) * ROW, function()
+            return cur().powerColors and cur().powerColors[p[1]] or { 0, 0, 0, 1 } -- another bar is selected
+        end)
+    end
     local castIcon = check(barsPage, "Show spell icon", only.x, only:row(ROW),
         function() return cur().icon end, function(v) cur().icon = v end)
     local castSide = button(barsPage, "", 186, only.x, only:row(BUTTON), function()
@@ -3922,6 +3935,7 @@ local function buildConfig()
         healColor:SetShown(selected == "health")
         costCheck:SetShown(selected == "power")
         costColor:SetShown(selected == "power")
+        for _, w in ipairs(powerSwatches) do w:SetShown(selected == "power" and cur().colorMode == "power") end
         for _, w in ipairs(swingChecks) do w:SetShown(selected == "swing") end
         for _, row in ipairs(totemRows) do
             for _, w in ipairs(row) do w:SetShown(selected == "totems") end

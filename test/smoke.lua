@@ -709,6 +709,15 @@ assert(hs._sbc[1] == 1 and hs._sbc[3] == 0.41 and hs.border._color[3] == 0.41, "
 hc.colorMode, hc.borderMode = "custom", "class"; fire("UNIT_MAXPOWER")
 assert(hs._sbc[1] == 0.2 and hs.border._color[3] == 0.41 and hs.border._color[4] == 1, "custom bar, class border")
 hc.borderSize, hc.borderMode = 0, "custom"
+-- a color of your own per power: rage, energy, mana and focus each take theirs
+local pcol = prof().regular.bars.power.powerColors
+assert(pcol.RAGE and pcol.ENERGY and pcol.MANA and pcol.FOCUS, "four power colors, Blizzard's to start with")
+pcol.ENERGY = { 0.1, 0.8, 0.9, 1 }; fire("UNIT_MAXPOWER")
+assert(fr.power.segs[1]._sbc[1] == 0.1 and fr.power.segs[1]._sbc[3] == 0.9, "energy wears its own color")
+prof().regular.bars.power.colorMode = "custom"; fire("UNIT_MAXPOWER")
+assert(fr.power.segs[1]._sbc[1] ~= 0.1, "only while the bar wears its power's color")
+prof().regular.bars.power.colorMode = "power"
+pcol.ENERGY = { 1, 1, 0, 1 }; fire("UNIT_MAXPOWER")
 
 -- Player frame: hide by reparenting (out of combat only), restore to the original parent
 local R0 = prof().regular
@@ -1128,6 +1137,7 @@ assert(BagsBar._parent == UIParent and BagsBar._point[2] == "MicroButtonAndBagsB
 -- Color pickers start from the color in use: class / same-as-bar borders, class bars; picking
 -- a color makes it custom, opacity alone doesn't, cancel restores both
 local sw, hcol = ns.swatches, prof().regular.bars.health
+assert(sw.Rage and sw.Energy and sw.Mana and sw.Focus, "a swatch per power in the power bar's options")
 hcol.colorMode, hcol.borderMode = "class", "bar"
 sw["Custom border color"]._scripts.OnClick()
 assert(S.picker.r == 1 and S.picker.b == 0.41, "border picker opens on the (class) bar color")
