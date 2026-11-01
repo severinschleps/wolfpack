@@ -540,7 +540,7 @@ ic.zoom, ic.border = 8, 1
 local fixed = BS.NormalizeProfile({ icons = { zoom = 99, border = -4, radius = 13, color = { 5, "x" } } })
 assert(fixed.icons.zoom == 30 and fixed.icons.border == 0 and fixed.icons.radius == 0, "clamped")
 -- the window's Icon style dialog edits it
-BS.ShowIconStyle()
+BS.cfg.iconStyle._onOnClick() -- the button at the top right of the Icons box
 local corners = menuStarting("Square")
 assert(corners and #corners == 4 and corners[4].text == "Round", "corners: square, small, medium, round")
 corners[4].set()
