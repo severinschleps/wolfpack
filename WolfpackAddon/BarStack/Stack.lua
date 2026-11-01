@@ -20,7 +20,6 @@ local borrowed = {}   -- Blizzard item frame -> the viewer it came from
 -- frame with its aura -- a debuff you put on the target and a proc buff included -- so these
 -- borrow from nowhere else: a cooldown icon would simply always be there.
 BS.AURA_MODES = { aura = true, debuff = true, proc = true, missing = true }
-BS.FLASH_MODES = { aura = true, debuff = true, proc = true } -- the ones that show Blizzard's aura icon
 
 -- Which viewers a widget may borrow from, in preference order.
 local function sources(visibility)
@@ -156,19 +155,10 @@ local function watch(it)
       hooksecurefunc(it, m, function(_, arg)
         w[m] = w[m] + 1
         if m == "SetShown" or m == "SetAlpha" then w[m .. "Secret"] = BS.secret(arg) end
-        if BS.parts[it] then
-          BS.LogGlow(it, "the icon " .. m, m, arg)
-          if m == "Show" or m == "SetShown" then BS.HearParts(it) end -- a part made late
-        end
         for _, r in ipairs(BS.mirror[it] or {}) do
           if m == "Show" then mirror(r, true)
           elseif m == "Hide" then mirror(r, false)
           elseif m == "SetShown" then mirror(r, arg) end
-        end
-        for _, u in ipairs(BS.mirrorUp[it] or {}) do
-          if m == "Show" then u:SetAlpha(1)
-          elseif m == "Hide" then u:SetAlpha(0)
-          elseif m == "SetShown" then BS.Follow(u, arg) end
         end
       end)
     end
@@ -325,190 +315,6 @@ local function park(it)
   it:SetParent(hideout)
 end
 
--- "Flash near the end": an aura's time left is secret to addons. In game every way to it was
--- refused: start and length come secret, and SetTimeFromStart and GetAuraDuration both refuse
--- while tainted. What we can hear is Blizzard switching parts of its own icon: in the refresh
--- window (about the last 30%) it lights a glow. A part whose key says "pandemic" drives our
--- flash; every part's switching is counted for /bs check, in case Blizzard names it otherwise.
--- An active bar pulses over Blizzard's icon; a missing bar shows its own icon early, pulsing,
--- while the debuff is still up.
-BS.parts = setmetatable({}, { __mode = "k" }) -- Blizzard frame -> part key -> { method -> count }
-BS.glowOf = setmetatable({}, { __mode = "k" }) -- Blizzard frame -> key of its refresh-window glow
-BS.flashes = {} -- this layout's flashes: { frame, it }
-local followers = setmetatable({}, { __mode = "k" }) -- Blizzard frame -> flashes its glow lights
-local allFlash = setmetatable({}, { __mode = "k" }) -- every flash frame ever made
-local onBlizzard = setmetatable({}, { __mode = "k" }) -- Blizzard frame -> its flash
-local early = {} -- container -> spell slot -> { up, glow }: a missing bar's early flash
-local PART_METHODS = { "Show", "Hide", "SetShown", "Play", "Stop", "Restart", "SetAlpha", "SetAtlas",
-  "SetVertexColor" }
-
--- /bs glow: what Blizzard did to its icon and when, so the part that lights up near the end can be
--- told apart from the one that lights up with the debuff. Repeats of a call are folded into one.
-BS.glowLog = setmetatable({}, { __mode = "k" }) -- Blizzard frame -> { { t, what, arg, n } }
-function BS.LogGlow(it, what, m, arg)
-  local L = BS.glowLog[it] or {}
-  BS.glowLog[it] = L
-  local last = L[#L]
-  if last and last.what == what then last.n = last.n + 1 return end
-  local a = ""
-  if m == "SetShown" or m == "SetAlpha" then a = BS.secret(arg) and "(secret)" or ("(" .. tostring(arg) .. ")") end
-  L[#L + 1] = { t = GetTime(), what = what, arg = a, n = 1 }
-  if #L > 80 then table.remove(L, 1) end
-end
-
--- Shown while Blizzard's frame is (the debuff is up): the opposite of a reminder icon.
-BS.mirrorUp = setmetatable({}, { __mode = "k" })
-function BS.Follow(f, shown)
-  if BS.secret(shown) then
-    pcall(f.SetAlphaFromBoolean, f, shown, 1, 0)
-  else
-    f:SetAlpha(shown and 1 or 0)
-  end
-end
-
-
-local function light(f, m, arg)
-  if m == "Show" or m == "Play" then f:SetAlpha(1)
-  elseif m == "Hide" or m == "Stop" then f:SetAlpha(0)
-  elseif m == "SetShown" then BS.Follow(f, arg) end
-end
-
--- Listens to every widget hanging off Blizzard's frame, and one level below (an animation on a
--- glow, say). Run on every layout: Blizzard may make a part only when it first needs one.
-local heardWidget = setmetatable({}, { __mode = "k" })
-function BS.HearParts(it)
-  local parts = BS.parts[it] or {}
-  BS.parts[it] = parts
-  local function widget(w)
-    return type(w) == "table" and w ~= it and type(w.IsObjectType) == "function"
-      and type(w.GetItemFrames) ~= "function" -- a link back to the viewer is not a part
-  end
-  local function hear(key, w)
-    if heardWidget[w] then return end
-    heardWidget[w] = true
-    local n = { _w = w }
-    parts[key] = n
-    for _, m in ipairs(PART_METHODS) do
-      if type(w[m]) == "function" then
-        n[m] = 0
-        hooksecurefunc(w, m, function(_, arg)
-          n[m] = n[m] + 1
-          BS.LogGlow(it, key .. " " .. m, m, arg)
-          if BS.glowOf[it] == key then
-            for _, f in ipairs(followers[it] or {}) do light(f, m, arg) end
-          end
-        end)
-      end
-    end
-    local g = BS.glowOf[it]
-    if key:lower():find("pandemic") and (not g or #key < #g) then BS.glowOf[it] = key end
-  end
-  -- named parts first (their keys say what they are), then unnamed children, regions and
-  -- animations, three levels down
-  local function walk(prefix, w, depth)
-    local found = {}
-    for k, v in pairs(w) do
-      if type(k) == "string" and widget(v) and not heardWidget[v] then
-        hear(prefix .. k, v)
-        found[#found + 1] = { prefix .. k, v }
-      end
-    end
-    for _, getter in ipairs({ "GetChildren", "GetRegions", "GetAnimationGroups" }) do
-      if type(w[getter]) == "function" then
-        local got = { pcall(w[getter], w) }
-        for i = 2, #got do
-          local v = got[i]
-          if widget(v) and not heardWidget[v] then
-            local ok, kind = pcall(v.GetObjectType, v)
-            local name = prefix .. "[" .. (ok and tostring(kind) or "?") .. " " .. (i - 1) .. "]"
-            hear(name, v)
-            found[#found + 1] = { name, v }
-          end
-        end
-      end
-    end
-    if depth < 3 then
-      for _, f in ipairs(found) do walk(f[1] .. ".", f[2], depth + 1) end
-    end
-  end
-  walk("", it, 1)
-end
-local hearParts = BS.HearParts
-
--- f's opacity now follows Blizzard's glow on `it`, starting from where the glow is right now.
-local function followGlow(it, f)
-  hearParts(it)
-  followers[it] = followers[it] or {}
-  table.insert(followers[it], f)
-  BS.flashes[#BS.flashes + 1] = { frame = f, it = it }
-  local key = BS.glowOf[it]
-  local w = key and BS.parts[it][key]._w
-  local ask = w and (w.IsShown or w.IsPlaying)
-  local ok, on = false, nil
-  if type(ask) == "function" then ok, on = pcall(ask, w) end
-  if ok then BS.Follow(f, on) else f:SetAlpha(0) end
-end
-
--- A white pulse over `over`, with the spell's icon under it when `icon` is given.
--- ponytail: square, even on rounded icons
-local function pulse(parent, over, icon)
-  local fl = CreateFrame("Frame", nil, parent)
-  fl:SetAllPoints(over)
-  fl:SetFrameLevel(parent:GetFrameLevel() + 20)
-  fl:SetAlpha(0)
-  if icon then
-    fl.icon = fl:CreateTexture(nil, "ARTWORK")
-    fl.icon:SetAllPoints()
-  end
-  local t = fl:CreateTexture(nil, "OVERLAY")
-  t:SetAllPoints()
-  t:SetColorTexture(1, 1, 1, 1)
-  t:SetBlendMode("ADD")
-  local ag = t:CreateAnimationGroup()
-  ag:SetLooping("BOUNCE")
-  local a = ag:CreateAnimation("Alpha")
-  a:SetFromAlpha(0)
-  a:SetToAlpha(0.55)
-  a:SetDuration(0.35)
-  ag:Play()
-  allFlash[fl] = true
-  return fl
-end
-
--- A missing bar's early flash: the spell's icon, pulsing, while the debuff is up and Blizzard's
--- refresh-window glow is lit.
-local function earlyFlash(c, j, r, it)
-  early[c] = early[c] or {}
-  local e = early[c][j]
-  if not e then
-    e = { up = CreateFrame("Frame", nil, c) }
-    e.glow = pulse(e.up, e.up, true)
-    early[c][j] = e
-  end
-  e.up:ClearAllPoints()
-  e.up:SetAllPoints(r)
-  e.up:SetFrameLevel(c:GetFrameLevel() + 10)
-  e.up:Show()
-  e.glow.icon:SetTexture(r:GetTexture())
-  local z = BS.profile.icons.zoom / 100
-  e.glow.icon:SetTexCoord(z, 1 - z, z, 1 - z)
-  BS.mirrorUp[it] = BS.mirrorUp[it] or {}
-  table.insert(BS.mirrorUp[it], e.up)
-  local ok, shown = pcall(it.IsShown, it)
-  if ok then BS.Follow(e.up, shown) end
-  followGlow(it, e.glow)
-end
-
--- Every flash dark until this layout says otherwise.
-local function resetFlashes()
-  BS.flashes = {}
-  followers = setmetatable({}, { __mode = "k" })
-  for fl in pairs(allFlash) do fl:SetAlpha(0) end
-  for _, slots in pairs(early) do
-    for _, e in pairs(slots) do e.up:Hide() end -- earlyFlash shows the ones still in use
-  end
-end
-
 -- An icon, as tall as its slot allows and square, scaled from Blizzard's own size.
 local function place(it, c, b, j)
   borrow(it)
@@ -527,10 +333,6 @@ local function place(it, c, b, j)
   if type(tex) == "table" and tex.SetTexCoord then
     if not styled[it] then styled[it] = { tex = tex, coords = { tex:GetTexCoord() } } end
     styled[it].k = styleIcon(tex, it, "plate", s)
-  end
-  if b.flash and BS.FLASH_MODES[b.visibility] then
-    onBlizzard[it] = onBlizzard[it] or pulse(it, type(it.Icon) == "table" and it.Icon or it)
-    followGlow(it, onBlizzard[it])
   end
 end
 
@@ -598,7 +400,6 @@ function BS.Layout()
   hookViewers()
   local used, live, liveStacks, missing = {}, {}, {}, {}
   BS.placed = {} -- what the last pass did with every spell, for /bs check
-  resetFlashes()
   for _, g in ipairs(BS.profile.groups) do
     local st, s = stackFor(g), g.stack
     liveStacks[st] = true
@@ -634,7 +435,7 @@ function BS.Layout()
         BS.placed[#BS.placed + 1] = rec
         if b.visibility == "missing" then
           rec.reminder = reminder(c, b, j)
-          missing[#missing + 1] = { rec = rec, sp = sp, b = b, j = j, c = c } -- matched after every other bar has its frame
+          missing[#missing + 1] = { rec = rec, sp = sp } -- matched after every other bar has its frame
         elseif b.visibility == "usable" then
           -- Blizzard refreshes its icon's usable look only while the frame sits in its own viewer, so
           -- a borrowed one froze in its "not usable" look. This bar only shows while the spell can
@@ -659,7 +460,6 @@ function BS.Layout()
   -- Tracked Buffs serves both a "debuff is active" bar and a "debuff is missing" one. A frame no
   -- other bar shows is parked out of sight instead.
   BS.mirror = setmetatable({}, { __mode = "k" })
-  BS.mirrorUp = setmetatable({}, { __mode = "k" })
   for _, m in ipairs(missing) do
     local it, from = find(m.sp, "missing", {})
     m.rec.frame, m.rec.viewer = it, from
@@ -672,7 +472,6 @@ function BS.Layout()
       watch(it)
       BS.mirror[it] = BS.mirror[it] or {}
       table.insert(BS.mirror[it], m.rec.reminder)
-      if m.b.flash then earlyFlash(m.c, m.j, m.rec.reminder, it) end
       local ok, shown = pcall(it.IsShown, it)
       if ok then mirror(m.rec.reminder, shown) end
     end
@@ -688,7 +487,6 @@ function BS.Layout()
         if sty.k then sty.k.border:Hide() end -- our plate leaves Blizzard's frame with us
         styled[it] = nil
       end
-      if onBlizzard[it] then onBlizzard[it]:SetAlpha(0) end -- no flash on Blizzard's own frame
       local n = natural[it]
       if n then -- home the way it came: Blizzard's size and scale
         it:SetScale(n.scale)

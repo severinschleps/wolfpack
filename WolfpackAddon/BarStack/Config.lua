@@ -468,9 +468,6 @@ local function build(parent)
     function() return B() and B().offset.y end, function(v) B().offset.y = BS.Clamp(v, -2000, 2000) end)
   slider(barSliders, r, "Icon gap", x, -272, half, 0, 40, 1,
     function() return B() and B().gap end, function(v) B().gap = BS.Clamp(v, 0, 200) end)
-  -- in Blizzard's refresh window: active bars flash its icon, missing bars show their own early
-  f.flash = checkbox(r, "Flash near the end (~30%)", x + half + 12, -290,
-    function(on) selected.flash = on; changed() end)
 
   text(r, "Spells", x, -350, "GameFontNormal")
   f.add = button(r, "Add spell", 90, C3 + W3 - 102, -346, showPicker)
@@ -535,8 +532,6 @@ function BS.RefreshConfig()
   f.vis:GenerateMenu()
   for _, sl in ipairs(barSliders) do sl.sync() end
   f.orient:SetText(b.orientation == "vertical" and "Vertical" or "Horizontal")
-  f.flash:SetShown(BS.FLASH_MODES[b.visibility] == true or b.visibility == "missing")
-  f.flash:SetChecked(b.flash)
   f.add:SetEnabled(#b.spells < MAX_SPELLS)
   for i, sp in ipairs(b.spells) do
     local row = spellRow(i)

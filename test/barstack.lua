@@ -254,57 +254,6 @@ local probe
 for _, t in ipairs(said) do if t:find("Blizzard called Show 1, Hide 2") then probe = t end end
 assert(probe, "/bs check reports the calls")
 
--- "flash near the end": the time left is secret to addons, so the flash follows Blizzard's own
--- refresh-window glow, a part of its icon it shows and hides
-local function part()
-  local w = { shown = false }
-  w.IsObjectType = function() return true end
-  w.Show = function(self) self.shown = true end
-  w.Hide = function(self) self.shown = false end
-  w.SetShown = function(self, v) self.shown = v end
-  w.IsShown = function(self) return self.shown end
-  return w
-end
-local function flashOf(it) for _, v in ipairs(BS.flashes) do if v.it == it then return v.frame end end end
-local now = 100
-GetTime = function() return now end
-buffFrame.PandemicIcon, buffFrame.DebuffBorder = part(), part()
-gB.bars[1].flash = true
-realLayout()
-local fl = flashOf(buffFrame)
-assert(fl and BS.glowOf[buffFrame] == "PandemicIcon", "the flash follows Blizzard's pandemic part")
-assert(fl._alpha == 0, "not in the refresh window: quiet")
-buffFrame.PandemicIcon:Show()
-assert(fl._alpha == 1, "Blizzard lights its glow: we flash")
-buffFrame.PandemicIcon:Hide()
-assert(fl._alpha == 0, "and stop with it")
-now = 105
-buffFrame.DebuffBorder:Show()
-buffFrame.DebuffBorder:Show()
-assert(fl._alpha == 0, "another part does not count")
--- /bs glow: what Blizzard did and when, repeats folded, so the part that lights near the end shows
-said = {}
-print = function(t) said[#said + 1] = t end
-BS.Glow()
-print = keptPrint
-local stamped
-for _, t in ipairs(said) do if t:find("5.0  DebuffBorder Show x2", 1, true) then stamped = t end end
-assert(stamped, "/bs glow: " .. table.concat(said, " / "))
--- /bs check names the glow and every part Blizzard switched, so a renamed one can be found
-said = {}
-print = function(t) said[#said + 1] = t end
-BS.Check()
-print = keptPrint
-local glowLine
-for _, t in ipairs(said) do if t:find("flash near the end") then glowLine = t end end
-assert(glowLine and glowLine:find("follows Blizzard's PandemicIcon") and glowLine:find("DebuffBorder %(Show 2%)"),
-  "/bs check: " .. tostring(glowLine))
-gB.bars[1].flash = false
-realLayout()
-assert(not flashOf(buffFrame) and fl._alpha == 0, "off: no flash")
-assert(BS.NormalizeBar({ flashAt = 20 }).flash == true and BS.NormalizeBar({ flashLow = true }).flash == true,
-  "earlier flash settings carry over as on")
-
 -- "only while debuff is missing": Blizzard's Rend frame is parked out of sight, and our own Rend
 -- icon shows exactly while Blizzard's frame is hidden
 names[772] = "Rend"
@@ -418,22 +367,6 @@ assert(missingPlate and missingPlate._alpha == 1, "Rend off: the missing icon's 
 rendFrame:Show()
 assert(missingPlate._alpha == 0, "Rend up: the missing icon's plate hides with it")
 rendFrame:Hide()
--- and it can show early: its own icon pulses while Rend is still up and Blizzard's refresh-window
--- glow is lit, so the reapply comes before the gap. Once Rend is gone the plain reminder takes over
-rendFrame.PandemicIcon = part()
-missingRec.barRef.flash = true
-realLayout()
-local ef, up = flashOf(rendFrame), BS.mirrorUp[rendFrame] and BS.mirrorUp[rendFrame][1]
-assert(ef and up, "the missing bar has an early flash")
-rendFrame:Show()
-assert(up._alpha == 1 and ef._alpha == 0, "Rend up, early on: nothing yet")
-rendFrame.PandemicIcon:SetShown(true)
-assert(ef._alpha == 1, "refresh window: the reminder flashes before Rend is gone")
-rendFrame.PandemicIcon:SetShown(false)
-rendFrame:Hide()
-assert(up._alpha == 0 and missingRec.reminder._alpha == 1, "Rend gone: the steady reminder, no flash")
-missingRec.barRef.flash = false
-realLayout()
 
 -- sizes are what the bar says, on screen: frame size times its scale. Size is one icon (36 x 36
 -- for a new bar), square, scaled from Blizzard's own size, never stretched
