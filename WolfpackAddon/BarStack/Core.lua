@@ -335,7 +335,9 @@ end
 
 function BS.Check()
   local function line(ok, text) print((ok and "|cff40ff40OK|r  " or "|cffff4040--|r  ") .. text) end
-  print(("|cffC79C6EBar Stack|r check: %s client, interface %d"):format(BS.isForever and "Forever" or "Midnight", select(4, GetBuildInfo())))
+  -- in combat Blizzard's frames name their spell only in secrets, so "0 mapped" means little there
+  print(("|cffC79C6EBar Stack|r check: %s client, interface %d, %s"):format(BS.isForever and "Forever" or "Midnight",
+    select(4, GetBuildInfo()), InCombatLockdown() and "|cffff4040in combat|r" or "out of combat"))
   line(BS.svFound, "SavedVariables BarStackDB existed at login")
   line(BS.cvFound, "CVar backend returned saved data at login")
   line(C_EncodingUtil ~= nil, "C_EncodingUtil (export string, CVar backend)")
