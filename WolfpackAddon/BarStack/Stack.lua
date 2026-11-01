@@ -13,13 +13,20 @@ local stack
 local containers = {} -- bar id -> container frame
 local borrowed = {}   -- Blizzard item frame -> the viewer it came from
 
--- Which viewers a widget may borrow from, in preference order.
+-- Which viewers a widget may borrow from, in preference order. The preferred ones come
+-- first; every other viewer follows, because the picker offers spells from all four and a
+-- buff put on an "always" bar must still be found rather than leave the bar empty.
 local function sources(visibility, display)
   local buffs = display == "bar" and "BuffBarCooldownViewer" or "BuffIconCooldownViewer"
-  if visibility == "aura" then return { buffs } end
+  local list
+  if visibility == "aura" then list = { buffs }
   -- proc not tracked as an aura: fall back to the cooldown frame with Blizzard's proc glow
-  if visibility == "proc" then return { buffs, "EssentialCooldownViewer", "UtilityCooldownViewer" } end
-  return { "EssentialCooldownViewer", "UtilityCooldownViewer" }
+  elseif visibility == "proc" then list = { buffs, "EssentialCooldownViewer", "UtilityCooldownViewer" }
+  else list = { "EssentialCooldownViewer", "UtilityCooldownViewer" } end
+  for _, name in ipairs(BS.ALL_VIEWERS) do
+    if not tContains(list, name) then list[#list + 1] = name end
+  end
+  return list
 end
 
 function BS.FrameSpell(item)
@@ -66,11 +73,12 @@ local function find(sp, visibility, used)
     local v = _G[name]
     if v then
       for _, it in ipairs(items(v)) do
-        if not used[it] and BS.Matches(it, sp) then return it end
+        if not used[it] and BS.Matches(it, sp) then return it, name end
       end
     end
   end
 end
+BS.Find = find
 
 local function container(id)
   if containers[id] then return containers[id] end
@@ -114,15 +122,21 @@ function BS.Hex(s)
 end
 
 local hooked = {}
+BS.hooks = {} -- viewer name -> the methods we managed to hook, for /bs check
 local function hookViewers()
   for _, name in ipairs(BS.ALL_VIEWERS) do
     local v = _G[name]
     if v and not hooked[v] then
       hooked[v] = true
+      local got = {}
       -- Blizzard re-lays out its viewers (settings change, auras appearing); take our frames back right after.
       for _, method in ipairs({ "RefreshLayout", "Layout" }) do
-        if type(v[method]) == "function" then hooksecurefunc(v, method, function() BS.Reapply() end) end
+        if type(v[method]) == "function" then
+          hooksecurefunc(v, method, function() BS.Reapply() end)
+          got[#got + 1] = method
+        end
       end
+      BS.hooks[name] = got
     end
   end
 end
@@ -131,6 +145,7 @@ function BS.Layout()
   if not stack then return end
   hookViewers()
   local p, used, live = BS.profile, {}, {}
+  BS.placed = {} -- what the last pass did with every spell, for /bs check
   local s = p.stack
   stack:ClearAllPoints()
   stack:SetPoint(s.point, UIParent, s.point, s.x, s.y)
@@ -152,7 +167,8 @@ function BS.Layout()
     sw = math.max(sw, math.abs(b.offset.x) * 2 + b.size.w)
     sh = math.max(sh, math.abs(b.offset.y) * 2 + b.size.h)
     for j, sp in ipairs(b.spells) do
-      local it = find(sp, b.visibility, used)
+      local it, from = find(sp, b.visibility, used)
+      BS.placed[#BS.placed + 1] = { bar = b.name, spell = sp.name or tostring(sp.baseSpell), frame = it, viewer = from, container = c }
       if it then
         used[it] = true
         place(it, c, b, j)

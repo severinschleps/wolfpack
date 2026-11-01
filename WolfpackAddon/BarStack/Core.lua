@@ -216,7 +216,26 @@ function BS.Check()
   line(EventRegistry ~= nil, "Edit Mode callbacks (EventRegistry)")
   for _, name in ipairs(BS.ALL_VIEWERS) do
     local total, mapped = BS.ViewerStats(_G[name])
-    line(mapped > 0, ("%s: %s, %d frames, %d mapped to spells"):format(name, _G[name] and "found" or "missing", total, mapped))
+    local hooks = BS.hooks and BS.hooks[name]
+    line(mapped > 0, ("%s: %s, %d frames, %d mapped to spells, hooked: %s"):format(name, _G[name] and "found" or "missing",
+      total, mapped, hooks and #hooks > 0 and table.concat(hooks, ", ") or "nothing"))
+  end
+  local stack = BarStackFrame
+  line(stack and stack:IsVisible(), ("stack frame %s"):format(not stack and "missing"
+    or stack:IsVisible() and ("visible at %d, %d"):format(stack:GetCenter()) or "hidden"))
+  -- every spell of every bar, as the last layout pass left it
+  if not BS.placed or #BS.placed == 0 then line(false, "no spells on any bar yet") end
+  for _, r in ipairs(BS.placed or {}) do
+    local it, what = r.frame, ("%s / %s: "):format(r.bar, r.spell)
+    if not it then
+      line(false, what .. "no Cooldown Manager frame has this spell")
+    else
+      local ours = it:GetParent() == r.container
+      line(ours and it:IsVisible(), what .. ("from %s, %s, %s, %dx%d"):format(r.viewer,
+        ours and "in the stack" or "taken back by Blizzard",
+        it:IsVisible() and "visible" or it:IsShown() and "shown, but a parent is hidden" or "hidden by Blizzard",
+        it:GetWidth(), it:GetHeight()))
+    end
   end
 end
 
