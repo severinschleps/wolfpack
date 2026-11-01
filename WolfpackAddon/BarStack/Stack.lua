@@ -210,9 +210,11 @@ BS.timerBars = setmetatable({}, { __mode = "k" })
 local function hookTimer(it, bar)
   local cd = it.Cooldown
   if type(cd) ~= "table" then bar.route = "the icon has no cooldown swipe"; return end
+  -- true when the bar took it; the reason when it did not, so /bs check can say it word for word
   local function run(dur, route)
-    if pcall(bar.SetTimerDuration, bar, dur, 0, TIMER_REMAINING) then bar.route = route
-    else bar.failed = route end
+    local ok, err = pcall(bar.SetTimerDuration, bar, dur, 0, TIMER_REMAINING)
+    if ok then bar.route, bar.failed = route, nil; return true end
+    return false, err
   end
   -- Every cooldown call Blizzard makes on the swipe, by name, for /bs check: which one starts
   -- the countdown on the icon is what the bar has to catch. Counting reads nothing.
@@ -225,21 +227,42 @@ local function hookTimer(it, bar)
     end
   end
   if type(cd.SetCooldownFromDurationObject) == "function" then
-    hooksecurefunc(cd, "SetCooldownFromDurationObject", function(_, dur) run(dur, "duration object") end)
+    hooksecurefunc(cd, "SetCooldownFromDurationObject", function(_, dur)
+      local took, err = run(dur, "duration object")
+      if not took then bar.failed = "duration object: " .. tostring(err) end
+    end)
   end
   if type(cd.SetCooldown) == "function" then
+    -- Blizzard starts a buff icon's countdown with SetCooldown(start, duration), both secret.
+    -- First choice: the aura's own duration object, asked for by the instance id Blizzard keeps
+    -- on the frame. Second: start and duration wrapped in a duration object. Nothing is read.
     hooksecurefunc(cd, "SetCooldown", function(_, start, duration)
-      local ok, dur = pcall(function()
+      local why = {}
+      local ok, dur = pcall(function() return C_UnitAuras.GetAuraDuration(it.auraDataUnit, it.auraInstanceID) end)
+      if ok then
+        local took, err = run(dur, "aura duration")
+        if took then return end
+        why[#why + 1] = "aura duration: " .. tostring(err)
+      else
+        why[#why + 1] = "aura duration: " .. tostring(dur)
+      end
+      ok, dur = pcall(function()
         local d = C_DurationUtil.CreateDuration()
         d:SetTimeFromStart(start, duration)
         return d
       end)
-      if ok then run(dur, "start and duration") end
+      if ok then
+        local took, err = run(dur, "start and duration")
+        if took then return end
+        why[#why + 1] = "start and duration: " .. tostring(err)
+      else
+        why[#why + 1] = "start and duration: " .. tostring(dur)
+      end
+      bar.failed = table.concat(why, " | ")
     end)
   end
-  if type(cd.Clear) == "function" then
-    hooksecurefunc(cd, "Clear", function() bar:SetMinMaxValues(0, 1); bar:SetValue(0) end)
-  end
+  -- Clear is left alone: Blizzard calls it on every refresh (8 to 2 against SetCooldown in game),
+  -- and emptying the bar on it wiped the timer. When the aura ends the icon hides, bar and all.
 end
 
 local function timerBar(it, b, sp, width, height, s)

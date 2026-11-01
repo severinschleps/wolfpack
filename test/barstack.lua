@@ -150,6 +150,7 @@ local function mock()
       if k == "Hide" then return function(self) rawset(self, "_shown", false) end end
       if k == "Show" then return function(self) rawset(self, "_shown", true) end end
       if k == "SetText" then return function(self, v) rawset(self, "_text", v) end end
+      if k == "SetValue" then return function(self, v) rawset(self, "_value", v) end end
       if k == "GetAlpha" then return function(self) return rawget(self, "_alpha") or 1 end end
       local m = mock()
       rawset(t, k, m)
@@ -354,6 +355,21 @@ print = keptPrint
 local swipe
 for _, t in ipairs(said) do if t:find("swipe calls: SetCooldownFromDurationObject 1") then swipe = t end end
 assert(swipe, "/bs check lists them")
+-- what Blizzard really does (seen in game): SetCooldown(start, duration), both secret. The aura's
+-- own duration object, asked for by the instance id on Blizzard's frame, runs the bar
+rendFrame.auraDataUnit, rendFrame.auraInstanceID = "target", 7
+local askedFor
+C_UnitAuras = { GetAuraDuration = function(unit, id) askedFor = unit .. ":" .. id; return { "Rend's duration" } end }
+rendFrame.Cooldown:SetCooldown(100, 15)
+assert(askedFor == "target:7" and tb.route == "aura duration", "the aura's duration runs the bar: " .. tostring(tb.route))
+-- with neither route open, each one's own error is kept for /bs check
+C_UnitAuras = nil
+rendFrame.Cooldown:SetCooldown(100, 15)
+assert(tb.failed:find("aura duration: ") and tb.failed:find("start and duration: "), "both reasons kept: " .. tb.failed)
+-- Clear no longer empties the bar: Blizzard calls it on every refresh
+tb._value = nil
+rendFrame.Cooldown:Clear()
+assert(rawget(tb, "_value") == nil, "Clear leaves the timer running")
 
 -- "Icon": the same frame, 24 x 24, and our bar goes away
 debuffBar.spells[1].display = "icon"

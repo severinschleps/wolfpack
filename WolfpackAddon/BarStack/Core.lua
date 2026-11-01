@@ -323,7 +323,7 @@ function BS.Check()
         for name, n in pairs(tb.calls or {}) do calls[#calls + 1] = name .. " " .. n end
         table.sort(calls)
         print("      timer bar: " .. (type(tb.route) == "string" and tb.route or "no timer caught")
-          .. (type(tb.failed) == "string" and (" (" .. tb.failed .. " came but would not run)") or "")
+          .. (type(tb.failed) == "string" and (" -- tried: " .. tb.failed) or "")
           .. "; swipe calls: " .. (#calls > 0 and table.concat(calls, ", ") or "none seen"))
       end
       local w = BS.watch and BS.watch[it]
