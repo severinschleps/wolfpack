@@ -445,7 +445,8 @@ function BS.AvailableSpells(buffsOnly)
         local spell = id and BS.SpellName(id)
         if spell and not seen[spell] then
           seen[spell] = true
-          out[#out + 1] = { baseSpell = id, name = spell, icon = C_Spell and BS.try(C_Spell.GetSpellTexture, id) }
+          out[#out + 1] = { baseSpell = id, name = spell, icon = C_Spell and BS.try(C_Spell.GetSpellTexture, id),
+            viewer = name }
         end
       end
     end

@@ -392,6 +392,7 @@ EssentialCooldownViewer = { GetItemFrames = function() return { cdFrame } end }
 BuffBarCooldownViewer = { GetItemFrames = function() return { rendFrame } end }
 local all, buffsOnly = BS.AvailableSpells(), BS.AvailableSpells(true)
 assert(#all == 2 and #buffsOnly == 1 and buffsOnly[1].name == "Rend", "only the tracked debuff is offered")
+assert(buffsOnly[1].viewer == "BuffBarCooldownViewer", "and it says it comes from Tracked Bars, so it starts as a bar")
 BuffBarCooldownViewer = nil
 
 -- a frame whose spell comes back secret in combat keeps the last readable answer

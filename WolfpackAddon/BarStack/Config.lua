@@ -19,6 +19,13 @@ local function G()
   return group
 end
 
+-- Blizzard's bar needs room: widen a bar narrower than three times its height
+local function widenForBar(b)
+  if b.orientation ~= "vertical" and b.size.w / #b.spells < b.size.h * 3 then
+    b.size.w = math.min(2000, b.size.h * 8 * #b.spells)
+  end
+end
+
 local function changed()
   BS.Changed()
   BS.RefreshConfig()
@@ -161,11 +168,7 @@ local function spellRow(i)
       out[#out + 1] = { d[2], function() return selected and selected.spells[i] and selected.spells[i].display == d[1] end,
         function()
           selected.spells[i].display = d[1]
-          -- a bar needs room beside its icon (which is as wide as the bar is high): widen a narrow one
-          local b = selected
-          if d[1] == "bar" and b.orientation ~= "vertical" and b.size.w / #b.spells < b.size.h * 3 then
-            b.size.w = math.min(2000, b.size.h * 8 * #b.spells)
-          end
+          if d[1] == "bar" then widenForBar(selected) end
           changed()
         end }
     end
@@ -192,7 +195,10 @@ local function pickRow(i)
   r.text = r:CreateFontString(nil, "OVERLAY", "GameFontHighlightLeft")
   r.text:SetPoint("LEFT", 24, 0)
   r:SetScript("OnClick", function(self)
-    table.insert(selected.spells, { baseSpell = self.sp.baseSpell, name = self.sp.name, display = "icon" })
+    -- the shape follows where Blizzard tracks it: Tracked Bars starts as a bar, anything else an icon
+    local display = self.sp.viewer == "BuffBarCooldownViewer" and "bar" or "icon"
+    table.insert(selected.spells, { baseSpell = self.sp.baseSpell, name = self.sp.name, display = display })
+    if display == "bar" then widenForBar(selected) end
     f.picker:Hide()
     changed()
   end)
