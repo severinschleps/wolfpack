@@ -435,7 +435,7 @@ function BS.RefreshConfig()
   for i = #b.spells + 1, #spellRows do spellRows[i]:Hide() end
   local notes = {}
   for _, rec in ipairs(BS.placed or {}) do
-    if rec.barRef == b and not rec.frame then
+    if rec.barRef == b and not rec.frame and b.visibility ~= "usable" then
       notes[#notes + 1] = "|cffff6060" .. rec.spell .. (BS.AURA_MODES[b.visibility]
         and ": not in Tracked Buffs. Add it there in the Cooldown Manager.|r"
         or ": not in the Cooldown Manager. Add it there.|r")

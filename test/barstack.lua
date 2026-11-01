@@ -416,7 +416,12 @@ exBar.visibility = "usable"
 exBar.spells = { { baseSpell = 163201, name = "Execute" } }
 realLayout()
 local exC
-for _, r in ipairs(BS.placed) do if r.spell == "Execute" then exC = r.barFrame; assert(r.frame == exFrame) end end
+local exRec
+for _, r in ipairs(BS.placed) do if r.spell == "Execute" then exC, exRec = r.barFrame, r end end
+-- Blizzard's Execute frame stays with Blizzard: moved out of its viewer it froze in its
+-- "not usable" look (seen in game). The bar draws a plain Execute icon of its own instead
+assert(exRec.frame == nil and rawget(exFrame, "parent") == nil, "Blizzard's frame is not borrowed")
+assert(exRec.reminder and exRec.reminder._alpha == 1, "our own icon, always the usable look")
 assert(exC._alpha == 0, "not usable: hidden")
 usableNow = true
 BS.UpdateUsable() -- what SPELL_UPDATE_USABLE does
@@ -445,7 +450,7 @@ print = function(t) said[#said + 1] = t end
 BS.Check()
 print = keptPrint
 local seenLine
-for _, t in ipairs(said) do if t:find("usable right now: false") then seenLine = t end end
+for _, t in ipairs(said) do if t:find("Execute: own icon; usable right now: false") then seenLine = t end end
 assert(seenLine, "/bs check says what WoW answered")
 C_Spell.IsSpellUsable = nil
 EssentialCooldownViewer = nil

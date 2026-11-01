@@ -325,13 +325,20 @@ function BS.Layout()
       sh = math.max(sh, math.abs(b.offset.y) * 2 + b.size.h)
       for _, r in pairs(c.reminders or {}) do r:Hide() end
       for j, sp in ipairs(b.spells) do
-        local it, from = find(sp, b.visibility, used)
+        -- a usable bar draws its own icon and borrows nothing (see below)
+        local it, from
+        if b.visibility ~= "usable" then it, from = find(sp, b.visibility, used) end
         local rec = { group = g.name, bar = b.name, spell = sp.name or tostring(sp.baseSpell),
           visibility = b.visibility, frame = it, viewer = from, container = c, barFrame = c, barRef = b, index = j }
         BS.placed[#BS.placed + 1] = rec
         if b.visibility == "missing" then
           rec.reminder = reminder(c, b, j)
           missing[#missing + 1] = { rec = rec, sp = sp } -- matched after every other bar has its frame
+        elseif b.visibility == "usable" then
+          -- Blizzard refreshes its icon's usable look only while the frame sits in its own viewer, so
+          -- a borrowed one froze in its "not usable" look. This bar only shows while the spell can
+          -- be pressed, so our own plain icon is always the right look.
+          rec.reminder = reminder(c, b, j)
         elseif it then
           used[it] = true
           place(it, c, b, j)

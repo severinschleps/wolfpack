@@ -290,7 +290,10 @@ function BS.Check()
   if not BS.placed or #BS.placed == 0 then line(false, "no spells on any bar yet") end
   for _, r in ipairs(BS.placed or {}) do
     local it, what = r.frame, ("%s / %s / %s: "):format(r.group, r.bar, r.spell)
-    if not it then
+    if r.visibility == "usable" then
+      local seen = BS.usableSeen[r.barRef and r.barRef.id]
+      line(seen ~= nil, what .. "own icon; usable right now: " .. tostring(seen or "not asked yet"))
+    elseif not it then
       line(false, what .. (BS.AURA_MODES[r.visibility]
         and "not in Tracked Buffs -- add it there in the Cooldown Manager"
         or "no Cooldown Manager frame has this spell"))
@@ -303,9 +306,6 @@ function BS.Check()
       end
       local ours = it:GetParent() == r.container
       local vis, shown, alpha = look("IsVisible"), look("IsShown"), look("GetAlpha")
-      if r.visibility == "usable" then
-        print("      usable right now: " .. tostring(BS.usableSeen[r.barRef and r.barRef.id] or "not asked yet"))
-      end
       if r.reminder then
         local ra = r.reminder:GetAlpha()
         line(ours, what .. ("watching %s's frame (%s); reminder icon %s"):format(r.viewer,
