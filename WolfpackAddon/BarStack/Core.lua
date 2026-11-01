@@ -317,6 +317,10 @@ function BS.Check()
           or shown == true and "shown, but a parent is hidden" or "hidden by Blizzard",
         it:GetWidth(), it:GetHeight()))
       end
+      local tb = BS.timerBars and BS.timerBars[it]
+      if tb and not r.reminder then -- a "Bar" spell: where its timer comes from, if anywhere yet
+        print("      timer bar: " .. (tb.route or "no timer from Blizzard yet (cast it once)"))
+      end
       local w = BS.watch and BS.watch[it]
       if w then -- how Blizzard switches it: decides whether "show while missing" can be built
         print(("      alpha %s; Blizzard called Show %d, Hide %d, SetShown %d%s, SetAlpha %d%s"):format(

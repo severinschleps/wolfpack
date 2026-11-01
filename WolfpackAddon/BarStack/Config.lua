@@ -154,17 +154,20 @@ local function spellRow(i)
   r.name:SetPoint("LEFT", 24, 0)
   r.name:SetWidth(220)
   r.name:SetJustifyH("LEFT")
-  r.display = button(r, "", 60, nil, nil, function()
-    local sp = selected.spells[i]
-    sp.display = sp.display == "bar" and "icon" or "bar"
-    changed()
+  -- Icon: Blizzard's icon. Bar: that icon with a timer bar of ours beside it.
+  r.display = dropdown(r, 236, 3, 84, function()
+    local out = {}
+    for _, d in ipairs({ { "icon", "Icon" }, { "bar", "Bar" } }) do
+      out[#out + 1] = { d[2], function() return selected and selected.spells[i] and selected.spells[i].display == d[1] end,
+        function() selected.spells[i].display = d[1]; changed() end }
+    end
+    return out
   end)
-  r.display:SetPoint("LEFT", 250, 0)
   r.remove = button(r, "X", 24, nil, nil, function()
     table.remove(selected.spells, i)
     changed()
   end)
-  r.remove:SetPoint("LEFT", 316, 0)
+  r.remove:SetPoint("LEFT", 326, 0)
   spellRows[i] = r
   return r
 end
@@ -459,8 +462,8 @@ function BS.RefreshConfig()
     local row = spellRow(i)
     row.icon:SetTexture((C_Spell and BS.try(C_Spell.GetSpellTexture, sp.baseSpell)) or 134400)
     row.name:SetText(sp.name or ("Spell " .. sp.baseSpell))
-    row.display:SetText(sp.display == "bar" and "Bar" or "Icon")
-    row.display:SetShown(b.visibility ~= "always" and b.visibility ~= "missing") -- those are always icons
+    row.display:GenerateMenu()
+    row.display:SetShown(b.visibility ~= "missing") -- a missing debuff has no timer to run: always an icon
     row:Show()
   end
   for i = #b.spells + 1, #spellRows do spellRows[i]:Hide() end
@@ -470,10 +473,6 @@ function BS.RefreshConfig()
       notes[#notes + 1] = "|cffff6060" .. rec.spell .. (BS.AURA_MODES[b.visibility]
         and ": not in Tracked Buffs or Tracked Bars. Add it there in the Cooldown Manager.|r"
         or ": not in the Cooldown Manager. Add it there.|r")
-    elseif rec.barRef == b and b.visibility ~= "missing" and b.spells[rec.index]
-      and b.spells[rec.index].display == "bar" and rec.viewer ~= "BuffBarCooldownViewer" then
-      notes[#notes + 1] = "|cffffaa00" .. rec.spell .. ": in Tracked Buffs, so it shows as an icon. "
-        .. "Move it to Tracked Bars for Blizzard's bar.|r"
     end
   end
   if BS.TARGET_MODES[b.visibility] and not UnitExists("target") then

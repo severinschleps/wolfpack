@@ -147,6 +147,8 @@ local function mock()
       if k == "GetCenter" then return function() return 0, 0 end end
       if k == "SetAlpha" then return function(self, a) rawset(self, "_alpha", a) end end
       if k == "SetShown" then return function(self, v) rawset(self, "_shown", v) end end
+      if k == "Hide" then return function(self) rawset(self, "_shown", false) end end
+      if k == "Show" then return function(self) rawset(self, "_shown", true) end end
       if k == "SetText" then return function(self, v) rawset(self, "_text", v) end end
       if k == "GetAlpha" then return function(self) return rawget(self, "_alpha") or 1 end end
       local m = mock()
@@ -231,6 +233,12 @@ rendFrame.SetAlpha = function() end
 rendFrame.SetParent = function(self, p) self.parent = p end
 rendFrame.GetParent = function(self) return self.parent end
 rendFrame.SetSize = function(self, w, h) self.w, self.h = w, h end
+-- Blizzard drew it 36 x 36 at scale 1; that is its natural size
+rendFrame.GetWidth = function(self) return self.w or 36 end
+rendFrame.GetHeight = function(self) return self.h or 36 end
+rendFrame.GetScale = function(self) return self.scale or 1 end
+rendFrame.SetScale = function(self, v) self.scale = v end
+rendFrame.Cooldown = { SetCooldownFromDurationObject = function() end, Clear = function() end }
 BuffIconCooldownViewer = { GetItemFrames = function() return { rendFrame } end }
 local rendBar = BS.NewBar(gA)
 rendBar.visibility = "missing"
@@ -317,14 +325,42 @@ assert(missingRec.reminder._alpha == 0 and rendFrame.parent == activeRec.barFram
   "Rend up: the icon hides, and the frame stays in the active bar")
 rendFrame:Hide()
 assert(missingRec.reminder._alpha == 1, "Rend off: the icon is back")
-assert(rendFrame.w == 240 and rendFrame.h == 24, "from Tracked Bars it is drawn as the bar: " .. rendFrame.w)
--- the same spell set to "Bar" but tracked as a buff icon stays square, and the window says why
+-- sizes are what the bar says, on screen: frame size times its scale
+local function shown(f) return f.w * f.scale, f.h * f.scale end
+local sw_, sh_ = shown(rendFrame)
+assert(math.abs(sw_ - 240) < 0.01 and math.abs(sh_ - 24) < 0.01, "Blizzard's bar from Tracked Bars fills the 240 x 24 slot: " .. sw_ .. " x " .. sh_)
+
+-- the same spell as "Bar" from Tracked Buffs: Blizzard's icon, 24 tall, square, scaled not stretched,
+-- with our timer bar filling the rest of the 240
 BuffBarCooldownViewer = nil
 BuffIconCooldownViewer = { GetItemFrames = function() return { rendFrame } end }
 realLayout()
-assert(rendFrame.w == 24 and rendFrame.h == 24, "an icon frame is never stretched along the bar")
-BS.RefreshConfig()
-assert((BS.cfg.spellNote._text or ""):find("Move it to Tracked Bars"), "the window says how to get the bar: " .. tostring(BS.cfg.spellNote._text))
+sw_, sh_ = shown(rendFrame)
+assert(rendFrame.w == 36 and rendFrame.h == 36, "the icon keeps its own shape")
+assert(math.abs(sw_ - 24) < 0.01 and math.abs(sh_ - 24) < 0.01, "and is 24 x 24 on screen: " .. sw_)
+local tb = BS.timerBars[rendFrame]
+assert(tb and tb._shown ~= false, "a timer bar of ours sits beside it")
+-- the timer comes from whatever Blizzard hands the icon's swipe, unread
+rendFrame.Cooldown:SetCooldownFromDurationObject({ "a duration object" })
+assert(tb.route == "duration object", "the swipe's duration object runs our bar: " .. tostring(tb.route))
+
+-- "Icon": the same frame, 24 x 24, and our bar goes away
+debuffBar.spells[1].display = "icon"
+realLayout()
+sw_, sh_ = shown(rendFrame)
+assert(math.abs(sw_ - 24) < 0.01 and math.abs(sh_ - 24) < 0.01, "icon size follows the bar height")
+-- a tall bar: the icon fills the height, as asked
+debuffBar.size.h = 40
+realLayout()
+sw_, sh_ = shown(rendFrame)
+assert(math.abs(sh_ - 40) < 0.01, "a 40 high bar makes a 40 high icon: " .. sh_)
+debuffBar.size.h = 24
+debuffBar.spells[1].display = "bar"
+
+-- sent home: Blizzard's own size and scale come back
+BuffIconCooldownViewer = { GetItemFrames = function() return {} end }
+realLayout()
+assert(rendFrame.scale == 1 and rendFrame.w == 36 and rendFrame.h == 36, "returned the way it came")
 BuffIconCooldownViewer = nil
 
 -- the window says, under the spell list, why the selected bar shows nothing

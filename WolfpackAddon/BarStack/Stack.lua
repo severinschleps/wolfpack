@@ -140,17 +140,12 @@ local function watch(it)
   end
 end
 
--- Where spell j sits inside its bar.
--- Where spell j sits inside its bar. Only a frame from Tracked Bars is drawn as a bar: every
--- other viewer's frame is an icon, and stretched to the bar's width it smears the spell's art.
-local function slot(b, j, viewer)
-  local sp, horiz = b.spells[j], b.orientation ~= "vertical"
+-- Where spell j sits inside its bar: the whole slot, x/y from the bar's top-left.
+local function slot(b, j)
+  local horiz = b.orientation ~= "vertical"
   local w = horiz and b.size.w / #b.spells or b.size.w
   local h = horiz and b.size.h or b.size.h / #b.spells
-  local x, y = horiz and (j - 1) * w or 0, horiz and 0 or -(j - 1) * h
-  local isBar = sp.display == "bar" and (viewer == nil or viewer == "BuffBarCooldownViewer")
-  if not isBar or b.visibility == "always" or b.visibility == "missing" then w = math.min(w, h); h = w end
-  return x, y, w, h
+  return horiz and (j - 1) * w or 0, horiz and 0 or -(j - 1) * h, w, h
 end
 
 local function reminder(c, b, j)
@@ -161,19 +156,43 @@ local function reminder(c, b, j)
     c.reminders[j] = r
   end
   local x, y, w, h = slot(b, j)
+  local size = math.min(w, h)
   r:ClearAllPoints()
   r:SetPoint("TOPLEFT", c, "TOPLEFT", x, y)
-  r:SetSize(w, h)
+  r:SetSize(size, size)
   r:SetTexture((C_Spell and BS.try(C_Spell.GetSpellTexture, b.spells[j].baseSpell)) or 134400)
   r:SetAlpha(1) -- missing until Blizzard's frame says otherwise
   r:Show()
   return r
 end
 
+-- Blizzard sizes its frames by scale (the viewers' icon size setting), and the art inside keeps
+-- the frame's own size, so SetSize alone leaves the icon the size Blizzard drew it. The size and
+-- scale a frame had when we first took it are its natural ones: we scale from those, and put
+-- them back when the frame goes home.
+local natural = setmetatable({}, { __mode = "k" })
+local function naturalOf(it)
+  local n = natural[it]
+  if not n then
+    local w, h, s = BS.try(it.GetWidth, it), BS.try(it.GetHeight, it), BS.try(it.GetScale, it)
+    n = { w = type(w) == "number" and w >= 1 and w or 36, h = type(h) == "number" and h >= 1 and h or 36,
+      scale = type(s) == "number" and s > 0 and s or 1 }
+    natural[it] = n
+  end
+  return n
+end
+
+local function borrow(it)
+  if not borrowed[it] then
+    naturalOf(it)
+    borrowed[it] = it:GetParent()
+  end
+end
+
 -- Out of sight but still Blizzard's to show and hide: a hidden parent keeps it from drawing,
 -- while its own shown flag goes on changing, which is what the hooks follow.
 local function park(it)
-  if not borrowed[it] then borrowed[it] = it:GetParent() end
+  borrow(it)
   if not hideout then
     hideout = CreateFrame("Frame", nil, UIParent)
     hideout:Hide()
@@ -181,21 +200,90 @@ local function park(it)
   it:SetParent(hideout)
 end
 
+-- "Bar" for a spell: Blizzard's icon on the left, and a timer bar of ours beside it. The bar is
+-- the icon's own child, so it comes and goes with the icon -- nothing has to be read for that.
+-- Its timer is whatever Blizzard hands the icon's cooldown swipe, caught on the way in: a
+-- duration object goes straight to SetTimerDuration; a start and duration are wrapped in one
+-- first. Neither is looked at. /bs check says which route ran.
+local TIMER_REMAINING = 1 -- Enum.StatusBarTimerDirection
+BS.timerBars = setmetatable({}, { __mode = "k" })
+local function hookTimer(it, bar)
+  local cd = it.Cooldown
+  if type(cd) ~= "table" then bar.route = "the icon has no cooldown swipe"; return end
+  local function run(dur, route)
+    if pcall(bar.SetTimerDuration, bar, dur, 0, TIMER_REMAINING) then bar.route = route end
+  end
+  if type(cd.SetCooldownFromDurationObject) == "function" then
+    hooksecurefunc(cd, "SetCooldownFromDurationObject", function(_, dur) run(dur, "duration object") end)
+  end
+  if type(cd.SetCooldown) == "function" then
+    hooksecurefunc(cd, "SetCooldown", function(_, start, duration)
+      local ok, dur = pcall(function()
+        local d = C_DurationUtil.CreateDuration()
+        d:SetTimeFromStart(start, duration)
+        return d
+      end)
+      if ok then run(dur, "start and duration") end
+    end)
+  end
+  if type(cd.Clear) == "function" then
+    hooksecurefunc(cd, "Clear", function() bar:SetMinMaxValues(0, 1); bar:SetValue(0) end)
+  end
+end
+
+local function timerBar(it, b, sp, width, height, s)
+  local bar = BS.timerBars[it]
+  if not bar then
+    bar = CreateFrame("StatusBar", nil, it)
+    bar.bg = bar:CreateTexture(nil, "BACKGROUND")
+    bar.bg:SetAllPoints()
+    bar.bg:SetColorTexture(0, 0, 0, 0.5)
+    bar.text = bar:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    bar.text:SetPoint("LEFT", 4, 0)
+    bar:SetMinMaxValues(0, 1)
+    bar:SetValue(1) -- full until a timer arrives
+    BS.timerBars[it] = bar
+    hookTimer(it, bar)
+  end
+  bar:ClearAllPoints()
+  bar:SetPoint("TOPLEFT", it, "TOPRIGHT", 0, 0)
+  bar:SetSize(math.max(1, width) / s, height / s) -- the icon's child, so in its scaled units
+  bar:SetStatusBarTexture(BS.TEXTURES[b.style.texture])
+  bar:SetStatusBarColor(BS.Hex(b.style.color))
+  bar.text:SetText(sp.name or "")
+  bar:Show()
+end
+
 local function place(it, c, b, j, viewer)
-  if not borrowed[it] then borrowed[it] = it:GetParent() end
+  borrow(it)
   if BS.AURA_MODES[b.visibility] then watch(it) end
-  local x, y, w, h = slot(b, j, viewer)
+  local sp, n = b.spells[j], naturalOf(it)
+  local x, y, w, h = slot(b, j)
+  local asBar = sp.display == "bar"
+  local height = asBar and h or math.min(w, h)
+  local s = height / n.h
   it:SetParent(c)
   it:SetFrameStrata(c:GetFrameStrata())
   it:SetFrameLevel(c:GetFrameLevel() + 1)
+  it:SetScale(s)
   it:ClearAllPoints()
-  it:SetPoint("TOPLEFT", c, "TOPLEFT", x, y)
-  it:SetSize(w, h)
-  local bar = it.Bar
-  if bar and bar.SetStatusBarColor then
-    -- ponytail: re-styled on each layout pass only; if Blizzard recolors bars between passes, hook the item's refresh
-    pcall(bar.SetStatusBarTexture, bar, BS.TEXTURES[b.style.texture])
-    pcall(bar.SetStatusBarColor, bar, BS.Hex(b.style.color))
+  it:SetPoint("TOPLEFT", c, "TOPLEFT", x / s, y / s) -- offsets are in the frame's own scaled units
+  if viewer == "BuffBarCooldownViewer" then
+    -- Blizzard's own bar (Tracked Bars): as tall as the slot, as wide as the slot
+    it:SetSize(w / s, n.h)
+    local bar = it.Bar
+    if bar and bar.SetStatusBarColor then
+      -- ponytail: re-styled on each layout pass only; if Blizzard recolors bars between passes, hook the item's refresh
+      pcall(bar.SetStatusBarTexture, bar, BS.TEXTURES[b.style.texture])
+      pcall(bar.SetStatusBarColor, bar, BS.Hex(b.style.color))
+    end
+  else
+    it:SetSize(n.w, n.h) -- an icon keeps its own shape; the scale makes it `height` tall
+    if asBar then
+      timerBar(it, b, sp, w - n.w * s, height, s)
+    elseif BS.timerBars[it] then
+      BS.timerBars[it]:Hide()
+    end
   end
 end
 
@@ -338,6 +426,13 @@ function BS.Layout()
   for it, origin in pairs(borrowed) do
     if not used[it] then
       borrowed[it] = nil
+      if BS.timerBars[it] then BS.timerBars[it]:Hide() end
+      local n = natural[it]
+      if n then -- home the way it came: Blizzard's size and scale
+        it:SetScale(n.scale)
+        it:SetSize(n.w, n.h)
+        natural[it] = nil
+      end
       it:SetParent(origin)
     end
   end
