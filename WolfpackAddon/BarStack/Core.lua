@@ -292,8 +292,7 @@ function BS.Check()
     local it, what = r.frame, ("%s / %s / %s: "):format(r.group, r.bar, r.spell)
     if r.visibility == "usable" then
       local seen = BS.usableSeen[r.barRef and r.barRef.id]
-      line(seen ~= nil, what .. "own icon; usable right now: " .. tostring(seen or "not asked yet")
-        .. "; cooldown: " .. tostring(BS.cooldownSeen[r.barRef and r.barRef.id] or "not asked yet"))
+      line(seen ~= nil, what .. "own icon; usable right now: " .. tostring(seen or "not asked yet"))
     elseif not it then
       line(false, what .. (BS.AURA_MODES[r.visibility]
         and "not in Tracked Buffs -- add it there in the Cooldown Manager"
@@ -352,7 +351,6 @@ ev:RegisterEvent("PLAYER_REGEN_ENABLED")
 ev:RegisterEvent("PLAYER_SPECIALIZATION_CHANGED")
 ev:RegisterEvent("PLAYER_TARGET_CHANGED")
 pcall(ev.RegisterEvent, ev, "SPELL_UPDATE_USABLE") -- rage, target health and procs change what is usable
-pcall(ev.RegisterEvent, ev, "SPELL_UPDATE_COOLDOWN")
 ev:SetScript("OnEvent", function(_, event, arg)
   if event == "PLAYER_LOGIN" then
     BS.LoadDB()
@@ -364,7 +362,7 @@ ev:SetScript("OnEvent", function(_, event, arg)
     if arg == "Blizzard_CooldownViewer" and BS.profile then BS.Apply() end
   elseif event == "PLAYER_TARGET_CHANGED" then
     if BS.profile then BS.UpdateVisibility() end
-  elseif event == "SPELL_UPDATE_USABLE" or event == "SPELL_UPDATE_COOLDOWN" then
+  elseif event == "SPELL_UPDATE_USABLE" then
     if BS.profile then BS.UpdateUsable() end
   elseif event == "PLAYER_REGEN_DISABLED" then
     BS.inCombat = true

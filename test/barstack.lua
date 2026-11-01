@@ -452,32 +452,6 @@ print = keptPrint
 local seenLine
 for _, t in ipairs(said) do if t:find("Execute: own icon; usable right now: false") then seenLine = t end end
 assert(seenLine, "/bs check says what WoW answered")
--- and on cooldown it hides too: a second switch on the icon, multiplied with the bar's
-local exIcon = exRec.reminder
-usableNow = true
-C_Spell.GetSpellCooldown = function() return { startTime = 100, duration = 6, isOnGCD = false } end
-BS.UpdateUsable()
-assert(exC._alpha == 1 and exIcon._alpha == 0, "usable but cooling down: the icon hides")
--- the global cooldown is not a cooldown
-C_Spell.GetSpellCooldown = function() return { startTime = 100, duration = 1.5, isOnGCD = true } end
-BS.UpdateUsable()
-assert(exIcon._alpha == 1, "only the GCD running: still shown")
-C_Spell.GetSpellCooldown = function() return { startTime = 0, duration = 0, isOnGCD = false } end
-BS.UpdateUsable()
-assert(exIcon._alpha == 1 and BS.cooldownSeen[exBar.id] == "ready", "ready: shown")
--- secret in combat: the duration object's own answer is handed on unread
-issecretvalue = function(v) return v == "SECRET" end
-C_Spell.GetSpellCooldown = function() return { startTime = "SECRET", duration = "SECRET", isOnGCD = "SECRET" } end
-C_Spell.GetSpellCooldownDuration = function() return { IsZero = function() return "SECRET" end } end
-BS.UpdateUsable()
-assert(exIcon._fromBool and exIcon._fromBool[1] == "SECRET" and exIcon._fromBool[2] == 1 and exIcon._fromBool[3] == 0,
-  "a secret cooldown drives the icon without being read")
-assert(BS.cooldownSeen[exBar.id]:find("secret"), "and /bs check will say so")
-issecretvalue = nil
--- nobody answers: the cooldown is ignored rather than hiding the icon for good
-C_Spell.GetSpellCooldown, C_Spell.GetSpellCooldownDuration = nil, nil
-BS.UpdateUsable()
-assert(exIcon._alpha == 1 and BS.cooldownSeen[exBar.id] == "unknown, so ignored", "no answer: not hidden")
 C_Spell.IsSpellUsable = nil
 EssentialCooldownViewer = nil
 
