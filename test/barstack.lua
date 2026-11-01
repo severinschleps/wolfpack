@@ -452,6 +452,28 @@ print = keptPrint
 local seenLine
 for _, t in ipairs(said) do if t:find("Execute: own icon; usable right now: false") then seenLine = t end end
 assert(seenLine, "/bs check says what WoW answered")
+-- a cooldown swipe over the icon, fed WoW's duration object unread; the icon itself stays put
+local exSwipe = exRec.swipe
+assert(exSwipe, "the icon has a cooldown swipe")
+local fedWith
+exSwipe.SetCooldownFromDurationObject = function(_, d) fedWith = d end
+C_Spell.GetSpellCooldownDuration = function(id) assert(id == 163201); return { "Execute's cooldown" } end
+usableNow = true
+BS.UpdateUsable() -- what SPELL_UPDATE_COOLDOWN does
+assert(fedWith and fedWith[1] == "Execute's cooldown" and BS.swipeSeen[exBar.id] == "duration object",
+  "the swipe plays the duration object")
+assert(exRec.reminder._alpha == 1, "the swipe never hides the icon")
+-- a client without the duration object: start and duration go to the swipe instead
+C_Spell.GetSpellCooldownDuration = nil
+local fedStart
+exSwipe.SetCooldown = function(_, start, dur) fedStart = start .. "/" .. dur end
+C_Spell.GetSpellCooldown = function() return { startTime = 100, duration = 6, modRate = 1 } end
+BS.UpdateUsable()
+assert(fedStart == "100/6" and BS.swipeSeen[exBar.id] == "start and duration", "the fallback route")
+-- neither: each refusal is kept, word for word
+C_Spell.GetSpellCooldown = nil
+BS.UpdateUsable()
+assert(BS.swipeSeen[exBar.id]:find("^none") and BS.swipeSeen[exBar.id]:find("duration object: "), "both reasons kept")
 C_Spell.IsSpellUsable = nil
 EssentialCooldownViewer = nil
 

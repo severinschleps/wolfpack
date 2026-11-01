@@ -169,6 +169,38 @@ local function slot(b, j)
   return horiz and (j - 1) * w or 0, horiz and 0 or -(j - 1) * h, w, h
 end
 
+-- A cooldown swipe over one of our own icons. The cooldown is secret in combat, but WoW hands
+-- out a duration object that a Cooldown frame plays by itself, so nothing is read -- the same
+-- way Wolfpack's cast bar drains. The GCD shows too, as on any action button.
+local function swipeFor(c, j, r)
+  c.swipes = c.swipes or {}
+  local cd = c.swipes[j]
+  if not cd then
+    cd = CreateFrame("Cooldown", nil, c, "CooldownFrameTemplate")
+    c.swipes[j] = cd
+  end
+  cd:ClearAllPoints()
+  cd:SetAllPoints(r)
+  cd:Show()
+  return cd
+end
+
+-- Returns which route ran, or each route's own error, for /bs check.
+BS.swipeSeen = {} -- bar id -> how its first spell's swipe was fed
+local function feedSwipe(cd, id)
+  local why = {}
+  local ok, err = pcall(function() cd:SetCooldownFromDurationObject(C_Spell.GetSpellCooldownDuration(id)) end)
+  if ok then return "duration object" end
+  why[#why + 1] = "duration object: " .. tostring(err)
+  ok, err = pcall(function()
+    local info = C_Spell.GetSpellCooldown(id)
+    cd:SetCooldown(info.startTime, info.duration, info.modRate)
+  end)
+  if ok then return "start and duration" end
+  why[#why + 1] = "start and duration: " .. tostring(err)
+  return "none -- " .. table.concat(why, " | ")
+end
+
 local function reminder(c, b, j)
   c.reminders = c.reminders or {}
   local r = c.reminders[j]
@@ -324,6 +356,7 @@ function BS.Layout()
       sw = math.max(sw, math.abs(b.offset.x) * 2 + b.size.w)
       sh = math.max(sh, math.abs(b.offset.y) * 2 + b.size.h)
       for _, r in pairs(c.reminders or {}) do r:Hide() end
+      for _, cd in pairs(c.swipes or {}) do cd:Hide() end
       for j, sp in ipairs(b.spells) do
         -- a usable bar draws its own icon and borrows nothing (see below)
         local it, from
@@ -339,6 +372,7 @@ function BS.Layout()
           -- a borrowed one froze in its "not usable" look. This bar only shows while the spell can
           -- be pressed, so our own plain icon is always the right look.
           rec.reminder = reminder(c, b, j)
+          rec.swipe = swipeFor(c, j, rec.reminder)
         elseif it then
           used[it] = true
           place(it, c, b, j)
@@ -435,6 +469,12 @@ function BS.UpdateUsable()
     for _, b in ipairs(g.bars) do
       local c, sp = containers[b.id], b.spells[1]
       if c and b.visibility == "usable" then
+        for j, cd in pairs(c.swipes or {}) do
+          if b.spells[j] then
+            local how = feedSwipe(cd, b.spells[j].baseSpell)
+            if j == 1 then BS.swipeSeen[b.id] = how end
+          end
+        end
         if placing or not sp then
           c:SetAlpha(1)
         else
