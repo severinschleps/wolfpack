@@ -134,11 +134,15 @@ local WATCHED = { "Show", "Hide", "SetShown", "SetAlpha" }
 local hideout
 
 -- reminder visible (1) while Blizzard's frame is hidden, invisible (0) while it is shown
+-- The border plate behind one of our own icons, which must come and go with it.
+BS.borderOf = setmetatable({}, { __mode = "k" })
 local function mirror(r, shown)
-  if BS.secret(shown) then
-    pcall(r.SetAlphaFromBoolean, r, shown, 0, 1)
-  else
-    r:SetAlpha(shown and 0 or 1)
+  for _, t in ipairs({ r, BS.borderOf[r] }) do
+    if BS.secret(shown) then
+      pcall(t.SetAlphaFromBoolean, t, shown, 0, 1)
+    else
+      t:SetAlpha(shown and 0 or 1)
+    end
   end
 end
 
@@ -202,7 +206,7 @@ local function feedSwipe(cd, id)
 end
 
 -- The icon style, on any icon texture -- ours, or the one inside a frame we borrowed. The border
--- is a plate behind the icon, on our bar (`owner`), cut to the same shape by its own mask.
+-- is a plate behind the icon, cut to the same shape by its own mask.
 local MASKS = { [12] = "i12", [25] = "i25", [50] = "i50" } -- Wolfpack's own Media/Icon art
 local MASK_PATH = "Interface\\AddOns\\WolfpackAddon\\Media\\Icon\\"
 local maskOn = setmetatable({}, { __mode = "k" }) -- mask -> on its texture
@@ -216,22 +220,26 @@ local function setMask(tex, m, file)
   end
 end
 
-local function styleIcon(tex, owner, key)
+-- `owner` is the frame the icon lives in, so the plate shows and hides with it: our bar for our
+-- own icons, Blizzard's frame for a borrowed one. `scale` is that frame's, so the border stays
+-- `border` px on screen. The records live here, never as fields on Blizzard's frame.
+local styleSets = setmetatable({}, { __mode = "k" }) -- owner frame -> { key -> style }
+local function styleIcon(tex, owner, key, scale)
   local st = BS.profile.icons
   local z = st.zoom / 100
   tex:SetTexCoord(z, 1 - z, z, 1 - z)
-  owner.styles = owner.styles or {}
-  local k = owner.styles[key]
+  styleSets[owner] = styleSets[owner] or {}
+  local k = styleSets[owner][key]
   if not k then
-    k = { border = owner:CreateTexture(nil, "BACKGROUND") }
+    k = { border = owner:CreateTexture(nil, "BACKGROUND", nil, -8) }
     k.borderMask = owner:CreateMaskTexture()
-    owner.styles[key] = k
+    styleSets[owner][key] = k
   end
   if k.tex ~= tex then -- a new texture in this slot: its mask has to belong to its own frame
     if k.tex and k.iconMask then setMask(k.tex, k.iconMask, nil) end
     k.tex, k.iconMask = tex, (tex:GetParent() or owner):CreateMaskTexture()
   end
-  local file, e = MASKS[st.radius], st.border
+  local file, e = MASKS[st.radius], st.border / (scale or 1)
   k.iconMask:SetAllPoints(tex)
   setMask(tex, k.iconMask, file)
   k.border:ClearAllPoints()
@@ -241,6 +249,7 @@ local function styleIcon(tex, owner, key)
   k.borderMask:SetAllPoints(k.border)
   setMask(k.border, k.borderMask, file)
   k.border:SetShown(e > 0)
+  k.border:SetAlpha(1)
   return k
 end
 
@@ -262,7 +271,7 @@ local function reminder(c, b, j)
   r:SetTexture((C_Spell and BS.try(C_Spell.GetSpellTexture, b.spells[j].baseSpell)) or 134400)
   r:SetAlpha(1) -- missing until Blizzard's frame says otherwise
   r:Show()
-  styleIcon(r, c, "own" .. j)
+  BS.borderOf[r] = styleIcon(r, c, "own" .. j).border
   return r
 end
 
@@ -317,7 +326,7 @@ local function place(it, c, b, j)
   local tex = it.Icon
   if type(tex) == "table" and tex.SetTexCoord then
     if not styled[it] then styled[it] = { tex = tex, coords = { tex:GetTexCoord() } } end
-    styled[it].k = styleIcon(tex, c, "borrowed" .. j)
+    styled[it].k = styleIcon(tex, it, "plate", s)
   end
 end
 
@@ -409,7 +418,7 @@ function BS.Layout()
       sh = math.max(sh, math.abs(b.offset.y) * 2 + b.size.h)
       for _, r in pairs(c.reminders or {}) do r:Hide() end
       for _, cd in pairs(c.swipes or {}) do cd:Hide() end
-      for _, k in pairs(c.styles or {}) do k.border:Hide() end -- styleIcon shows the ones in use
+      for _, k in pairs(styleSets[c] or {}) do k.border:Hide() end -- styleIcon shows the ones in use
       for j, sp in ipairs(b.spells) do
         -- a usable bar draws its own icon and borrows nothing (see below)
         local it, from
@@ -468,6 +477,7 @@ function BS.Layout()
       if sty then -- Blizzard's own crop back, our mask off; the border stays with our bar
         if #sty.coords == 8 then pcall(sty.tex.SetTexCoord, sty.tex, unpack(sty.coords)) end
         if sty.k and sty.k.iconMask then setMask(sty.tex, sty.k.iconMask, nil) end
+        if sty.k then sty.k.border:Hide() end -- our plate leaves Blizzard's frame with us
         styled[it] = nil
       end
       local n = natural[it]

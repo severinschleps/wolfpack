@@ -335,6 +335,13 @@ assert(missingRec.reminder._alpha == 0 and rendFrame.parent == activeRec.barFram
   "Rend up: the icon hides, and the frame stays in the active bar")
 rendFrame:Hide()
 assert(missingRec.reminder._alpha == 1, "Rend off: the icon is back")
+-- the plates come and go with their icons: the missing icon's plate is switched with it, and
+-- the active icon's plate sits on Blizzard's own frame, so Blizzard hiding it hides the plate
+local missingPlate = BS.borderOf[missingRec.reminder]
+assert(missingPlate and missingPlate._alpha == 1, "Rend off: the missing icon's plate shows")
+rendFrame:Show()
+assert(missingPlate._alpha == 0, "Rend up: the missing icon's plate hides with it")
+rendFrame:Hide()
 
 -- sizes are what the bar says, on screen: frame size times its scale. An icon is square and as
 -- tall as the bar, scaled from Blizzard's own size, never stretched
@@ -483,8 +490,8 @@ local ic = BS.profile.icons
 assert(ic.zoom == 8 and ic.border == 1 and ic.radius == 0, "a profile starts with a slight zoom and a 1 px border")
 local icon = exRec.reminder
 assert(icon._coords[1] == 0.08 and icon._coords[2] == 0.92, "our own icon is zoomed 8% a side")
-local sty = exC.styles.own1
-assert(sty and rawget(sty.border, "_shown") ~= false, "a border plate behind it")
+local sty = { border = BS.borderOf[icon] }
+assert(sty.border and rawget(sty.border, "_shown") ~= false, "a border plate behind it")
 ic.zoom, ic.border, ic.radius = 20, 3, 25
 realLayout()
 assert(icon._coords[1] == 0.2, "zoom follows the setting")
