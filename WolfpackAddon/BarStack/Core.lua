@@ -378,6 +378,7 @@ end)
 
 SLASH_BARSTACK1, SLASH_BARSTACK2 = "/bs", "/barstack"
 SlashCmdList.BARSTACK = function(msg)
-  if strtrim(msg or ""):lower() == "check" then BS.Check() else BS.ToggleConfig() end
+  msg = strtrim(msg or ""):lower()
+  if msg == "check" then BS.Check() elseif msg == "frames" then BS.Frames() else BS.ToggleConfig() end
 end
 

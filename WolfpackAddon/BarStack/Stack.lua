@@ -430,6 +430,41 @@ function BS.Init()
   end
 end
 
+-- /bs frames: every frame of every viewer, and what each way of asking "which spell are you?"
+-- answers right now -- a value, "secret", "nil" or "error". Asking reads nothing secret: a secret
+-- is only reported as such.
+function BS.Frames()
+  local function d(fn)
+    local ok, v = pcall(fn)
+    if not ok then return "error" end
+    if BS.secret(v) then return "secret" end
+    return tostring(v)
+  end
+  for _, name in ipairs(BS.ALL_VIEWERS) do
+    local v = _G[name]
+    if not v then
+      print("|cffC79C6EBar Stack|r " .. name .. ": missing")
+    else
+      local ok, frames = pcall(v.GetItemFrames, v)
+      print(("|cffC79C6EBar Stack|r %s: list from %s"):format(name, ok and type(frames) == "table" and "GetItemFrames"
+        or v.itemFramePool and "itemFramePool" or "its children"))
+      for i, it in ipairs(items(v)) do
+        local function info() return it.cooldownInfo or it:GetCooldownInfo() end
+        print(("  %d %s | GetSpellID %s | cooldownID %s / GetCooldownID %s | info.spellID %s, override %s"
+          .. " | by cooldownID %s | ours %s"):format(i,
+          d(function() return it:IsShown() and "shown" or "hidden" end),
+          d(function() return it:GetSpellID() end),
+          d(function() return it.cooldownID end), d(function() return it:GetCooldownID() end),
+          d(function() return info().spellID end), d(function() return info().overrideSpellID end),
+          d(function()
+            return C_CooldownViewer.GetCooldownViewerCooldownInfo(it.cooldownID or it:GetCooldownID()).spellID
+          end),
+          tostring(BS.FrameSpell(it))))
+      end
+    end
+  end
+end
+
 function BS.ViewerStats(v)
   if not v then return 0, 0 end
   local list, mapped = items(v), 0

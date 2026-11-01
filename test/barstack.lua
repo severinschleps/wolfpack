@@ -396,6 +396,14 @@ realLayout()
 for _, r in ipairs(BS.placed) do
   if r.spell == "Rend" then assert(r.frame == newBar, r.visibility .. " bar follows Rend to Tracked Bars") end
 end
+-- /bs frames lists every frame with each way of asking its spell, and survives what it cannot ask
+said = {}
+print = function(t) said[#said + 1] = t end
+BS.Frames()
+print = keptPrint
+local listed
+for _, t in ipairs(said) do if t:find("GetSpellID 772") and t:find("ours 772") then listed = t end end
+assert(listed, "a frame line names what each question answered: " .. table.concat(said, " / "))
 BuffIconCooldownViewer, BuffBarCooldownViewer = nil, nil
 
 -- the window says, under the spell list, why the selected bar shows nothing
