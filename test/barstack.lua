@@ -230,6 +230,7 @@ rendFrame.SetShown = function(self, v) self.shown = v end
 rendFrame.SetAlpha = function() end
 rendFrame.SetParent = function(self, p) self.parent = p end
 rendFrame.GetParent = function(self) return self.parent end
+rendFrame.SetSize = function(self, w, h) self.w, self.h = w, h end
 BuffIconCooldownViewer = { GetItemFrames = function() return { rendFrame } end }
 local rendBar = BS.NewBar(gA)
 rendBar.visibility = "missing"
@@ -316,7 +317,15 @@ assert(missingRec.reminder._alpha == 0 and rendFrame.parent == activeRec.barFram
   "Rend up: the icon hides, and the frame stays in the active bar")
 rendFrame:Hide()
 assert(missingRec.reminder._alpha == 1, "Rend off: the icon is back")
+assert(rendFrame.w == 240 and rendFrame.h == 24, "from Tracked Bars it is drawn as the bar: " .. rendFrame.w)
+-- the same spell set to "Bar" but tracked as a buff icon stays square, and the window says why
 BuffBarCooldownViewer = nil
+BuffIconCooldownViewer = { GetItemFrames = function() return { rendFrame } end }
+realLayout()
+assert(rendFrame.w == 24 and rendFrame.h == 24, "an icon frame is never stretched along the bar")
+BS.RefreshConfig()
+assert((BS.cfg.spellNote._text or ""):find("Move it to Tracked Bars"), "the window says how to get the bar: " .. tostring(BS.cfg.spellNote._text))
+BuffIconCooldownViewer = nil
 
 -- the window says, under the spell list, why the selected bar shows nothing
 realLayout()

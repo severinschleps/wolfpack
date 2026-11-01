@@ -470,6 +470,10 @@ function BS.RefreshConfig()
       notes[#notes + 1] = "|cffff6060" .. rec.spell .. (BS.AURA_MODES[b.visibility]
         and ": not in Tracked Buffs or Tracked Bars. Add it there in the Cooldown Manager.|r"
         or ": not in the Cooldown Manager. Add it there.|r")
+    elseif rec.barRef == b and b.visibility ~= "missing" and b.spells[rec.index]
+      and b.spells[rec.index].display == "bar" and rec.viewer ~= "BuffBarCooldownViewer" then
+      notes[#notes + 1] = "|cffffaa00" .. rec.spell .. ": in Tracked Buffs, so it shows as an icon. "
+        .. "Move it to Tracked Bars for Blizzard's bar.|r"
     end
   end
   if BS.TARGET_MODES[b.visibility] and not UnitExists("target") then

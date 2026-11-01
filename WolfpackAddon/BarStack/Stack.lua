@@ -141,12 +141,15 @@ local function watch(it)
 end
 
 -- Where spell j sits inside its bar.
-local function slot(b, j)
+-- Where spell j sits inside its bar. Only a frame from Tracked Bars is drawn as a bar: every
+-- other viewer's frame is an icon, and stretched to the bar's width it smears the spell's art.
+local function slot(b, j, viewer)
   local sp, horiz = b.spells[j], b.orientation ~= "vertical"
   local w = horiz and b.size.w / #b.spells or b.size.w
   local h = horiz and b.size.h or b.size.h / #b.spells
   local x, y = horiz and (j - 1) * w or 0, horiz and 0 or -(j - 1) * h
-  if sp.display ~= "bar" or b.visibility == "always" or b.visibility == "missing" then w = math.min(w, h); h = w end
+  local isBar = sp.display == "bar" and (viewer == nil or viewer == "BuffBarCooldownViewer")
+  if not isBar or b.visibility == "always" or b.visibility == "missing" then w = math.min(w, h); h = w end
   return x, y, w, h
 end
 
@@ -178,10 +181,10 @@ local function park(it)
   it:SetParent(hideout)
 end
 
-local function place(it, c, b, j)
+local function place(it, c, b, j, viewer)
   if not borrowed[it] then borrowed[it] = it:GetParent() end
   if BS.AURA_MODES[b.visibility] then watch(it) end
-  local x, y, w, h = slot(b, j)
+  local x, y, w, h = slot(b, j, viewer)
   it:SetParent(c)
   it:SetFrameStrata(c:GetFrameStrata())
   it:SetFrameLevel(c:GetFrameLevel() + 1)
@@ -292,14 +295,14 @@ function BS.Layout()
       for j, sp in ipairs(b.spells) do
         local it, from = find(sp, b.visibility, used)
         local rec = { group = g.name, bar = b.name, spell = sp.name or tostring(sp.baseSpell),
-          visibility = b.visibility, frame = it, viewer = from, container = c, barFrame = c, barRef = b }
+          visibility = b.visibility, frame = it, viewer = from, container = c, barFrame = c, barRef = b, index = j }
         BS.placed[#BS.placed + 1] = rec
         if b.visibility == "missing" then
           rec.reminder = reminder(c, b, j)
           missing[#missing + 1] = { rec = rec, sp = sp } -- matched after every other bar has its frame
         elseif it then
           used[it] = true
-          place(it, c, b, j)
+          place(it, c, b, j, from)
         end
       end
     end
