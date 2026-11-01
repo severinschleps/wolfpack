@@ -23,7 +23,9 @@ It used to be its own addon, github.com/severinschleps/bar-stack; that repo is n
    "Only while debuff is missing" draws its own icon and only watches Blizzard's frame, so one
    spell in Tracked Buffs serves a "debuff is active" icon and a "debuff is missing" icon together.
    Both debuff choices show only while you have a target.
-   **Flash under 25% left** (aura, debuff and proc bars) pulses the icon near the end. The time
+   **Flash at % left** (0 = off) pulses an aura, debuff or proc icon near the end. On a "missing"
+   bar it pulses the bar's own icon early, while the debuff is still up, so you reapply before it
+   drops; once it is gone the plain icon shows. **Icon gap** spaces the icons in a bar. The time
    left is never read: Blizzard's duration object, hooked as it reaches the icon's Cooldown, is
    asked through a step curve, and the answer goes straight into the flash's opacity.
    `/bs check` says whether it is working on this client.

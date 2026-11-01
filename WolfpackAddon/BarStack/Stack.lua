@@ -161,6 +161,11 @@ local function watch(it)
           elseif m == "Hide" then mirror(r, false)
           elseif m == "SetShown" then mirror(r, arg) end
         end
+        for _, u in ipairs(BS.mirrorUp[it] or {}) do
+          if m == "Show" then u:SetAlpha(1)
+          elseif m == "Hide" then u:SetAlpha(0)
+          elseif m == "SetShown" then BS.Follow(u, arg) end
+        end
       end)
     end
   end
@@ -169,14 +174,15 @@ end
 -- Where spell j sits inside its bar: one icon's slot (size is per icon), x/y from the bar's top-left.
 local function slot(b, j)
   local horiz, w, h = b.orientation ~= "vertical", b.size.w, b.size.h
-  return horiz and (j - 1) * w or 0, horiz and 0 or -(j - 1) * h, w, h
+  return horiz and (j - 1) * (w + b.gap) or 0, horiz and 0 or -(j - 1) * (h + b.gap), w, h
 end
 
 -- The whole bar: one slot per spell, along the way the icons run.
 function BS.BarSize(b)
   local n = math.max(1, #b.spells)
-  if b.orientation == "vertical" then return b.size.w, b.size.h * n end
-  return b.size.w * n, b.size.h
+  local gaps = (n - 1) * (b.gap or 0)
+  if b.orientation == "vertical" then return b.size.w, b.size.h * n + gaps end
+  return b.size.w * n + gaps, b.size.h
 end
 
 -- A cooldown swipe over one of our own icons. The cooldown is secret in combat, but WoW hands
@@ -315,37 +321,58 @@ local function park(it)
   it:SetParent(hideout)
 end
 
--- "Flash when low": an aura's time left is secret, so it is never read. Blizzard hands each
+-- "Flash at % left": an aura's time left is secret, so it is never read. Blizzard hands each
 -- Tracked Buffs icon's Cooldown a duration object; we hook that hand-over and keep the object,
--- and a step curve turns its remaining percent into the flash's opacity inside the game:
--- 1 under LOW, 0 above. Nothing is learned or guessed, so a refresh or a new target just works.
-local LOW = 0.25
-BS.flashes = setmetatable({}, { __mode = "k" }) -- borrowed frame -> { frame, dur, on }
+-- and a step curve turns its remaining percent into a flash's opacity inside the game: 1 under
+-- the bar's percent, 0 above. Nothing is learned or guessed, so a refresh or a new target just
+-- works. An active bar flashes Blizzard's icon; a missing bar flashes its own icon early, while
+-- the debuff is still up.
+BS.durOf = setmetatable({}, { __mode = "k" }) -- Blizzard frame -> its latest duration object
+BS.flashes = {} -- this layout's flashes: { frame, it, pct }
 BS.flashSeen = { objects = 0, result = "not asked yet" } -- for /bs check
-local lowCurve
-local function curve()
-  if lowCurve == nil then
-    lowCurve = false
+local caught = setmetatable({}, { __mode = "k" })
+local allFlash = setmetatable({}, { __mode = "k" }) -- every flash frame ever made
+local onBlizzard = setmetatable({}, { __mode = "k" }) -- Blizzard frame -> its flash
+local early = {} -- container -> spell slot -> { up, glow }: a missing bar's early flash
+
+local function catchDuration(it)
+  if caught[it] then return end
+  caught[it] = true
+  local cd = it.Cooldown
+  if type(cd) == "table" and type(cd.SetCooldownFromDurationObject) == "function" then
+    hooksecurefunc(cd, "SetCooldownFromDurationObject", function(_, d)
+      BS.durOf[it] = d
+      BS.flashSeen.objects = BS.flashSeen.objects + 1
+    end)
+  end
+end
+
+local curves = {}
+local function curveAt(pct)
+  if curves[pct] == nil then
+    curves[pct] = false
     pcall(function()
       local c = C_CurveUtil.CreateCurve()
       c:SetType(Enum.LuaCurveType.Step)
       c:AddPoint(0, 1)
-      c:AddPoint(LOW, 0)
-      lowCurve = c
+      c:AddPoint(pct / 100, 0)
+      curves[pct] = c
     end)
   end
-  return lowCurve or nil
+  return curves[pct] or nil
 end
 
--- A white pulse over the icon, on a frame of our own inside Blizzard's (so it hides with it).
+-- A white pulse over `over`, with the spell's icon under it when `icon` is given.
 -- ponytail: square, even on rounded icons
-local function flashFor(it)
-  local fx = BS.flashes[it]
-  if fx then return fx end
-  local fl = CreateFrame("Frame", nil, it)
-  fl:SetAllPoints(type(it.Icon) == "table" and it.Icon or it)
-  fl:SetFrameLevel(it:GetFrameLevel() + 20)
+local function pulse(parent, over, icon)
+  local fl = CreateFrame("Frame", nil, parent)
+  fl:SetAllPoints(over)
+  fl:SetFrameLevel(parent:GetFrameLevel() + 20)
   fl:SetAlpha(0)
+  if icon then
+    fl.icon = fl:CreateTexture(nil, "ARTWORK")
+    fl.icon:SetAllPoints()
+  end
   local t = fl:CreateTexture(nil, "OVERLAY")
   t:SetAllPoints()
   t:SetColorTexture(1, 1, 1, 1)
@@ -357,28 +384,60 @@ local function flashFor(it)
   a:SetToAlpha(0.55)
   a:SetDuration(0.35)
   ag:Play()
-  fx = { frame = fl }
-  local cd = it.Cooldown
-  if type(cd) == "table" and type(cd.SetCooldownFromDurationObject) == "function" then
-    hooksecurefunc(cd, "SetCooldownFromDurationObject", function(_, d)
-      fx.dur = d
-      BS.flashSeen.objects = BS.flashSeen.objects + 1
-    end)
+  allFlash[fl] = true
+  return fl
+end
+
+local function addFlash(frame, it, pct)
+  catchDuration(it)
+  BS.flashes[#BS.flashes + 1] = { frame = frame, it = it, pct = pct }
+end
+
+-- Shown while Blizzard's frame is (the debuff is up): the opposite of a reminder icon.
+BS.mirrorUp = setmetatable({}, { __mode = "k" })
+function BS.Follow(f, shown)
+  if BS.secret(shown) then
+    pcall(f.SetAlphaFromBoolean, f, shown, 1, 0)
+  else
+    f:SetAlpha(shown and 1 or 0)
   end
-  BS.flashes[it] = fx
-  return fx
+end
+
+-- A missing bar's early flash: the spell's icon, pulsing, while the debuff is up and under pct.
+local function earlyFlash(c, j, r, it, b)
+  early[c] = early[c] or {}
+  local e = early[c][j]
+  if not e then
+    e = { up = CreateFrame("Frame", nil, c) }
+    e.glow = pulse(e.up, e.up, true)
+    early[c][j] = e
+  end
+  e.up:ClearAllPoints()
+  e.up:SetAllPoints(r)
+  e.up:SetFrameLevel(c:GetFrameLevel() + 10)
+  e.up:Show()
+  e.glow.icon:SetTexture(r:GetTexture())
+  local z = BS.profile.icons.zoom / 100
+  e.glow.icon:SetTexCoord(z, 1 - z, z, 1 - z)
+  BS.mirrorUp[it] = BS.mirrorUp[it] or {}
+  table.insert(BS.mirrorUp[it], e.up)
+  local ok, shown = pcall(it.IsShown, it)
+  if ok then BS.Follow(e.up, shown) end
+  addFlash(e.glow, it, b.flashAt)
 end
 
 function BS.UpdateFlashes()
-  local c = curve()
-  for _, fx in pairs(BS.flashes) do
-    local shown = false
-    if fx.on and fx.dur and c then
-      local ok, err = pcall(function() fx.frame:SetAlpha(fx.dur:EvaluateRemainingPercent(c)) end)
+  local lit = {}
+  for _, v in ipairs(BS.flashes) do
+    local d, c = BS.durOf[v.it], curveAt(v.pct)
+    if d and c and not BS.preview then
+      local ok, err = pcall(function() v.frame:SetAlpha(d:EvaluateRemainingPercent(c)) end)
       BS.flashSeen.result = ok and "working" or tostring(err)
-      shown = ok
+      lit[v.frame] = ok or nil
     end
-    if not shown then fx.frame:SetAlpha(0) end
+  end
+  for fl in pairs(allFlash) do
+    if not lit[fl] then fl:SetAlpha(0) end
   end
 end
 
@@ -386,7 +445,7 @@ local flashTicker = CreateFrame("Frame")
 local sinceFlash = 0
 flashTicker:SetScript("OnUpdate", function(_, elapsed)
   sinceFlash = sinceFlash + elapsed
-  if sinceFlash < 0.1 or not next(BS.flashes) then return end
+  if sinceFlash < 0.1 or #BS.flashes == 0 then return end
   sinceFlash = 0
   BS.UpdateFlashes()
 end)
@@ -410,9 +469,10 @@ local function place(it, c, b, j)
     if not styled[it] then styled[it] = { tex = tex, coords = { tex:GetTexCoord() } } end
     styled[it].k = styleIcon(tex, it, "plate", s)
   end
-  local flash = b.flashLow and BS.FLASH_MODES[b.visibility] or false
-  if flash then flashFor(it) end
-  if BS.flashes[it] then BS.flashes[it].on = flash end
+  if b.flashAt > 0 and BS.FLASH_MODES[b.visibility] then
+    onBlizzard[it] = onBlizzard[it] or pulse(it, type(it.Icon) == "table" and it.Icon or it)
+    addFlash(onBlizzard[it], it, b.flashAt)
+  end
 end
 
 local hooked = {}
@@ -479,6 +539,10 @@ function BS.Layout()
   hookViewers()
   local used, live, liveStacks, missing = {}, {}, {}, {}
   BS.placed = {} -- what the last pass did with every spell, for /bs check
+  BS.flashes = {}
+  for _, slots in pairs(early) do
+    for _, e in pairs(slots) do e.up:Hide() end -- earlyFlash shows the ones still in use
+  end
   for _, g in ipairs(BS.profile.groups) do
     local st, s = stackFor(g), g.stack
     liveStacks[st] = true
@@ -514,7 +578,7 @@ function BS.Layout()
         BS.placed[#BS.placed + 1] = rec
         if b.visibility == "missing" then
           rec.reminder = reminder(c, b, j)
-          missing[#missing + 1] = { rec = rec, sp = sp } -- matched after every other bar has its frame
+          missing[#missing + 1] = { rec = rec, sp = sp, b = b, j = j, c = c } -- matched after every other bar has its frame
         elseif b.visibility == "usable" then
           -- Blizzard refreshes its icon's usable look only while the frame sits in its own viewer, so
           -- a borrowed one froze in its "not usable" look. This bar only shows while the spell can
@@ -539,6 +603,7 @@ function BS.Layout()
   -- Tracked Buffs serves both a "debuff is active" bar and a "debuff is missing" one. A frame no
   -- other bar shows is parked out of sight instead.
   BS.mirror = setmetatable({}, { __mode = "k" })
+  BS.mirrorUp = setmetatable({}, { __mode = "k" })
   for _, m in ipairs(missing) do
     local it, from = find(m.sp, "missing", {})
     m.rec.frame, m.rec.viewer = it, from
@@ -551,6 +616,7 @@ function BS.Layout()
       watch(it)
       BS.mirror[it] = BS.mirror[it] or {}
       table.insert(BS.mirror[it], m.rec.reminder)
+      if m.b.flashAt > 0 then earlyFlash(m.c, m.j, m.rec.reminder, it, m.b) end
       local ok, shown = pcall(it.IsShown, it)
       if ok then mirror(m.rec.reminder, shown) end
     end
@@ -566,8 +632,7 @@ function BS.Layout()
         if sty.k then sty.k.border:Hide() end -- our plate leaves Blizzard's frame with us
         styled[it] = nil
       end
-      local fx = BS.flashes[it]
-      if fx then fx.on = false; fx.frame:SetAlpha(0) end -- no flash on Blizzard's own frame
+      if onBlizzard[it] then onBlizzard[it]:SetAlpha(0) end -- no flash on Blizzard's own frame
       local n = natural[it]
       if n then -- home the way it came: Blizzard's size and scale
         it:SetScale(n.scale)

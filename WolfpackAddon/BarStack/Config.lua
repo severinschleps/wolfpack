@@ -14,7 +14,7 @@ local MAX_SPELLS = 8 -- ponytail: no scrolling in the spell list; a bar holds "o
 local W, H = 832, ui.BS_H
 local C1, C2, C3 = 0, 242, 484
 local W12, W3 = 230, 348
-local BOTTOM = -500
+local BOTTOM = -556
 
 local f, selected, dragFrom, group
 local listRows, spellRows, pickRows = {}, {}, {}
@@ -80,7 +80,7 @@ end
 -- Label, track, and the value typed in beside it. Dragging moves things live and saves on release
 -- (a save writes every CVar chunk); the wheel and the box save at once. get() nil = nothing to show.
 local function slider(list, parent, s, x, y, w, min, max, step, get, set)
-  text(parent, s, x, y)
+  local label = text(parent, s, x, y)
   local sl = ui.Slider(parent, w - 54)
   sl:SetPoint("TOPLEFT", x, y - 20)
   sl:SetMinMaxValues(min, max)
@@ -114,6 +114,9 @@ local function slider(list, parent, s, x, y, w, min, max, step, get, set)
     sl:SetValue(math.max(min, math.min(max, v)))
     syncing = false
     if not box:HasFocus() then box:SetText(("%g"):format(v)) end
+  end
+  function sl.show(on)
+    for _, p in ipairs({ label, sl, box }) do p:SetShown(on) end
   end
   list[#list + 1] = sl
   return sl
@@ -183,7 +186,7 @@ local function spellRow(i)
   if spellRows[i] then return spellRows[i] end
   local r = CreateFrame("Frame", nil, f.right)
   r:SetSize(W3 - 24, 22)
-  r:SetPoint("TOPLEFT", C3 + 12, -324 - (i - 1) * 22)
+  r:SetPoint("TOPLEFT", C3 + 12, -374 - (i - 1) * 22)
   r.icon = r:CreateTexture(nil, "ARTWORK")
   r.icon:SetSize(20, 20)
   r.icon:SetPoint("LEFT")
@@ -366,8 +369,8 @@ local function build(parent)
 
   ui.card(f, C1, 0, W12, -BOTTOM)
   ui.card(f, C2, 0, W12, -BOTTOM)
-  ui.card(f, C3, 0, W3, 276)
-  ui.card(f, C3, -288, W3, -288 - BOTTOM)
+  ui.card(f, C3, 0, W3, 326)
+  ui.card(f, C3, -338, W3, -338 - BOTTOM)
 
   -- column 1: the group (each one is a stack of its own) and its stack settings
   local x = C1 + 12
@@ -401,12 +404,12 @@ local function build(parent)
   -- column 2: its bars (top = top layer, drag or Move up / down to reorder)
   x = C2 + 12
   text(f, "Bars", x, -12, "GameFontNormal")
-  f.list = scroll(f, x, -40, 196, 340)
-  button(f, "New", 64, x, -392, function()
+  f.list = scroll(f, x, -40, 196, 390)
+  button(f, "New", 64, x, -442, function()
     selected = BS.NewBar(G())
     changed()
   end)
-  button(f, "Copy", 64, x + 70, -392, function()
+  button(f, "Copy", 64, x + 70, -442, function()
     if not selected then return end
     local copy = CopyTable(selected)
     copy.id, copy.name = nil, selected.name .. " copy"
@@ -414,17 +417,17 @@ local function build(parent)
     selected = copy
     changed()
   end)
-  button(f, "Delete", 66, x + 140, -392, function()
+  button(f, "Delete", 66, x + 140, -442, function()
     local i = selected and tIndexOf(G().bars, selected)
     if i then table.remove(G().bars, i); selected = nil; changed() end
   end)
-  f.up = button(f, "Move up", 100, x, -422, function()
+  f.up = button(f, "Move up", 100, x, -472, function()
     if selected and BS.MoveBar(selected, -1) then changed() end
   end)
-  f.down = button(f, "Move down", 100, x + 106, -422, function()
+  f.down = button(f, "Move down", 100, x + 106, -472, function()
     if selected and BS.MoveBar(selected, 1) then changed() end
   end)
-  local hint = text(f, "The top bar draws over the others. Drag one to reorder.", x, -458,
+  local hint = text(f, "The top bar draws over the others. Drag one to reorder.", x, -508,
     "GameFontDisableSmall")
   hint:SetWidth(206)
   hint:SetJustifyH("LEFT")
@@ -452,7 +455,7 @@ local function build(parent)
     selected.orientation = selected.orientation == "vertical" and "horizontal" or "vertical"
     changed()
   end)
-  f.flash = checkbox(r, "Flash under 25% left", x + 130, -148, function(on) selected.flashLow = on; changed() end)
+  text(r, "Icons run this way", x + 118, -150, "GameFontDisableSmall")
   local B = function() return selected end
   local half = (W3 - 24 - 12) / 2
   slider(barSliders, r, "Icon width", x, -180, half, 8, 200, 1,
@@ -463,22 +466,27 @@ local function build(parent)
     function() return B() and B().offset.x end, function(v) B().offset.x = BS.Clamp(v, -2000, 2000) end)
   slider(barSliders, r, "Offset Y", x + half + 12, -226, half, -400, 400, 1,
     function() return B() and B().offset.y end, function(v) B().offset.y = BS.Clamp(v, -2000, 2000) end)
+  slider(barSliders, r, "Icon gap", x, -272, half, 0, 40, 1,
+    function() return B() and B().gap end, function(v) B().gap = BS.Clamp(v, 0, 200) end)
+  -- active bars flash Blizzard's icon near the end; missing bars flash their own icon early
+  f.flash = slider(barSliders, r, "Flash at % left (0 = off)", x + half + 12, -272, half, 0, 50, 5,
+    function() return B() and B().flashAt end, function(v) B().flashAt = BS.Clamp(v, 0, 100) end)
 
-  text(r, "Spells", x, -300, "GameFontNormal")
-  f.add = button(r, "Add spell", 90, C3 + W3 - 102, -296, showPicker)
+  text(r, "Spells", x, -350, "GameFontNormal")
+  f.add = button(r, "Add spell", 90, C3 + W3 - 102, -346, showPicker)
   -- why a spell on this bar shows nothing, said where you are looking rather than in /bs check
-  f.spellNote = text(r, "", x, -328, "GameFontNormalSmall")
+  f.spellNote = text(r, "", x, -378, "GameFontNormalSmall")
   f.spellNote:SetWidth(W3 - 24)
   f.spellNote:SetJustifyH("LEFT")
   BS.cfg = f
   f.groupSliders, f.barSliders = groupSliders, barSliders
 
   -- footer: what the whole profile shares
-  f.preview = checkbox(f, "Show all bars", 2, -516, preview)
-  f.combatNote = text(f, "Changes apply after combat.", 150, -516, "GameFontRedSmall")
-  button(f, "Icon style", 96, W - 268, -512, BS.ShowIconStyle)
-  button(f, "Export", 80, W - 166, -512, function() showText("export") end)
-  button(f, "Import", 80, W - 80, -512, function() showText("import") end)
+  f.preview = checkbox(f, "Show all bars", 2, -572, preview)
+  f.combatNote = text(f, "Changes apply after combat.", 150, -572, "GameFontRedSmall")
+  button(f, "Icon style", 96, W - 268, -568, BS.ShowIconStyle)
+  button(f, "Export", 80, W - 166, -568, function() showText("export") end)
+  button(f, "Import", 80, W - 80, -568, function() showText("import") end)
 end
 
 function BS.RefreshConfig()
@@ -527,8 +535,7 @@ function BS.RefreshConfig()
   f.vis:GenerateMenu()
   for _, sl in ipairs(barSliders) do sl.sync() end
   f.orient:SetText(b.orientation == "vertical" and "Vertical" or "Horizontal")
-  f.flash:SetShown(BS.FLASH_MODES[b.visibility] == true)
-  f.flash:SetChecked(b.flashLow)
+  f.flash.show(BS.FLASH_MODES[b.visibility] == true or b.visibility == "missing")
   f.add:SetEnabled(#b.spells < MAX_SPELLS)
   for i, sp in ipairs(b.spells) do
     local row = spellRow(i)
@@ -554,7 +561,7 @@ function BS.RefreshConfig()
     notes[#notes + 1] = "|cfffbbf24Shows only while you have a target.|r"
   end
   f.spellNote:ClearAllPoints()
-  f.spellNote:SetPoint("TOPLEFT", C3 + 12, -328 - #b.spells * 22)
+  f.spellNote:SetPoint("TOPLEFT", C3 + 12, -378 - #b.spells * 22)
   f.spellNote:SetText(table.concat(notes, "\n"))
 end
 

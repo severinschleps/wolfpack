@@ -254,8 +254,8 @@ local probe
 for _, t in ipairs(said) do if t:find("Blizzard called Show 1, Hide 2") then probe = t end end
 assert(probe, "/bs check reports the calls")
 
--- "flash when low": the time left is never read. Blizzard's duration object, caught as it is
--- handed to the icon's Cooldown, is asked through a step curve: 1 under 25% left, 0 above
+-- "flash at % left": the time left is never read. Blizzard's duration object, caught as it is
+-- handed to the icon's Cooldown, is asked through a step curve: 1 under the bar's %, 0 above
 Enum = Enum or {}
 Enum.LuaCurveType = { Step = 1 }
 C_CurveUtil = { CreateCurve = function()
@@ -264,23 +264,25 @@ C_CurveUtil = { CreateCurve = function()
     at = function(_, x) local y for _, p in ipairs(pts) do if x >= p[1] then y = p[2] end end return y end }
 end }
 local function aura(left) return { EvaluateRemainingPercent = function(_, c) return c:at(left) end } end
+local function flashOf(it) for _, v in ipairs(BS.flashes) do if v.it == it then return v end end end
 buffFrame.Cooldown = { SetCooldownFromDurationObject = function() end }
-gB.bars[1].flashLow = true
+gB.bars[1].flashAt = 20
 realLayout()
-local fx = BS.flashes[buffFrame]
-assert(fx and fx.on, "an aura bar with the option on gets a flash")
+local fx = flashOf(buffFrame)
+assert(fx and fx.pct == 20, "an aura bar set to 20% gets a flash")
 BS.UpdateFlashes()
 assert(fx.frame._alpha == 0, "no duration yet: no flash")
-buffFrame.Cooldown:SetCooldownFromDurationObject(aura(0.8))
+buffFrame.Cooldown:SetCooldownFromDurationObject(aura(0.5))
 BS.UpdateFlashes()
-assert(fx.frame._alpha == 0, "80% left: quiet")
-buffFrame.Cooldown:SetCooldownFromDurationObject(aura(0.2))
+assert(fx.frame._alpha == 0, "half left: quiet")
+buffFrame.Cooldown:SetCooldownFromDurationObject(aura(0.1))
 BS.UpdateFlashes()
-assert(fx.frame._alpha == 1 and BS.flashSeen.result == "working", "20% left: flashing")
-gB.bars[1].flashLow = false
+assert(fx.frame._alpha == 1 and BS.flashSeen.result == "working", "10% left: flashing")
+gB.bars[1].flashAt = 0
 realLayout()
 BS.UpdateFlashes()
-assert(not fx.on and fx.frame._alpha == 0, "option off: it stops")
+assert(not flashOf(buffFrame) and fx.frame._alpha == 0, "0%: off")
+assert(BS.NormalizeBar({ flashLow = true }).flashAt == 25, "the old on / off flash becomes 25%")
 
 -- "only while debuff is missing": Blizzard's Rend frame is parked out of sight, and our own Rend
 -- icon shows exactly while Blizzard's frame is hidden
@@ -395,6 +397,24 @@ assert(missingPlate and missingPlate._alpha == 1, "Rend off: the missing icon's 
 rendFrame:Show()
 assert(missingPlate._alpha == 0, "Rend up: the missing icon's plate hides with it")
 rendFrame:Hide()
+-- and it can flash early: its own icon pulses while Rend is still up with under 15% left, so the
+-- reapply comes before the gap. Once Rend is gone the plain reminder takes over, without a flash
+missingRec.barRef.flashAt = 15
+realLayout()
+local ef, up = flashOf(rendFrame), BS.mirrorUp[rendFrame] and BS.mirrorUp[rendFrame][1]
+assert(ef and ef.pct == 15 and up, "the missing bar has an early flash")
+rendFrame:Show()
+assert(up._alpha == 1, "Rend up: the early flash may show")
+rendFrame.Cooldown:SetCooldownFromDurationObject(aura(0.5))
+BS.UpdateFlashes()
+assert(ef.frame._alpha == 0, "half left: quiet")
+rendFrame.Cooldown:SetCooldownFromDurationObject(aura(0.1))
+BS.UpdateFlashes()
+assert(ef.frame._alpha == 1, "10% left: the reminder flashes before Rend is gone")
+rendFrame:Hide()
+assert(up._alpha == 0 and missingRec.reminder._alpha == 1, "Rend gone: the steady reminder, no flash")
+missingRec.barRef.flashAt = 0
+realLayout()
 
 -- sizes are what the bar says, on screen: frame size times its scale. Size is one icon (36 x 36
 -- for a new bar), square, scaled from Blizzard's own size, never stretched
@@ -411,6 +431,10 @@ local three = { size = { w = 40, h = 30 }, spells = { 1, 2, 3 } }
 assert(select(1, BS.BarSize(three)) == 120 and select(2, BS.BarSize(three)) == 30, "the bar is three icons wide")
 three.orientation = "vertical"
 assert(select(1, BS.BarSize(three)) == 40 and select(2, BS.BarSize(three)) == 90, "or three tall")
+three.gap = 5
+assert(select(2, BS.BarSize(three)) == 100, "with a 5 px gap between each two")
+three.orientation = nil
+assert(select(1, BS.BarSize(three)) == 130, "either way")
 -- and no Icon / Bar choice is left in the window
 BS.RefreshConfig()
 for _, fn in ipairs(menus) do

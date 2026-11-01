@@ -34,7 +34,9 @@ BS.RADII = { [0] = true, [12] = true, [25] = true, [50] = true }
 local STACK_DEFAULTS = { point = "CENTER", x = 0, y = -180, scale = 1, alpha = 1, showInCombat = true, showOutOfCombat = true }
 local BAR_DEFAULTS = {
   name = "New bar", offset = { x = 0, y = 0 }, size = { w = 36, h = 36 }, -- one icon; the bar is n of them
-  orientation = "horizontal", visibility = "always", spells = {}, flashLow = false,
+  orientation = "horizontal", visibility = "always", spells = {},
+  gap = 0, -- px between icons
+  flashAt = 0, -- flash under this % of the aura's time left; 0 = never
 }
 local ENUMS = { visibility = { always = true, usable = true, aura = true, debuff = true, proc = true, missing = true }, orientation = { horizontal = true, vertical = true } }
 local Clamp = BS.Clamp
@@ -60,6 +62,9 @@ function BS.NormalizeBar(b)
     if not ok[b[k]] then b[k] = BAR_DEFAULTS[k] end
   end
   b.style = nil -- bar texture and color: gone with bars
+  if b.flashLow == true and b.flashAt == 0 then b.flashAt = 25 end -- the first, on / off version
+  b.flashLow = nil
+  b.gap, b.flashAt = Clamp(math.floor(b.gap + 0.5), 0, 200), Clamp(math.floor(b.flashAt + 0.5), 0, 100)
   b.offset.x, b.offset.y = Clamp(b.offset.x, -2000, 2000), Clamp(b.offset.y, -2000, 2000)
   local spells = {}
   for _, sp in ipairs(b.spells) do
@@ -326,10 +331,9 @@ function BS.Check()
           or shown == true and "shown, but a parent is hidden" or "hidden by Blizzard",
         it:GetWidth(), it:GetHeight()))
       end
-      local fx = BS.flashes and BS.flashes[it]
-      if fx and fx.on then
-        line(BS.flashSeen.result == "working", ("      flash when low: %d duration objects from Blizzard, %s"):format(
-          BS.flashSeen.objects, BS.flashSeen.result))
+      if r.barRef and r.barRef.flashAt > 0 then
+        line(BS.flashSeen.result == "working", ("      flash at %d%% left: %d duration objects from Blizzard, %s"):format(
+          r.barRef.flashAt, BS.flashSeen.objects, BS.flashSeen.result))
       end
       local w = BS.watch and BS.watch[it]
       if w then -- how Blizzard switches it: decides whether "show while missing" can be built
