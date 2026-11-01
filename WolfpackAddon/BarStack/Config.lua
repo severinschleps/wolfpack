@@ -159,7 +159,15 @@ local function spellRow(i)
     local out = {}
     for _, d in ipairs({ { "icon", "Icon" }, { "bar", "Bar" } }) do
       out[#out + 1] = { d[2], function() return selected and selected.spells[i] and selected.spells[i].display == d[1] end,
-        function() selected.spells[i].display = d[1]; changed() end }
+        function()
+          selected.spells[i].display = d[1]
+          -- a bar needs room beside its icon (which is as wide as the bar is high): widen a narrow one
+          local b = selected
+          if d[1] == "bar" and b.orientation ~= "vertical" and b.size.w / #b.spells < b.size.h * 3 then
+            b.size.w = math.min(2000, b.size.h * 8 * #b.spells)
+          end
+          changed()
+        end }
     end
     return out
   end)
@@ -473,6 +481,15 @@ function BS.RefreshConfig()
       notes[#notes + 1] = "|cffff6060" .. rec.spell .. (BS.AURA_MODES[b.visibility]
         and ": not in Tracked Buffs or Tracked Bars. Add it there in the Cooldown Manager.|r"
         or ": not in the Cooldown Manager. Add it there.|r")
+    end
+  end
+  local slotW = b.orientation ~= "vertical" and b.size.w / #b.spells or b.size.w
+  local slotH = b.orientation ~= "vertical" and b.size.h or b.size.h / #b.spells
+  for _, sp in ipairs(b.spells) do
+    if sp.display == "bar" and b.visibility ~= "missing" and slotW - slotH < slotH then
+      notes[#notes + 1] = ("|cffffaa00Width %d leaves no room for the bar beside the %d px icon. Make it wider.|r")
+        :format(b.size.w, slotH)
+      break
     end
   end
   if BS.TARGET_MODES[b.visibility] and not UnitExists("target") then

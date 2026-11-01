@@ -361,6 +361,25 @@ debuffBar.spells[1].display = "bar"
 BuffIconCooldownViewer = { GetItemFrames = function() return {} end }
 realLayout()
 assert(rendFrame.scale == 1 and rendFrame.w == 36 and rendFrame.h == 36, "returned the way it came")
+
+-- a 30 x 30 bar has no room for a timer beside a 30 px icon: picking "Bar" widens it, and the
+-- window warns whenever the width leaves none
+debuffBar.size.w, debuffBar.size.h = 30, 30
+debuffBar.spells[1].display = "icon"
+realLayout()
+BS.RefreshConfig()
+local iconOrBar
+for _, fn in ipairs(menus) do
+  local r = radios(fn)
+  if r[1] and r[1].text == "Icon" and r[2] and r[2].text == "Bar" then iconOrBar = r end
+end
+assert(iconOrBar, "each spell has an Icon / Bar dropdown")
+iconOrBar[2].set()
+assert(debuffBar.spells[1].display == "bar" and debuffBar.size.w == 240, "Bar widens a narrow bar: " .. debuffBar.size.w)
+debuffBar.size.w = 30
+BS.RefreshConfig()
+assert((BS.cfg.spellNote._text or ""):find("leaves no room for the bar"), "too narrow is said: " .. tostring(BS.cfg.spellNote._text))
+debuffBar.size.w, debuffBar.size.h = 240, 24
 BuffIconCooldownViewer = nil
 
 -- the window says, under the spell list, why the selected bar shows nothing
