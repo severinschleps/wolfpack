@@ -345,11 +345,24 @@ function BS.Check()
   line(BS.try(C_CVar.GetCVar, "cooldownViewerEnabled") == "1", "Cooldown Manager enabled")
   line(issecretvalue ~= nil, "issecretvalue present")
   line(EventRegistry ~= nil, "Edit Mode callbacks (EventRegistry)")
-  for _, name in ipairs(BS.ALL_VIEWERS) do
-    local total, mapped = BS.ViewerStats(_G[name])
+  -- Blizzard's own answer: can the Cooldown Manager run here, and which spells has it been given
+  -- for this spec. Frames with no spell while this list has some: the viewer itself is not laying
+  -- them out (hidden, or something else took it over).
+  local CV = C_CooldownViewer
+  local okAvail, avail, why = pcall(function() return CV.IsCooldownViewerAvailable() end)
+  line(okAvail and avail == true, "Cooldown Manager available: " .. (not okAvail and "cannot ask"
+    or tostring(avail) .. (why and why ~= "" and (" -- " .. tostring(why)) or "")))
+  local CAT = { EssentialCooldownViewer = "Essential", UtilityCooldownViewer = "Utility", BuffIconCooldownViewer = "TrackedBuff" }
+  for i, name in ipairs(BS.ALL_VIEWERS) do
+    local v = _G[name]
+    local total, mapped = BS.ViewerStats(v)
     local hooks = BS.hooks and BS.hooks[name]
-    line(mapped > 0, ("%s: %s, %d frames, %d mapped to spells, hooked: %s"):format(name, _G[name] and "found" or "missing",
-      total, mapped, hooks and #hooks > 0 and table.concat(hooks, ", ") or "nothing"))
+    local cat = Enum and Enum.CooldownViewerCategory and Enum.CooldownViewerCategory[CAT[name]] or ({ 0, 1, 2 })[i] -- Essential, Utility, TrackedBuff
+    local okSet, set = pcall(function() return CV.GetCooldownViewerCategorySet(cat) end)
+    local given = okSet and type(set) == "table" and #set or okSet and "none" or "cannot ask"
+    line(mapped > 0, ("%s: %s%s, %d frames, %d mapped to spells, Blizzard gave it %s spells, hooked: %s"):format(name,
+      v and "found" or "missing", v and (BS.try(v.IsShown, v) == false and ", |cffff4040hidden|r" or ", shown") or "", total, mapped,
+      tostring(given), hooks and #hooks > 0 and table.concat(hooks, ", ") or "nothing"))
   end
   for _, g in ipairs(BS.profile.groups) do
     local st = BS.stacks and BS.stacks[g.id]
