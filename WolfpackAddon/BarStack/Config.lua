@@ -516,48 +516,6 @@ function BS.ShowIconStyle()
 end
 
 ------------------------------------------------------------------------
--- Export / import
-------------------------------------------------------------------------
-
-local function showText(mode)
-  local d = f.textDialog
-  if not d then
-    d = ui.Window(nil, 440, 280, "Profile string")
-    d:SetParent(f)
-    d:SetFrameLevel(f:GetFrameLevel() + 50)
-    local sf = ui.Scroll(CreateFrame("ScrollFrame", nil, d, "UIPanelScrollFrameTemplate"))
-    sf:SetPoint("TOPLEFT", 16, -48)
-    sf:SetPoint("BOTTOMRIGHT", -32, 50)
-    d.edit = CreateFrame("EditBox", nil, sf)
-    d.edit:SetMultiLine(true)
-    d.edit:SetFontObject(ui.SMALL)
-    d.edit:SetWidth(380)
-    d.edit:SetAutoFocus(false)
-    d.edit:SetScript("OnEscapePressed", function() d:Hide() end)
-    sf:SetScrollChild(d.edit)
-    d.status = d:CreateFontString(nil, "OVERLAY", ui.DANGER)
-    d.status:SetPoint("BOTTOMLEFT", 16, 20)
-    d.ok = button(d, "Import", 100, nil, nil, function()
-      if BS.Import(d.edit:GetText()) then
-        d:Hide()
-        group, selected = nil, nil
-        BS.RefreshConfig()
-      else
-        d.status:SetText("Not a valid Bar Stack string.")
-      end
-    end)
-    d.ok:SetPoint("BOTTOMRIGHT", -16, 14)
-    f.textDialog = d
-  end
-  d.status:SetText("")
-  d.ok:SetShown(mode == "import")
-  d.edit:SetText(mode == "export" and (BS.Export() or "Export is unavailable on this client.") or "")
-  d:Show()
-  d.edit:SetFocus()
-  d.edit:HighlightText()
-end
-
-------------------------------------------------------------------------
 -- The editor, on Wolfpack's Bar Stack page (its options window has the title and the close button)
 ------------------------------------------------------------------------
 
@@ -665,8 +623,6 @@ local function build(parent)
     changed()
   end)
   f.combatNote = text(f, "Changes apply after combat.", 400, -572, "GameFontRedSmall")
-  button(f, "Export", 80, W - 166, -568, function() showText("export") end)
-  button(f, "Import", 80, W - 80, -568, function() showText("import") end)
 end
 
 function BS.RefreshConfig()

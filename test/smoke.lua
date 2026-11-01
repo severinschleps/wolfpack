@@ -1338,6 +1338,14 @@ assert(store.profiles["Alpha Warrior"].regular.gap == 11, "and the warrior one")
 assert(store.classProfiles.PRIEST == "Alpha Priest" and store.classProfiles.WARRIOR == "Alpha Warrior",
     "each class knows its own")
 assert(got == store.chars[S.name .. " - Realm"], "and this character is on one of them")
+-- Bar Stack has no string of its own: its profile rides in this one and comes back on import
+local bsGot
+ns.bs = { profile = { groups = { { name = "Mine" } } }, ImportProfile = function(p) bsGot = p; return true end }
+local withBS = ns.exportString()
+ns.bs.profile = nil
+ns.importString(withBS)
+assert(bsGot and bsGot.groups[1].name == "Mine", "importing hands Bar Stack its profile back")
+ns.bs = nil
 login("PRIEST", 0)
 assert(store.chars["PRIESTChar - Realm"] == "Alpha Priest", "a priest logs in on the priest profile")
 assert(prof().regular.gap == 7, "with its settings")

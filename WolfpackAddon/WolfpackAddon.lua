@@ -3277,7 +3277,8 @@ end
 
 ------------------------------------------------------------------------------------------
 -- Export / import. Two separate strings:
---  * the addon profile: "WPA1:" + base64(deflate(CBOR{ name, profile, combatFont })), imported here
+--  * the addon profile: "WPA1:" + base64(deflate(CBOR{ name, profile, combatFont, barStack })),
+--    imported here; barStack is Bar Stack's profile, which has no string of its own
 --  * the WoW UI layout: Blizzard's own Edit Mode string, imported in Edit Mode itself, because
 --    writing Edit Mode layouts from an addon would get overwritten or taint Edit Mode
 ------------------------------------------------------------------------------------------
@@ -3298,7 +3299,8 @@ end
 
 -- `all` packs every profile you have into the one string, instead of only the one in use.
 local function exportString(all)
-    local data = { name = store.chars[charKey], profile = db, combatFont = db.other.combatFont }
+    local data = { name = store.chars[charKey], profile = db, combatFont = db.other.combatFont,
+        barStack = ns.bs and ns.bs.profile }
     if all then
         data.profiles, data.classes = {}, {}
         for name, prof in pairs(store.profiles) do
@@ -3442,6 +3444,10 @@ local function importString(text)
     local ok, data = pcall(function() return E.DeserializeCBOR(E.DecompressString(E.DecodeBase64(b64))) end)
     if not ok or type(data) ~= "table" or type(data.profile) ~= "table" then
         return nil, "The string is damaged or incomplete. Copy it again in full."
+    end
+    -- Bar Stack's profile rides along: it goes to Bar Stack for this character and spec
+    if type(data.barStack) == "table" and ns.bs and ns.bs.ImportProfile then
+        pcall(ns.bs.ImportProfile, data.barStack)
     end
     -- A bundle: every profile in it lands under its own name, replacing one of the same name,
     -- and each class is remembered so its characters start on the right one.

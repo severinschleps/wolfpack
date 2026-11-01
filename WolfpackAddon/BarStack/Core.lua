@@ -317,11 +317,10 @@ function BS.LoadProfile()
   BS.db.profiles[key] = BS.profile
 end
 
-function BS.Export() return BS.Encode(BS.profile) end
-
-function BS.Import(s)
-  local p = BS.Decode(type(s) == "string" and (s:gsub("%s", "")) or nil)
-  if not p or not (type(p.groups) == "table" or type(p.bars) == "table") then return false end
+-- Bar Stack has no export string of its own: its profile travels inside Wolfpack's profile
+-- string, which hands it back here on import (for this character and spec).
+function BS.ImportProfile(p)
+  if type(p) ~= "table" or not (type(p.groups) == "table" or type(p.bars) == "table") then return false end
   BS.db.profiles[profileKey()] = p
   BS.LoadProfile()
   BS.Save()

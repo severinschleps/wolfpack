@@ -60,7 +60,9 @@ It used to be its own addon, github.com/severinschleps/bar-stack; that repo is n
 
 Other commands:
 - `/bs check` shows which APIs and storage backends work on this client. Run it after a relog to see which saved settings survived.
-- **Export** / **Import** on the Bar Stack page copies a profile as a string.
+- Bar Stack has no export string of its own: Wolfpack's profile string (Export / Import at the top
+  of the options window) carries Bar Stack's profile too, and importing it restores it for the
+  character and spec you are on.
 
 ## Status
 

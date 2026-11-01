@@ -101,19 +101,19 @@ BarStackDB = { updated = 1, profiles = {} }
 BS.LoadDB()
 assert(BS.db.profiles["Tester-Realm:1"], "CVar copy is newer than the stale SavedVariables")
 
--- import rejects junk, accepts an export
-assert(not BS.Import("garbage"))
-local s = BS.Export()
+-- a profile handed back by Wolfpack's profile string: junk refused, a profile taken
+assert(not BS.ImportProfile("garbage") and not BS.ImportProfile({}))
+local saved = CopyTable(BS.profile)
 BS.profile.groups[1].bars = {}
-assert(BS.Import(s) and BS.profile.groups[1].bars[1].name == "Proc")
+assert(BS.ImportProfile(saved) and BS.profile.groups[1].bars[1].name == "Proc")
 
 -- a version 1 profile (one stack, one list of bars) becomes the first group, nothing lost
 local old = BS.NormalizeProfile({ version = 1, stack = { x = 50, y = 60 }, bars = { { name = "Old" } } })
 assert(old.version == 2 and #old.groups == 1 and old.stack == nil and old.bars == nil, "migrated to groups")
 assert(old.groups[1].stack.x == 50 and old.groups[1].bars[1].name == "Old", "position and bars kept")
--- and an old export string still imports
+-- and an old profile still imports
 BS.db.profiles["Tester-Realm:1"] = nil
-assert(BS.Import(BS.Encode({ version = 1, bars = { { name = "Imported" } } })), "an old string imports")
+assert(BS.ImportProfile({ version = 1, bars = { { name = "Imported" } } }), "an old profile imports")
 assert(BS.profile.groups[1].bars[1].name == "Imported")
 
 -- moving a bar up and down the stack, and not past either end
