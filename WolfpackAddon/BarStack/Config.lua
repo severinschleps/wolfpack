@@ -2,8 +2,9 @@ local _, ns = ...
 ns.bs = ns.bs or {}
 local BS = ns.bs
 
-local VIS = { "always", "aura", "debuff", "missing", "proc" }
-local VIS_TEXT = { always = "Always", aura = "Only while aura is active", debuff = "Only while debuff is active",
+local VIS = { "always", "usable", "aura", "debuff", "missing", "proc" }
+local VIS_TEXT = { always = "Always", usable = "Only while usable", aura = "Only while aura is active",
+  debuff = "Only while debuff is active",
   missing = "Only while debuff is missing", proc = "Only while proc is active" }
 BS.VIS, BS.VIS_TEXT = VIS, VIS_TEXT
 local MAX_SPELLS = 8 -- ponytail: no scrolling in the spell list; a bar holds "one or a few" spells
@@ -439,6 +440,11 @@ function BS.RefreshConfig()
         and ": not in Tracked Buffs. Add it there in the Cooldown Manager.|r"
         or ": not in the Cooldown Manager. Add it there.|r")
     end
+  end
+  if b.visibility == "usable" then
+    notes[#notes + 1] = "|cffaaaaaaShows while " .. (b.spells[1] and b.spells[1].name or "its spell")
+      .. " can be pressed: enough rage, a low enough target, or a proc -- as your action bar shows it."
+      .. (#b.spells > 1 and " The first spell decides." or "") .. "|r"
   end
   if BS.TARGET_MODES[b.visibility] and not UnitExists("target") then
     notes[#notes + 1] = "|cffffaa00Shows only while you have a target.|r"

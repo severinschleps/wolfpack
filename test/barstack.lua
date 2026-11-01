@@ -147,6 +147,9 @@ local function mock()
       if k == "GetFrameLevel" or k == "GetScale" or k == "GetWidth" or k == "GetHeight" then return function() return 1 end end
       if k == "GetCenter" then return function() return 0, 0 end end
       if k == "SetAlpha" then return function(self, a) rawset(self, "_alpha", a) end end
+      if k == "SetAlphaFromBoolean" then
+        return function(self, v, yes, no) rawset(self, "_fromBool", { v, yes, no }) end
+      end
       if k == "SetShown" then return function(self, v) rawset(self, "_shown", v) end end
       if k == "Hide" then return function(self) rawset(self, "_shown", false) end end
       if k == "Show" then return function(self) rawset(self, "_shown", true) end end
@@ -175,11 +178,12 @@ for _, fn in ipairs(menus) do
   local r = radios(fn)
   if r[1] and r[1].text == "Always" then vis = r end
 end
-assert(vis and #vis == 5, "the Show dropdown has five choices")
-assert(vis[2].text == "Only while aura is active" and vis[3].text == "Only while debuff is active"
-  and vis[4].text == "Only while debuff is missing" and vis[5].text == "Only while proc is active", "named as asked")
-vis[3].set()
-assert(BS.profile.groups[1].bars[1].visibility == "debuff" and vis[3].isSel(), "picking one sets the bar")
+assert(vis and #vis == 6, "the Show dropdown has six choices")
+assert(vis[2].text == "Only while usable" and vis[3].text == "Only while aura is active"
+  and vis[4].text == "Only while debuff is active" and vis[5].text == "Only while debuff is missing"
+  and vis[6].text == "Only while proc is active", "named as asked")
+vis[4].set()
+assert(BS.profile.groups[1].bars[1].visibility == "debuff" and vis[4].isSel(), "picking one sets the bar")
 
 -- a layout pass over two groups: one stack frame each, every spell accounted for
 hooksecurefunc = function() end
@@ -398,6 +402,53 @@ BS.RefreshConfig()
 local note = BS.cfg.spellNote._text or ""
 assert(note:find("Rend: not in Tracked Buffs"), "an untracked debuff is named: " .. note)
 assert(note:find("only while you have a target"), "and so is the target rule: " .. note)
+
+-- "Only while usable": Execute shows exactly while WoW says it can be pressed -- rage, a target
+-- under the threshold, or a Sudden Death proc all go into that one answer
+names[163201] = "Execute"
+local exFrame = mock()
+exFrame.GetSpellID = function() return 163201 end
+EssentialCooldownViewer = { GetItemFrames = function() return { exFrame } end }
+local usableNow = false
+C_Spell.IsSpellUsable = function(id) assert(id == 163201); return usableNow end
+local exBar = BS.NewBar(gA)
+exBar.visibility = "usable"
+exBar.spells = { { baseSpell = 163201, name = "Execute" } }
+realLayout()
+local exC
+for _, r in ipairs(BS.placed) do if r.spell == "Execute" then exC = r.barFrame; assert(r.frame == exFrame) end end
+assert(exC._alpha == 0, "not usable: hidden")
+usableNow = true
+BS.UpdateUsable() -- what SPELL_UPDATE_USABLE does
+assert(exC._alpha == 1, "usable: shown")
+-- in combat the answer may come back secret: it is handed on unread
+issecretvalue = function(v) return v == "SECRET" end
+usableNow = "SECRET"
+BS.UpdateUsable()
+assert(exC._fromBool and exC._fromBool[1] == "SECRET" and exC._fromBool[2] == 1 and exC._fromBool[3] == 0,
+  "a secret answer drives the opacity without being read")
+issecretvalue = nil
+-- placing it shows it anyway, and a bar switched to another mode is never left invisible
+usableNow = false
+BS.UpdateUsable()
+BS.preview = true
+BS.UpdateUsable()
+assert(exC._alpha == 1, "Show all bars shows it")
+BS.preview = nil
+exBar.visibility = "always"
+BS.UpdateUsable()
+assert(exC._alpha == 1, "back to Always: visible again")
+said = {}
+exBar.visibility = "usable"
+realLayout()
+print = function(t) said[#said + 1] = t end
+BS.Check()
+print = keptPrint
+local seenLine
+for _, t in ipairs(said) do if t:find("usable right now: false") then seenLine = t end end
+assert(seenLine, "/bs check says what WoW answered")
+C_Spell.IsSpellUsable = nil
+EssentialCooldownViewer = nil
 
 -- the picker for an aura or debuff bar offers Tracked Buffs only
 EssentialCooldownViewer = { GetItemFrames = function() return { cdFrame } end }

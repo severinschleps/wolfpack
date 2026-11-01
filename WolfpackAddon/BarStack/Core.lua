@@ -32,7 +32,7 @@ local BAR_DEFAULTS = {
   name = "New bar", offset = { x = 0, y = 0 }, size = { w = 240, h = 24 },
   orientation = "horizontal", visibility = "always", spells = {},
 }
-local ENUMS = { visibility = { always = true, aura = true, debuff = true, proc = true, missing = true }, orientation = { horizontal = true, vertical = true } }
+local ENUMS = { visibility = { always = true, usable = true, aura = true, debuff = true, proc = true, missing = true }, orientation = { horizontal = true, vertical = true } }
 local Clamp = BS.Clamp
 
 -- copy defaults into t wherever a field is missing or has the wrong type
@@ -303,6 +303,9 @@ function BS.Check()
       end
       local ours = it:GetParent() == r.container
       local vis, shown, alpha = look("IsVisible"), look("IsShown"), look("GetAlpha")
+      if r.visibility == "usable" then
+        print("      usable right now: " .. tostring(BS.usableSeen[r.barRef and r.barRef.id] or "not asked yet"))
+      end
       if r.reminder then
         local ra = r.reminder:GetAlpha()
         line(ours, what .. ("watching %s's frame (%s); reminder icon %s"):format(r.viewer,
@@ -347,6 +350,7 @@ ev:RegisterEvent("PLAYER_REGEN_DISABLED")
 ev:RegisterEvent("PLAYER_REGEN_ENABLED")
 ev:RegisterEvent("PLAYER_SPECIALIZATION_CHANGED")
 ev:RegisterEvent("PLAYER_TARGET_CHANGED")
+pcall(ev.RegisterEvent, ev, "SPELL_UPDATE_USABLE") -- rage, target health and procs change what is usable
 ev:SetScript("OnEvent", function(_, event, arg)
   if event == "PLAYER_LOGIN" then
     BS.LoadDB()
@@ -358,6 +362,8 @@ ev:SetScript("OnEvent", function(_, event, arg)
     if arg == "Blizzard_CooldownViewer" and BS.profile then BS.Apply() end
   elseif event == "PLAYER_TARGET_CHANGED" then
     if BS.profile then BS.UpdateVisibility() end
+  elseif event == "SPELL_UPDATE_USABLE" then
+    if BS.profile then BS.UpdateUsable() end
   elseif event == "PLAYER_REGEN_DISABLED" then
     BS.inCombat = true
     BS.UpdateVisibility()

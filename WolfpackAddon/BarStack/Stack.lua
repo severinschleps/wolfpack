@@ -408,6 +408,43 @@ function BS.UpdateVisibility()
       if c then c:SetShown(placing or hasTarget or not BS.TARGET_MODES[b.visibility]) end
     end
   end
+  BS.UpdateUsable()
+end
+
+-- "Only while usable": WoW's own answer to "can I press this now?" -- enough rage, the target low
+-- enough for Execute, a proc like Sudden Death -- the same one the action bar shows. A readable
+-- answer sets the bar's opacity; a secret one is handed to SetAlphaFromBoolean unread. The bar's
+-- first spell decides (ponytail: per-spell slots if a bar ever needs several usable spells).
+BS.usableSeen = {} -- bar id -> what the last ask returned, for /bs check
+local function usableOf(id)
+  local ok, u = pcall(C_Spell.IsSpellUsable, id)
+  if not ok then ok, u = pcall(IsUsableSpell, id) end
+  if ok then return u end
+end
+
+function BS.UpdateUsable()
+  local placing = BS.preview or BS.editing
+  for _, g in ipairs(BS.profile.groups) do
+    for _, b in ipairs(g.bars) do
+      local c, sp = containers[b.id], b.spells[1]
+      if c and b.visibility == "usable" then
+        if placing or not sp then
+          c:SetAlpha(1)
+        else
+          local u = usableOf(sp.baseSpell)
+          if BS.secret(u) then
+            BS.usableSeen[b.id] = "secret"
+            if not pcall(c.SetAlphaFromBoolean, c, u, 1, 0) then c:SetAlpha(1) end
+          else
+            BS.usableSeen[b.id] = tostring(u)
+            c:SetAlpha(u and 1 or 0)
+          end
+        end
+      elseif c then
+        c:SetAlpha(1) -- a bar switched away from "usable" must not stay invisible
+      end
+    end
+  end
 end
 
 function BS.SetEditing(on)
