@@ -144,6 +144,8 @@ local function mock()
       if k == "SetupMenu" then return function(self, fn) menus[#menus + 1] = fn end end
       if k == "GetFrameLevel" or k == "GetScale" or k == "GetWidth" or k == "GetHeight" then return function() return 1 end end
       if k == "GetCenter" then return function() return 0, 0 end end
+      if k == "SetAlpha" then return function(self, a) rawset(self, "_alpha", a) end end
+      if k == "GetAlpha" then return function(self) return rawget(self, "_alpha") or 1 end end
       local m = mock()
       rawset(t, k, m)
       return m
@@ -166,9 +168,9 @@ for _, fn in ipairs(menus) do
   local r = radios(fn)
   if r[1] and r[1].text == "Always" then vis = r end
 end
-assert(vis and #vis == 4, "the Show dropdown has four choices")
+assert(vis and #vis == 5, "the Show dropdown has five choices")
 assert(vis[2].text == "Only while aura is active" and vis[3].text == "Only while debuff is active"
-  and vis[4].text == "Only while proc is active", "named as asked")
+  and vis[4].text == "Only while debuff is missing" and vis[5].text == "Only while proc is active", "named as asked")
 vis[3].set()
 assert(BS.profile.groups[1].bars[1].visibility == "debuff" and vis[3].isSel(), "picking one sets the bar")
 
@@ -211,6 +213,62 @@ print = keptPrint
 local probe
 for _, t in ipairs(said) do if t:find("Blizzard called Show 1, Hide 2") then probe = t end end
 assert(probe, "/bs check reports the calls")
+
+-- "only while debuff is missing": Blizzard's Rend frame is parked out of sight, and our own Rend
+-- icon shows exactly while Blizzard's frame is hidden
+names[772] = "Rend"
+local rendFrame = mock()
+rendFrame.GetSpellID = function() return 772 end
+rendFrame.shown = false
+rendFrame.IsShown = function(self) return self.shown end
+rendFrame.Show = function(self) self.shown = true end
+rendFrame.Hide = function(self) self.shown = false end
+rendFrame.SetShown = function(self, v) self.shown = v end
+rendFrame.SetAlpha = function() end
+rendFrame.SetParent = function(self, p) self.parent = p end
+BuffIconCooldownViewer = { GetItemFrames = function() return { rendFrame } end }
+local rendBar = BS.NewBar(gA)
+rendBar.visibility = "missing"
+rendBar.spells = { { baseSpell = 772, name = "Rend", display = "icon" } }
+realLayout()
+local rec
+for _, r in ipairs(BS.placed) do if r.spell == "Rend" then rec = r end end
+assert(rec and rec.frame == rendFrame and rec.reminder, "Rend is watched and has a reminder icon")
+assert(rendFrame.parent ~= rec.reminder and rendFrame.parent == rec.container, "Blizzard's frame is parked, not in the bar")
+local rem = rec.reminder
+assert(rem._alpha == 1, "no Rend on the target: the reminder shows")
+rendFrame:Show()
+assert(rem._alpha == 0, "Rend goes up: the reminder hides")
+rendFrame:Hide()
+assert(rem._alpha == 1, "Rend falls off: the reminder is back")
+rendFrame:SetShown(true)
+assert(rem._alpha == 0, "SetShown works the same way")
+rendFrame:SetShown(false)
+-- a frame that already shows Rend when the bar is laid out starts with the reminder hidden
+rendFrame.shown = true
+realLayout()
+assert(rem._alpha == 0, "laid out with Rend up: hidden from the start")
+-- a Rend that is not tracked at all still shows the reminder, and check says why
+BuffIconCooldownViewer = { GetItemFrames = function() return {} end }
+realLayout()
+for _, r in ipairs(BS.placed) do if r.spell == "Rend" then rec = r end end
+assert(rec.frame == nil and rec.reminder._alpha == 1, "untracked: the reminder stays up")
+said = {}
+print = function(t) said[#said + 1] = t end
+BS.Check()
+print = keptPrint
+local why
+for _, t in ipairs(said) do if t:find("Rend: not in Tracked Buffs") then why = t end end
+assert(why, "/bs check says Rend needs tracking")
+BuffIconCooldownViewer = { GetItemFrames = function() return { rendFrame } end }
+realLayout()
+said = {}
+print = function(t) said[#said + 1] = t end
+BS.Check()
+print = keptPrint
+for _, t in ipairs(said) do if t:find("Rend: watching") then why = t end end
+assert(why:find("reminder icon"), "and reports the reminder once it is watched: " .. why)
+BuffIconCooldownViewer = nil
 
 assert(select(1, BS.Hex("#FF0000")) == 1 and select(2, BS.Hex("bad")) == 1)
 print("barstack ok")

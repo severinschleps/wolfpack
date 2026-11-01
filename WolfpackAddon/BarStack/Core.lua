@@ -33,7 +33,7 @@ local BAR_DEFAULTS = {
   orientation = "horizontal", visibility = "always", spells = {},
   style = { texture = "flat", color = "#C79C6E" },
 }
-local ENUMS = { visibility = { always = true, aura = true, debuff = true, proc = true }, orientation = { horizontal = true, vertical = true } }
+local ENUMS = { visibility = { always = true, aura = true, debuff = true, proc = true, missing = true }, orientation = { horizontal = true, vertical = true } }
 local Clamp = BS.Clamp
 
 -- copy defaults into t wherever a field is missing or has the wrong type
@@ -305,11 +305,18 @@ function BS.Check()
       end
       local ours = it:GetParent() == r.container
       local vis, shown, alpha = look("IsVisible"), look("IsShown"), look("GetAlpha")
+      if r.reminder then
+        local ra = r.reminder:GetAlpha()
+        line(ours, what .. ("watching %s's frame (%s); reminder icon %s"):format(r.viewer,
+          shown == "secret" and "its state is secret" or shown == true and "debuff up" or "debuff missing",
+          BS.secret(ra) and "switched by a secret" or ra > 0 and "showing" or "hidden"))
+      else
       line(ours and vis == true, what .. ("from %s, %s, %s, %dx%d"):format(r.viewer,
         ours and "in the stack" or "taken back by Blizzard",
         vis == true and "visible" or vis == "secret" and "visibility is secret"
           or shown == true and "shown, but a parent is hidden" or "hidden by Blizzard",
         it:GetWidth(), it:GetHeight()))
+      end
       local w = BS.watch and BS.watch[it]
       if w then -- how Blizzard switches it: decides whether "show while missing" can be built
         print(("      alpha %s; Blizzard called Show %d, Hide %d, SetShown %d%s, SetAlpha %d%s"):format(

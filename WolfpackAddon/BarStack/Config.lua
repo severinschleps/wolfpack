@@ -2,9 +2,9 @@ local _, ns = ...
 ns.bs = ns.bs or {}
 local BS = ns.bs
 
-local VIS = { "always", "aura", "debuff", "proc" }
+local VIS = { "always", "aura", "debuff", "missing", "proc" }
 local VIS_TEXT = { always = "Always", aura = "Only while aura is active", debuff = "Only while debuff is active",
-  proc = "Only while proc is active" }
+  missing = "Only while debuff is missing", proc = "Only while proc is active" }
 BS.VIS, BS.VIS_TEXT = VIS, VIS_TEXT
 local MAX_SPELLS = 8 -- ponytail: no scrolling in the spell list; a bar holds "one or a few" spells
 local RIGHT = 210
@@ -452,7 +452,7 @@ function BS.RefreshConfig()
     row.icon:SetTexture((C_Spell and BS.try(C_Spell.GetSpellTexture, sp.baseSpell)) or 134400)
     row.name:SetText(sp.name or ("Spell " .. sp.baseSpell))
     row.display:SetText(sp.display == "bar" and "Bar" or "Icon")
-    row.display:SetShown(b.visibility ~= "always")
+    row.display:SetShown(b.visibility ~= "always" and b.visibility ~= "missing") -- those are always icons
     row:Show()
   end
   for i = #b.spells + 1, #spellRows do spellRows[i]:Hide() end

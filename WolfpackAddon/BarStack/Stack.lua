@@ -17,7 +17,7 @@ local borrowed = {}   -- Blizzard item frame -> the viewer it came from
 -- Bars that show only while something is up. Only Blizzard's buff viewers show and hide a
 -- frame with its aura -- a debuff you put on the target and a proc buff included -- so these
 -- borrow from nowhere else: a cooldown icon would simply always be there.
-BS.AURA_MODES = { aura = true, debuff = true, proc = true }
+BS.AURA_MODES = { aura = true, debuff = true, proc = true, missing = true }
 
 -- Which viewers a widget may borrow from, in preference order.
 local function sources(visibility, display)
@@ -93,11 +93,24 @@ local function container(id)
   return c
 end
 
--- How Blizzard shows and hides a buff frame, counted per call. Show/Hide (or SetShown with a
--- readable argument) would let a bar do the opposite -- show an icon while a debuff is missing;
--- a secret alpha would not. /bs check reports it. Hooks only listen, they change nothing.
+-- "Only while debuff is missing": Blizzard's debuff frame is parked out of sight, and an icon
+-- of our own takes its slot, switched the opposite way every time Blizzard switches its frame.
+-- Show/Hide say plainly which way; a secret SetShown argument is handed on to
+-- SetAlphaFromBoolean without being looked at. The hooks only listen and count (for /bs check).
 BS.watch = setmetatable({}, { __mode = "k" })
+BS.mirror = setmetatable({}, { __mode = "k" }) -- Blizzard debuff frame -> our reminder icon
 local WATCHED = { "Show", "Hide", "SetShown", "SetAlpha" }
+local hideout
+
+-- reminder visible (1) while Blizzard's frame is hidden, invisible (0) while it is shown
+local function mirror(r, shown)
+  if BS.secret(shown) then
+    pcall(r.SetAlphaFromBoolean, r, shown, 0, 1)
+  else
+    r:SetAlpha(shown and 0 or 1)
+  end
+end
+
 local function watch(it)
   if BS.watch[it] then return end
   local w = { Show = 0, Hide = 0, SetShown = 0, SetAlpha = 0 }
@@ -107,19 +120,63 @@ local function watch(it)
       hooksecurefunc(it, m, function(_, arg)
         w[m] = w[m] + 1
         if m == "SetShown" or m == "SetAlpha" then w[m .. "Secret"] = BS.secret(arg) end
+        local r = BS.mirror[it]
+        if not r then return end
+        if m == "Show" then mirror(r, true)
+        elseif m == "Hide" then mirror(r, false)
+        elseif m == "SetShown" then mirror(r, arg) end
       end)
     end
   end
 end
 
-local function place(it, c, b, j)
-  if not borrowed[it] then borrowed[it] = it:GetParent() end
-  if BS.AURA_MODES[b.visibility] then watch(it) end
+-- Where spell j sits inside its bar.
+local function slot(b, j)
   local sp, horiz = b.spells[j], b.orientation ~= "vertical"
   local w = horiz and b.size.w / #b.spells or b.size.w
   local h = horiz and b.size.h or b.size.h / #b.spells
   local x, y = horiz and (j - 1) * w or 0, horiz and 0 or -(j - 1) * h
-  if sp.display ~= "bar" or b.visibility == "always" then w = math.min(w, h); h = w end
+  if sp.display ~= "bar" or b.visibility == "always" or b.visibility == "missing" then w = math.min(w, h); h = w end
+  return x, y, w, h
+end
+
+local function reminder(c, b, j)
+  c.reminders = c.reminders or {}
+  local r = c.reminders[j]
+  if not r then
+    r = c:CreateTexture(nil, "ARTWORK")
+    c.reminders[j] = r
+  end
+  local x, y, w, h = slot(b, j)
+  r:ClearAllPoints()
+  r:SetPoint("TOPLEFT", c, "TOPLEFT", x, y)
+  r:SetSize(w, h)
+  r:SetTexture((C_Spell and BS.try(C_Spell.GetSpellTexture, b.spells[j].baseSpell)) or 134400)
+  r:SetAlpha(1) -- missing until Blizzard's frame says otherwise
+  r:Show()
+  return r
+end
+
+-- Out of sight but still Blizzard's to show and hide: a hidden parent keeps it from drawing,
+-- while its own shown flag goes on changing, which is what the hooks follow.
+local function park(it, r)
+  if not borrowed[it] then borrowed[it] = it:GetParent() end
+  if not hideout then
+    hideout = CreateFrame("Frame", nil, UIParent)
+    hideout:Hide()
+  end
+  watch(it)
+  BS.mirror[it] = r
+  it:SetParent(hideout)
+  local ok, shown = pcall(it.IsShown, it)
+  if ok then mirror(r, shown) end
+  return hideout
+end
+
+local function place(it, c, b, j)
+  if not borrowed[it] then borrowed[it] = it:GetParent() end
+  if BS.AURA_MODES[b.visibility] then watch(it) end
+  local x, y, w, h = slot(b, j)
   it:SetParent(c)
   it:SetFrameStrata(c:GetFrameStrata())
   it:SetFrameLevel(c:GetFrameLevel() + 1)
@@ -227,11 +284,19 @@ function BS.Layout()
       c:Show()
       sw = math.max(sw, math.abs(b.offset.x) * 2 + b.size.w)
       sh = math.max(sh, math.abs(b.offset.y) * 2 + b.size.h)
+      for _, r in pairs(c.reminders or {}) do r:Hide() end
       for j, sp in ipairs(b.spells) do
         local it, from = find(sp, b.visibility, used)
-        BS.placed[#BS.placed + 1] = { group = g.name, bar = b.name, spell = sp.name or tostring(sp.baseSpell),
+        local rec = { group = g.name, bar = b.name, spell = sp.name or tostring(sp.baseSpell),
           visibility = b.visibility, frame = it, viewer = from, container = c }
-        if it then
+        BS.placed[#BS.placed + 1] = rec
+        if b.visibility == "missing" then
+          rec.reminder = reminder(c, b, j)
+          if it then
+            used[it] = true
+            rec.container = park(it, rec.reminder)
+          end
+        elseif it then
           used[it] = true
           place(it, c, b, j)
         end
@@ -249,6 +314,7 @@ function BS.Layout()
   for it, origin in pairs(borrowed) do
     if not used[it] then
       borrowed[it] = nil
+      BS.mirror[it] = nil
       it:SetParent(origin)
     end
   end
