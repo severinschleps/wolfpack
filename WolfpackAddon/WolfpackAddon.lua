@@ -697,8 +697,9 @@ local function barColors(f, c)
         if cr then r, g, b = cr, cg, cb end
     end
     local br, bg, bb, ba = unpack(c.borderColor)
-    if c.borderMode == "bar" then
-        br, bg, bb = r, g, b
+    if c.borderMode == "bar" then -- the bar's color, a little lighter, so the edge reads
+        local LIFT = 0.25 -- share of the way to white
+        br, bg, bb = r + (1 - r) * LIFT, g + (1 - g) * LIFT, b + (1 - b) * LIFT
     elseif c.borderMode == "class" then
         local cr, cg, cb = classRGB(f.unit or "player")
         if cr then br, bg, bb = cr, cg, cb end

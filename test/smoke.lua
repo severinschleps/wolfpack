@@ -705,7 +705,8 @@ assert(fr.power.segs[1]._sbc[1] == 1 and fr.power.segs[1]._sbc[3] == 0, "power t
 local hc = prof().regular.bars.health
 local hs = fr.health.segs[1]
 hc.colorMode, hc.borderSize, hc.borderMode = "class", 1, "bar"; fire("UNIT_MAXPOWER")
-assert(hs._sbc[1] == 1 and hs._sbc[3] == 0.41 and hs.border._color[3] == 0.41, "class bar, border = bar")
+assert(hs._sbc[1] == 1 and hs._sbc[3] == 0.41 and math.abs(hs.border._color[3] - 0.5575) < 1e-6
+    and hs.border._color[1] == 1, "class bar, border = the bar's color, a quarter of the way to white")
 hc.colorMode, hc.borderMode = "custom", "class"; fire("UNIT_MAXPOWER")
 assert(hs._sbc[1] == 0.2 and hs.border._color[3] == 0.41 and hs.border._color[4] == 1, "custom bar, class border")
 hc.borderSize, hc.borderMode = 0, "custom"
@@ -1140,7 +1141,7 @@ local sw, hcol = ns.swatches, prof().regular.bars.health
 assert(sw.Rage and sw.Energy and sw.Mana and sw.Focus, "a swatch per power in the power bar's options")
 hcol.colorMode, hcol.borderMode = "class", "bar"
 sw["Custom border color"]._scripts.OnClick()
-assert(S.picker.r == 1 and S.picker.b == 0.41, "border picker opens on the (class) bar color")
+assert(S.picker.r == 1 and math.abs(S.picker.b - 0.5575) < 1e-6, "border picker opens on the border as drawn")
 S.picker.opacityFunc()
 assert(hcol.borderMode == "bar" and hcol.borderColor[4] == 0.5, "opacity only: mode kept")
 S.picker.swatchFunc()
