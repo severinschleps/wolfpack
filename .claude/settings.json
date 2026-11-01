@@ -1,0 +1,16 @@
+{
+  "hooks": {
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "cd \"$CLAUDE_PROJECT_DIR\" && if out=$(luajit test/smoke.lua 2>&1); then for g in _forever_ _retail_; do rsync -a --delete WolfpackAddon/ \"/Users/severin/Games/World of Warcraft/$g/Interface/AddOns/WolfpackAddon/\" || exit 1; done; else jq -n --arg m \"Wolfpack NOT installed, smoke test failed: $(printf '%s' \"$out\" | head -1)\" '{systemMessage: $m}'; fi",
+            "timeout": 60,
+            "statusMessage": "Testing and installing Wolfpack"
+          }
+        ]
+      }
+    ]
+  }
+}

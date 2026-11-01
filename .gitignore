@@ -4,3 +4,4 @@
 *.key
 tools/.cache/
 __pycache__/
+.claude/worktrees/

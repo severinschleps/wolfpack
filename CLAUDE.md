@@ -13,6 +13,10 @@ luajit test/smoke.lua && for g in _forever_ _retail_; do
 done
 ```
 
+This is also enforced: a Stop hook in `.claude/settings.json` runs the same thing at
+the end of every turn, and on a failing test it installs nothing and says so. The
+manual run is still yours to do before reporting a change as done.
+
 One copy serves both: the toc lists Forever's interface (16001) and Midnight's
 (120105, 120107). Add the new number when either client patches.
 
