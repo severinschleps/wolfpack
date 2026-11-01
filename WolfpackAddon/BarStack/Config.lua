@@ -17,7 +17,7 @@ local W12, W3 = 230, 348
 local BOTTOM = -556
 
 local f, selected, dragFrom, group
-local listRows, spellRows, pickRows = {}, {}, {}
+local listRows, spellRows, pickRows, condRows = {}, {}, {}, {}
 local groupSliders, barSliders = {}, {}
 
 -- The group whose bars the window shows; the first one if the old pick is gone.
@@ -212,7 +212,9 @@ local function pickRow(i)
   r.icon:SetPoint("LEFT", 6, 0)
   r:GetFontString():SetPoint("LEFT", 32, 0)
   r:SetScript("OnClick", function(self)
-    table.insert(selected.spells, { baseSpell = self.sp.baseSpell, name = self.sp.name })
+    local kind = f.picker.kind
+    table.insert(kind and selected.conditions or selected.spells,
+      { kind = kind, baseSpell = self.sp.baseSpell, name = self.sp.name })
     f.picker:Hide()
     changed()
   end)
@@ -220,7 +222,9 @@ local function pickRow(i)
   return r
 end
 
-local function showPicker()
+-- kind nil: a spell for the bar; "usable" / "active" / "missing": a condition (see Conditions)
+local conds -- the Conditions dialog, made the first time it is opened
+local function showPicker(kind)
   local p = f.picker
   if not p then
     p = dialog(270, 460, "Add spell")
@@ -235,7 +239,11 @@ local function showPicker()
     p.list = scroll(p, 16, -116, 230, 330)
     f.picker = p
   end
-  local buffsOnly = selected and BS.AURA_MODES[selected.visibility]
+  p.kind = kind
+  p:ClearAllPoints()
+  if kind then p:SetPoint("TOPLEFT", conds, "TOPRIGHT", 12, 0) -- beside the list it adds to
+  else p:SetPoint("TOPLEFT", f:GetParent(), "TOPRIGHT", 12, 0) end
+  local buffsOnly = kind and kind ~= "usable" or (not kind and selected and BS.AURA_MODES[selected.visibility])
   p.hint:SetText(buffsOnly and "Tracked Buffs only:\nthat is all this bar's Show setting can use."
     or "Lists spells in Blizzard's Cooldown Manager.\nMissing one? Add it there first.")
   local spells = BS.AvailableSpells(buffsOnly)
@@ -250,6 +258,71 @@ local function showPicker()
   for i = #spells + 1, #pickRows do pickRows[i]:Hide() end
   p.empty:SetShown(#spells == 0)
   p:Show()
+end
+
+------------------------------------------------------------------------
+-- Conditions: more spells that must agree before the bar shows
+------------------------------------------------------------------------
+
+local COND_TEXT = { usable = "Usable", active = "Active", missing = "Missing" }
+local MAX_CONDS = 6
+
+local function condRow(i)
+  if condRows[i] then return condRows[i] end
+  local r = CreateFrame("Frame", nil, conds)
+  r:SetSize(268, 22)
+  r:SetPoint("TOPLEFT", 16, -150 - (i - 1) * 24)
+  r.icon = r:CreateTexture(nil, "ARTWORK")
+  r.icon:SetSize(20, 20)
+  r.icon:SetPoint("LEFT")
+  r.name = r:CreateFontString(nil, "OVERLAY", ui.TEXT_LEFT)
+  r.name:SetPoint("LEFT", 28, 0)
+  r.name:SetWidth(170)
+  r.remove = ui.Button(r, "Remove", 64, true)
+  r.remove:SetPoint("RIGHT")
+  r.remove:SetScript("OnClick", function()
+    table.remove(selected.conditions, i)
+    changed()
+  end)
+  condRows[i] = r
+  return r
+end
+
+function BS.ShowConditions()
+  if not conds then
+    conds = dialog(300, 314, "Conditions")
+    local hint = text(conds, "The bar shows only while every one of these holds,\n"
+      .. "on top of its own Show setting.", 16, -48, "GameFontDisableSmall")
+    hint:SetJustifyH("LEFT")
+    conds.adds = {
+      button(conds, "Usable", 86, 16, -84, function() showPicker("usable") end),
+      button(conds, "Aura up", 86, 107, -84, function() showPicker("active") end),
+      button(conds, "Aura missing", 86, 198, -84, function() showPicker("missing") end),
+    }
+    text(conds, "Usable: as your action bar shows it. Aura: from Tracked Buffs.", 16, -116, "GameFontDisableSmall")
+    conds.empty = text(conds, "None yet: the bar follows its Show setting alone.", 16, -150, "GameFontDisableSmall")
+  end
+  conds:Show()
+  BS.RefreshConfig()
+end
+
+local function refreshConditions(b)
+  f.condBtn:SetText(#b.conditions > 0 and ("Conditions (%d)"):format(#b.conditions) or "Conditions")
+  if not (conds and conds:IsShown()) then return end
+  local untracked = {}
+  for _, q in ipairs(BS.gates or {}) do
+    if q.bar == b and q.frame == false then untracked[q.cond] = true end
+  end
+  for i, q in ipairs(b.conditions) do
+    local row = condRow(i)
+    row.icon:SetTexture((C_Spell and BS.try(C_Spell.GetSpellTexture, q.baseSpell)) or 134400)
+    row.name:SetText(COND_TEXT[q.kind] .. ": " .. (q.name or ("Spell " .. q.baseSpell))
+      .. (untracked[q] and " |cfff87171(not in Tracked Buffs)|r" or ""))
+    row:Show()
+  end
+  for i = #b.conditions + 1, #condRows do condRows[i]:Hide() end
+  for _, add in ipairs(conds.adds) do add:SetEnabled(#b.conditions < MAX_CONDS) end
+  conds.empty:SetShown(#b.conditions == 0)
 end
 
 ------------------------------------------------------------------------
@@ -468,9 +541,10 @@ local function build(parent)
     function() return B() and B().offset.y end, function(v) B().offset.y = BS.Clamp(v, -2000, 2000) end)
   slider(barSliders, r, "Icon gap", x, -272, half, 0, 40, 1,
     function() return B() and B().gap end, function(v) B().gap = BS.Clamp(v, 0, 200) end)
+  f.condBtn = button(r, "Conditions", half, x + half + 12, -286, BS.ShowConditions)
 
   text(r, "Spells", x, -350, "GameFontNormal")
-  f.add = button(r, "Add spell", 90, C3 + W3 - 102, -346, showPicker)
+  f.add = button(r, "Add spell", 90, C3 + W3 - 102, -346, function() showPicker() end)
   -- why a spell on this bar shows nothing, said where you are looking rather than in /bs check
   f.spellNote = text(r, "", x, -378, "GameFontNormalSmall")
   f.spellNote:SetWidth(W3 - 24)
@@ -526,6 +600,7 @@ function BS.RefreshConfig()
   f.right:SetShown(selected ~= nil)
   f.empty:SetShown(selected == nil)
   if f.picker and not selected then f.picker:Hide() end
+  if conds and not selected then conds:Hide() end
   local b = selected
   if not b then return end
   if not f.name:HasFocus() then f.name:SetText(b.name) end
@@ -540,6 +615,7 @@ function BS.RefreshConfig()
     row:Show()
   end
   for i = #b.spells + 1, #spellRows do spellRows[i]:Hide() end
+  refreshConditions(b)
   local notes = {}
   for _, rec in ipairs(BS.placed or {}) do
     if rec.barRef == b and not rec.frame and b.visibility ~= "usable" then

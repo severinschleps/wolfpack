@@ -566,4 +566,82 @@ assert(BS.FrameSpell(pooled) == 772)
 pooled.GetSpellID = function() error("secret") end
 assert(BS.FrameSpell(pooled) == 772, "the frame is still Rend's, so it stays in the bar")
 
+-- conditions: Execute shows only while it is usable AND Sudden Death is up AND Rend is missing.
+-- Each condition is a frame between the stack and the bar, so their opacities multiply.
+names[52437] = "Sudden Death"
+local sdFrame = mock()
+sdFrame.GetSpellID = function() return 52437 end
+sdFrame.shown = false
+sdFrame.IsShown = function(self) return self.shown end
+sdFrame.Show = function(self) self.shown = true end
+sdFrame.Hide = function(self) self.shown = false end
+sdFrame.SetParent = function(self, p) self.parent = p end
+sdFrame.GetParent = function(self) return self.parent end
+rendFrame.shown = false
+BuffIconCooldownViewer = { GetItemFrames = function() return { sdFrame, rendFrame } end }
+local usableNow = false
+C_Spell.IsSpellUsable = function() return usableNow end
+local combo = BS.NewBar(gA)
+combo.name = "Execute combo"
+combo.spells = { { baseSpell = 163201, name = "Execute" } }
+combo.conditions = { { kind = "usable", baseSpell = 163201 }, { kind = "active", baseSpell = 52437 },
+  { kind = "missing", baseSpell = 772 }, { kind = "sometimes", baseSpell = 1 }, { kind = "active" } }
+BS.NormalizeBar(combo)
+assert(#combo.conditions == 3 and combo.conditions[2].name == "Sudden Death", "garbage conditions are dropped, names filled in")
+realLayout()
+local comboC
+for _, r in ipairs(BS.placed) do if r.barRef == combo then comboC = r.barFrame end end
+local gf = rawget(comboC, "gateFrames")
+assert(gf and #gf == 3, "one frame per condition")
+-- the chain: stack -> usable -> Sudden Death -> Rend -> the bar
+local function recordParent(fr) rawset(fr, "SetParent", function(self, p) rawset(self, "parent", p) end) end
+recordParent(comboC); for _, g in ipairs(gf) do recordParent(g) end
+realLayout()
+assert(rawget(comboC, "parent") == gf[3] and rawget(gf[3], "parent") == gf[2] and rawget(gf[2], "parent") == gf[1]
+  and rawget(gf[1], "parent") == BS.stacks[gA.id], "each condition hangs from the one before, the bar from the last")
+assert(sdFrame.parent ~= comboC, "Sudden Death's frame is only watched: parked, not in the bar")
+assert(gf[1]._alpha == 0 and gf[2]._alpha == 0 and gf[3]._alpha == 1, "not usable, no proc, no Rend")
+usableNow = true
+BS.UpdateUsable()
+assert(gf[1]._alpha == 1 and gf[2]._alpha == 0, "usable, but Sudden Death still says no")
+sdFrame:Show()
+assert(gf[2]._alpha == 1, "the proc lands: all three say yes")
+rendFrame:Show()
+assert(gf[3]._alpha == 0, "Rend goes up: the missing condition says no")
+rendFrame:Hide()
+sdFrame:Hide()
+assert(gf[2]._alpha == 0, "the proc is spent")
+-- secrets in combat are handed on unread, each the right way round
+issecretvalue = function(v) return v == "SECRET" end
+usableNow = "SECRET"
+BS.UpdateUsable()
+assert(gf[1]._fromBool[1] == "SECRET" and gf[1]._fromBool[2] == 1 and gf[1]._fromBool[3] == 0, "usable: secret, unread")
+rendFrame:SetShown("SECRET")
+assert(gf[3]._fromBool[1] == "SECRET" and gf[3]._fromBool[2] == 0 and gf[3]._fromBool[3] == 1, "missing: inverted, unread")
+issecretvalue = nil
+rendFrame.shown = false
+-- placing shows the bar whatever its conditions say
+usableNow = false
+BS.preview = true
+BS.UpdateUsable()
+assert(gf[1]._alpha == 1 and gf[2]._alpha == 1, "Show all bars: every condition steps aside")
+sdFrame:Hide()
+assert(gf[2]._alpha == 1, "and stays aside while Blizzard switches its frame")
+BS.preview = nil
+-- an aura that is not in Tracked Buffs cannot be judged: it stays out of the way and is named
+BuffIconCooldownViewer = { GetItemFrames = function() return { rendFrame } end }
+realLayout()
+assert(gf[2]._alpha == 1, "Sudden Death untracked: ignored")
+said = {}
+print = function(t) said[#said + 1] = t end
+BS.Check()
+print = keptPrint
+local named
+for _, t in ipairs(said) do if t:find("also active Sudden Death %-%- not in Tracked Buffs") then named = t end end
+assert(named, "/bs check names the untracked condition")
+BS.ShowConditions() -- the dialog opens and lists the picked bar's conditions without an error
+assert(BS.cfg.condBtn._text, "the bar's button is labelled")
+C_Spell.IsSpellUsable = nil
+BuffIconCooldownViewer = nil
+
 print("barstack ok")

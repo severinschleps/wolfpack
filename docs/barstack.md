@@ -37,6 +37,12 @@ It used to be its own addon, github.com/severinschleps/bar-stack; that repo is n
    `C_UnitAuras.GetAuraDuration` and `DurationObject:SetTimeFromStart` both refuse secrets from
    addon code (tried, and seen refused in game). Blizzard's own Tracked Bars frames were tried too:
    they did not say reliably which spell they show, so Bar Stack leaves Tracked Bars alone.
+   **Conditions** (button on the bar) add more checks that must all hold, on top of **Show**:
+   *Usable* (a spell can be pressed), *Aura up* or *Aura missing* (a Tracked Buffs spell).
+   Example: Execute, shown only while usable AND Sudden Death is up. Each condition is one
+   frame between the stack and the bar; opacity multiplies down that chain, so the AND never
+   reads the answers (secret in combat). Usable needs no Cooldown Manager; an aura condition
+   needs its spell in Tracked Buffs, because in combat only Blizzard's frame can say it is up.
 4. Use **Move up** / **Move down** (or drag) to reorder. The top of the list is the top layer.
 5. **New group** starts another stack with its own position, scale and combat settings. The
    dropdown above the list picks which group you are editing.

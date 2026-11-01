@@ -35,9 +35,11 @@ local STACK_DEFAULTS = { point = "CENTER", x = 0, y = -180, scale = 1, alpha = 1
 local BAR_DEFAULTS = {
   name = "New bar", offset = { x = 0, y = 0 }, size = { w = 36, h = 36 }, -- one icon; the bar is n of them
   orientation = "horizontal", visibility = "always", spells = {},
+  conditions = {}, -- { kind = "usable" | "active" | "missing", baseSpell, name }: every one must hold too
   gap = 0, -- px between icons
 }
 local ENUMS = { visibility = { always = true, usable = true, aura = true, debuff = true, proc = true, missing = true }, orientation = { horizontal = true, vertical = true } }
+BS.COND_KINDS = { usable = true, active = true, missing = true }
 local Clamp = BS.Clamp
 
 -- copy defaults into t wherever a field is missing or has the wrong type
@@ -74,6 +76,14 @@ function BS.NormalizeBar(b)
     end
   end
   b.spells = spells
+  local conds = {}
+  for _, q in ipairs(b.conditions) do
+    if type(q) == "table" and BS.COND_KINDS[q.kind] and type(q.baseSpell) == "number" then
+      conds[#conds + 1] = { kind = q.kind, baseSpell = q.baseSpell,
+        name = type(q.name) == "string" and q.name or BS.SpellName(q.baseSpell) }
+    end
+  end
+  b.conditions = conds
   -- size was once the whole bar; it is one icon now. An older bar's size is cut into its spells,
   -- along the way the icons run, so it looks the same as before.
   if not b.perIcon then
@@ -295,6 +305,14 @@ function BS.Check()
     local st = BS.stacks and BS.stacks[g.id]
     line(st and st:IsVisible(), ("group %s: %d bars, %s"):format(g.name, #g.bars, not st and "no frame yet"
       or st:IsVisible() and ("visible at %d, %d"):format(st:GetCenter()) or "hidden"))
+  end
+  -- every condition: what it watches, and which way it last switched its bar
+  for _, q in ipairs(BS.gates or {}) do
+    local a = q.gate:GetAlpha()
+    line(q.frame ~= false, ("%s: also %s %s -- %s, now %s"):format(q.bar.name, q.cond.kind, q.cond.name,
+      q.cond.kind == "usable" and "asks WoW" or q.frame and "watching its Tracked Buffs frame"
+        or "not in Tracked Buffs -- add it there in the Cooldown Manager",
+      BS.secret(a) and "switched by a secret" or a > 0 and "yes" or "no"))
   end
   -- every spell of every bar, as the last layout pass left it
   if not BS.placed or #BS.placed == 0 then line(false, "no spells on any bar yet") end

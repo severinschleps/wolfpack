@@ -112,6 +112,21 @@ local function find(sp, visibility, used)
 end
 BS.Find = find
 
+-- The chain of condition frames for a bar, n long, hung from its stack; returns the bar's parent.
+local function gateChain(c, st, n)
+  c.gateFrames = rawget(c, "gateFrames") or {}
+  local parent = st
+  for k = 1, n do
+    local g = c.gateFrames[k] or CreateFrame("Frame", nil, parent)
+    c.gateFrames[k] = g
+    g:SetParent(parent)
+    g:SetAlpha(1)
+    g:Show()
+    parent = g
+  end
+  return parent
+end
+
 local function container(id)
   if containers[id] then return containers[id] end
   local c = CreateFrame("Frame", nil, UIParent) -- moved onto its group's stack by Layout
@@ -136,14 +151,30 @@ local hideout
 -- reminder visible (1) while Blizzard's frame is hidden, invisible (0) while it is shown
 -- The border plate behind one of our own icons, which must come and go with it.
 BS.borderOf = setmetatable({}, { __mode = "k" })
-local function mirror(r, shown)
-  for _, t in ipairs({ r, BS.borderOf[r] }) do
-    if BS.secret(shown) then
-      pcall(t.SetAlphaFromBoolean, t, shown, 0, 1)
-    else
-      t:SetAlpha(shown and 0 or 1)
-    end
+-- alpha `on` while Blizzard's frame is shown, `off` while it is hidden; a secret is handed on unread
+local function follow(t, shown, on, off)
+  if BS.secret(shown) then
+    pcall(t.SetAlphaFromBoolean, t, shown, on, off)
+  else
+    t:SetAlpha(shown and on or off)
   end
+end
+
+local function mirror(r, shown)
+  for _, t in ipairs({ r, BS.borderOf[r] }) do follow(t, shown, 0, 1) end
+end
+
+-- A bar's conditions: one frame each, chained between the stack and the bar. Alpha multiplies
+-- down the chain, so the bar shows only while every condition says yes -- an AND that never
+-- reads the answers, which in combat are secret. "usable" asks WoW (see UpdateUsable); "active"
+-- and "missing" follow a Tracked Buffs frame the way a missing bar does.
+BS.gates = {}                                 -- this layout's gates: { gate, cond, bar, frame }
+BS.gated = setmetatable({}, { __mode = "k" }) -- Blizzard aura frame -> the gates it drives
+local GATE_ALPHA = { usable = { 1, 0 }, active = { 1, 0 }, missing = { 0, 1 } }
+local function setGate(q, v)
+  if BS.preview or BS.editing then return q.gate:SetAlpha(1) end -- placing: every bar on screen
+  local a = GATE_ALPHA[q.cond.kind]
+  follow(q.gate, v, a[1], a[2])
 end
 
 local function watch(it)
@@ -159,6 +190,11 @@ local function watch(it)
           if m == "Show" then mirror(r, true)
           elseif m == "Hide" then mirror(r, false)
           elseif m == "SetShown" then mirror(r, arg) end
+        end
+        for _, q in ipairs(BS.gated[it] or {}) do
+          if m == "Show" then setGate(q, true)
+          elseif m == "Hide" then setGate(q, false)
+          elseif m == "SetShown" then setGate(q, arg) end
         end
       end)
     end
@@ -399,6 +435,7 @@ function BS.Layout()
   if not BS.ready then return end
   hookViewers()
   local used, live, liveStacks, missing = {}, {}, {}, {}
+  BS.gates = {}
   BS.placed = {} -- what the last pass did with every spell, for /bs check
   for _, g in ipairs(BS.profile.groups) do
     local st, s = stackFor(g), g.stack
@@ -413,7 +450,10 @@ function BS.Layout()
       b.layer = n - i + 1 -- top of the list = top layer
       local c = container(b.id)
       live[c] = true
-      c:SetParent(st)
+      c:SetParent(gateChain(c, st, #b.conditions))
+      for k, cond in ipairs(b.conditions) do
+        BS.gates[#BS.gates + 1] = { gate = c.gateFrames[k], cond = cond, bar = b }
+      end
       c:ClearAllPoints()
       c:SetPoint("CENTER", st, "CENTER", b.offset.x, b.offset.y)
       local bw, bh = BS.BarSize(b)
@@ -474,6 +514,23 @@ function BS.Layout()
       table.insert(BS.mirror[it], m.rec.reminder)
       local ok, shown = pcall(it.IsShown, it)
       if ok then mirror(m.rec.reminder, shown) end
+    end
+  end
+  -- an aura condition watches its Tracked Buffs frame like a missing bar, sharing it the same way
+  BS.gated = setmetatable({}, { __mode = "k" })
+  for _, q in ipairs(BS.gates) do
+    if q.cond.kind ~= "usable" then
+      local it = find(q.cond, "aura", {})
+      q.frame = it or false
+      if it then
+        if not used[it] then
+          used[it] = true
+          park(it)
+        end
+        watch(it)
+        BS.gated[it] = BS.gated[it] or {}
+        table.insert(BS.gated[it], q)
+      end
     end
   end
   -- ponytail: returned frames sit unanchored until Blizzard's next layout pass; we never call its layout ourselves (taint)
@@ -566,6 +623,18 @@ function BS.UpdateUsable()
       elseif c then
         c:SetAlpha(1) -- a bar switched away from "usable" must not stay invisible
       end
+    end
+  end
+  -- conditions, asked afresh: usable from WoW, an aura from its frame. One whose aura is not in
+  -- Tracked Buffs cannot be judged and stays out of the way (the window says why).
+  for _, q in ipairs(BS.gates) do
+    if q.cond.kind == "usable" then
+      setGate(q, usableOf(q.cond.baseSpell))
+    elseif q.frame then
+      local ok, shown = pcall(q.frame.IsShown, q.frame)
+      if ok then setGate(q, shown) end
+    else
+      q.gate:SetAlpha(1)
     end
   end
 end
