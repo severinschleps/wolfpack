@@ -44,7 +44,9 @@ local ENUMS = { orientation = { horizontal = true, vertical = true } }
 --          "cooldown" / "aura": Blizzard's Cooldown Manager icon for `spell`, timer and all.
 --   conditions: every one must hold. usable / active / missing name a spell; target does not.
 BS.LOOKS = { custom = true, cooldown = true, aura = true }
-BS.COND_KINDS = { usable = true, active = true, missing = true, target = true }
+BS.COND_KINDS = { usable = true, active = true, missing = true, target = true,
+  form = true, noform = true, stealth = true, nostealth = true }
+BS.NO_SPELL = { target = true, stealth = true, nostealth = true } -- conditions about you, not a spell
 local Clamp = BS.Clamp
 
 -- copy defaults into t wherever a field is missing or has the wrong type
@@ -75,7 +77,7 @@ function BS.NormalizeIcon(ic)
   if not out.spell then out.look = "custom" end -- Blizzard's icon needs a spell to look for
   for _, q in ipairs(type(ic.conditions) == "table" and ic.conditions or {}) do
     local kind = type(q) == "table" and q.kind
-    if kind == "target" then
+    if BS.NO_SPELL[kind] then
       out.conditions[#out.conditions + 1] = { kind = kind }
     elseif BS.COND_KINDS[kind] and spellRef(q) then
       local ref = spellRef(q)
@@ -411,7 +413,7 @@ function BS.Check()
       if q.icon == r.icon then
         local a = q.gate:GetAlpha()
         line(q.frame ~= false, ("      if %s %s -- %s, now %s"):format(q.cond.kind, q.cond.name or "",
-          (q.cond.kind == "usable" or q.cond.kind == "target") and "asks WoW"
+          (q.cond.kind ~= "active" and q.cond.kind ~= "missing") and "asks WoW"
             or q.frame and "watching its Tracked Buffs frame"
             or "not in Tracked Buffs (Tracked Bars is not read) -- move it there in the Cooldown Manager",
           BS.secret(a) and "switched by a secret" or a > 0 and "yes" or "no"))
@@ -443,6 +445,8 @@ ev:RegisterEvent("PLAYER_SPECIALIZATION_CHANGED")
 ev:RegisterEvent("PLAYER_TARGET_CHANGED")
 pcall(ev.RegisterEvent, ev, "SPELL_UPDATE_USABLE") -- rage, target health and procs change what is usable
 pcall(ev.RegisterEvent, ev, "SPELL_UPDATE_COOLDOWN") -- feeds the swipe on a usable bar's icons
+pcall(ev.RegisterEvent, ev, "UPDATE_SHAPESHIFT_FORM") -- stance and form conditions
+pcall(ev.RegisterEvent, ev, "UPDATE_STEALTH")
 ev:SetScript("OnEvent", function(_, event, arg)
   if event == "PLAYER_LOGIN" then
     BS.LoadDB()
@@ -454,7 +458,8 @@ ev:SetScript("OnEvent", function(_, event, arg)
     if arg == "Blizzard_CooldownViewer" and BS.profile then BS.Apply() end
   elseif event == "PLAYER_TARGET_CHANGED" then
     if BS.profile then BS.UpdateVisibility() end
-  elseif event == "SPELL_UPDATE_USABLE" or event == "SPELL_UPDATE_COOLDOWN" then
+  elseif event == "SPELL_UPDATE_USABLE" or event == "SPELL_UPDATE_COOLDOWN" or event == "UPDATE_SHAPESHIFT_FORM"
+    or event == "UPDATE_STEALTH" then
     if BS.profile then BS.UpdateUsable() end
   elseif event == "PLAYER_REGEN_DISABLED" then
     BS.inCombat = true

@@ -131,7 +131,8 @@ BS.watch = setmetatable({}, { __mode = "k" })
 BS.gates = {}                                 -- this layout's gates: { gate, cond, bar, icon, frame }
 BS.gated = setmetatable({}, { __mode = "k" }) -- Blizzard aura frame -> the gates it drives
 local WATCHED = { "Show", "Hide", "SetShown", "SetAlpha" }
-local GATE_ALPHA = { usable = { 1, 0 }, target = { 1, 0 }, active = { 1, 0 }, missing = { 0, 1 } }
+local GATE_ALPHA = { usable = { 1, 0 }, target = { 1, 0 }, active = { 1, 0 }, missing = { 0, 1 },
+  form = { 1, 0 }, noform = { 0, 1 }, stealth = { 1, 0 }, nostealth = { 0, 1 } }
 local hideout
 
 -- alpha `on` while the answer is yes, `off` while it is no; a secret is handed on unread
@@ -597,6 +598,34 @@ local function usableOf(id)
 end
 BS.usableOf = usableOf
 
+-- Stances and forms: the stance bar's slots, each with its spell and whether it is the one you
+-- are in. The spell ID is learned while it reads plainly, so a secret one still finds its slot;
+-- the "active" answer is handed on unread either way. Not on your stance bar: not in it.
+local formSlot = {} -- form spell -> its slot on the stance bar
+function BS.FormActive(id)
+  for i = 1, (BS.try(GetNumShapeshiftForms) or 0) do
+    local ok, _, active, _, sid = pcall(GetShapeshiftFormInfo, i)
+    if ok then
+      if sid and not BS.secret(sid) then formSlot[sid] = i end
+      if formSlot[id] == i then return active end
+    end
+  end
+  return false
+end
+
+-- Your stances and forms, for the picker.
+function BS.Forms()
+  local out = {}
+  for i = 1, (BS.try(GetNumShapeshiftForms) or 0) do
+    local ok, icon, _, _, sid = pcall(GetShapeshiftFormInfo, i)
+    if ok and sid and not BS.secret(sid) then
+      out[#out + 1] = { baseSpell = sid, name = BS.SpellName(sid) or ("Form " .. i),
+        icon = not BS.secret(icon) and icon or nil }
+    end
+  end
+  return out
+end
+
 -- Every condition asked afresh, and every swipe fed. An aura condition whose aura is not in
 -- Tracked Buffs cannot be judged and stays out of the way (the window says why).
 function BS.UpdateUsable()
@@ -607,6 +636,11 @@ function BS.UpdateUsable()
       setGate(q, usableOf(q.cond.baseSpell))
     elseif kind == "target" then
       setGate(q, hasTarget)
+    elseif kind == "form" or kind == "noform" then
+      setGate(q, BS.FormActive(q.cond.baseSpell))
+    elseif kind == "stealth" or kind == "nostealth" then
+      local ok, s = pcall(IsStealthed)
+      setGate(q, ok and s)
     elseif q.frame then
       local ok, shown = pcall(q.frame.IsShown, q.frame)
       if ok then setGate(q, shown) end

@@ -576,6 +576,46 @@ assert(#all == 2 and #buffsOnly == 1 and buffsOnly[1].name == "Rend", "only the 
 BuffIconCooldownViewer = nil
 EssentialCooldownViewer = nil
 
+-- stances, forms and stealth: Bear Form from the stance bar, and not stealthed
+names[5487], names[768] = "Bear Form", "Cat Form"
+local inForm, stealthed = 0, false
+local secretIDs = false
+GetNumShapeshiftForms = function() return 2 end
+GetShapeshiftFormInfo = function(i)
+  local sid = ({ 768, 5487 })[i]
+  return 100 + i, inForm == i, true, secretIDs and "SECRET" or sid
+end
+IsStealthed = function() return stealthed end
+local formBar = BS.NewBar(gA)
+formBar.icons = { icon({ look = "custom", spell = { baseSpell = 5487, name = "Bear Form" },
+  conditions = { { kind = "form", baseSpell = 5487, name = "Bear Form" }, { kind = "nostealth" } } }) }
+assert(formBar.icons[1].conditions[2].kind == "nostealth", "stealth needs no spell and is kept")
+realLayout()
+local fq = gatesOf(recOf(formBar))
+local formG, stealthG = fq[1].gate, fq[2].gate
+assert(formG._alpha == 0 and stealthG._alpha == 1, "caster form, not stealthed")
+inForm = 2
+BS.UpdateUsable() -- what UPDATE_SHAPESHIFT_FORM does
+assert(formG._alpha == 1, "in Bear Form: yes")
+inForm = 1
+BS.UpdateUsable()
+assert(formG._alpha == 0, "Cat Form is not Bear Form")
+stealthed = true
+BS.UpdateUsable() -- what UPDATE_STEALTH does
+assert(stealthG._alpha == 0, "stealthed: not stealthed says no")
+-- in combat the stance bar may name its spells in secrets: the slot learned before still counts
+issecretvalue = function(v) return v == "SECRET" end
+secretIDs, inForm = true, 2
+BS.UpdateUsable()
+assert(formG._alpha == 1, "secret spell IDs: Bear Form still found by its slot")
+issecretvalue, secretIDs = nil, false
+local forms = BS.Forms()
+assert(#forms == 2 and forms[2].name == "Bear Form" and forms[2].icon == 102, "the picker lists your forms")
+table.remove(gA.bars, tIndexOf(gA.bars, formBar))
+realLayout()
+GetNumShapeshiftForms, GetShapeshiftFormInfo, IsStealthed = nil, nil, nil
+assert(#BS.cfg.editor.adds == 8, "the Icon dialog adds In form, Not in form, Stealthed, Not stealthed too")
+
 -- Blizzard's viewers stay shown but invisible: hidden by their Visibility setting they fill no
 -- icons at all, and Bar Stack had nothing to read (seen in game: every frame empty, in combat too)
 local viewer = mock()

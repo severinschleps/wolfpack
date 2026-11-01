@@ -23,7 +23,8 @@ It used to be its own addon, github.com/severinschleps/bar-stack; that repo is n
      (cooldown and charges), or *Blizzard's aura icon* (Tracked Buffs, with its timer; Blizzard
      shows it only while the aura is up).
    - **Shows while all of these hold**: *Usable* (a spell can be pressed, as the action bar
-     shows it), *Aura up* / *Aura missing* (a Tracked Buffs spell), *Target* (you have one).
+     shows it), *Aura up* / *Aura missing* (a Tracked Buffs spell), *Target* (you have one), *In form* / *Not in form* (a stance, druid form or anything
+     on your stance bar), *Stealthed* / *Not stealthed*.
      None: always shown. Example: Execute's picture, shown while Rend is up AND Thunder Clap is
      up AND Mortal Strike is usable.
 

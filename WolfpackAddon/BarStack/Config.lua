@@ -229,7 +229,7 @@ end
 
 -- Spells from Blizzard's Cooldown Manager; `buffsOnly` lists Tracked Buffs alone, all an aura
 -- icon or an aura condition can use. onPick(spell) is told which one.
-local function showPicker(buffsOnly, onPick)
+local function showPicker(buffsOnly, onPick, list, hint)
   local p = f.picker
   if not p then
     p = dialog(270, 460, "Pick a spell")
@@ -247,9 +247,9 @@ local function showPicker(buffsOnly, onPick)
   p.onPick = onPick
   p:ClearAllPoints()
   p:SetPoint("TOPLEFT", editor, "TOPRIGHT", 12, 0) -- beside the icon it is for
-  p.hint:SetText(buffsOnly and "Tracked Buffs only: an aura has to be\nthere for Blizzard to say it is up."
+  p.hint:SetText(hint or buffsOnly and "Tracked Buffs only: an aura has to be\nthere for Blizzard to say it is up."
     or "Lists spells in Blizzard's Cooldown Manager.\nMissing one? Add it there first.")
-  local spells = BS.AvailableSpells(buffsOnly)
+  local spells = list or BS.AvailableSpells(buffsOnly)
   p.list:SetHeight(math.max(1, #spells * 26))
   for i, sp in ipairs(spells) do
     local r = pickRow(i)
@@ -266,13 +266,15 @@ end
 local LOOK_TEXT = { custom = "My own picture", cooldown = "Blizzard's cooldown icon",
   aura = "Blizzard's aura icon (with timer)" }
 local LOOKS = { "custom", "cooldown", "aura" }
-local COND_TEXT = { usable = "Usable", active = "Aura up", missing = "Aura missing", target = "Have a target" }
+local COND_TEXT = { usable = "Usable", active = "Aura up", missing = "Aura missing", target = "Have a target",
+  form = "In", noform = "Not in", stealth = "Stealthed", nostealth = "Not stealthed" }
+local NO_SPELL_ICON = { target = 132212, stealth = 132320, nostealth = 132320 }
 
 local function condRow(i)
   if condRows[i] then return condRows[i] end
   local r = CreateFrame("Frame", nil, editor)
   r:SetSize(288, 22)
-  r:SetPoint("TOPLEFT", 16, -318 - (i - 1) * 24)
+  r:SetPoint("TOPLEFT", 16, -346 - (i - 1) * 24)
   r.icon = r:CreateTexture(nil, "ARTWORK")
   r.icon:SetSize(20, 20)
   r.icon:SetPoint("LEFT")
@@ -294,7 +296,7 @@ function BS.EditIcon(ic)
   editing = ic
   if settings then settings:Hide() end -- one flyout at a time, they open in the same place
   if not editor then
-    local d = dialog(320, 470, "Icon")
+    local d = dialog(320, 500, "Icon")
     editor, f.editor = d, d
     text(d, "Looks like", 16, -44, "GameFontNormal")
     d.look = dropdown(d, 16, -66, 288, function()
@@ -340,8 +342,19 @@ function BS.EditIcon(ic)
         changed()
       end),
     }
-    text(d, "Usable: as your action bar shows it. Aura: from Tracked Buffs.", 16, -292, "GameFontDisableSmall")
-    d.empty = text(d, "None: the icon always shows.", 16, -322, "GameFontDisableSmall")
+    -- stances, druid forms, a rogue's stealth: whatever your stance bar holds
+    local function pickForm(kind)
+      showPicker(false, function(sp) sp.kind = kind; table.insert(editing.conditions, sp) end,
+        BS.Forms(), "Your stances and forms, as your\nstance bar holds them.")
+    end
+    for i, k in ipairs({ { "In form", function() pickForm("form") end },
+      { "Not in form", function() pickForm("noform") end },
+      { "Stealthed", function() table.insert(editing.conditions, { kind = "stealth" }); changed() end },
+      { "Not stealthed", function() table.insert(editing.conditions, { kind = "nostealth" }); changed() end } }) do
+      d.adds[#d.adds + 1] = button(d, k[1], 70, 16 + (i - 1) * 72, -290, k[2])
+    end
+    text(d, "Usable: as your action bar shows it. Aura: from Tracked Buffs.", 16, -320, "GameFontDisableSmall")
+    d.empty = text(d, "None: the icon always shows.", 16, -350, "GameFontDisableSmall")
   end
   editor:Show()
   BS.RefreshConfig()
@@ -409,7 +422,8 @@ local function refreshEditor()
   end
   for i, q in ipairs(ic.conditions) do
     local row = condRow(i)
-    row.icon:SetTexture(q.baseSpell and C_Spell and BS.try(C_Spell.GetSpellTexture, q.baseSpell) or 132212)
+    row.icon:SetTexture(q.baseSpell and C_Spell and BS.try(C_Spell.GetSpellTexture, q.baseSpell)
+      or NO_SPELL_ICON[q.kind] or 134400)
     row.name:SetText(COND_TEXT[q.kind] .. (q.name and ": " .. q.name or "")
       .. (untracked[q] and " |cfff87171(not in Tracked Buffs; Tracked Bars is not read)|r" or ""))
     row:Show()
