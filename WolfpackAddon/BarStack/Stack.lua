@@ -429,12 +429,51 @@ local function usableOf(id)
   if ok then return u end
 end
 
+-- Off cooldown, as a second switch on the icon itself: its opacity multiplies with the bar's, so
+-- the icon shows only while usable AND ready, without either answer being read. A readable answer
+-- leaves the global cooldown out; a secret one cannot tell the GCD from a real cooldown, so the
+-- icon then blinks off for a GCD after every press. Returns what happened, for /bs check.
+BS.cooldownSeen = {} -- bar id -> how its first spell's cooldown was read
+local function readyGate(r, id)
+  local ok, how = pcall(function()
+    local info = C_Spell.GetSpellCooldown(id)
+    if type(info) == "table" and not BS.secret(info) and not BS.secret(info.duration)
+      and not BS.secret(info.isOnGCD) then
+      local cooling = (info.duration or 0) > 0 and info.isOnGCD ~= true
+      r:SetAlpha(cooling and 0 or 1)
+      return cooling and "on cooldown" or "ready"
+    end
+  end)
+  if ok and how then return how end
+  ok, how = pcall(function()
+    local d = C_Spell.GetSpellCooldownDuration(id)
+    local zero = d:IsZero()
+    if BS.secret(zero) then
+      r:SetAlphaFromBoolean(zero, 1, 0)
+      return "secret, followed unread (the GCD hides it too)"
+    end
+    r:SetAlpha(zero and 1 or 0)
+    return zero and "ready" or "on cooldown"
+  end)
+  if ok and how then return how end
+  r:SetAlpha(1)
+  return "unknown, so ignored"
+end
+
 function BS.UpdateUsable()
   local placing = BS.preview or BS.editing
   for _, g in ipairs(BS.profile.groups) do
     for _, b in ipairs(g.bars) do
       local c, sp = containers[b.id], b.spells[1]
       if c and b.visibility == "usable" then
+        for j, r in pairs(c.reminders or {}) do
+          if placing or not b.spells[j] then
+            r:SetAlpha(1)
+          else
+            local how = readyGate(r, b.spells[j].baseSpell)
+            if j == 1 then BS.cooldownSeen[b.id] = how end
+          end
+        end
         if placing or not sp then
           c:SetAlpha(1)
         else
