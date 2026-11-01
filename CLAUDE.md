@@ -43,16 +43,3 @@ real bug gets a test that fails without the fix.
 Blizzard's Cooldown Manager frames, with its own page in the options window (`/bs`) and its own saved data
 (`BarStackDB`, plus a copy in account CVars). It keeps its names on `ns.bs` so they never meet
 Wolfpack's. Design and status notes are in `docs/`.
-
-## Training and attunement data
-
-`WolfpackAddon/Data/` holds generated tables. Nothing in there is hand-written:
-
-- `Training.lua` — trainer spells, copied from What's Training? (MIT), `Classes/Camelot`.
-- `Attune.lua` — what each locked door wants, built by `tools/bake_attune.py`. The table of
-  ids lives in that script and every one is checked against Wowhead's Forever pages before
-  it ships (fetched through `tools/wowhead.py`); a name that does not come back the same is
-  dropped. Nothing is taken from the Attune addon, which is All Rights Reserved.
-
-An addon cannot reach the network at runtime, so shipping a generated table is the
-only way this data gets in. Keep `tools/.cache/` out of git.

@@ -439,17 +439,12 @@ UnitHealthMax = function() return 1000 end
 DAMAGE_TEXT_FONT = "Fonts\\FRIZQT__.TTF"
 local ns = {}
 CompactUnitFrame_SetUpFrame = function() end -- Blizzard's; the addon hooks it
-assert(loadfile("WolfpackAddon/Data/Training.lua"))("WolfpackAddon", ns) -- loaded first, per the toc
-assert(loadfile("WolfpackAddon/Data/Attune.lua"))("WolfpackAddon", ns)
+assert(loadfile("WolfpackAddon/UI.lua"))("WolfpackAddon", ns) -- loaded first, per the toc
 -- one copy for both clients: Forever (16001) and Midnight (12.1.5) must both be in the toc
 S.toc = io.open("WolfpackAddon/WolfpackAddon.toc"):read("*a")
 assert(S.toc:match("## Interface:[^\n]*16001") and S.toc:match("## Interface:[^\n]*120105"),
     "the toc names both Forever and Midnight")
 assert(loadfile("WolfpackAddon/WolfpackAddon.lua"))("WolfpackAddon", ns)
-for _, c in ipairs({ "DRUID", "HUNTER", "MAGE", "PALADIN", "PRIEST", "ROGUE", "SHAMAN",
-    "WARLOCK", "WARRIOR" }) do
-    assert(type(ns.training[c]) == "table", c .. " has a spell list")
-end
 local function fire(e, ...) evFrame._scripts.OnEvent(evFrame, e, ...) end
 -- each class logs in as its own character
 local function login(class, ptype) S.class, S.name, S.ptype = class, class .. "Char", ptype; fire("PLAYER_LOGIN") end
@@ -905,7 +900,7 @@ boxes[5]._text = "90"; boxes[5]._scripts.OnEnterPressed(boxes[5])
 assert(prof().nameplate.gap == 4 and prof().nameplate.x == -150 and prof().nameplate.bars.health.width == 90, "nameplate edits")
 assert(prof().regular.gap == 30 and prof().regular.x == 0 and prof().regular.bars.health.width == 220, "regular untouched")
 -- every sidebar entry is really there, opens its page, and that page has settings on it
-for _, name in ipairs({ "Combat Display", "Nameplates", "Buffs", "Training", "Attunement", "Other",
+for _, name in ipairs({ "Combat Display", "Nameplates", "Buffs", "Other",
     "Hunter", "Mage", "Rogue", "Shaman", "Warlock" }) do
     local b = byText(name)
     assert(b, "sidebar entry missing: " .. name)
@@ -921,22 +916,6 @@ byText("Combat Display")._scripts.OnClick(byText("Combat Display"), "LeftButton"
 ns.ShowBarStack()
 assert(ns.cfg:IsShown() and S.bsPage:IsShown(), "/bs opens it on Bar Stack")
 ns.bs = nil
--- the training page fills itself in when it is the one on screen
-byText("Training")._scripts.OnClick(byText("Training"), "LeftButton")
-assert(ns.trainRows[1] and ns.trainRows[1]:IsShown(), "the trainer list has rows on it")
-assert(ns.trainRows[1].name._text:find("Level"), "and it starts with a level heading")
--- hovering a spell asks the game for its tooltip, and adds why it is on the list
-local trSpell
-for _, r in ipairs(ns.trainRows) do if r:IsShown() and r.spellID then trSpell = r break end end
-assert(trSpell, "a spell row is on the page")
-assert(trSpell.note and trSpell.note ~= "", "with a line saying where you stand: " .. trSpell.note)
-S.tooltip = nil
-trSpell._scripts.OnEnter(trSpell)
-assert(S.tooltip == trSpell.spellID, "the game is asked for that spell")
-trSpell._scripts.OnLeave(trSpell)
-local trHeader = ns.trainRows[1]
-trHeader._scripts.OnEnter(trHeader) -- a level heading has nothing to show
-assert(not ns.errored, "and a heading is simply passed over")
 for section, page in pairs(ns.pages) do
     assert((ns.boxesOn[page] or 0) > 0, "nothing on the " .. section .. " page")
 end
@@ -1917,110 +1896,6 @@ fire("UNIT_MAXPOWER")
 assert(not ns.frames.flight:IsShown(), "and leaves it again once you are down")
 prof().regular.bars.flight.show = false
 
--- Attunements: keys you carry, chains you have finished, standings you have reached
-assert(#ns.attune > 0, "the attunement list shipped with the addon")
-S.faction, S.questDone, S.items, S.standing = "Horde", {}, {}, {}
-for _, e in ipairs(ns.at.list()) do
-    if e.place then assert(e.done == 0, e.place .. " starts shut") end
-end
--- a quest you have finished, a key you carry, a standing you have reached
-S.steps = {}
-for _, row in ipairs(ns.attune) do
-    if row.place == "Molten Core" then S.steps.quest = row.steps[1] end
-    if row.place == "Scholomance" then S.steps.key = row.steps[1] end
-end
-assert(S.steps.quest[1] == "q" and S.steps.key[1] == "i", "one of each kind is in there")
-assert(not ns.at.done(S.steps.quest), "the core is shut")
-S.questDone[S.steps.quest[2]] = true
-assert(ns.at.done(S.steps.quest), "until that quest is behind you")
-assert(not ns.at.done(S.steps.key), "no key, no Scholomance")
-S.items[S.steps.key[2]] = 1
-assert(ns.at.done(S.steps.key), "carrying it is what counts")
-S.items[S.steps.key[2]] = 0
-assert(not ns.at.done(S.steps.key), "and losing it shuts the door again")
-assert(not ns.at.done({ "r", 529, "Argent Dawn" }), "neutral is not enough for Naxxramas")
-S.standing[529] = 6
-assert(ns.at.done({ "r", 529, "Argent Dawn" }), "honoured is")
--- the side you are on decides which chain you are shown
-S.sides = {}
-for _, row in ipairs(ns.attune) do S.sides[row.side] = true end
-assert(S.sides.alliance and S.sides.horde, "both sides have a chain of their own in there")
-S.faction = "Alliance"
-for _, row in ipairs(ns.attune) do
-    if row.side == "horde" then assert(not ns.at.forMe(row), "a Horde chain is not yours") end
-    if row.side == "alliance" then assert(ns.at.forMe(row), "an Alliance one is") end
-    if row.side == "both" then assert(ns.at.forMe(row), "and everyone gets the shared ones") end
-end
--- the page draws places with their steps under them, on its own sidebar entry
-byText("Attunement")._scripts.OnClick(byText("Attunement"), "LeftButton")
-assert(ns.pages.attune:IsShown(), "the attunement page opens")
-assert(ns.attunePanel.rows[1]:IsShown(), "the list is drawn")
-assert(ns.attunePanel.rows[1].right._text:find(" of "), "a place counts its steps")
-assert(ns.attunePanel.rows[2].right._text ~= "", "and a step says what kind it is")
-S.questDone, S.items, S.standing, S.faction = {}, {}, {}, "Horde"
-
--- Training: the trainer's list, cut down by level and by what is already learned
-login("PRIEST", 0)
-S.level, S.known = 20, {}
-local tset = prof().training
-tset.hideKnown, tset.fromMyLevel = false, false
-local all = ns.tr.list()
-assert(#all > 0, "a priest has a list")
-local headers, spells = 0, 0
-for _, e in ipairs(all) do
-    if e.spell then spells = spells + 1 else headers = headers + 1 end
-end
-assert(headers > 1 and spells > headers, "levels, each with spells under it")
-assert(all[1].level and all[1].level < all[#all].level, "lowest level first")
-tset.fromMyLevel = true
-local fromMe = ns.tr.list()
-local below = false
-for _, e in ipairs(fromMe) do if e.level < 20 then below = true end end
-assert(below, "a level walked past stays while there is anything there left to learn")
-for _, e in ipairs(fromMe) do
-    if e.spell and e.level == 1 then
-        assert(e.trainable, "and a spell down there is trainable right now, not 'not yet'")
-    end
-end
--- learn everything up to 10 and those levels drop off
-S.known = {}
-for L, spells in pairs(ns.training.PRIEST) do
-    if L <= 10 then for _, sp in ipairs(spells) do S.known[sp.id] = true end end
-end
-local done = ns.tr.list()
-for _, e in ipairs(done) do assert(e.level > 10, "a level you are finished with is gone") end
-assert(#done < #fromMe, "and that is a shorter list")
-S.known = {}
--- a rank whose predecessor is missing is listed, but not as something you can train
-S.level = 60
-local gated = false
-for _, e in ipairs(ns.tr.list()) do
-    if e.spell and e.spell.requiredIds and #e.spell.requiredIds > 0 then
-        assert(not e.trainable, "the rank below it is not known, so it is not trainable")
-        gated = true
-    end
-end
-assert(gated, "a priest has ranks that build on each other")
-S.level = 20
--- Power Word: Fortitude, learned at 1, drops out once it is known
-tset.fromMyLevel, tset.hideKnown = false, true
-local before = #ns.tr.list()
-S.known = { [1243] = true }
-local after = ns.tr.list()
-assert(#after < before, "a spell you know is not on the list")
-for _, e in ipairs(after) do assert(not (e.spell and e.spell.id == 1243), "that one, precisely") end
-S.known = {}
--- a mage's faction-only spells follow the faction
-login("MAGE", 8)
-S.faction = "Horde"
-local horde = {}
-for _, e in ipairs(ns.tr.list()) do if e.spell then horde[e.spell.id] = true end end
-S.faction = "Alliance"
-local ally = {}
-for _, e in ipairs(ns.tr.list()) do if e.spell then ally[e.spell.id] = true end end
-local differs = false
-for id in pairs(horde) do if not ally[id] then differs = true end end
-assert(differs, "the portals each side gets are not the same")
 S.faction = "Horde"
 
 -- Hunter: what is in the ammo slot, and the face the pet is pulling

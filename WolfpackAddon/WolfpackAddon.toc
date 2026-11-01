@@ -6,8 +6,7 @@
 ## SavedVariables: WolfpackAddonDB, BarStackDB
 ## AddonCompartmentFunc: WolfpackAddon_Toggle
 
-Data\Training.lua
-Data\Attune.lua
+UI.lua
 WolfpackAddon.lua
 BarStack\Core.lua
 BarStack\Stack.lua

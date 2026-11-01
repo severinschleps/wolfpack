@@ -240,7 +240,6 @@ DEFAULTS.rogue = ns.weaponDefaults(-260)
 DEFAULTS.shaman = ns.weaponDefaults(-260)
 
 -- Warlock: the soul shards in your bags.
-DEFAULTS.training = { hideKnown = true, fromMyLevel = true, showCost = true }
 
 DEFAULTS.warlock = {
     show = true, locked = true, x = 0, y = -220, size = 32, radius = 0,
@@ -301,7 +300,7 @@ end
 ------------------------------------------------------------------------------------------
 -- store = WolfpackAddonDB, account-wide: { profiles = { [name] = settings }, chars = { [char] = name } }
 -- db = the active profile's settings.
-local changed, placeMini, useProfile, bf, mg, hn, wl, we, tr, lt, mc, ft, at, seedFromBaked
+local changed, placeMini, useProfile, bf, mg, hn, wl, we, lt, mc, ft, seedFromBaked
 
 -- Bars that only show while they are doing something (cast, swing) stay visible while the bars
 -- are unlocked or the options are open, so they can be placed.
@@ -2802,185 +2801,6 @@ for _, e in ipairs({ "BAG_UPDATE", "BAG_UPDATE_DELAYED", "PLAYER_ENTERING_WORLD"
 end
 
 ------------------------------------------------------------------------------------------
--- Training: what the class trainer still has for you, level by level. The spell tables live
--- in Data/Training.lua and come from What's Training? (MIT); everything here reads them back.
-
-tr = {}
-ns.tr = tr
-
--- Does the game say you have this exact spell? Each call is asked in turn: one build answers
--- on one of them and not the others.
-function tr.hasSpell(id)
-    for _, ask in ipairs({
-        function() return C_SpellBook.IsSpellKnown(id) end,
-        function() return IsSpellKnown(id) end,
-        function() return IsPlayerSpell(id) end,
-    }) do
-        local ok, yes = pcall(ask)
-        if ok and yes == true then return true end
-    end
-    return false
-end
-
--- Which spell supersedes which. A rank lists the rank below it in requiredIds, so knowing
--- Rank 5 means Ranks 1 to 4 are behind you even where the game will not say so for each id.
-function tr.replaces()
-    if tr.laterRank then return tr.laterRank end
-    tr.laterRank = {}
-    for _, levels in pairs(ns.training or {}) do
-        for _, spells in pairs(levels) do
-            for _, sp in ipairs(spells) do
-                for _, older in ipairs(sp.requiredIds or {}) do
-                    tr.laterRank[older] = tr.laterRank[older] or {}
-                    table.insert(tr.laterRank[older], sp.id)
-                end
-            end
-        end
-    end
-    return tr.laterRank
-end
-
-function tr.known(id, seen)
-    if tr.hasSpell(id) then return true end
-    -- ...or anything that replaced it is
-    seen = seen or {}
-    if seen[id] then return false end
-    seen[id] = true
-    for _, newer in ipairs(tr.replaces()[id] or {}) do
-        if tr.known(newer, seen) then return true end
-    end
-    return false
-end
-
--- Name and icon, whichever way this build hands them over.
-function tr.spellInfo(id)
-    tr.cache = tr.cache or {}
-    local hit = tr.cache[id]
-    if hit then return hit[1], hit[2] end
-    local ok, name, icon = pcall(function()
-        local info = C_Spell and C_Spell.GetSpellInfo and C_Spell.GetSpellInfo(id)
-        if type(info) == "table" then return info.name, info.iconID end
-        if GetSpellInfo then return (GetSpellInfo(id)), select(3, GetSpellInfo(id)) end
-    end)
-    if not ok or type(name) ~= "string" then name, icon = "Spell " .. id, nil end
-    if type(icon) ~= "number" and type(icon) ~= "string" then
-        local ok2, tex = pcall(function() return C_Spell.GetSpellTexture(id) end)
-        icon = (ok2 and tex) or 134400
-    end
-    tr.cache[id] = { name, icon }
-    return name, icon
-end
-
-function tr.forMe(sp)
-    if sp.faction and sp.faction ~= UnitFactionGroup("player") then return false end
-    if sp.race and sp.race ~= select(3, UnitRace("player")) then return false end
-    return true
-end
-
--- A spell you have the level for is only really trainable once the rank below it is yours.
-function tr.trainable(sp)
-    for _, id in ipairs(sp.requiredIds or {}) do
-        if not tr.known(id) then return false end
-    end
-    return true
-end
-
--- One flat list to draw: a header for each level, then that level's spells.
---
--- A level you have passed is skipped only when there is nothing left to learn there. Walk
--- past a trainer for ten levels and those spells are exactly the ones you want to see.
-function tr.list()
-    local out, data = {}, ns.training and ns.training[class]
-    if not data or not db then return out end
-    local o, lvl = db.training, UnitLevel("player") or 1
-    local levels = {}
-    for L in pairs(data) do levels[#levels + 1] = L end
-    table.sort(levels)
-    for _, L in ipairs(levels) do
-        local spells, missed = {}, false
-        for _, sp in ipairs(data[L]) do
-            local known = tr.known(sp.id)
-            if not known and L <= lvl then missed = true end
-            if tr.forMe(sp) and not (o.hideKnown and known) then
-                spells[#spells + 1] = { spell = sp, level = L, reached = L <= lvl, known = known,
-                    trainable = L <= lvl and not known and tr.trainable(sp) }
-            end
-        end
-        if #spells > 0 and (missed or not (o.fromMyLevel and L < lvl)) then
-            out[#out + 1] = { level = L, reached = L <= lvl, missed = missed and L < lvl }
-            for _, row in ipairs(spells) do out[#out + 1] = row end
-        end
-    end
-    return out
-end
-
-------------------------------------------------------------------------------------------
--- Attunements: what stands between you and each locked door. The steps live in Data/Attune.lua,
--- every one of them checked against Wowhead before it shipped. Nothing here is taken from the
--- Attune addon, which is All Rights Reserved -- which quest opens a place is a fact, its code
--- is not.
-
-at = {}
-ns.at = at
-
--- Is one step behind you? A quest you have finished, an item you are carrying, or a standing
--- you have reached. Every call is wrapped: a value can be secret on this client, and raising is
--- what that looks like.
-function at.done(step)
-    local kind, id = step[1], step[2]
-    if kind == "q" then
-        local ok, yes = pcall(function()
-            if C_QuestLog and C_QuestLog.IsQuestFlaggedCompleted then
-                return C_QuestLog.IsQuestFlaggedCompleted(id)
-            end
-            return IsQuestFlaggedCompleted and IsQuestFlaggedCompleted(id)
-        end)
-        return ok and yes == true
-    elseif kind == "i" then
-        local ok, many = pcall(function()
-            if C_Item and C_Item.GetItemCount then return C_Item.GetItemCount(id, true) end
-            return GetItemCount and GetItemCount(id, true)
-        end)
-        return ok and type(many) == "number" and many > 0
-    elseif kind == "r" then
-        local ok, standing = pcall(function()
-            if C_Reputation and C_Reputation.GetFactionDataByID then
-                local data = C_Reputation.GetFactionDataByID(id)
-                return data and data.reaction
-            end
-            return select(3, GetFactionInfoByID(id))
-        end)
-        return ok and type(standing) == "number" and standing >= 6 -- honoured or better
-    end
-    return false
-end
-
-function at.forMe(row)
-    if row.side == "both" then return true end
-    local ok, mine = pcall(UnitFactionGroup, "player")
-    if not ok or type(mine) ~= "string" then return true end
-    return row.side == mine:lower()
-end
-
--- One flat list to draw: a place, then its steps, with where you stand on each.
-function at.list()
-    local out = {}
-    for _, row in ipairs(ns.attune or {}) do
-        if at.forMe(row) then
-            local done, steps = 0, {}
-            for _, step in ipairs(row.steps) do
-                local had = at.done(step)
-                if had then done = done + 1 end
-                steps[#steps + 1] = { step = step, done = had }
-            end
-            out[#out + 1] = { place = row.place, done = done, of = #row.steps }
-            for _, one in ipairs(steps) do out[#out + 1] = one end
-        end
-    end
-    return out
-end
-
-------------------------------------------------------------------------------------------
 -- Weapon enchants: a rogue's poisons, a shaman's imbues. One icon per hand, shown when that
 -- weapon has nothing on it, or when what it has is nearly gone. GetWeaponEnchantInfo is
 -- inventory, not auras, so it answers in a fight as well as out of one.
@@ -3146,15 +2966,15 @@ local function L() return db[mode] end
 local function cur() return L().bars[selected] end
 local function onRefresh(fn) refreshers[#refreshers + 1] = fn end
 
--- A titled 1 px box that stacks rows: row(h) gives the y for a widget that tall. The lowest
--- box on any page decides how tall the options window needs to be.
+-- A titled card that stacks rows: row(h) gives the y for a widget that tall. The lowest card on
+-- any page decides how tall the options window needs to be. Look: UI.lua.
 local pageBottom = 0
 local function group(parent, x, y, w, title)
     ns.boxesOn = ns.boxesOn or {}
     ns.boxesOn[parent] = (ns.boxesOn[parent] or 0) + 1
-    local g = { x = x + 8, cursor = y - 24, w = w }
-    g.title = parent:CreateFontString(nil, "OVERLAY", "GameFontNormal")
-    g.title:SetPoint("TOPLEFT", x + 6, y)
+    local g = { x = x + 12, cursor = y - 34, w = w }
+    g.title = parent:CreateFontString(nil, "OVERLAY", ns.ui.HEADING)
+    g.title:SetPoint("TOPLEFT", x + 12, y - 12)
     g.title:SetText(title)
     function g:row(h)
         local at = self.cursor
@@ -3162,70 +2982,49 @@ local function group(parent, x, y, w, title)
         return at
     end
     function g:close()
-        local top, bottom = y - 16, self.cursor - 8
+        local bottom = self.cursor - 8
         pageBottom = math.min(pageBottom, bottom)
-        for _, side in ipairs({ { x, top, w, 1 }, { x, bottom, w, 1 }, { x, top, 1, top - bottom },
-            { x + w - 1, top, 1, top - bottom } }) do
-            local t = parent:CreateTexture(nil, "BACKGROUND", nil, 2)
-            t:SetColorTexture(1, 1, 1, 0.18)
-            t:SetPoint("TOPLEFT", side[1], side[2])
-            t:SetSize(side[3], side[4])
-        end
+        ns.ui.card(parent, x, y, w, y - bottom)
         return self
     end
     return g
 end
 
 local function label(parent, text, font)
-    local fs = parent:CreateFontString(nil, "OVERLAY", font or "GameFontHighlight")
+    local fs = parent:CreateFontString(nil, "OVERLAY", ns.ui.font(font))
     fs:SetText(text)
     return fs
 end
 
-local function button(parent, text, w, x, y, onClick)
-    local b = CreateFrame("Button", nil, parent, "UIPanelButtonTemplate")
-    b:SetSize(w, 22)
+-- ghost: the sidebar's look, no fill until hovered or picked
+local function button(parent, text, w, x, y, onClick, ghost)
+    local b = ns.ui.Button(parent, text, w, ghost)
     b:SetPoint("TOPLEFT", x, y)
-    b:SetText(text)
     b:RegisterForClicks("LeftButtonUp", "RightButtonUp")
     b:SetScript("OnClick", onClick)
     return b
 end
 
 local function check(parent, text, x, y, get, set)
-    local cb = CreateFrame("CheckButton", nil, parent, "UICheckButtonTemplate")
-    cb:SetSize(24, 24)
-    cb:SetPoint("TOPLEFT", x, y)
-    label(cb, text):SetPoint("LEFT", cb, "RIGHT", 2, 1)
+    local cb = ns.ui.Check(parent, text)
+    cb:SetPoint("TOPLEFT", x, y - 4)
     cb:SetScript("OnClick", function(self) set(self:GetChecked()); changed() end)
     onRefresh(function() cb:SetChecked(get()) end)
     return cb
 end
-
-ns.SLIDER_BACKDROP = {
-    bgFile = "Interface\\Buttons\\UI-SliderBar-Background",
-    edgeFile = "Interface\\Buttons\\UI-SliderBar-Border",
-    tile = true, tileSize = 8, edgeSize = 8,
-    insets = { left = 3, right = 3, top = 6, bottom = 6 },
-}
 
 local function num(v) return type(v) == "function" and v() or v end
 
 -- min/max may be functions, for ranges that depend on the open tab.
 local function slider(parent, text, x, y, min, max, get, set, step)
     step = step or 1 -- whole numbers unless a caller wants finer
-    local s = CreateFrame("Slider", nil, parent, "BackdropTemplate")
-    s:SetSize(130, 16) -- 130 + 12 + 40 fits a box's inner width
-    s:SetPoint("TOPLEFT", x, y - 16)
-    s:SetBackdrop(ns.SLIDER_BACKDROP)
-    s:SetOrientation("HORIZONTAL")
-    s:SetThumbTexture("Interface\\Buttons\\UI-SliderBar-Button-Horizontal")
-    s:GetThumbTexture():SetSize(32, 32)
+    local s = ns.ui.Slider(parent, 124) -- 124 + 10 + 44 fits a card's inner width
+    s:SetPoint("TOPLEFT", x, y - 20)
     s:SetMinMaxValues(num(min), num(max))
     s:SetValueStep(step)
     s:SetObeyStepOnDrag(true)
     s:EnableMouseWheel(true) -- wheel = +/-1 for exact values
-    label(s, text, "GameFontNormalSmall"):SetPoint("BOTTOMLEFT", s, "TOPLEFT", 0, 2)
+    label(s, text, "GameFontNormalSmall"):SetPoint("BOTTOMLEFT", s, "TOPLEFT", 0, 4)
     local syncing
     s:SetScript("OnValueChanged", function(_, v)
         v = math.floor(v / step + 0.5) * step
@@ -3234,10 +3033,8 @@ local function slider(parent, text, x, y, min, max, get, set, step)
     s:SetScript("OnMouseWheel", function(_, d) s:SetValue(s:GetValue() + d * step) end)
 
     -- Typed value: Enter or clicking away applies it (clamped to the slider range), Escape cancels.
-    local box = CreateFrame("EditBox", nil, s, "InputBoxTemplate")
-    box:SetSize(40, 20)
-    box:SetPoint("LEFT", s, "RIGHT", 12, 0)
-    box:SetAutoFocus(false)
+    local box = ns.ui.Input(s, 44)
+    box:SetPoint("LEFT", s, "RIGHT", 10, 0)
     box:SetMaxLetters(5) -- not SetNumeric: X/Y need a minus sign; tonumber() rejects the rest
     local function apply()
         local v = tonumber(box:GetText())
@@ -3274,12 +3071,7 @@ local function swatch(parent, text, x, y, get, mode)
     ns.swatches[text] = b
     b:SetSize(20, 20)
     b:SetPoint("TOPLEFT", x + 2, y)
-    local border = b:CreateTexture(nil, "BACKGROUND")
-    border:SetAllPoints()
-    border:SetColorTexture(1, 1, 1)
-    local fillTex = b:CreateTexture(nil, "ARTWORK")
-    fillTex:SetPoint("TOPLEFT", 2, -2)
-    fillTex:SetPoint("BOTTOMRIGHT", -2, 2)
+    local fillTex = ns.ui.box(b, ns.ui.C.fg, ns.ui.C.ring, 5)
     b.label = label(b, text)
     b.label:SetPoint("LEFT", b, "RIGHT", 6, 0)
     local function shown()
@@ -3316,10 +3108,10 @@ end
 -- Dropdown over a { {name, value}, ... } list; preview(button, value) decorates each entry and
 -- returns its width.
 local function dropdown(parent, text, x, y, list, get, set, preview)
-    local dd = CreateFrame("DropdownButton", nil, parent, "WowStyle1DropdownTemplate")
-    dd:SetPoint("TOPLEFT", x, y - 14)
-    dd:SetWidth(178)
-    label(dd, text, "GameFontNormalSmall"):SetPoint("BOTTOMLEFT", dd, "TOPLEFT", 0, 2)
+    local dd = ns.ui.Dropdown(CreateFrame("DropdownButton", nil, parent, "WowStyle1DropdownTemplate"))
+    dd:SetPoint("TOPLEFT", x, y - 16)
+    dd:SetSize(178, 26)
+    label(dd, text, "GameFontNormalSmall"):SetPoint("BOTTOMLEFT", dd, "TOPLEFT", 0, 4)
     dd:SetupMenu(function(_, root)
         for _, item in ipairs(type(list) == "function" and list() or list) do
             local radio = root:CreateRadio(item[1], function() return get() == item[2] end,
@@ -3699,17 +3491,15 @@ function ns.textArea(parent, y, h) -- on the namespace: this chunk is at Lua's 2
     area:SetPoint("TOPLEFT", 14, y)
     area:SetPoint("TOPRIGHT", -14, y)
     area:SetHeight(h)
-    local bg = area:CreateTexture(nil, "BACKGROUND")
-    bg:SetAllPoints()
-    bg:SetColorTexture(0, 0, 0, 0.5)
-    local sf = CreateFrame("ScrollFrame", nil, area, "UIPanelScrollFrameTemplate")
-    sf:SetPoint("TOPLEFT", 4, -4)
-    sf:SetPoint("BOTTOMRIGHT", -26, 4)
+    ns.ui.box(area, ns.ui.C.input, ns.ui.C.border, 6)
+    local sf = ns.ui.Scroll(CreateFrame("ScrollFrame", nil, area, "UIPanelScrollFrameTemplate"))
+    sf:SetPoint("TOPLEFT", 8, -6)
+    sf:SetPoint("BOTTOMRIGHT", -24, 6)
     local box = CreateFrame("EditBox", nil, sf)
     box:SetMultiLine(true)
     box:SetAutoFocus(false)
     box:SetMaxLetters(0)
-    box:SetFontObject(ChatFontNormal)
+    box:SetFontObject(ns.ui.SMALL)
     box:SetWidth(470)
     box:SetScript("OnEscapePressed", function() box:ClearFocus() end)
     box:SetScript("OnEditFocusGained", function() box:HighlightText() end) -- click, Ctrl+C
@@ -3721,41 +3511,28 @@ end
 local function openIO(mode)
     local f = ns.ioFrame
     if not f then
-        f = CreateFrame("Frame", "WolfpackAddonIO", UIParent, "BasicFrameTemplateWithInset")
-        f:SetSize(540, 400)
-        f:SetPoint("CENTER")
+        f = ns.ui.Window("WolfpackAddonIO", 540, 410, "")
         f:SetFrameStrata("FULLSCREEN_DIALOG")
-        f:SetMovable(true)
-        f:EnableMouse(true)
-        f:RegisterForDrag("LeftButton")
-        f:SetScript("OnDragStart", f.StartMoving)
-        f:SetScript("OnDragStop", f.StopMovingOrSizing)
-        tinsert(UISpecialFrames, f:GetName())
-        f.title = label(f, "")
-        f.title:SetPoint("TOP", 0, -5)
-        f.label1 = label(f, "", "GameFontNormal")
-        f.label1:SetPoint("TOPLEFT", 16, -32)
-        f.all = CreateFrame("CheckButton", nil, f, "UICheckButtonTemplate")
-        f.all:SetSize(24, 24)
-        f.all:SetPoint("TOPLEFT", 300, -26)
-        label(f.all, "All profiles in one string"):SetPoint("LEFT", f.all, "RIGHT", 2, 1)
+        f.title = f.TitleText
+        f.label1 = label(f, "", "GameFontNormalSmall")
+        f.label1:SetPoint("TOPLEFT", 16, -50)
+        f.all = ns.ui.Check(f, "All profiles in one string")
+        f.all:SetPoint("TOPLEFT", 340, -48)
         f.all:SetScript("OnClick", function(self)
             f.area1.box:SetText(exportString(self:GetChecked()))
             f.area1.box:SetFocus()
         end)
-        f.area1 = ns.textArea(f, -50, 110)
+        f.area1 = ns.textArea(f, -68, 104)
         f.label2 = label(f, "2. WoW UI layout (Edit Mode). Import it in Edit Mode: Layout dropdown, Import.",
-            "GameFontNormal")
-        f.label2:SetPoint("TOPLEFT", 16, -172)
-        f.area2 = ns.textArea(f, -190, 110)
-        f.note = label(f, "", "GameFontHighlightSmall")
-        f.note:SetPoint("TOPLEFT", 16, -312)
+            "GameFontNormalSmall")
+        f.label2:SetPoint("TOPLEFT", 16, -184)
+        f.area2 = ns.textArea(f, -202, 104)
+        f.note = label(f, "", "GameFontDisableSmall")
+        f.note:SetPoint("TOPLEFT", 16, -318)
         f.note:SetWidth(505)
         f.note:SetJustifyH("LEFT")
-        f.import = CreateFrame("Button", nil, f, "UIPanelButtonTemplate")
-        f.import:SetSize(100, 22)
+        f.import = ns.ui.Button(f, "Import", 100)
         f.import:SetPoint("BOTTOMRIGHT", -16, 14)
-        f.import:SetText("Import")
         f.import:SetScript("OnClick", function()
             local name, extra, count = importString(f.area1.box:GetText())
             if not name then
@@ -3804,30 +3581,19 @@ local stopsFrame
 function openStops()
     local f = stopsFrame
     if not f then
-        f = CreateFrame("Frame", "WolfpackAddonStops", UIParent, "BasicFrameTemplateWithInset")
-        f:SetSize(330, 330)
-        f:SetPoint("CENTER")
+        f = ns.ui.Window("WolfpackAddonStops", 340, 350, "Gradient points")
         f:SetFrameStrata("FULLSCREEN_DIALOG")
-        f:SetMovable(true)
-        f:EnableMouse(true)
-        f:RegisterForDrag("LeftButton")
-        f:SetScript("OnDragStart", f.StartMoving)
-        f:SetScript("OnDragStop", f.StopMovingOrSizing)
-        tinsert(UISpecialFrames, f:GetName())
-        f.title = label(f, "Gradient points")
-        f.title:SetPoint("TOP", 0, -5)
+        f.title = f.TitleText
         label(f, "Percent across the bar, and the color there.", "GameFontDisableSmall")
-            :SetPoint("TOPLEFT", 16, -30)
+            :SetPoint("TOPLEFT", 16, -50)
         f.rows = {}
         for i = 1, MAX_STOPS do
-            local y = -50 - (i - 1) * 26
+            local y = -70 - (i - 1) * 28
             local row = CreateFrame("Frame", nil, f)
             row:SetPoint("TOPLEFT", 16, y)
             row:SetSize(300, 24)
-            local box = CreateFrame("EditBox", nil, row, "InputBoxTemplate")
-            box:SetSize(40, 20)
-            box:SetPoint("TOPLEFT", 6, 0)
-            box:SetAutoFocus(false)
+            local box = ns.ui.Input(row, 44)
+            box:SetPoint("TOPLEFT", 0, 0)
             box:SetMaxLetters(3)
             local function applyPos()
                 local v = tonumber(box:GetText())
@@ -3849,7 +3615,7 @@ function openStops()
             row.box, row.del = box, del
             f.rows[i] = row
         end
-        f.add = button(f, "Add point", 100, 16, -50 - MAX_STOPS * 26, function()
+        f.add = button(f, "Add point", 100, 16, -74 - MAX_STOPS * 28, function()
             local stops = cur().stops
             local last = stops[#stops]
             tinsert(stops, { pos = last and last.pos or 100, color = { 1, 1, 1, 1 } })
@@ -3875,37 +3641,28 @@ function openStops()
 end
 
 local function buildConfig()
-    cfg = CreateFrame("Frame", "WolfpackAddonConfig", UIParent, "BasicFrameTemplateWithInset")
-    cfg:SetSize(990, 700)
-    cfg:SetPoint("CENTER")
-    cfg:SetFrameStrata("DIALOG")
-    cfg:SetMovable(true)
-    cfg:EnableMouse(true)
-    cfg:RegisterForDrag("LeftButton")
-    cfg:SetScript("OnDragStart", cfg.StartMoving)
-    cfg:SetScript("OnDragStop", cfg.StopMovingOrSizing)
-    tinsert(UISpecialFrames, cfg:GetName()) -- Escape closes it
+    cfg = ns.ui.Window("WolfpackAddonConfig", 998, 700, "Wolfpack", 52)
+    cfg.TitleText:SetFontObject(ns.ui.TITLE)
     cfg:HookScript("OnShow", function() ns.configOpen = true; changed() end)
     cfg:HookScript("OnHide", function() ns.configOpen = false; changed() end)
-    label(cfg, "Wolfpack Addon"):SetPoint("TOP", 0, -5)
 
-    -- Top row: profile (account-wide, holds every page)
-    label(cfg, "Profile", "GameFontNormal"):SetPoint("TOPLEFT", 16, -38)
-    local dd = CreateFrame("DropdownButton", nil, cfg, "WowStyle1DropdownTemplate")
-    dd:SetPoint("TOPLEFT", 66, -32)
-    dd:SetWidth(170)
+    -- Header: the profile (account-wide, holds every page) and what you can do with it
+    label(cfg, "Profile", "GameFontNormalSmall"):SetPoint("LEFT", cfg, "TOPLEFT", 150, -26)
+    local dd = ns.ui.Dropdown(CreateFrame("DropdownButton", nil, cfg, "WowStyle1DropdownTemplate"))
+    dd:SetPoint("LEFT", cfg, "TOPLEFT", 196, -26)
+    dd:SetSize(170, 26)
     dd:SetupMenu(function(_, root)
         for _, name in ipairs(profileNames()) do
             root:CreateRadio(name, function() return name == store.chars[charKey] end, function() useProfile(name) end)
         end
     end)
     onRefresh(function() dd:GenerateMenu() end)
-    label(cfg, "New (copy):", "GameFontNormalSmall"):SetPoint("TOPLEFT", 252, -39)
-    local nameBox = CreateFrame("EditBox", nil, cfg, "InputBoxTemplate")
-    nameBox:SetSize(100, 20)
-    nameBox:SetPoint("TOPLEFT", 326, -34)
-    nameBox:SetAutoFocus(false)
+    local nameBox = ns.ui.Input(cfg, 120)
+    nameBox:SetPoint("LEFT", cfg, "TOPLEFT", 382, -26)
     nameBox:SetMaxLetters(32)
+    local hint = label(nameBox, "New profile name", "GameFontDisableSmall")
+    hint:SetPoint("LEFT", 8, 0)
+    nameBox:HookScript("OnTextChanged", function(self) hint:SetShown(self:GetText() == "") end)
     local function create()
         createProfile(nameBox:GetText())
         nameBox:SetText("")
@@ -3913,80 +3670,61 @@ local function buildConfig()
     end
     nameBox:SetScript("OnEnterPressed", create)
     nameBox:SetScript("OnEscapePressed", function() nameBox:ClearFocus() end)
-    button(cfg, "Create", 56, 432, -33, create)
-    button(cfg, "Delete", 64, 500, -33, function()
+    button(cfg, "Copy", 56, 508, -14, create)
+    button(cfg, "Delete", 64, 570, -14, function()
         local name = store.chars[charKey]
         StaticPopup_Show("WOLFPACKADDON_DELETE", name, nil, name)
     end)
-    button(cfg, "Reset profile", 92, 570, -33, function()
+    button(cfg, "Reset", 60, 640, -14, function()
         wipe(db)
         merge(db, ns.freshProfile(store.chars[charKey]))
         place()
         changed()
     end)
-    button(cfg, "Export", 64, 668, -33, function() openIO("export") end)
-    button(cfg, "Import", 64, 738, -33, function() openIO("import") end)
+    button(cfg, "Export", 64, 790, -14, function() openIO("export") end)
+    button(cfg, "Import", 64, 860, -14, function() openIO("import") end)
 
-    -- Sidebar: three shelves, each with its heading -- what dresses the screen, what you do
-    -- out in the world, and your classes.
-    local y = -104
+    -- Sidebar: what dresses the screen, then your classes
+    local y = -64
     local function shelf(title)
-        y = y - 14
-        local line = cfg:CreateTexture(nil, "ARTWORK")
-        line:SetColorTexture(1, 1, 1, 0.15)
-        line:SetPoint("TOPLEFT", 12, y + 8)
-        line:SetSize(118, 1)
-        label(cfg, title, "GameFontDisableSmall"):SetPoint("TOPLEFT", 14, y)
-        y = y - 16
+        label(cfg, title:upper(), "GameFontDisableSmall"):SetPoint("TOPLEFT", 22, y)
+        y = y - 18
     end
-
-    shelf("UI")
-    for _, e in ipairs({ { "combat", "Combat Display", "regular" },
-        { "nameplates", "Nameplates", "nameplate" }, { "buffs", "Buffs", "regular" },
-        { "other", "Other", "regular" }, { "barstack", "Bar Stack", "regular" } }) do
-        local b = button(cfg, e[2], 118, 12, y, function()
-            section, mode = e[1], e[3]
+    local function entry(key, text, m)
+        local b = button(cfg, text, 122, 12, y, function()
+            section, mode = key, m or "regular"
             changed()
-        end)
-        onRefresh(function() if section == e[1] then b:LockHighlight() else b:UnlockHighlight() end end)
-        y = y - 24
+        end, true)
+        onRefresh(function() if section == key then b:LockHighlight() else b:UnlockHighlight() end end)
+        y = y - 28
+        return b
     end
 
-    shelf("Adventure")
-    for _, e in ipairs({ { "attune", "Attunement" }, { "training", "Training" } }) do
-        local b = button(cfg, e[2], 118, 12, y, function()
-            section, mode = e[1], "regular"
-            changed()
-        end)
-        onRefresh(function() if section == e[1] then b:LockHighlight() else b:UnlockHighlight() end end)
-        y = y - 24
+    shelf("Interface")
+    for _, e in ipairs({ { "combat", "Combat Display" }, { "nameplates", "Nameplates", "nameplate" },
+        { "buffs", "Buffs" }, { "other", "Other" }, { "barstack", "Bar Stack" } }) do
+        entry(e[1], e[2], e[3])
     end
-
+    y = y - 12
     shelf("Classes")
     for _, e in ipairs(ns.CLASS_SECTIONS) do
-        local b = button(cfg, e[2], 118, 12, y, function()
-            section, mode = e[1], "regular"
-            changed()
-        end)
-        onRefresh(function()
-            if section == e[1] then b:LockHighlight() else b:UnlockHighlight() end
-            local on = e[3] == class -- your own class reads brighter than the rest
-            b:GetFontString():SetTextColor(on and 1 or 0.65, on and 0.82 or 0.65, on and 0 or 0.65)
-        end)
-        y = y - 24
+        local b = entry(e[1], e[2])
+        if e[3] == class then -- your own class carries a quiet "you"
+            label(b, "you", "GameFontDisableSmall"):SetPoint("RIGHT", -10, 0)
+        end
     end
 
     ns.sidebarBottom = y
     local divider = cfg:CreateTexture(nil, "ARTWORK")
-    divider:SetColorTexture(1, 1, 1, 0.15)
-    divider:SetPoint("TOPLEFT", 138, -64)
-    divider:SetPoint("BOTTOMLEFT", 138, 10)
+    ns.ui.paint(divider, ns.ui.C.border)
+    divider:SetPoint("TOPLEFT", 142, -53)
+    divider:SetPoint("BOTTOMLEFT", 142, 1)
     divider:SetWidth(1)
 
     -- Pages to the right of the sidebar. The bars page edits the layout picked by `mode`.
     local barsPage = CreateFrame("Frame", nil, cfg)
     barsPage:SetPoint("TOPLEFT", 134, 0)
-    barsPage:SetSize(846, 700) -- height is set once every page is built
+    barsPage:SetSize(864, 700) -- height is set once every page is built
     local questPage = CreateFrame("Frame", nil, cfg)
     questPage:SetAllPoints(barsPage)
     local otherPage = CreateFrame("Frame", nil, cfg)
@@ -4003,23 +3741,19 @@ local function buildConfig()
     roguePage:SetAllPoints(barsPage)
     local shamanPage = CreateFrame("Frame", nil, cfg)
     shamanPage:SetAllPoints(barsPage)
-    local trainPage = CreateFrame("Frame", nil, cfg)
-    trainPage:SetAllPoints(barsPage)
-    local attunePage = CreateFrame("Frame", nil, cfg)
-    attunePage:SetAllPoints(barsPage)
-    -- Bar Stack builds its own editor (BarStack/Config.lua) into this page, 520 tall under the title
+    -- Bar Stack builds its own editor (BarStack/Config.lua) into this page, under the title
     local bsPage = CreateFrame("Frame", nil, cfg)
     bsPage:SetAllPoints(barsPage)
-    pageBottom = math.min(pageBottom, -600)
+    pageBottom = math.min(pageBottom, -100 - ns.ui.BS_H)
     ns.pages = { combat = barsPage, nameplates = questPage, buffs = buffPage, mage = magePage,
         hunter = hunterPage, warlock = lockPage, rogue = roguePage, shaman = shamanPage,
-        training = trainPage, attune = attunePage, other = otherPage }
+        other = otherPage }
 
     local title = label(cfg, "Combat Display", "GameFontNormalLarge")
     title:SetPoint("TOPLEFT", 150, -72)
     local tabs = {}
     for i, t in ipairs({ { "bars", "Bars" }, { "quest", "Quest mobs" } }) do
-        tabs[i] = button(cfg, t[2], 110, 150 + (i - 1) * 116, -68, function() sub = t[1]; changed() end)
+        tabs[i] = button(cfg, t[2], 110, 150 + (i - 1) * 114, -66, function() sub = t[1]; changed() end)
         onRefresh(function() if sub == t[1] then tabs[i]:LockHighlight() else tabs[i]:UnlockHighlight() end end)
     end
     onRefresh(function()
@@ -4033,8 +3767,6 @@ local function buildConfig()
             or section == "warlock" and "Warlock: soul shards"
             or section == "rogue" and "Rogue: weapon poisons"
             or section == "shaman" and "Shaman: weapon imbues"
-            or section == "training" and "What your trainer still has"
-            or section == "attune" and "Attunement: the locked doors"
             or section == "barstack" and "Bar Stack"
             or "Combat Display")
         for _, t in ipairs(tabs) do t:SetShown(np) end
@@ -4047,30 +3779,31 @@ local function buildConfig()
         lockPage:SetShown(section == "warlock")
         roguePage:SetShown(section == "rogue")
         shamanPage:SetShown(section == "shaman")
-        trainPage:SetShown(section == "training")
-        attunePage:SetShown(section == "attune")
         bsPage:SetShown(section == "barstack")
         if section == "barstack" and ns.bs then safe(ns.bs.ShowConfig, bsPage) end
     end)
 
     local tabNote = label(barsPage, "", "GameFontDisableSmall")
-    tabNote:SetPoint("TOPLEFT", 252, -74)
     onRefresh(function()
+        tabNote:ClearAllPoints()
+        if section == "nameplates" then tabNote:SetPoint("LEFT", tabs[2], "RIGHT", 14, 0)
+        else tabNote:SetPoint("LEFT", title, "RIGHT", 14, -1) end
         tabNote:SetText(mode == "regular" and "Health, power and combo bars on your screen."
             or "Bars under your target's nameplate. Needs enemy nameplates on (V key).")
     end)
 
     -- Four columns of boxes; a box's rows are stacked by g:row(height).
-    local COL, TOP = { 8, 218, 428, 638 }, -100
-    local ROW, SLIDER, DROP, SWATCH, BUTTON = 24, 44, 48, 26, 26
+    local COL, TOP = { 16, 226, 436, 646 }, -100
+    local ROW, SLIDER, DROP, SWATCH, BUTTON = 24, 46, 50, 26, 28
 
     -- Bars page, column 1: which bars, and where the group sits
     local bars = group(barsPage, COL[1], TOP, 202, "Bars, top to bottom")
     for i = 1, #db.regular.order do
         local y = bars:row(ROW)
-        local sel = button(barsPage, "", 96, bars.x, y, function() selected = L().order[i]; changed() end)
-        button(barsPage, "Up", 34, bars.x + 100, y, function() move(i, -1) end)
-        button(barsPage, "Down", 44, bars.x + 136, y, function() move(i, 1) end)
+        local sel = button(barsPage, "", 100, bars.x, y, function() selected = L().order[i]; changed() end, true)
+        button(barsPage, "Up", 34, bars.x + 104, y, function() move(i, -1) end):SetHeight(22)
+        button(barsPage, "Down", 40, bars.x + 140, y, function() move(i, 1) end):SetHeight(22)
+        sel:SetHeight(22)
         onRefresh(function()
             local key = L().order[i]
             sel:SetText(BARS[key].label)
@@ -4755,204 +4488,6 @@ local function buildConfig()
     end
 
     ----------------------------------------------------------------------------------
-    -- Training page: every spell your trainer has for you, level by level. Read only --
-    -- the list is the point, the three boxes only decide how much of it you see.
-    ----------------------------------------------------------------------------------
-    local T = function() return db.training end
-    local tset = group(trainPage, COL[1], TOP, 202, "What to list")
-    check(trainPage, "Hide what you already know", tset.x, tset:row(ROW),
-        function() return T().hideKnown end, function(v) T().hideKnown = v end)
-    check(trainPage, "Hide levels you are done with", tset.x, tset:row(ROW),
-        function() return T().fromMyLevel end, function(v) T().fromMyLevel = v end)
-    check(trainPage, "Show what it costs", tset.x, tset:row(ROW),
-        function() return T().showCost end, function(v) T().showCost = v end)
-    local tsetNote = label(trainPage, "Green is trainable right now, white needs the rank below "
-        .. "it first, grey is still ahead of you. A level you walked past keeps its place in "
-        .. "the list while anything there is unlearned. Spell list from What's Training? (MIT "
-        .. "licence); pet abilities are not in it.", "GameFontDisableSmall")
-    tsetNote:SetPoint("TOPLEFT", tset.x, tset:row(84))
-    tsetNote:SetWidth(182)
-    tsetNote:SetJustifyH("LEFT")
-    tset:close()
-
-    local trList = CreateFrame("Frame", nil, trainPage)
-    trList:SetPoint("TOPLEFT", COL[2], TOP - 4)
-    trList:SetSize(600, 560)
-    local trBg = trList:CreateTexture(nil, "BACKGROUND")
-    trBg:SetAllPoints()
-    trBg:SetColorTexture(0, 0, 0, 0.35)
-    local trScroll = CreateFrame("ScrollFrame", nil, trList, "UIPanelScrollFrameTemplate")
-    trScroll:SetPoint("TOPLEFT", 6, -6)
-    trScroll:SetPoint("BOTTOMRIGHT", -28, 6)
-    local trChild = CreateFrame("Frame", nil, trScroll)
-    trChild:SetSize(560, 10)
-    trScroll:SetScrollChild(trChild)
-    local trRows = {}
-    local function trRow(i)
-        local r = trRows[i]
-        if not r then
-            r = CreateFrame("Frame", nil, trChild)
-            r:SetSize(556, 20)
-            r.icon = r:CreateTexture(nil, "ARTWORK")
-            r.icon:SetSize(16, 16)
-            r.icon:SetPoint("LEFT", 4, 0)
-            r.icon:SetTexCoord(0.08, 0.92, 0.08, 0.92)
-            r.name = r:CreateFontString(nil, "OVERLAY", "GameFontNormal")
-            r.name:SetPoint("LEFT", r.icon, "RIGHT", 6, 0)
-            r.name:SetJustifyH("LEFT")
-            r.right = r:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
-            r.right:SetPoint("RIGHT", -8, 0)
-            r.right:SetJustifyH("RIGHT")
-            r:EnableMouse(true)
-            r:SetScript("OnEnter", function(self)
-                if not self.spellID then return end
-                GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
-                local ok = pcall(GameTooltip.SetSpellByID, GameTooltip, self.spellID)
-                if not ok then
-                    GameTooltip:SetText(self.name:GetText() or "")
-                    GameTooltip:AddLine("Spell " .. self.spellID, 0.6, 0.6, 0.6)
-                end
-                if self.note then GameTooltip:AddLine(self.note, 0.2, 1, 0.2, true) end
-                GameTooltip:Show()
-            end)
-            r:SetScript("OnLeave", function() GameTooltip:Hide() end)
-            trRows[i] = r
-        end
-        return r
-    end
-    local trEmpty = trChild:CreateFontString(nil, "OVERLAY", "GameFontDisable")
-    trEmpty:SetPoint("TOPLEFT", 8, -8)
-    ns.trainRows = trRows
-    onRefresh(function()
-        if section ~= "training" then return end
-        local list = tr.list()
-        trEmpty:SetShown(#list == 0)
-        trEmpty:SetText(ns.training and ns.training[class]
-            and "Nothing left -- your trainer has taught you everything on this list."
-            or "No spell list for this class.")
-        for i, e in ipairs(list) do
-            local r = trRow(i)
-            r:SetPoint("TOPLEFT", 0, -(i - 1) * 20)
-            r.spellID, r.note = nil, nil
-            if e.spell then
-                r.spellID = e.spell.id
-                r.note = e.known and "You know this one."
-                    or e.trainable and ("Your trainer has it now, for " .. ns.money(e.spell.cost))
-                    or e.reached and "You need the rank below this one first."
-                    or ("Comes at level " .. e.level .. ".")
-                local name, icon = tr.spellInfo(e.spell.id)
-                r.icon:SetTexture(icon)
-                r.icon:SetShown(true)
-                r.name:SetText(name)
-                if e.known then
-                    r.name:SetTextColor(0.5, 0.5, 0.5)
-                    r.right:SetText("known")
-                    r.right:SetTextColor(0.5, 0.5, 0.5)
-                elseif e.trainable then
-                    r.name:SetTextColor(0.2, 1, 0.2)
-                    r.right:SetText(T().showCost and ns.money(e.spell.cost) or "train it")
-                    r.right:SetTextColor(0.2, 1, 0.2)
-                elseif e.reached then -- level is there, the rank below it is not
-                    r.name:SetTextColor(1, 1, 1)
-                    r.right:SetText(T().showCost and ns.money(e.spell.cost) or "needs the rank below")
-                    r.right:SetTextColor(0.8, 0.8, 0.8)
-                else
-                    r.name:SetTextColor(0.65, 0.65, 0.65)
-                    r.right:SetText(T().showCost and ns.money(e.spell.cost) or "")
-                    r.right:SetTextColor(0.45, 0.45, 0.45)
-                end
-            else -- a level header
-                r.icon:SetShown(false)
-                r.name:SetText("Level " .. e.level)
-                r.name:SetTextColor(e.reached and 1 or 0.7, e.reached and 0.82 or 0.6, 0)
-                r.right:SetText(e.missed and "still to learn" or e.reached and "" or "not yet")
-                r.right:SetTextColor(0.45, 0.45, 0.45)
-            end
-            r:Show()
-        end
-        for i = #list + 1, #trRows do trRows[i]:Hide() end
-        trChild:SetHeight(math.max(#list * 20, 10))
-    end)
-
-    ----------------------------------------------------------------------------------
-    -- Attunement page: every locked door, and how far along you are
-    ----------------------------------------------------------------------------------
-    local A = { rows = {} }
-    ns.attunePanel = A
-    local aset = group(attunePage, COL[1], TOP, 202, "What this is")
-    local asetNote = label(attunePage, "Every door that wants a key or a finished quest chain, "
-        .. "and where you stand on each. Green is behind you.\n\nThe steps were checked against "
-        .. "Wowhead's own Forever pages one at a time; anything that did not come back the same "
-        .. "was left out rather than shown wrong.", "GameFontDisableSmall")
-    asetNote:SetPoint("TOPLEFT", aset.x, aset:row(120))
-    asetNote:SetWidth(182)
-    asetNote:SetJustifyH("LEFT")
-    aset:close()
-
-    A.frame = CreateFrame("Frame", nil, attunePage)
-    A.frame:SetPoint("TOPLEFT", COL[2], TOP - 4)
-    A.frame:SetSize(620, 560)
-    local abg = A.frame:CreateTexture(nil, "BACKGROUND")
-    abg:SetAllPoints()
-    abg:SetColorTexture(0, 0, 0, 0.35)
-    A.scroll = CreateFrame("ScrollFrame", nil, A.frame, "UIPanelScrollFrameTemplate")
-    A.scroll:SetPoint("TOPLEFT", 6, -6)
-    A.scroll:SetPoint("BOTTOMRIGHT", -28, 6)
-    A.child = CreateFrame("Frame", nil, A.scroll)
-    A.child:SetSize(580, 10)
-    A.scroll:SetScrollChild(A.child)
-    A.empty = label(A.child, "No attunement list shipped with this copy.", "GameFontDisable")
-    A.empty:SetPoint("TOPLEFT", 8, -8)
-
-    function A.row(i)
-        local r = A.rows[i]
-        if not r then
-            r = CreateFrame("Frame", nil, A.child)
-            r:SetSize(576, 18)
-            r.mark = r:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
-            r.mark:SetPoint("LEFT", 8, 0)
-            r.mark:SetWidth(18)
-            r.name = r:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
-            r.name:SetPoint("LEFT", r.mark, "RIGHT", 4, 0)
-            r.name:SetJustifyH("LEFT")
-            r.right = r:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
-            r.right:SetPoint("RIGHT", -8, 0)
-            A.rows[i] = r
-        end
-        return r
-    end
-
-    onRefresh(function()
-        if section ~= "attune" then return end
-        local list = at.list()
-        A.empty:SetShown(#list == 0)
-        for i, e in ipairs(list) do
-            local r = A.row(i)
-            r:SetPoint("TOPLEFT", 0, -(i - 1) * 18)
-            if e.place then
-                r.mark:SetText("")
-                r.name:SetText(e.place)
-                r.name:SetTextColor(0.6, 0.85, 1)
-                r.right:SetText(("%d of %d"):format(e.done, e.of))
-                r.right:SetTextColor(e.done == e.of and 0.2 or 0.6, e.done == e.of and 1 or 0.6,
-                    e.done == e.of and 0.2 or 0.6)
-            else
-                local kind = e.step[1]
-                r.mark:SetText(e.done and "|cff33ff33*|r" or "|cff888888-|r")
-                r.name:SetText("   " .. e.step[3])
-                r.name:SetTextColor(e.done and 0.3 or 0.8, e.done and 1 or 0.8,
-                    e.done and 0.3 or 0.8)
-                r.right:SetText(kind == "q" and "quest" or kind == "i" and "carry it"
-                    or "honoured")
-                r.right:SetTextColor(0.5, 0.5, 0.5)
-            end
-            r:Show()
-        end
-        for i = #list + 1, #A.rows do A.rows[i]:Hide() end
-        A.child:SetHeight(math.max(#list * 18, 10))
-    end)
-
-    ----------------------------------------------------------------------------------
     -- Buffs page: the out-of-combat check of who is missing what
     ----------------------------------------------------------------------------------
     local B = function() return db.buffs end
@@ -5294,27 +4829,6 @@ function ns.HealReport()
     say("the bar is switched on: " .. tostring(db and db.regular.bars.health.heal))
 end
 
--- /wp train -- what the game says about the spells your trainer list is showing.
-function ns.TrainReport()
-    local function say(t) print("|cff88ccffWolfpack:|r " .. t) end
-    say("IsSpellKnown " .. type(IsSpellKnown) .. ", IsPlayerSpell " .. type(IsPlayerSpell)
-        .. ", C_SpellBook.IsSpellKnown "
-        .. type(C_SpellBook and C_SpellBook.IsSpellKnown))
-    local data, shown = ns.training and ns.training[class], 0
-    if not data then return say("no spell list for " .. tostring(class)) end
-    for _, level in ipairs({ 1, 2, 4, 6, 8, 10 }) do
-        for _, sp in ipairs(data[level] or {}) do
-            if shown < 8 then
-                shown = shown + 1
-                local direct, counts = tr.hasSpell(sp.id), tr.known(sp.id)
-                say(("%-26s id %-7d itself %-5s with its later ranks %s"):format(
-                    (tr.spellInfo(sp.id)), sp.id, tostring(direct), tostring(counts)))
-            end
-        end
-    end
-end
-
--- /wp cast -- what the game will say about your target's casting, and whether the bar is on.
 function ns.CastReport()
     local function say(t) print("|cff88ccffWolfpack:|r " .. t) end
     local c = db and db.regular.bars.targetcast
@@ -5344,7 +4858,6 @@ SlashCmdList.WOLFPACKADDON = function(msg)
     if msg:find("pet") then return safe(ns.PetReport) end
     if msg:find("flight") then return safe(ns.FlightReport) end
     if msg:find("heal") then return safe(ns.HealReport) end
-    if msg:find("train") then return safe(ns.TrainReport) end
     if msg:find("cast") then return safe(ns.CastReport) end
     safe(ns.ToggleConfig)
 end

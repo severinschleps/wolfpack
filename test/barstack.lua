@@ -144,6 +144,7 @@ local function mock()
   return setmetatable({}, {
     __index = function(t, k)
       if k == "SetupMenu" then return function(self, fn) menus[#menus + 1] = fn end end
+      if k == "SetScript" then return function(self, n, fn) rawset(self, "_on" .. n, fn) end end
       if k == "GetFrameLevel" or k == "GetScale" or k == "GetWidth" or k == "GetHeight" then return function() return 1 end end
       if k == "GetCenter" then return function() return 0, 0 end end
       if k == "SetAlpha" then return function(self, a) rawset(self, "_alpha", a) end end
@@ -168,10 +169,26 @@ local function mock()
   })
 end
 CreateFrame = function() return mock() end
+CreateFont = function() return mock() end
 UISpecialFrames, tinsert = {}, table.insert
+assert(loadfile("WolfpackAddon/UI.lua"))("WolfpackAddon", ns)
 assert(loadfile("WolfpackAddon/BarStack/Config.lua"))("WolfpackAddon", ns)
 BS.NewBar(BS.profile.groups[1]).name = "Avatar bar"
 BS.ShowConfig(mock())
+assert(BS.preview == true, "the page opens with every bar shown")
+-- the sliders move what they say: the picked bar inside its stack, and the stack on screen
+local saves, realSave = 0, BS.Save
+BS.Save = function() saves = saves + 1 end
+local offX, posY = BS.cfg.barSliders[3], BS.cfg.groupSliders[4]
+offX._onOnValueChanged(offX, 37.4)
+assert(BS.profile.groups[1].bars[1].offset.x == 37, "Offset X moves the bar, in whole pixels")
+posY._onOnValueChanged(posY, -220)
+assert(BS.profile.groups[1].stack.y == -220, "Position Y moves the whole stack")
+assert(saves == 0, "dragging saves nothing yet")
+offX._onOnMouseUp(offX)
+assert(saves == 1, "letting go saves")
+BS.Save = realSave
+BS.preview = nil -- what follows is about play, with the page closed
 local function radios(fn)
   local out = {}
   fn(nil, { CreateRadio = function(_, text, isSel, set) out[#out + 1] = { text = text, isSel = isSel, set = set } end })
