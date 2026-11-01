@@ -195,8 +195,8 @@ local function showPicker()
     p = window(nil, 260, 420, "Add spell")
     p:SetParent(f)
     p:SetPoint("TOPLEFT", f, "TOPRIGHT", 4, 0)
-    local hint = text(p, "Lists spells in Blizzard's Cooldown Manager.\nMissing one? Add it there first.", 14, -32, "GameFontHighlightSmall")
-    hint:SetJustifyH("LEFT")
+    p.hint = text(p, "", 14, -32, "GameFontHighlightSmall")
+    p.hint:SetJustifyH("LEFT")
     button(p, "Open Cooldown Manager", 180, 14, -62, function()
       if not pcall(function() CooldownViewerSettings:SetShown(not CooldownViewerSettings:IsShown()) end) then
         print("|cffC79C6EBar Stack|r: open it from Options > Gameplay Enhancements > Cooldown Manager.")
@@ -206,7 +206,10 @@ local function showPicker()
     p.list = scroll(p, 12, -96, 210, 310)
     f.picker = p
   end
-  local spells = BS.AvailableSpells()
+  local buffsOnly = selected and BS.AURA_MODES[selected.visibility]
+  p.hint:SetText(buffsOnly and "Tracked Buffs and Tracked Bars only:\nthat is all this bar's Show setting can use."
+    or "Lists spells in Blizzard's Cooldown Manager.\nMissing one? Add it there first.")
+  local spells = BS.AvailableSpells(buffsOnly)
   p.list:SetHeight(math.max(1, #spells * 22))
   for i, sp in ipairs(spells) do
     local r = pickRow(i)
@@ -371,6 +374,11 @@ local function build()
   f.swatch:SetPoint("TOPLEFT", RIGHT + 322, -125)
 
   text(r, "Spells", RIGHT, -160)
+  -- why a spell on this bar shows nothing, said where you are looking rather than in /bs check
+  f.spellNote = text(r, "", RIGHT, -184, "GameFontNormalSmall")
+  f.spellNote:SetWidth(420)
+  f.spellNote:SetJustifyH("LEFT")
+  BS.cfg = f
   f.add = button(r, "Add spell", 100, RIGHT + 236, -154, showPicker)
 
   -- bottom: the group (each one is a stack of its own), its stack settings, tools
@@ -456,6 +464,20 @@ function BS.RefreshConfig()
     row:Show()
   end
   for i = #b.spells + 1, #spellRows do spellRows[i]:Hide() end
+  local notes = {}
+  for _, rec in ipairs(BS.placed or {}) do
+    if rec.barRef == b and not rec.frame then
+      notes[#notes + 1] = "|cffff6060" .. rec.spell .. (BS.AURA_MODES[b.visibility]
+        and ": not in Tracked Buffs or Tracked Bars. Add it there in the Cooldown Manager.|r"
+        or ": not in the Cooldown Manager. Add it there.|r")
+    end
+  end
+  if BS.TARGET_MODES[b.visibility] and not UnitExists("target") then
+    notes[#notes + 1] = "|cffffaa00Shows only while you have a target.|r"
+  end
+  f.spellNote:ClearAllPoints()
+  f.spellNote:SetPoint("TOPLEFT", RIGHT, -186 - #b.spells * 22)
+  f.spellNote:SetText(table.concat(notes, "\n"))
 end
 
 function BS.ToggleConfig()

@@ -30,7 +30,7 @@ local function sources(visibility, display)
   return { "EssentialCooldownViewer", "UtilityCooldownViewer", icon, bar }
 end
 
-function BS.FrameSpell(item)
+local function readSpell(item)
   local id = BS.try(item.GetSpellID, item)
   if type(id) == "number" then return id end
   local info = item.cooldownInfo or BS.try(item.GetCooldownInfo, item)
@@ -40,6 +40,16 @@ function BS.FrameSpell(item)
   end
   id = type(info) == "table" and info.spellID
   if not BS.secret(id) and type(id) == "number" then return id end
+end
+
+-- In combat the answer can come back secret -- right when an aura lands and Blizzard lays its
+-- viewer out again, which is when we re-match. The last readable answer for the frame stands,
+-- so a debuff bar does not hand its frame back the moment the debuff goes up.
+local spellOf = setmetatable({}, { __mode = "k" })
+function BS.FrameSpell(item)
+  local id = readSpell(item)
+  if id then spellOf[item] = id end
+  return spellOf[item]
 end
 
 -- Active item frames of a viewer, plus the ones we already took from it
@@ -287,7 +297,7 @@ function BS.Layout()
       for j, sp in ipairs(b.spells) do
         local it, from = find(sp, b.visibility, used)
         local rec = { group = g.name, bar = b.name, spell = sp.name or tostring(sp.baseSpell),
-          visibility = b.visibility, frame = it, viewer = from, container = c, barFrame = c }
+          visibility = b.visibility, frame = it, viewer = from, container = c, barFrame = c, barRef = b }
         BS.placed[#BS.placed + 1] = rec
         if b.visibility == "missing" then
           rec.reminder = reminder(c, b, j)
@@ -372,9 +382,10 @@ function BS.ViewerStats(v)
 end
 
 -- Spells currently in the Cooldown Manager, ranks grouped into one entry by name.
-function BS.AvailableSpells()
+-- `buffsOnly`: just Tracked Buffs and Tracked Bars, which is all an aura or debuff bar can use.
+function BS.AvailableSpells(buffsOnly)
   local seen, out = {}, {}
-  for _, name in ipairs(BS.ALL_VIEWERS) do
+  for _, name in ipairs(buffsOnly and { "BuffIconCooldownViewer", "BuffBarCooldownViewer" } or BS.ALL_VIEWERS) do
     local v = _G[name]
     if v then
       for _, it in ipairs(items(v)) do

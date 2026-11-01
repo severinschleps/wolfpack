@@ -147,6 +147,7 @@ local function mock()
       if k == "GetCenter" then return function() return 0, 0 end end
       if k == "SetAlpha" then return function(self, a) rawset(self, "_alpha", a) end end
       if k == "SetShown" then return function(self, v) rawset(self, "_shown", v) end end
+      if k == "SetText" then return function(self, v) rawset(self, "_text", v) end end
       if k == "GetAlpha" then return function(self) return rawget(self, "_alpha") or 1 end end
       local m = mock()
       rawset(t, k, m)
@@ -294,6 +295,26 @@ BS.UpdateVisibility()
 assert(missingC._shown == true and debuffC._shown == true, "Show all bars shows them anyway, to place them")
 BS.preview = nil
 BuffIconCooldownViewer = nil
+
+-- the window says, under the spell list, why the selected bar shows nothing
+realLayout()
+BS.RefreshConfig()
+local note = BS.cfg.spellNote._text or ""
+assert(note:find("Rend: not in Tracked Buffs or Tracked Bars"), "an untracked debuff is named: " .. note)
+assert(note:find("only while you have a target"), "and so is the target rule: " .. note)
+
+-- the picker for an aura or debuff bar offers Tracked Buffs / Bars only
+EssentialCooldownViewer = { GetItemFrames = function() return { cdFrame } end }
+BuffBarCooldownViewer = { GetItemFrames = function() return { rendFrame } end }
+local all, buffsOnly = BS.AvailableSpells(), BS.AvailableSpells(true)
+assert(#all == 2 and #buffsOnly == 1 and buffsOnly[1].name == "Rend", "only the tracked debuff is offered")
+BuffBarCooldownViewer = nil
+
+-- a frame whose spell comes back secret in combat keeps the last readable answer
+local pooled = { GetSpellID = function() return 772 end }
+assert(BS.FrameSpell(pooled) == 772)
+pooled.GetSpellID = function() error("secret") end
+assert(BS.FrameSpell(pooled) == 772, "the frame is still Rend's, so it stays in the bar")
 
 assert(select(1, BS.Hex("#FF0000")) == 1 and select(2, BS.Hex("bad")) == 1)
 print("barstack ok")
