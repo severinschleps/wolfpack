@@ -34,12 +34,17 @@ BS.RADII = { [0] = true, [12] = true, [25] = true, [50] = true }
 local STACK_DEFAULTS = { point = "CENTER", x = 0, y = -180, scale = 1, alpha = 1, showInCombat = true, showOutOfCombat = true }
 local BAR_DEFAULTS = {
   name = "New bar", offset = { x = 0, y = 0 }, size = { w = 36, h = 36 }, -- one icon; the bar is n of them
-  orientation = "horizontal", visibility = "always", spells = {},
-  conditions = {}, -- { kind = "usable" | "active" | "missing", baseSpell, name }: every one must hold too
+  orientation = "horizontal", icons = {},
   gap = 0, -- px between icons
 }
-local ENUMS = { visibility = { always = true, usable = true, aura = true, auramissing = true, debuff = true, proc = true, missing = true }, orientation = { horizontal = true, vertical = true } }
-BS.COND_KINDS = { usable = true, active = true, missing = true }
+local ENUMS = { orientation = { horizontal = true, vertical = true } }
+-- An icon: what it looks like, and when it shows.
+--   look   "custom": a picture of our own -- `texture` (file ID, path or spell name), else the
+--          spell's picture; `swipe` plays the spell's cooldown over it.
+--          "cooldown" / "aura": Blizzard's Cooldown Manager icon for `spell`, timer and all.
+--   conditions: every one must hold. usable / active / missing name a spell; target does not.
+BS.LOOKS = { custom = true, cooldown = true, aura = true }
+BS.COND_KINDS = { usable = true, active = true, missing = true, target = true }
 local Clamp = BS.Clamp
 
 -- copy defaults into t wherever a field is missing or has the wrong type
@@ -56,7 +61,59 @@ end
 
 local function newID(prefix) return ("%s%d-%d"):format(prefix, time(), math.random(1e6)) end
 
+local function spellRef(sp)
+  if type(sp) == "table" and type(sp.baseSpell) == "number" then
+    return { baseSpell = sp.baseSpell, name = type(sp.name) == "string" and sp.name or BS.SpellName(sp.baseSpell) }
+  end
+end
+
+function BS.NormalizeIcon(ic)
+  if type(ic) ~= "table" then return end
+  local out = { spell = spellRef(ic.spell), look = BS.LOOKS[ic.look] and ic.look or "custom", swipe = ic.swipe == true,
+    texture = (type(ic.texture) == "number" or type(ic.texture) == "string" and ic.texture ~= "") and ic.texture or nil,
+    conditions = {} }
+  if not out.spell then out.look = "custom" end -- Blizzard's icon needs a spell to look for
+  for _, q in ipairs(type(ic.conditions) == "table" and ic.conditions or {}) do
+    local kind = type(q) == "table" and q.kind
+    if kind == "target" then
+      out.conditions[#out.conditions + 1] = { kind = kind }
+    elseif BS.COND_KINDS[kind] and spellRef(q) then
+      local ref = spellRef(q)
+      ref.kind = kind
+      out.conditions[#out.conditions + 1] = ref
+    end
+  end
+  return out
+end
+
+-- Bars before icons had one Show setting and a list of spells; each spell becomes an icon that
+-- shows the same way it did.
+local FROM_SHOW = {
+  always = { look = "cooldown" },
+  usable = { look = "custom", swipe = true, conds = { "usable" } },
+  aura = { look = "aura" }, proc = { look = "aura" },
+  debuff = { look = "aura", conds = { "target" } },
+  missing = { look = "custom", conds = { "target", "missing" } },
+  auramissing = { look = "custom", conds = { "missing" } },
+}
+local function iconsFrom(b)
+  local how, icons = FROM_SHOW[b.visibility] or FROM_SHOW.always, {}
+  for _, sp in ipairs(type(b.spells) == "table" and b.spells or {}) do
+    if type(sp) == "table" then
+      local conds = {}
+      for _, kind in ipairs(how.conds or {}) do
+        conds[#conds + 1] = { kind = kind, baseSpell = sp.baseSpell, name = sp.name }
+      end
+      for _, q in ipairs(type(b.conditions) == "table" and b.conditions or {}) do conds[#conds + 1] = q end
+      icons[#icons + 1] = { look = how.look, spell = sp, swipe = how.swipe, conditions = conds }
+    end
+  end
+  return icons
+end
+
 function BS.NormalizeBar(b)
+  if type(b.icons) ~= "table" then b.icons = iconsFrom(b) end
+  b.visibility, b.spells, b.conditions = nil, nil, nil
   fill(b, BAR_DEFAULTS)
   if type(b.id) ~= "string" then b.id = newID("b") end
   for k, ok in pairs(ENUMS) do
@@ -66,33 +123,24 @@ function BS.NormalizeBar(b)
   b.flash, b.flashLow, b.flashAt = nil, nil, nil -- the flash near the end: gone, see docs/barstack.md
   b.gap = Clamp(math.floor(b.gap + 0.5), 0, 200)
   b.offset.x, b.offset.y = Clamp(b.offset.x, -2000, 2000), Clamp(b.offset.y, -2000, 2000)
-  local spells = {}
-  for _, sp in ipairs(b.spells) do
-    if type(sp) == "table" and type(sp.baseSpell) == "number" then
-      spells[#spells + 1] = {
-        baseSpell = sp.baseSpell,
-        name = type(sp.name) == "string" and sp.name or BS.SpellName(sp.baseSpell),
-      }
-    end
-  end
-  b.spells = spells
-  local conds = {}
-  for _, q in ipairs(b.conditions) do
-    if type(q) == "table" and BS.COND_KINDS[q.kind] and type(q.baseSpell) == "number" then
-      conds[#conds + 1] = { kind = q.kind, baseSpell = q.baseSpell,
-        name = type(q.name) == "string" and q.name or BS.SpellName(q.baseSpell) }
-    end
-  end
-  b.conditions = conds
-  -- size was once the whole bar; it is one icon now. An older bar's size is cut into its spells,
+  local icons = {}
+  for _, ic in ipairs(b.icons) do icons[#icons + 1] = BS.NormalizeIcon(ic) end
+  b.icons = icons
+  -- size was once the whole bar; it is one icon now. An older bar's size is cut into its icons,
   -- along the way the icons run, so it looks the same as before.
   if not b.perIcon then
-    local n = math.max(1, #spells)
+    local n = math.max(1, #icons)
     if b.orientation == "vertical" then b.size.h = b.size.h / n else b.size.w = b.size.w / n end
     b.perIcon = true
   end
   b.size.w, b.size.h = Clamp(math.floor(b.size.w + 0.5), 1, 2000), Clamp(math.floor(b.size.h + 0.5), 1, 2000)
   return b
+end
+
+-- What the window and /bs check call an icon.
+function BS.IconName(ic)
+  if ic.look == "custom" and ic.texture then return "Texture " .. tostring(ic.texture) end
+  return ic.spell and (ic.spell.name or ("Spell " .. ic.spell.baseSpell)) or "No picture yet"
 end
 
 -- A group is one stack on screen: its own position, scale and combat rules, and its own bars.
@@ -306,24 +354,14 @@ function BS.Check()
     line(st and st:IsVisible(), ("group %s: %d bars, %s"):format(g.name, #g.bars, not st and "no frame yet"
       or st:IsVisible() and ("visible at %d, %d"):format(st:GetCenter()) or "hidden"))
   end
-  -- every condition: what it watches, and which way it last switched its bar
-  for _, q in ipairs(BS.gates or {}) do
-    local a = q.gate:GetAlpha()
-    line(q.frame ~= false, ("%s: also %s %s -- %s, now %s"):format(q.bar.name, q.cond.kind, q.cond.name,
-      q.cond.kind == "usable" and "asks WoW" or q.frame and "watching its Tracked Buffs frame"
-        or "not in Tracked Buffs -- add it there in the Cooldown Manager",
-      BS.secret(a) and "switched by a secret" or a > 0 and "yes" or "no"))
-  end
-  -- every spell of every bar, as the last layout pass left it
-  if not BS.placed or #BS.placed == 0 then line(false, "no spells on any bar yet") end
+  -- every icon, and every condition, as the last layout pass left them
+  if not BS.placed or #BS.placed == 0 then line(false, "no icons on any bar yet") end
   for _, r in ipairs(BS.placed or {}) do
     local it, what = r.frame, ("%s / %s / %s: "):format(r.group, r.bar, r.spell)
-    if r.visibility == "usable" then
-      local seen = BS.usableSeen[r.barRef and r.barRef.id]
-      line(seen ~= nil, what .. "own icon; usable right now: " .. tostring(seen or "not asked yet")
-        .. "; swipe: " .. tostring(BS.swipeSeen[r.barRef and r.barRef.id] or "not fed yet"))
+    if r.look == "custom" then
+      line(true, what .. "own picture" .. (r.swipe and "; swipe: " .. tostring(BS.swipeSeen[r.icon] or "not fed yet") or ""))
     elseif not it then
-      line(false, what .. (BS.AURA_MODES[r.visibility]
+      line(false, what .. (r.look == "aura"
         and "not in Tracked Buffs -- add it there in the Cooldown Manager"
         or "no Cooldown Manager frame has this spell"))
     else
@@ -335,24 +373,27 @@ function BS.Check()
       end
       local ours = it:GetParent() == r.container
       local vis, shown, alpha = look("IsVisible"), look("IsShown"), look("GetAlpha")
-      if r.reminder then
-        local ra = r.reminder:GetAlpha()
-        line(ours, what .. ("watching %s's frame (%s); reminder icon %s"):format(r.viewer,
-          shown == "secret" and "its state is secret" or shown == true and "debuff up" or "debuff missing",
-          BS.secret(ra) and "switched by a secret" or ra > 0 and "showing" or "hidden"))
-      else
       line(ours and vis == true, what .. ("from %s, %s, %s, %dx%d"):format(r.viewer,
         ours and "in the stack" or "taken back by Blizzard",
         vis == true and "visible" or vis == "secret" and "visibility is secret"
           or shown == true and "shown, but a parent is hidden" or "hidden by Blizzard",
         it:GetWidth(), it:GetHeight()))
-      end
       local w = BS.watch and BS.watch[it]
-      if w then -- how Blizzard switches it: decides whether "show while missing" can be built
+      if w then -- how Blizzard switches it
         print(("      alpha %s; Blizzard called Show %d, Hide %d, SetShown %d%s, SetAlpha %d%s"):format(
           type(alpha) == "number" and ("%.2f"):format(alpha) or tostring(alpha),
           w.Show, w.Hide, w.SetShown, w.SetShownSecret and " (secret)" or "",
           w.SetAlpha, w.SetAlphaSecret and " (secret)" or ""))
+      end
+    end
+    for _, q in ipairs(BS.gates or {}) do
+      if q.icon == r.icon then
+        local a = q.gate:GetAlpha()
+        line(q.frame ~= false, ("      if %s %s -- %s, now %s"):format(q.cond.kind, q.cond.name or "",
+          (q.cond.kind == "usable" or q.cond.kind == "target") and "asks WoW"
+            or q.frame and "watching its Tracked Buffs frame"
+            or "not in Tracked Buffs -- add it there in the Cooldown Manager",
+          BS.secret(a) and "switched by a secret" or a > 0 and "yes" or "no"))
       end
     end
   end

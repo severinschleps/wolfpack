@@ -45,10 +45,36 @@ local realLayout = BS.Layout
 BS.Layout = function() end
 
 -- normalize garbage (e.g. a hostile import string)
-local b = BS.NormalizeBar({ name = 5, size = { w = -3, h = 0 / 0 }, visibility = "nope", spells = { { baseSpell = 7384 }, "junk", { baseSpell = "x" } }, style = { texture = "../evil" } })
+local b = BS.NormalizeBar({ name = 5, size = { w = -3, h = 0 / 0 }, style = { texture = "../evil" }, icons = {
+  { look = "nope", spell = { baseSpell = 7384 } }, "junk", { look = "aura" },
+  { conditions = { { kind = "usable", baseSpell = 100 }, { kind = "target" }, { kind = "sometimes" }, { kind = "active" } } },
+} })
 assert(b.name == "New bar" and b.size.w == 1 and b.size.h == 1)
-assert(b.visibility == "always" and b.style == nil, "no bar styling: icons only")
-assert(#b.spells == 1 and b.spells[1].name == "Overpower" and b.spells[1].display == nil)
+assert(b.style == nil and b.visibility == nil, "no bar styling and no Show setting: icons only")
+assert(#b.icons == 3 and b.icons[1].look == "custom" and b.icons[1].spell.name == "Overpower", "an unknown look: our own picture")
+assert(b.icons[2].look == "custom", "Blizzard's icon needs a spell; without one, our own picture")
+local cs = b.icons[3].conditions
+assert(#cs == 2 and cs[1].kind == "usable" and cs[1].name == "Charge" and cs[2].kind == "target", "bad conditions dropped")
+
+-- a bar from before icons: each spell becomes an icon that shows the way the bar's Show did
+local function migrated(show, extra)
+  return BS.NormalizeBar({ visibility = show, spells = { { baseSpell = 100, name = "Charge" } }, conditions = extra }).icons[1]
+end
+local m = migrated("always")
+assert(m.look == "cooldown" and #m.conditions == 0, "always: Blizzard's cooldown icon")
+m = migrated("usable")
+assert(m.look == "custom" and m.swipe and m.conditions[1].kind == "usable" and m.conditions[1].baseSpell == 100, "usable")
+m = migrated("aura")
+assert(m.look == "aura" and #m.conditions == 0, "aura: Blizzard's aura icon")
+m = migrated("debuff")
+assert(m.look == "aura" and m.conditions[1].kind == "target", "debuff: the aura icon, with a target")
+m = migrated("missing")
+assert(m.look == "custom" and m.conditions[1].kind == "target" and m.conditions[2].kind == "missing"
+  and m.conditions[2].name == "Charge", "debuff missing: our own icon, a target and the debuff missing")
+m = migrated("auramissing")
+assert(#m.conditions == 1 and m.conditions[1].kind == "missing", "aura missing needs no target")
+m = migrated("usable", { { kind = "active", baseSpell = 100, name = "Charge" } })
+assert(#m.conditions == 2 and m.conditions[2].kind == "active", "the bar's own conditions come along")
 
 -- size is one icon. A bar saved when size was the whole bar is cut into its spells, once
 local old = BS.NormalizeBar({ size = { w = 240, h = 24 }, spells = { { baseSpell = 7384 }, { baseSpell = 100 } } })
@@ -133,7 +159,7 @@ local avatarCD = { GetSpellID = function() return 107574 end }
 names[107574] = "Avatar"
 EssentialCooldownViewer = { GetItemFrames = function() return { avatarCD } end }
 BuffIconCooldownViewer = { GetItemFrames = function() return {} end }
-for _, mode in ipairs({ "aura", "debuff", "proc" }) do
+for _, mode in ipairs({ "aura" }) do
   assert(BS.Find({ baseSpell = 107574, name = "Avatar", display = "icon" }, mode, {}) == nil,
     mode .. ": the always-up cooldown icon is not used")
 end
@@ -202,36 +228,31 @@ local function radios(fn)
   fn(nil, { CreateRadio = function(_, text, isSel, set) out[#out + 1] = { text = text, isSel = isSel, set = set } end })
   return out
 end
-local vis
-for _, fn in ipairs(menus) do
-  local r = radios(fn)
-  if r[1] and r[1].text == "Always" then vis = r end
+local function menuStarting(text)
+  for _, fn in ipairs(menus) do
+    local r = radios(fn)
+    if r[1] and r[1].text == text then return r end
+  end
 end
-assert(vis and #vis == 7, "the Show dropdown has seven choices")
-assert(vis[2].text == "Only while usable" and vis[3].text == "Only while aura is active"
-  and vis[4].text == "Only while aura is missing"
-  and vis[5].text == "Only while debuff is active" and vis[6].text == "Only while debuff is missing"
-  and vis[7].text == "Only while proc is active", "named as asked")
-vis[5].set()
-assert(BS.profile.groups[1].bars[1].visibility == "debuff" and vis[5].isSel(), "picking one sets the bar")
+assert(not menuStarting("Always"), "no Show setting on a bar any more: each icon has conditions")
+local icon = BS.NormalizeIcon
 
--- a layout pass over two groups: one stack frame each, every spell accounted for
+-- a layout pass over two groups: one stack frame each, every icon accounted for
 hooksecurefunc = function() end
 local cdFrame = mock()
 cdFrame.GetSpellID = function() return 100 end
 EssentialCooldownViewer = { GetItemFrames = function() return { cdFrame } end }
 local gA, gB = BS.profile.groups[1], BS.NewGroup()
 gA.bars = {}
-BS.NewBar(gA).spells = { { baseSpell = 100, name = "Charge", display = "icon" } }
-BS.NewBar(gB).spells = { { baseSpell = 107574, name = "Avatar", display = "icon" } }
-gB.bars[1].visibility = "aura"
+BS.NewBar(gA).icons = { icon({ look = "cooldown", spell = { baseSpell = 100, name = "Charge" } }) }
+BS.NewBar(gB).icons = { icon({ look = "aura", spell = { baseSpell = 107574, name = "Avatar" } }) }
 BS.ready = true
 realLayout()
 assert(BS.stacks[gA.id] and BS.stacks[gB.id] and BS.stacks[gA.id] ~= BS.stacks[gB.id], "a stack frame per group")
 assert(#BS.placed == 2 and BS.placed[1].frame == cdFrame and BS.placed[1].group == "Stack 1", "Charge placed in Stack 1")
-assert(BS.placed[2].frame == nil and BS.placed[2].visibility == "aura", "Avatar has no buff frame, so nothing is borrowed")
+assert(BS.placed[2].frame == nil and BS.placed[2].look == "aura", "Avatar has no buff frame, so nothing is borrowed")
 
--- the show-while-missing probe: an aura bar's frame has Blizzard's Show / Hide / SetAlpha counted
+-- an aura icon's frame has Blizzard's Show / Hide / SetAlpha counted, for /bs check
 hooksecurefunc = function(t, m, fn)
   local orig = t[m]
   t[m] = function(...) local r = orig(...); fn(...); return r end
@@ -241,12 +262,12 @@ buffFrame.GetSpellID = function() return 107574 end
 for _, m in ipairs({ "Show", "Hide", "SetShown", "SetAlpha" }) do buffFrame[m] = function() end end
 BuffIconCooldownViewer = { GetItemFrames = function() return { buffFrame } end }
 realLayout()
-assert(BS.placed[2].frame == buffFrame and BS.watch[buffFrame], "a borrowed buff frame is watched")
+assert(BS.placed[2].frame == buffFrame and BS.watch[buffFrame], "a borrowed aura frame is watched")
 buffFrame:Hide(); buffFrame:Show(); buffFrame:Hide()
 buffFrame:SetAlpha(0.5)
 local w = BS.watch[buffFrame]
 assert(w.Hide == 2 and w.Show == 1 and w.SetAlpha == 1 and not w.SetAlphaSecret, "every call counted: " .. w.Hide)
-assert(BS.watch[cdFrame] == nil, "an always bar's cooldown frame is left alone")
+assert(BS.watch[cdFrame] == nil, "a cooldown icon is left alone")
 local said, keptPrint = {}, print
 print = function(t) said[#said + 1] = t end
 BS.Check()
@@ -255,8 +276,8 @@ local probe
 for _, t in ipairs(said) do if t:find("Blizzard called Show 1, Hide 2") then probe = t end end
 assert(probe, "/bs check reports the calls")
 
--- "only while debuff is missing": Blizzard's Rend frame is parked out of sight, and our own Rend
--- icon shows exactly while Blizzard's frame is hidden
+-- conditions: each one is a frame between the bar and the icon, so their opacities multiply.
+-- Our own Rend icon, shown while you have a target AND Rend is missing from it
 names[772] = "Rend"
 local rendFrame = mock()
 rendFrame.GetSpellID = function() return 772 end
@@ -278,113 +299,72 @@ rendFrame.SetScale = function(self, v) self.scale = v end
 rendFrame.Cooldown = setmetatable({}, { __index = { SetCooldownFromDurationObject = function() end,
   SetCooldown = function() end, Clear = function() end, SetSwipeColor = function() end } })
 BuffIconCooldownViewer = { GetItemFrames = function() return { rendFrame } end }
+local rendSpell = { baseSpell = 772, name = "Rend" }
 local rendBar = BS.NewBar(gA)
-rendBar.visibility = "missing"
-rendBar.spells = { { baseSpell = 772, name = "Rend", display = "icon" } }
+rendBar.icons = { icon({ look = "custom", spell = rendSpell,
+  conditions = { { kind = "target" }, { kind = "missing", baseSpell = 772, name = "Rend" } } }) }
+local function recOf(bar)
+  for _, r in ipairs(BS.placed) do if r.barRef == bar then return r end end
+end
+local function gatesOf(rec)
+  local out = {}
+  for _, q in ipairs(BS.gates) do if q.icon == rec.icon then out[#out + 1] = q end end
+  return out
+end
+S_target = true
 realLayout()
-local rec
-for _, r in ipairs(BS.placed) do if r.spell == "Rend" then rec = r end end
-assert(rec and rec.frame == rendFrame and rec.reminder, "Rend is watched and has a reminder icon")
-assert(rendFrame.parent ~= rec.reminder and rendFrame.parent == rec.container, "Blizzard's frame is parked, not in the bar")
-local rem = rec.reminder
-assert(rem._alpha == 1, "no Rend on the target: the reminder shows")
+local rec = recOf(rendBar)
+local qs = gatesOf(rec)
+assert(rec.reminder and rec.frame == nil, "our own Rend icon, nothing borrowed")
+assert(#qs == 2 and qs[1].cond.kind == "target" and qs[2].frame == rendFrame, "the missing condition watches Rend's frame")
+local tG, mG = qs[1].gate, qs[2].gate
+assert(rendFrame.parent ~= rec.container, "Blizzard's frame is parked, not in the bar")
+assert(tG._alpha == 1 and mG._alpha == 1, "a target, no Rend: shown")
 rendFrame:Show()
-assert(rem._alpha == 0, "Rend goes up: the reminder hides")
+assert(mG._alpha == 0, "Rend goes up: hidden")
 rendFrame:Hide()
-assert(rem._alpha == 1, "Rend falls off: the reminder is back")
+assert(mG._alpha == 1, "Rend falls off: back")
 rendFrame:SetShown(true)
-assert(rem._alpha == 0, "SetShown works the same way")
+assert(mG._alpha == 0, "SetShown works the same way")
 rendFrame:SetShown(false)
--- a frame that already shows Rend when the bar is laid out starts with the reminder hidden
+issecretvalue = function(v) return v == "SECRET" end
+rendFrame:SetShown("SECRET")
+assert(mG._fromBool[1] == "SECRET" and mG._fromBool[2] == 0 and mG._fromBool[3] == 1, "a secret, handed on unread and inverted")
+issecretvalue = nil
 rendFrame.shown = true
 realLayout()
-assert(rem._alpha == 0, "laid out with Rend up: hidden from the start")
--- a Rend that is not tracked at all still shows the reminder, and check says why
-BuffIconCooldownViewer = { GetItemFrames = function() return {} end }
-realLayout()
-for _, r in ipairs(BS.placed) do if r.spell == "Rend" then rec = r end end
-assert(rec.frame == nil and rec.reminder._alpha == 1, "untracked: the reminder stays up")
-said = {}
-print = function(t) said[#said + 1] = t end
-BS.Check()
-print = keptPrint
-local why
-for _, t in ipairs(said) do if t:find("Rend: not in Tracked Buffs") then why = t end end
-assert(why, "/bs check says Rend needs tracking")
-BuffIconCooldownViewer = { GetItemFrames = function() return { rendFrame } end }
-realLayout()
-said = {}
-print = function(t) said[#said + 1] = t end
-BS.Check()
-print = keptPrint
-for _, t in ipairs(said) do if t:find("Rend: watching") then why = t end end
-assert(why:find("reminder icon"), "and reports the reminder once it is watched: " .. why)
-
--- debuff bars, active or missing, only show with a target; other bars do not care
-local debuffBar = BS.NewBar(gA)
-debuffBar.visibility = "debuff"
-debuffBar.spells = { { baseSpell = 772, name = "Rend", display = "icon" } }
-realLayout()
-local frameOf = {}
-for _, r in ipairs(BS.placed) do frameOf[r.bar] = frameOf[r.bar] or {}; frameOf[r.bar][r.visibility] = r.barFrame end
-local missingC, debuffC = frameOf[rendBar.name].missing, frameOf[debuffBar.name].debuff
-local alwaysC
-for _, r in ipairs(BS.placed) do if r.spell == "Charge" then alwaysC = r.barFrame end end -- an always bar
+assert(mG._alpha == 0, "laid out with Rend up: hidden from the start")
+rendFrame.shown = false
 S_target = false
-BS.UpdateVisibility()
-assert(missingC._shown == false and debuffC._shown == false, "no target: both debuff bars hide")
-assert(alwaysC._shown == true, "an always bar stays")
-S_target = true
-BS.UpdateVisibility()
-assert(missingC._shown == true and debuffC._shown == true, "a target: both are back")
-S_target = false
+BS.UpdateVisibility() -- what PLAYER_TARGET_CHANGED does
+assert(tG._alpha == 0, "no target: hidden")
 BS.preview = true
 BS.UpdateVisibility()
-assert(missingC._shown == true and debuffC._shown == true, "Show all bars shows them anyway, to place them")
+assert(tG._alpha == 1, "Show all bars shows it anyway, to place it")
 BS.preview = nil
--- "only while aura is missing": a missing bar for your own buffs, which needs no target
-local buffGone = BS.NewBar(gA)
-buffGone.visibility = "auramissing"
-buffGone.spells = { { baseSpell = 772, name = "Rend", display = "icon" } }
-realLayout()
-local goneRec
-for _, r in ipairs(BS.placed) do if r.barRef == buffGone then goneRec = r end end
-assert(goneRec.reminder and goneRec.frame == rendFrame, "it watches the aura's frame with an icon of its own")
-rendFrame:Show()
-assert(goneRec.reminder._alpha == 0, "aura up: hidden")
-rendFrame:Hide()
-assert(goneRec.reminder._alpha == 1, "aura gone: shown")
-S_target = false
+S_target = true
 BS.UpdateVisibility()
-assert(goneRec.barFrame._shown == true, "no target needed")
-table.remove(gA.bars, tIndexOf(gA.bars, buffGone))
+-- the chain: bar -> target -> Rend missing -> the icon's pane
+local function recordParent(fr) rawset(fr, "SetParent", function(self, p) rawset(self, "parent", p) end) end
+for _, fr in ipairs({ tG, mG, rec.container }) do recordParent(fr) end
 realLayout()
+assert(rawget(rec.container, "parent") == mG and rawget(mG, "parent") == tG and rawget(tG, "parent") == rec.barFrame,
+  "each condition hangs from the one before, the icon from the last")
+-- the plate behind our own icon lives in the same pane, so the conditions switch it too
+assert(BS.borderOf[rec.reminder], "our own icon has its plate")
 
--- one Rend, in Tracked Buffs, serves both: the "active" bar shows Blizzard's icon, the "missing"
--- bar watches that same frame and flips its own icon
-rendFrame.shown = false
-BuffIconCooldownViewer = { GetItemFrames = function() return { rendFrame } end }
+-- one Rend serves both: an aura icon shows Blizzard's Rend frame, and the missing condition
+-- watches that very frame
+local debuffBar = BS.NewBar(gA)
+debuffBar.icons = { icon({ look = "aura", spell = rendSpell }) }
 realLayout()
-local activeRec, missingRec
-for _, r in ipairs(BS.placed) do
-  if r.spell == "Rend" and r.visibility == "debuff" then activeRec = r end
-  if r.spell == "Rend" and r.visibility == "missing" then missingRec = r end
-end
-assert(activeRec.frame == rendFrame and rendFrame.parent == activeRec.barFrame, "the active bar shows Blizzard's Rend icon")
-assert(missingRec.frame == rendFrame, "the missing bar watches the very same frame")
-assert(missingRec.reminder._alpha == 1, "no Rend: the missing icon shows")
+local activeRec = recOf(debuffBar)
+assert(activeRec.frame == rendFrame and rendFrame.parent == activeRec.container, "the aura icon shows Blizzard's Rend")
+assert(gatesOf(recOf(rendBar))[2].frame == rendFrame, "the missing condition watches the very same frame")
 rendFrame:Show()
-assert(missingRec.reminder._alpha == 0 and rendFrame.parent == activeRec.barFrame,
-  "Rend up: the icon hides, and the frame stays in the active bar")
+assert(mG._alpha == 0 and rendFrame.parent == activeRec.container, "Rend up: our icon hides, Blizzard's stays in its bar")
 rendFrame:Hide()
-assert(missingRec.reminder._alpha == 1, "Rend off: the icon is back")
--- the plates come and go with their icons: the missing icon's plate is switched with it, and
--- the active icon's plate sits on Blizzard's own frame, so Blizzard hiding it hides the plate
-local missingPlate = BS.borderOf[missingRec.reminder]
-assert(missingPlate and missingPlate._alpha == 1, "Rend off: the missing icon's plate shows")
-rendFrame:Show()
-assert(missingPlate._alpha == 0, "Rend up: the missing icon's plate hides with it")
-rendFrame:Hide()
+assert(mG._alpha == 1, "Rend off: ours is back")
 
 -- sizes are what the bar says, on screen: frame size times its scale. Size is one icon (36 x 36
 -- for a new bar), square, scaled from Blizzard's own size, never stretched
@@ -397,7 +377,7 @@ realLayout()
 sw_, sh_ = shown(rendFrame)
 assert(math.abs(sh_ - 40) < 0.01, "a 40 px icon is 40 px on screen: " .. sh_)
 debuffBar.size.w, debuffBar.size.h = 36, 36
-local three = { size = { w = 40, h = 30 }, spells = { 1, 2, 3 } }
+local three = { size = { w = 40, h = 30 }, icons = { 1, 2, 3 } }
 assert(select(1, BS.BarSize(three)) == 120 and select(2, BS.BarSize(three)) == 30, "the bar is three icons wide")
 three.orientation = "vertical"
 assert(select(1, BS.BarSize(three)) == 40 and select(2, BS.BarSize(three)) == 90, "or three tall")
@@ -405,12 +385,6 @@ three.gap = 5
 assert(select(2, BS.BarSize(three)) == 100, "with a 5 px gap between each two")
 three.orientation = nil
 assert(select(1, BS.BarSize(three)) == 130, "either way")
--- and no Icon / Bar choice is left in the window
-BS.RefreshConfig()
-for _, fn in ipairs(menus) do
-  local r = radios(fn)
-  assert(not (r[1] and r[1].text == "Icon"), "the Icon / Bar dropdown is gone")
-end
 
 -- sent home: Blizzard's own size and scale come back
 BuffIconCooldownViewer = { GetItemFrames = function() return {} end }
@@ -419,20 +393,18 @@ assert(rendFrame.scale == 1 and rendFrame.w == 36 and rendFrame.h == 36, "return
 BuffIconCooldownViewer = nil
 
 -- a frame Blizzard has dropped no longer answers for its spell: when Blizzard moves Rend to a new
--- icon frame, the bars follow it rather than the old frame we once borrowed
+-- icon frame, the icons follow it rather than the old frame we once borrowed
 local oldIcon = mock()
 oldIcon.GetSpellID = function() return 772 end
 BuffIconCooldownViewer = { GetItemFrames = function() return { oldIcon } end }
 oldIcon.GetParent = function(self) return rawget(self, "parent") or BuffIconCooldownViewer end
 oldIcon.SetParent = function(self, p) rawset(self, "parent", p) end
-realLayout() -- the missing bar borrows the old icon while it is the only Rend there is
+realLayout() -- the aura icon borrows the old icon while it is the only Rend there is
 -- Blizzard lists only what is still inside its viewer: the borrowed icon is off its list, and
 -- must still be found -- this is what went wrong in game, every frame we had placed went missing
 BuffIconCooldownViewer.GetItemFrames = function() return {} end
 realLayout()
-for _, r in ipairs(BS.placed) do
-  if r.spell == "Rend" then assert(r.frame == oldIcon, "a frame we placed is still ours, though Blizzard no longer lists it") end
-end
+assert(recOf(debuffBar).frame == oldIcon, "a frame we placed is still ours, though Blizzard no longer lists it")
 -- in combat its spell comes back secret: the last readable answer stands
 issecretvalue = function(v) return v == "SECRET" end
 oldIcon.GetSpellID = function() return "SECRET" end
@@ -445,9 +417,8 @@ local newIcon = mock()
 newIcon.GetSpellID = function() return 772 end
 BuffIconCooldownViewer.GetItemFrames = function() return { newIcon } end
 realLayout()
-for _, r in ipairs(BS.placed) do
-  if r.spell == "Rend" then assert(r.frame == newIcon, r.visibility .. " bar follows Rend to its new frame") end
-end
+assert(recOf(debuffBar).frame == newIcon, "the aura icon follows Rend to its new frame")
+assert(gatesOf(recOf(rendBar))[2].frame == newIcon, "and so does the missing condition")
 -- /bs frames lists every frame with each way of asking its spell, and survives what it cannot ask
 said = {}
 print = function(t) said[#said + 1] = t end
@@ -458,62 +429,52 @@ for _, t in ipairs(said) do if t:find("GetSpellID 772") and t:find("ours 772") t
 assert(listed, "a frame line names what each question answered: " .. table.concat(said, " / "))
 BuffIconCooldownViewer, BuffBarCooldownViewer = nil, nil
 
--- the window says, under the spell list, why the selected bar shows nothing
+-- the window says, under the icon list, why an icon shows nothing
 realLayout()
 BS.RefreshConfig()
-local note = BS.cfg.spellNote._text or ""
-assert(note:find("Rend: not in Tracked Buffs"), "an untracked debuff is named: " .. note)
-assert(note:find("only while you have a target"), "and so is the target rule: " .. note)
+local note = BS.cfg.iconNote._text or ""
+assert(note:find("Rend: not in Tracked Buffs"), "an untracked aura icon is named: " .. note)
 
--- "Only while usable": Execute shows exactly while WoW says it can be pressed -- rage, a target
--- under the threshold, or a Sudden Death proc all go into that one answer
+-- "Usable": Execute shows exactly while WoW says it can be pressed -- rage, a target under the
+-- threshold, or a Sudden Death proc all go into that one answer
 names[163201] = "Execute"
-local exFrame = mock()
-exFrame.GetSpellID = function() return 163201 end
-EssentialCooldownViewer = { GetItemFrames = function() return { exFrame } end }
 local usableNow = false
 C_Spell.IsSpellUsable = function(id) assert(id == 163201); return usableNow end
+local exSpell = { baseSpell = 163201, name = "Execute" }
 local exBar = BS.NewBar(gA)
-exBar.visibility = "usable"
-exBar.spells = { { baseSpell = 163201, name = "Execute" } }
+exBar.icons = { icon({ look = "custom", spell = exSpell, swipe = true,
+  conditions = { { kind = "usable", baseSpell = 163201, name = "Execute" } } }) }
 realLayout()
-local exC
-local exRec
-for _, r in ipairs(BS.placed) do if r.spell == "Execute" then exC, exRec = r.barFrame, r end end
--- Blizzard's Execute frame stays with Blizzard: moved out of its viewer it froze in its
--- "not usable" look (seen in game). The bar draws a plain Execute icon of its own instead
-assert(exRec.frame == nil and rawget(exFrame, "parent") == nil, "Blizzard's frame is not borrowed")
-assert(exRec.reminder and exRec.reminder._alpha == 1, "our own icon, always the usable look")
-assert(exC._alpha == 0, "not usable: hidden")
+local exRec = recOf(exBar)
+local uG = gatesOf(exRec)[1].gate
+assert(exRec.reminder and exRec.frame == nil, "our own icon: Blizzard's froze in its unusable look when moved")
+assert(uG._alpha == 0, "not usable: hidden")
 usableNow = true
 BS.UpdateUsable() -- what SPELL_UPDATE_USABLE does
-assert(exC._alpha == 1, "usable: shown")
--- in combat the answer may come back secret: it is handed on unread
+assert(uG._alpha == 1, "usable: shown")
 issecretvalue = function(v) return v == "SECRET" end
 usableNow = "SECRET"
 BS.UpdateUsable()
-assert(exC._fromBool and exC._fromBool[1] == "SECRET" and exC._fromBool[2] == 1 and exC._fromBool[3] == 0,
+assert(uG._fromBool and uG._fromBool[1] == "SECRET" and uG._fromBool[2] == 1 and uG._fromBool[3] == 0,
   "a secret answer drives the opacity without being read")
 issecretvalue = nil
--- placing it shows it anyway, and a bar switched to another mode is never left invisible
 usableNow = false
-BS.UpdateUsable()
 BS.preview = true
 BS.UpdateUsable()
-assert(exC._alpha == 1, "Show all bars shows it")
+assert(uG._alpha == 1, "Show all bars shows it")
 BS.preview = nil
-exBar.visibility = "always"
 BS.UpdateUsable()
-assert(exC._alpha == 1, "back to Always: visible again")
+assert(uG._alpha == 0, "and hides it again after")
 said = {}
-exBar.visibility = "usable"
-realLayout()
 print = function(t) said[#said + 1] = t end
 BS.Check()
 print = keptPrint
-local seenLine
-for _, t in ipairs(said) do if t:find("Execute: own icon; usable right now: false") then seenLine = t end end
-assert(seenLine, "/bs check says what WoW answered")
+local seenIcon, seenCond
+for _, t in ipairs(said) do
+  if t:find("Execute: own picture") then seenIcon = t end
+  if t:find("if usable Execute %-%- asks WoW, now no") then seenCond = t end
+end
+assert(seenIcon and seenCond, "/bs check names the icon and what its condition answered: " .. table.concat(said, "\n"))
 -- a cooldown swipe over the icon, fed WoW's duration object unread; the icon itself stays put
 local exSwipe = exRec.swipe
 assert(exSwipe, "the icon has a cooldown swipe")
@@ -522,144 +483,94 @@ exSwipe.SetCooldownFromDurationObject = function(_, d) fedWith = d end
 C_Spell.GetSpellCooldownDuration = function(id) assert(id == 163201); return { "Execute's cooldown" } end
 usableNow = true
 BS.UpdateUsable() -- what SPELL_UPDATE_COOLDOWN does
-assert(fedWith and fedWith[1] == "Execute's cooldown" and BS.swipeSeen[exBar.id] == "duration object",
+assert(fedWith and fedWith[1] == "Execute's cooldown" and BS.swipeSeen[exRec.icon] == "duration object",
   "the swipe plays the duration object")
-assert(exRec.reminder._alpha == 1, "the swipe never hides the icon")
 -- a client without the duration object: start and duration go to the swipe instead
 C_Spell.GetSpellCooldownDuration = nil
 local fedStart
 exSwipe.SetCooldown = function(_, start, dur) fedStart = start .. "/" .. dur end
 C_Spell.GetSpellCooldown = function() return { startTime = 100, duration = 6, modRate = 1 } end
 BS.UpdateUsable()
-assert(fedStart == "100/6" and BS.swipeSeen[exBar.id] == "start and duration", "the fallback route")
+assert(fedStart == "100/6" and BS.swipeSeen[exRec.icon] == "start and duration", "the fallback route")
 -- neither: each refusal is kept, word for word
 C_Spell.GetSpellCooldown = nil
 BS.UpdateUsable()
-assert(BS.swipeSeen[exBar.id]:find("^none") and BS.swipeSeen[exBar.id]:find("duration object: "), "both reasons kept")
+assert(BS.swipeSeen[exRec.icon]:find("^none") and BS.swipeSeen[exRec.icon]:find("duration object: "), "both reasons kept")
+
+-- the picture of our own: a texture typed in wins over the spell's
+local texOf = { Rend = 132155 }
+C_Spell.GetSpellTexture = function(v) return texOf[v] or 1 end
+assert(BS.IconTexture({ spell = exSpell }) == 1, "the spell's picture")
+assert(BS.IconTexture({ spell = exSpell, texture = 135358 }) == 135358, "a file ID")
+assert(BS.IconTexture({ texture = "Rend" }) == 132155, "a spell's name")
+C_Spell.GetSpellTexture = function() return nil end
+assert(BS.IconTexture({ texture = "Interface\\Icons\\Foo" }) == "Interface\\Icons\\Foo", "a path")
+assert(BS.IconTexture({}) == 134400, "nothing yet: a question mark")
+C_Spell.GetSpellTexture = function() return 1 end
+
 -- Icon style: the art zoomed to fill the icon, a border plate behind it, corners rounded alike
 local ic = BS.profile.icons
 assert(ic.zoom == 8 and ic.border == 1 and ic.radius == 0, "a profile starts with a slight zoom and a 1 px border")
-local icon = exRec.reminder
-assert(icon._coords[1] == 0.08 and icon._coords[2] == 0.92, "our own icon is zoomed 8% a side")
-local sty = { border = BS.borderOf[icon] }
-assert(sty.border and rawget(sty.border, "_shown") ~= false, "a border plate behind it")
+local own = exRec.reminder
+assert(own._coords[1] == 0.08 and own._coords[2] == 0.92, "our own icon is zoomed 8% a side")
+local plate = BS.borderOf[own]
+assert(plate and rawget(plate, "_shown") ~= false, "a border plate behind it")
 ic.zoom, ic.border, ic.radius = 20, 3, 25
 realLayout()
-assert(icon._coords[1] == 0.2, "zoom follows the setting")
-assert(rawget(icon, "_mask") and rawget(sty.border, "_mask"), "rounded: icon and border cut by the same shape")
+assert(own._coords[1] == 0.2, "zoom follows the setting")
+assert(rawget(own, "_mask") and rawget(plate, "_mask"), "rounded: icon and border cut by the same shape")
 ic.radius = 0
 realLayout()
-assert(rawget(icon, "_mask") == false, "square again: the mask comes off")
+assert(rawget(own, "_mask") == false, "square again: the mask comes off")
 ic.border = 0
 realLayout()
-assert(rawget(sty.border, "_shown") == false, "no border: no plate")
+assert(rawget(plate, "_shown") == false, "no border: no plate")
 ic.zoom, ic.border = 8, 1
 -- garbage in a saved profile is put right
 local fixed = BS.NormalizeProfile({ icons = { zoom = 99, border = -4, radius = 13, color = { 5, "x" } } })
 assert(fixed.icons.zoom == 30 and fixed.icons.border == 0 and fixed.icons.radius == 0, "clamped")
 -- the window's Icon style dialog edits it
 BS.ShowIconStyle()
-local corners
-for _, fn in ipairs(menus) do
-  local r = radios(fn)
-  if r[1] and r[1].text == "Square" then corners = r end
-end
+local corners = menuStarting("Square")
 assert(corners and #corners == 4 and corners[4].text == "Round", "corners: square, small, medium, round")
 corners[4].set()
 assert(ic.radius == 50 and corners[4].isSel(), "picking Round sets it")
 ic.radius = 0
 C_Spell.IsSpellUsable = nil
-EssentialCooldownViewer = nil
 
--- the picker for an aura or debuff bar offers Tracked Buffs only
+-- the flow in the window: Add icon makes one and opens it, the Icon dialog sets its look and
+-- adds conditions
+BS.RefreshConfig()
+local before = {}
+for _, bar in ipairs(gA.bars) do before[bar] = #bar.icons end
+BS.cfg.add._onOnClick()
+local made -- on the bar the window has picked
+for _, bar in ipairs(gA.bars) do if #bar.icons > before[bar] then made = bar.icons[#bar.icons] end end
+assert(made and made.look == "custom" and #made.conditions == 0, "Add icon: a new icon, shown always")
+local looks = menuStarting("My own picture")
+assert(looks and #looks == 3 and looks[3].text:find("aura icon"), "three looks")
+looks[3].set()
+assert(made.look == "aura" and looks[3].isSel(), "picking a look sets the icon")
+BS.cfg.editor.adds[4]._onOnClick() -- Target
+assert(made.conditions[1] and made.conditions[1].kind == "target", "Target adds a condition")
+BS.cfg.editor.adds[1]._onOnClick() -- Usable: picks a spell first
+local pickBtn = BS.cfg.picker
+assert(pickBtn and pickBtn.onPick, "Usable asks which spell")
+pickBtn.onPick({ baseSpell = 163201, name = "Execute" })
+assert(made.conditions[2].kind == "usable" and made.conditions[2].name == "Execute", "the picked spell becomes the condition")
+
+-- the picker for an aura offers Tracked Buffs only
 EssentialCooldownViewer = { GetItemFrames = function() return { cdFrame } end }
 BuffIconCooldownViewer = { GetItemFrames = function() return { rendFrame } end }
 local all, buffsOnly = BS.AvailableSpells(), BS.AvailableSpells(true)
 assert(#all == 2 and #buffsOnly == 1 and buffsOnly[1].name == "Rend", "only the tracked debuff is offered")
 BuffIconCooldownViewer = nil
+EssentialCooldownViewer = nil
 
 -- a frame whose spell comes back secret in combat keeps the last readable answer
 local pooled = { GetSpellID = function() return 772 end }
 assert(BS.FrameSpell(pooled) == 772)
 pooled.GetSpellID = function() error("secret") end
 assert(BS.FrameSpell(pooled) == 772, "the frame is still Rend's, so it stays in the bar")
-
--- conditions: Execute shows only while it is usable AND Sudden Death is up AND Rend is missing.
--- Each condition is a frame between the stack and the bar, so their opacities multiply.
-names[52437] = "Sudden Death"
-local sdFrame = mock()
-sdFrame.GetSpellID = function() return 52437 end
-sdFrame.shown = false
-sdFrame.IsShown = function(self) return self.shown end
-sdFrame.Show = function(self) self.shown = true end
-sdFrame.Hide = function(self) self.shown = false end
-sdFrame.SetParent = function(self, p) self.parent = p end
-sdFrame.GetParent = function(self) return self.parent end
-rendFrame.shown = false
-BuffIconCooldownViewer = { GetItemFrames = function() return { sdFrame, rendFrame } end }
-local usableNow = false
-C_Spell.IsSpellUsable = function() return usableNow end
-local combo = BS.NewBar(gA)
-combo.name = "Execute combo"
-combo.spells = { { baseSpell = 163201, name = "Execute" } }
-combo.conditions = { { kind = "usable", baseSpell = 163201 }, { kind = "active", baseSpell = 52437 },
-  { kind = "missing", baseSpell = 772 }, { kind = "sometimes", baseSpell = 1 }, { kind = "active" } }
-BS.NormalizeBar(combo)
-assert(#combo.conditions == 3 and combo.conditions[2].name == "Sudden Death", "garbage conditions are dropped, names filled in")
-realLayout()
-local comboC
-for _, r in ipairs(BS.placed) do if r.barRef == combo then comboC = r.barFrame end end
-local gf = rawget(comboC, "gateFrames")
-assert(gf and #gf == 3, "one frame per condition")
--- the chain: stack -> usable -> Sudden Death -> Rend -> the bar
-local function recordParent(fr) rawset(fr, "SetParent", function(self, p) rawset(self, "parent", p) end) end
-recordParent(comboC); for _, g in ipairs(gf) do recordParent(g) end
-realLayout()
-assert(rawget(comboC, "parent") == gf[3] and rawget(gf[3], "parent") == gf[2] and rawget(gf[2], "parent") == gf[1]
-  and rawget(gf[1], "parent") == BS.stacks[gA.id], "each condition hangs from the one before, the bar from the last")
-assert(sdFrame.parent ~= comboC, "Sudden Death's frame is only watched: parked, not in the bar")
-assert(gf[1]._alpha == 0 and gf[2]._alpha == 0 and gf[3]._alpha == 1, "not usable, no proc, no Rend")
-usableNow = true
-BS.UpdateUsable()
-assert(gf[1]._alpha == 1 and gf[2]._alpha == 0, "usable, but Sudden Death still says no")
-sdFrame:Show()
-assert(gf[2]._alpha == 1, "the proc lands: all three say yes")
-rendFrame:Show()
-assert(gf[3]._alpha == 0, "Rend goes up: the missing condition says no")
-rendFrame:Hide()
-sdFrame:Hide()
-assert(gf[2]._alpha == 0, "the proc is spent")
--- secrets in combat are handed on unread, each the right way round
-issecretvalue = function(v) return v == "SECRET" end
-usableNow = "SECRET"
-BS.UpdateUsable()
-assert(gf[1]._fromBool[1] == "SECRET" and gf[1]._fromBool[2] == 1 and gf[1]._fromBool[3] == 0, "usable: secret, unread")
-rendFrame:SetShown("SECRET")
-assert(gf[3]._fromBool[1] == "SECRET" and gf[3]._fromBool[2] == 0 and gf[3]._fromBool[3] == 1, "missing: inverted, unread")
-issecretvalue = nil
-rendFrame.shown = false
--- placing shows the bar whatever its conditions say
-usableNow = false
-BS.preview = true
-BS.UpdateUsable()
-assert(gf[1]._alpha == 1 and gf[2]._alpha == 1, "Show all bars: every condition steps aside")
-sdFrame:Hide()
-assert(gf[2]._alpha == 1, "and stays aside while Blizzard switches its frame")
-BS.preview = nil
--- an aura that is not in Tracked Buffs cannot be judged: it stays out of the way and is named
-BuffIconCooldownViewer = { GetItemFrames = function() return { rendFrame } end }
-realLayout()
-assert(gf[2]._alpha == 1, "Sudden Death untracked: ignored")
-said = {}
-print = function(t) said[#said + 1] = t end
-BS.Check()
-print = keptPrint
-local named
-for _, t in ipairs(said) do if t:find("also active Sudden Death %-%- not in Tracked Buffs") then named = t end end
-assert(named, "/bs check names the untracked condition")
-BS.ShowConditions() -- the dialog opens and lists the picked bar's conditions without an error
-assert(BS.cfg.condBtn._text, "the bar's button is labelled")
-C_Spell.IsSpellUsable = nil
-BuffIconCooldownViewer = nil
 
 print("barstack ok")

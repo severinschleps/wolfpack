@@ -16,15 +16,12 @@ BS.stacks = stacks
 local containers = {} -- bar id -> container frame
 local borrowed = {}   -- Blizzard item frame -> the viewer it came from
 
--- Bars that show only while something is up. Only Blizzard's buff viewers show and hide a
--- frame with its aura -- a debuff you put on the target and a proc buff included -- so these
--- borrow from nowhere else: a cooldown icon would simply always be there.
-BS.AURA_MODES = { aura = true, auramissing = true, debuff = true, proc = true, missing = true }
-
--- Which viewers a widget may borrow from, in preference order.
-local function sources(visibility)
-  if BS.AURA_MODES[visibility] then return { "BuffIconCooldownViewer" } end
-  -- "always": the cooldowns first, but a buff put on such a bar is still found
+-- An icon's picture can be Blizzard's own Cooldown Manager icon, which keeps its timer and
+-- charges. "aura" takes it from Tracked Buffs only, which shows and hides it with the aura -- a
+-- debuff on the target and a proc included. "cooldown" takes the cooldown icon, which is always up.
+local function sources(look)
+  if look == "aura" then return { "BuffIconCooldownViewer" } end
+  -- the cooldowns first, but a buff given this look is still found
   return { "EssentialCooldownViewer", "UtilityCooldownViewer", "BuffIconCooldownViewer" }
 end
 
@@ -100,8 +97,8 @@ function BS.Matches(item, sp)
   return id ~= nil and (id == sp.baseSpell or BS.SpellName(id) == sp.name)
 end
 
-local function find(sp, visibility, used)
-  for _, name in ipairs(sources(visibility)) do
+local function find(sp, look, used)
+  for _, name in ipairs(sources(look)) do
     local v = _G[name]
     if v then
       for _, it in ipairs(items(v)) do
@@ -112,21 +109,6 @@ local function find(sp, visibility, used)
 end
 BS.Find = find
 
--- The chain of condition frames for a bar, n long, hung from its stack; returns the bar's parent.
-local function gateChain(c, st, n)
-  c.gateFrames = rawget(c, "gateFrames") or {}
-  local parent = st
-  for k = 1, n do
-    local g = c.gateFrames[k] or CreateFrame("Frame", nil, parent)
-    c.gateFrames[k] = g
-    g:SetParent(parent)
-    g:SetAlpha(1)
-    g:Show()
-    parent = g
-  end
-  return parent
-end
-
 local function container(id)
   if containers[id] then return containers[id] end
   local c = CreateFrame("Frame", nil, UIParent) -- moved onto its group's stack by Layout
@@ -135,48 +117,62 @@ local function container(id)
   local bg = c.preview:CreateTexture(nil, "BACKGROUND")
   bg:SetAllPoints()
   bg:SetColorTexture(0, 0, 0, 0.35) -- no name drawn on the bar: the config list says which is which
+  c.panes, c.gates = {}, {}
   containers[id] = c
   return c
 end
 
--- "Only while debuff is missing": Blizzard's debuff frame is parked out of sight, and an icon
--- of our own takes its slot, switched the opposite way every time Blizzard switches its frame.
--- Show/Hide say plainly which way; a secret SetShown argument is handed on to
--- SetAlphaFromBoolean without being looked at. The hooks only listen and count (for /bs check).
+-- Conditions. Each icon sits in a pane, and each of its conditions is one frame chained between
+-- the bar and that pane. Alpha multiplies down the chain, so the icon shows only while every
+-- condition says yes -- an AND that never reads the answers, which in combat are secret.
+-- "usable" asks WoW and "target" asks whether you have one (see UpdateUsable); "active" and
+-- "missing" follow Blizzard's Tracked Buffs frame for the aura, whose Show / Hide we hook.
 BS.watch = setmetatable({}, { __mode = "k" })
-BS.mirror = setmetatable({}, { __mode = "k" }) -- Blizzard debuff frame -> our reminder icons
+BS.gates = {}                                 -- this layout's gates: { gate, cond, bar, icon, frame }
+BS.gated = setmetatable({}, { __mode = "k" }) -- Blizzard aura frame -> the gates it drives
 local WATCHED = { "Show", "Hide", "SetShown", "SetAlpha" }
+local GATE_ALPHA = { usable = { 1, 0 }, target = { 1, 0 }, active = { 1, 0 }, missing = { 0, 1 } }
 local hideout
 
--- reminder visible (1) while Blizzard's frame is hidden, invisible (0) while it is shown
--- The border plate behind one of our own icons, which must come and go with it.
-BS.borderOf = setmetatable({}, { __mode = "k" })
--- alpha `on` while Blizzard's frame is shown, `off` while it is hidden; a secret is handed on unread
-local function follow(t, shown, on, off)
-  if BS.secret(shown) then
-    pcall(t.SetAlphaFromBoolean, t, shown, on, off)
+-- alpha `on` while the answer is yes, `off` while it is no; a secret is handed on unread
+local function follow(t, yes, on, off)
+  if BS.secret(yes) then
+    pcall(t.SetAlphaFromBoolean, t, yes, on, off)
   else
-    t:SetAlpha(shown and on or off)
+    t:SetAlpha(yes and on or off)
   end
 end
 
-local function mirror(r, shown)
-  for _, t in ipairs({ r, BS.borderOf[r] }) do follow(t, shown, 0, 1) end
-end
-
--- A bar's conditions: one frame each, chained between the stack and the bar. Alpha multiplies
--- down the chain, so the bar shows only while every condition says yes -- an AND that never
--- reads the answers, which in combat are secret. "usable" asks WoW (see UpdateUsable); "active"
--- and "missing" follow a Tracked Buffs frame the way a missing bar does.
-BS.gates = {}                                 -- this layout's gates: { gate, cond, bar, frame }
-BS.gated = setmetatable({}, { __mode = "k" }) -- Blizzard aura frame -> the gates it drives
-local GATE_ALPHA = { usable = { 1, 0 }, active = { 1, 0 }, missing = { 0, 1 } }
 local function setGate(q, v)
-  if BS.preview or BS.editing then return q.gate:SetAlpha(1) end -- placing: every bar on screen
+  if BS.preview or BS.editing then return q.gate:SetAlpha(1) end -- placing: every icon on screen
   local a = GATE_ALPHA[q.cond.kind]
   follow(q.gate, v, a[1], a[2])
 end
 
+-- Icon j's pane, under a chain of n condition frames hung from the bar.
+local function paneFor(c, j, n)
+  c.gates[j] = c.gates[j] or {}
+  local chain, parent, level = c.gates[j], c, c:GetFrameLevel() + 1
+  for k = 1, n do
+    local g = chain[k] or CreateFrame("Frame", nil, parent)
+    chain[k] = g
+    g:SetParent(parent)
+    g:SetFrameLevel(level)
+    g:SetAlpha(1)
+    g:Show()
+    parent = g
+  end
+  local pane = c.panes[j] or CreateFrame("Frame", nil, parent)
+  c.panes[j] = pane
+  pane:SetParent(parent)
+  pane:SetFrameLevel(level)
+  pane:ClearAllPoints()
+  pane:SetAllPoints(c)
+  pane:Show()
+  return pane
+end
+
+-- The hooks only listen: they count Blizzard's calls (for /bs check) and pass the answer on.
 local function watch(it)
   if BS.watch[it] then return end
   local w = { Show = 0, Hide = 0, SetShown = 0, SetAlpha = 0 }
@@ -186,11 +182,6 @@ local function watch(it)
       hooksecurefunc(it, m, function(_, arg)
         w[m] = w[m] + 1
         if m == "SetShown" or m == "SetAlpha" then w[m .. "Secret"] = BS.secret(arg) end
-        for _, r in ipairs(BS.mirror[it] or {}) do
-          if m == "Show" then mirror(r, true)
-          elseif m == "Hide" then mirror(r, false)
-          elseif m == "SetShown" then mirror(r, arg) end
-        end
         for _, q in ipairs(BS.gated[it] or {}) do
           if m == "Show" then setGate(q, true)
           elseif m == "Hide" then setGate(q, false)
@@ -207,9 +198,9 @@ local function slot(b, j)
   return horiz and (j - 1) * (w + b.gap) or 0, horiz and 0 or -(j - 1) * (h + b.gap), w, h
 end
 
--- The whole bar: one slot per spell, along the way the icons run.
+-- The whole bar: one slot per icon, along the way the icons run.
 function BS.BarSize(b)
-  local n = math.max(1, #b.spells)
+  local n = math.max(1, #b.icons)
   local gaps = (n - 1) * (b.gap or 0)
   if b.orientation == "vertical" then return b.size.w, b.size.h * n + gaps end
   return b.size.w * n + gaps, b.size.h
@@ -218,12 +209,11 @@ end
 -- A cooldown swipe over one of our own icons. The cooldown is secret in combat, but WoW hands
 -- out a duration object that a Cooldown frame plays by itself, so nothing is read -- the same
 -- way Wolfpack's cast bar drains. The GCD shows too, as on any action button.
-local function swipeFor(c, j, r)
-  c.swipes = c.swipes or {}
-  local cd = c.swipes[j]
+local function swipeFor(pane, r)
+  local cd = pane.swipe
   if not cd then
-    cd = CreateFrame("Cooldown", nil, c, "CooldownFrameTemplate")
-    c.swipes[j] = cd
+    cd = CreateFrame("Cooldown", nil, pane, "CooldownFrameTemplate")
+    pane.swipe = cd
   end
   cd:ClearAllPoints()
   cd:SetAllPoints(r)
@@ -232,7 +222,7 @@ local function swipeFor(c, j, r)
 end
 
 -- Returns which route ran, or each route's own error, for /bs check.
-BS.swipeSeen = {} -- bar id -> how its first spell's swipe was fed
+BS.swipeSeen = setmetatable({}, { __mode = "k" }) -- icon -> how its swipe was fed
 local function feedSwipe(cd, id)
   local why = {}
   local ok, err = pcall(function() cd:SetCooldownFromDurationObject(C_Spell.GetSpellCooldownDuration(id)) end)
@@ -298,22 +288,35 @@ end
 -- Blizzard's crop on a borrowed icon, to put back when the frame goes home.
 local styled = setmetatable({}, { __mode = "k" }) -- borrowed frame -> { tex, key style, coords }
 
-local function reminder(c, b, j)
-  c.reminders = c.reminders or {}
-  local r = c.reminders[j]
+-- What an icon of our own shows: the texture typed in (a file ID, a path, or a spell's name),
+-- else its spell's picture, else a question mark.
+function BS.IconTexture(ic)
+  local t = ic.texture
+  if t then
+    local tex = tonumber(t) or (C_Spell and BS.try(C_Spell.GetSpellTexture, t))
+    if tex then return tex end
+    if type(t) == "string" and t:find("[/\\]") then return t end
+  end
+  return ic.spell and C_Spell and BS.try(C_Spell.GetSpellTexture, ic.spell.baseSpell) or 134400
+end
+
+BS.borderOf = setmetatable({}, { __mode = "k" }) -- our own icon -> the plate behind it
+
+-- An icon of our own, in its slot, styled like every other icon.
+local function ownIcon(pane, b, j, ic)
+  local r = pane.own
   if not r then
-    r = c:CreateTexture(nil, "ARTWORK")
-    c.reminders[j] = r
+    r = pane:CreateTexture(nil, "ARTWORK")
+    pane.own = r
   end
   local x, y, w, h = slot(b, j)
   local size = math.min(w, h)
   r:ClearAllPoints()
-  r:SetPoint("TOPLEFT", c, "TOPLEFT", x, y)
+  r:SetPoint("TOPLEFT", pane, "TOPLEFT", x, y)
   r:SetSize(size, size)
-  r:SetTexture((C_Spell and BS.try(C_Spell.GetSpellTexture, b.spells[j].baseSpell)) or 134400)
-  r:SetAlpha(1) -- missing until Blizzard's frame says otherwise
+  r:SetTexture(BS.IconTexture(ic))
   r:Show()
-  BS.borderOf[r] = styleIcon(r, c, "own" .. j).border
+  BS.borderOf[r] = styleIcon(r, pane, "own").border
   return r
 end
 
@@ -352,9 +355,9 @@ local function park(it)
 end
 
 -- An icon, as tall as its slot allows and square, scaled from Blizzard's own size.
-local function place(it, c, b, j)
+local function place(it, c, b, j, aura)
   borrow(it)
-  if BS.AURA_MODES[b.visibility] then watch(it) end
+  if aura then watch(it) end -- only counts, for /bs check
   local n = naturalOf(it)
   local x, y, w, h = slot(b, j)
   local s = math.min(w, h) / n.h
@@ -434,9 +437,9 @@ end
 function BS.Layout()
   if not BS.ready then return end
   hookViewers()
-  local used, live, liveStacks, missing = {}, {}, {}, {}
+  local used, live, liveStacks = {}, {}, {}
   BS.gates = {}
-  BS.placed = {} -- what the last pass did with every spell, for /bs check
+  BS.placed = {} -- what the last pass did with every icon, for /bs check
   for _, g in ipairs(BS.profile.groups) do
     local st, s = stackFor(g), g.stack
     liveStacks[st] = true
@@ -450,10 +453,7 @@ function BS.Layout()
       b.layer = n - i + 1 -- top of the list = top layer
       local c = container(b.id)
       live[c] = true
-      c:SetParent(gateChain(c, st, #b.conditions))
-      for k, cond in ipairs(b.conditions) do
-        BS.gates[#BS.gates + 1] = { gate = c.gateFrames[k], cond = cond, bar = b }
-      end
+      c:SetParent(st)
       c:ClearAllPoints()
       c:SetPoint("CENTER", st, "CENTER", b.offset.x, b.offset.y)
       local bw, bh = BS.BarSize(b)
@@ -463,28 +463,32 @@ function BS.Layout()
       c.preview:SetShown(BS.preview == true)
       sw = math.max(sw, math.abs(b.offset.x) * 2 + bw)
       sh = math.max(sh, math.abs(b.offset.y) * 2 + bh)
-      for _, r in pairs(c.reminders or {}) do r:Hide() end
-      for _, cd in pairs(c.swipes or {}) do cd:Hide() end
-      for _, k in pairs(styleSets[c] or {}) do k.border:Hide() end -- styleIcon shows the ones in use
-      for j, sp in ipairs(b.spells) do
-        -- a usable bar draws its own icon and borrows nothing (see below)
-        local it, from
-        if b.visibility ~= "usable" then it, from = find(sp, b.visibility, used) end
-        local rec = { group = g.name, bar = b.name, spell = sp.name or tostring(sp.baseSpell),
-          visibility = b.visibility, frame = it, viewer = from, container = c, barFrame = c, barRef = b, index = j }
+      for j, pane in pairs(c.panes) do
+        if pane.own then pane.own:Hide() end
+        if pane.swipe then pane.swipe:Hide() end
+        for _, k in pairs(styleSets[pane] or {}) do k.border:Hide() end -- styleIcon shows the ones in use
+        if j > #b.icons then pane:Hide() end
+      end
+      for j, ic in ipairs(b.icons) do
+        local pane = paneFor(c, j, #ic.conditions)
+        for k, cond in ipairs(ic.conditions) do
+          BS.gates[#BS.gates + 1] = { gate = c.gates[j][k], cond = cond, bar = b, icon = ic }
+        end
+        local rec = { group = g.name, bar = b.name, spell = BS.IconName(ic), look = ic.look,
+          container = pane, barFrame = c, barRef = b, icon = ic, index = j }
         BS.placed[#BS.placed + 1] = rec
-        if b.visibility == "missing" or b.visibility == "auramissing" then
-          rec.reminder = reminder(c, b, j)
-          missing[#missing + 1] = { rec = rec, sp = sp } -- matched after every other bar has its frame
-        elseif b.visibility == "usable" then
-          -- Blizzard refreshes its icon's usable look only while the frame sits in its own viewer, so
-          -- a borrowed one froze in its "not usable" look. This bar only shows while the spell can
-          -- be pressed, so our own plain icon is always the right look.
-          rec.reminder = reminder(c, b, j)
-          rec.swipe = swipeFor(c, j, rec.reminder)
-        elseif it then
-          used[it] = true
-          place(it, c, b, j)
+        if ic.look == "custom" then
+          -- our own picture: Blizzard's usable look only refreshes inside its own viewer, and a
+          -- custom texture has no frame of Blizzard's at all
+          rec.reminder = ownIcon(pane, b, j, ic)
+          if ic.swipe and ic.spell then rec.swipe = swipeFor(pane, rec.reminder) end
+        else
+          local it, from = find(ic.spell, ic.look, used)
+          rec.frame, rec.viewer = it, from
+          if it then
+            used[it] = true
+            place(it, pane, b, j, ic.look == "aura")
+          end
         end
       end
     end
@@ -496,30 +500,12 @@ function BS.Layout()
   for _, st in pairs(stacks) do
     if not liveStacks[st] then st:Hide() end -- a deleted group
   end
-  -- A "missing" bar only watches the frame, so it may share one another bar shows: one Rend in
-  -- Tracked Buffs serves both a "debuff is active" bar and a "debuff is missing" one. A frame no
-  -- other bar shows is parked out of sight instead.
-  BS.mirror = setmetatable({}, { __mode = "k" })
-  for _, m in ipairs(missing) do
-    local it, from = find(m.sp, "missing", {})
-    m.rec.frame, m.rec.viewer = it, from
-    if it then
-      if not used[it] then
-        used[it] = true
-        park(it)
-      end
-      m.rec.container = it:GetParent()
-      watch(it)
-      BS.mirror[it] = BS.mirror[it] or {}
-      table.insert(BS.mirror[it], m.rec.reminder)
-      local ok, shown = pcall(it.IsShown, it)
-      if ok then mirror(m.rec.reminder, shown) end
-    end
-  end
-  -- an aura condition watches its Tracked Buffs frame like a missing bar, sharing it the same way
+  -- An aura condition only watches Blizzard's frame, so it may share one an icon shows: one Rend
+  -- in Tracked Buffs serves a "Rend is up" icon and a "Rend is missing" one. A frame nothing
+  -- shows is parked out of sight instead.
   BS.gated = setmetatable({}, { __mode = "k" })
   for _, q in ipairs(BS.gates) do
-    if q.cond.kind ~= "usable" then
+    if q.cond.kind == "active" or q.cond.kind == "missing" then
       local it = find(q.cond, "aura", {})
       q.frame = it or false
       if it then
@@ -565,77 +551,48 @@ function BS.Reapply()
   if not ok then geterrorhandler()(err) end
 end
 
--- Debuff bars, either way round, are about your target: with no target there is nothing to say.
--- UnitExists is not secret, so this is decided here, in combat too.
-BS.TARGET_MODES = { debuff = true, missing = true }
-
 function BS.UpdateVisibility()
   local placing = BS.preview or BS.editing
-  local hasTarget = UnitExists("target") and true or false
   for _, g in ipairs(BS.profile.groups) do
     local st, s = stacks[g.id], g.stack
     if st then
       st:SetShown(placing or (BS.inCombat and s.showInCombat) or (not BS.inCombat and s.showOutOfCombat))
     end
     for _, b in ipairs(g.bars) do
-      local c = containers[b.id]
-      if c then c:SetShown(placing or hasTarget or not BS.TARGET_MODES[b.visibility]) end
+      if containers[b.id] then containers[b.id]:Show() end
     end
   end
   BS.UpdateUsable()
 end
 
--- "Only while usable": WoW's own answer to "can I press this now?" -- enough rage, the target low
--- enough for Execute, a proc like Sudden Death -- the same one the action bar shows. A readable
--- answer sets the bar's opacity; a secret one is handed to SetAlphaFromBoolean unread. The bar's
--- first spell decides (ponytail: per-spell slots if a bar ever needs several usable spells).
-BS.usableSeen = {} -- bar id -> what the last ask returned, for /bs check
+-- "usable": WoW's own answer to "can I press this now?" -- enough rage, the target low enough
+-- for Execute, a proc like Sudden Death -- the same one the action bar shows.
 local function usableOf(id)
   local ok, u = pcall(C_Spell.IsSpellUsable, id)
   if not ok then ok, u = pcall(IsUsableSpell, id) end
   if ok then return u end
 end
+BS.usableOf = usableOf
 
+-- Every condition asked afresh, and every swipe fed. An aura condition whose aura is not in
+-- Tracked Buffs cannot be judged and stays out of the way (the window says why).
 function BS.UpdateUsable()
-  local placing = BS.preview or BS.editing
-  for _, g in ipairs(BS.profile.groups) do
-    for _, b in ipairs(g.bars) do
-      local c, sp = containers[b.id], b.spells[1]
-      if c and b.visibility == "usable" then
-        for j, cd in pairs(c.swipes or {}) do
-          if b.spells[j] then
-            local how = feedSwipe(cd, b.spells[j].baseSpell)
-            if j == 1 then BS.swipeSeen[b.id] = how end
-          end
-        end
-        if placing or not sp then
-          c:SetAlpha(1)
-        else
-          local u = usableOf(sp.baseSpell)
-          if BS.secret(u) then
-            BS.usableSeen[b.id] = "secret"
-            if not pcall(c.SetAlphaFromBoolean, c, u, 1, 0) then c:SetAlpha(1) end
-          else
-            BS.usableSeen[b.id] = tostring(u)
-            c:SetAlpha(u and 1 or 0)
-          end
-        end
-      elseif c then
-        c:SetAlpha(1) -- a bar switched away from "usable" must not stay invisible
-      end
-    end
-  end
-  -- conditions, asked afresh: usable from WoW, an aura from its frame. One whose aura is not in
-  -- Tracked Buffs cannot be judged and stays out of the way (the window says why).
+  local hasTarget = UnitExists("target") and true or false
   for _, q in ipairs(BS.gates) do
-    if q.cond.kind == "usable" then
+    local kind = q.cond.kind
+    if kind == "usable" then
       setGate(q, usableOf(q.cond.baseSpell))
+    elseif kind == "target" then
+      setGate(q, hasTarget)
     elseif q.frame then
       local ok, shown = pcall(q.frame.IsShown, q.frame)
       if ok then setGate(q, shown) end
     else
       q.gate:SetAlpha(1)
     end
+  end
+  for _, r in ipairs(BS.placed or {}) do
+    if r.swipe then BS.swipeSeen[r.icon] = feedSwipe(r.swipe, r.icon.spell.baseSpell) end
   end
 end
 

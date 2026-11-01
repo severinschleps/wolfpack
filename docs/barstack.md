@@ -15,16 +15,25 @@ It used to be its own addon, github.com/severinschleps/bar-stack; that repo is n
 
 1. Add the spells you want in Blizzard's Cooldown Manager (Options › Gameplay Enhancements).
 2. Type `/bs`, or press **Bar Stack** in Wolfpack's options sidebar, to open its page in the options window.
-3. Click **New** to create a bar, pick when it shows under **Show**, and click **Add spell**.
-   Every spell shows as Blizzard's icon, with its own countdown. "Only while aura / debuff / proc is
-   active" borrow from **Tracked Buffs** only, which Blizzard shows just while the aura is up. That
-   is what makes a stack work as a priority list: a higher bar covers the ones below only while it
-   has something to say. Bars set to "Always" use the cooldown icon, which never hides.
-   "Only while debuff is missing" draws its own icon and only watches Blizzard's frame, so one
-   spell in Tracked Buffs serves a "debuff is active" icon and a "debuff is missing" icon together.
-   Both debuff choices show only while you have a target. "Only while aura is missing" works
-   like "debuff is missing" without that rule, for your own buffs.
-   **Icon gap** spaces the icons in a bar.
+3. The flow is group > bar > icon > conditions. Click **New** to create a bar, then **Add icon**.
+   The **Icon** dialog opens beside the window:
+   - **Looks like**: *My own picture* (a spell's picture, or a texture typed in: file ID, path
+     or spell name, optionally with the spell's cooldown swipe), *Blizzard's cooldown icon*
+     (cooldown and charges), or *Blizzard's aura icon* (Tracked Buffs, with its timer; Blizzard
+     shows it only while the aura is up).
+   - **Shows while all of these hold**: *Usable* (a spell can be pressed, as the action bar
+     shows it), *Aura up* / *Aura missing* (a Tracked Buffs spell), *Target* (you have one).
+     None: always shown. Example: Execute's picture, shown while Rend is up AND Thunder Clap is
+     up AND Mortal Strike is usable.
+
+   Each condition is one frame between the bar and the icon; opacity multiplies down that chain,
+   so the AND never reads the answers, which are secret in combat. Usable and Target need no
+   Cooldown Manager. An aura condition, or an icon of Blizzard's, needs its spell there, because
+   in combat only Blizzard's frame can say an aura is up. One Rend in Tracked Buffs serves an
+   aura icon and any number of conditions at once. A higher bar covers the ones below only
+   while it has something to show, so a stack works as a priority list. **Icon gap** spaces
+   the icons. Bars from before icons convert by themselves: each spell becomes an icon that
+   shows the way the bar's old Show setting did.
 
    **Why no flash near the end:** tried, and taken out. In Midnight an addon cannot reach an
    aura's time left: Blizzard sets the icon's Cooldown with `SetCooldown(start, length)`, both
@@ -38,12 +47,6 @@ It used to be its own addon, github.com/severinschleps/bar-stack; that repo is n
    `C_UnitAuras.GetAuraDuration` and `DurationObject:SetTimeFromStart` both refuse secrets from
    addon code (tried, and seen refused in game). Blizzard's own Tracked Bars frames were tried too:
    they did not say reliably which spell they show, so Bar Stack leaves Tracked Bars alone.
-   **Conditions** (button on the bar) add more checks that must all hold, on top of **Show**:
-   *Usable* (a spell can be pressed), *Aura up* or *Aura missing* (a Tracked Buffs spell).
-   Example: Execute, shown only while usable AND Sudden Death is up. Each condition is one
-   frame between the stack and the bar; opacity multiplies down that chain, so the AND never
-   reads the answers (secret in combat). Usable needs no Cooldown Manager; an aura condition
-   needs its spell in Tracked Buffs, because in combat only Blizzard's frame can say it is up.
 4. Use **Move up** / **Move down** (or drag) to reorder. The top of the list is the top layer.
 5. **New group** starts another stack with its own position, scale and combat settings. The
    dropdown above the list picks which group you are editing.

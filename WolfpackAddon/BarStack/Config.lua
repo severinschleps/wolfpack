@@ -3,12 +3,8 @@ ns.bs = ns.bs or {}
 local BS = ns.bs
 local ui = ns.ui
 
-local VIS = { "always", "usable", "aura", "auramissing", "debuff", "missing", "proc" }
-local VIS_TEXT = { always = "Always", usable = "Only while usable", aura = "Only while aura is active",
-  auramissing = "Only while aura is missing", debuff = "Only while debuff is active",
-  missing = "Only while debuff is missing", proc = "Only while proc is active" }
-BS.VIS, BS.VIS_TEXT = VIS, VIS_TEXT
-local MAX_SPELLS = 8 -- ponytail: no scrolling in the spell list; a bar holds "one or a few" spells
+local MAX_ICONS = 8 -- ponytail: no scrolling in the icon list; a bar holds "one or a few" icons
+local MAX_CONDS = 6
 
 -- Three columns of cards: the group, its bars, the picked bar (and its spells below it).
 local W, H = 832, ui.BS_H
@@ -16,8 +12,8 @@ local C1, C2, C3 = 0, 242, 484
 local W12, W3 = 230, 348
 local BOTTOM = -556
 
-local f, selected, dragFrom, group
-local listRows, spellRows, pickRows, condRows = {}, {}, {}, {}
+local f, selected, dragFrom, group, editing -- editing: the icon open in the Icon dialog
+local listRows, iconRows, pickRows, condRows = {}, {}, {}, {}
 local groupSliders, barSliders = {}, {}
 
 -- The group whose bars the window shows; the first one if the old pick is gone.
@@ -179,28 +175,39 @@ local function listRow(i)
 end
 
 ------------------------------------------------------------------------
--- Spell list + picker
+-- The bar's icons, the Icon dialog, and the spell picker both use
 ------------------------------------------------------------------------
 
-local function spellRow(i)
-  if spellRows[i] then return spellRows[i] end
-  local r = CreateFrame("Frame", nil, f.right)
-  r:SetSize(W3 - 24, 22)
-  r:SetPoint("TOPLEFT", C3 + 12, -374 - (i - 1) * 22)
+local editor -- the Icon dialog, made the first time it is opened
+
+local function iconRow(i)
+  if iconRows[i] then return iconRows[i] end
+  local r = ui.Button(f.right, "", W3 - 24, true)
+  r:SetPoint("TOPLEFT", C3 + 12, -374 - (i - 1) * 26)
   r.icon = r:CreateTexture(nil, "ARTWORK")
   r.icon:SetSize(20, 20)
-  r.icon:SetPoint("LEFT")
-  r.name = r:CreateFontString(nil, "OVERLAY", ui.TEXT_LEFT)
-  r.name:SetPoint("LEFT", 28, 0)
-  r.name:SetWidth(240)
+  r.icon:SetPoint("LEFT", 4, 0)
+  r:GetFontString():ClearAllPoints()
+  r:GetFontString():SetPoint("LEFT", 30, 0)
+  r:GetFontString():SetPoint("RIGHT", -70, 0)
+  r:GetFontString():SetJustifyH("LEFT")
+  r:SetScript("OnClick", function() BS.EditIcon(selected.icons[i]) end)
   r.remove = ui.Button(r, "Remove", 64, true)
   r.remove:SetPoint("RIGHT")
   r.remove:SetScript("OnClick", function()
-    table.remove(selected.spells, i)
+    if editing == selected.icons[i] then editor:Hide() end
+    table.remove(selected.icons, i)
     changed()
   end)
-  spellRows[i] = r
+  iconRows[i] = r
   return r
+end
+
+-- what an icon's row says: its picture's name and when it shows
+local function summary(ic)
+  local n = #ic.conditions
+  return BS.IconName(ic) .. "|cff71717a  --  " .. (n == 0 and "always" or n == 1 and "1 condition"
+    or n .. " conditions") .. "|r"
 end
 
 local function pickRow(i)
@@ -212,22 +219,20 @@ local function pickRow(i)
   r.icon:SetPoint("LEFT", 6, 0)
   r:GetFontString():SetPoint("LEFT", 32, 0)
   r:SetScript("OnClick", function(self)
-    local kind = f.picker.kind
-    table.insert(kind and selected.conditions or selected.spells,
-      { kind = kind, baseSpell = self.sp.baseSpell, name = self.sp.name })
     f.picker:Hide()
+    f.picker.onPick({ baseSpell = self.sp.baseSpell, name = self.sp.name })
     changed()
   end)
   pickRows[i] = r
   return r
 end
 
--- kind nil: a spell for the bar; "usable" / "active" / "missing": a condition (see Conditions)
-local conds -- the Conditions dialog, made the first time it is opened
-local function showPicker(kind)
+-- Spells from Blizzard's Cooldown Manager; `buffsOnly` lists Tracked Buffs alone, all an aura
+-- icon or an aura condition can use. onPick(spell) is told which one.
+local function showPicker(buffsOnly, onPick)
   local p = f.picker
   if not p then
-    p = dialog(270, 460, "Add spell")
+    p = dialog(270, 460, "Pick a spell")
     p.hint = text(p, "", 16, -48, "GameFontDisableSmall")
     p.hint:SetJustifyH("LEFT")
     button(p, "Open Cooldown Manager", 238, 16, -80, function()
@@ -239,12 +244,10 @@ local function showPicker(kind)
     p.list = scroll(p, 16, -116, 230, 330)
     f.picker = p
   end
-  p.kind = kind
+  p.onPick = onPick
   p:ClearAllPoints()
-  if kind then p:SetPoint("TOPLEFT", conds, "TOPRIGHT", 12, 0) -- beside the list it adds to
-  else p:SetPoint("TOPLEFT", f:GetParent(), "TOPRIGHT", 12, 0) end
-  local buffsOnly = kind and kind ~= "usable" or (not kind and selected and BS.AURA_MODES[selected.visibility])
-  p.hint:SetText(buffsOnly and "Tracked Buffs only:\nthat is all this bar's Show setting can use."
+  p:SetPoint("TOPLEFT", editor, "TOPRIGHT", 12, 0) -- beside the icon it is for
+  p.hint:SetText(buffsOnly and "Tracked Buffs only: an aura has to be\nthere for Blizzard to say it is up."
     or "Lists spells in Blizzard's Cooldown Manager.\nMissing one? Add it there first.")
   local spells = BS.AvailableSpells(buffsOnly)
   p.list:SetHeight(math.max(1, #spells * 26))
@@ -260,69 +263,120 @@ local function showPicker(kind)
   p:Show()
 end
 
-------------------------------------------------------------------------
--- Conditions: more spells that must agree before the bar shows
-------------------------------------------------------------------------
-
-local COND_TEXT = { usable = "Usable", active = "Active", missing = "Missing" }
-local MAX_CONDS = 6
+local LOOK_TEXT = { custom = "My own picture", cooldown = "Blizzard's cooldown icon",
+  aura = "Blizzard's aura icon (with timer)" }
+local LOOKS = { "custom", "cooldown", "aura" }
+local COND_TEXT = { usable = "Usable", active = "Aura up", missing = "Aura missing", target = "Have a target" }
 
 local function condRow(i)
   if condRows[i] then return condRows[i] end
-  local r = CreateFrame("Frame", nil, conds)
-  r:SetSize(268, 22)
-  r:SetPoint("TOPLEFT", 16, -150 - (i - 1) * 24)
+  local r = CreateFrame("Frame", nil, editor)
+  r:SetSize(288, 22)
+  r:SetPoint("TOPLEFT", 16, -318 - (i - 1) * 24)
   r.icon = r:CreateTexture(nil, "ARTWORK")
   r.icon:SetSize(20, 20)
   r.icon:SetPoint("LEFT")
   r.name = r:CreateFontString(nil, "OVERLAY", ui.TEXT_LEFT)
   r.name:SetPoint("LEFT", 28, 0)
-  r.name:SetWidth(170)
+  r.name:SetWidth(190)
   r.remove = ui.Button(r, "Remove", 64, true)
   r.remove:SetPoint("RIGHT")
   r.remove:SetScript("OnClick", function()
-    table.remove(selected.conditions, i)
+    table.remove(editing.conditions, i)
     changed()
   end)
   condRows[i] = r
   return r
 end
 
-function BS.ShowConditions()
-  if not conds then
-    conds = dialog(300, 314, "Conditions")
-    local hint = text(conds, "The bar shows only while every one of these holds,\n"
-      .. "on top of its own Show setting.", 16, -48, "GameFontDisableSmall")
-    hint:SetJustifyH("LEFT")
-    conds.adds = {
-      button(conds, "Usable", 86, 16, -84, function() showPicker("usable") end),
-      button(conds, "Aura up", 86, 107, -84, function() showPicker("active") end),
-      button(conds, "Aura missing", 86, 198, -84, function() showPicker("missing") end),
+-- The Icon dialog: first what the icon looks like, then when it shows.
+function BS.EditIcon(ic)
+  editing = ic
+  if not editor then
+    local d = dialog(320, 470, "Icon")
+    editor, f.editor = d, d
+    text(d, "Looks like", 16, -44, "GameFontNormal")
+    d.look = dropdown(d, 16, -66, 288, function()
+      local out = {}
+      for _, v in ipairs(LOOKS) do
+        out[#out + 1] = { LOOK_TEXT[v], function() return editing and editing.look == v end,
+          function() editing.look = v; changed() end }
+      end
+      return out
+    end)
+    d.spellLabel = text(d, "Spell", 16, -102)
+    d.spell = button(d, "", 288, 16, -118, function()
+      showPicker(editing.look == "aura", function(sp) editing.spell = sp end)
+    end)
+    d.texLabel = text(d, "Or a texture: file ID, path or spell name", 16, -154)
+    d.tex = ui.Input(d, 288)
+    d.tex:SetPoint("TOPLEFT", 16, -170)
+    d.tex:SetScript("OnEnterPressed", d.tex.ClearFocus)
+    d.tex:SetScript("OnEscapePressed", function(self) BS.RefreshConfig(); self:ClearFocus() end)
+    d.tex:HookScript("OnEditFocusLost", function(self)
+      local v = strtrim(self:GetText() or "")
+      editing.texture = v ~= "" and (tonumber(v) or v) or nil
+      changed()
+    end)
+    d.swipe = checkbox(d, "Cooldown swipe of the spell", 16, -202, function(on) editing.swipe = on; changed() end)
+    d.lookNote = text(d, "", 16, -154, "GameFontDisableSmall")
+    d.lookNote:SetWidth(288)
+    d.lookNote:SetJustifyH("LEFT")
+
+    text(d, "Shows while all of these hold", 16, -240, "GameFontNormal")
+    d.adds = {
+      button(d, "Usable", 70, 16, -262, function()
+        showPicker(false, function(sp) sp.kind = "usable"; table.insert(editing.conditions, sp) end)
+      end),
+      button(d, "Aura up", 70, 88, -262, function()
+        showPicker(true, function(sp) sp.kind = "active"; table.insert(editing.conditions, sp) end)
+      end),
+      button(d, "Aura missing", 70, 160, -262, function()
+        showPicker(true, function(sp) sp.kind = "missing"; table.insert(editing.conditions, sp) end)
+      end),
+      button(d, "Target", 70, 232, -262, function()
+        table.insert(editing.conditions, { kind = "target" })
+        changed()
+      end),
     }
-    text(conds, "Usable: as your action bar shows it. Aura: from Tracked Buffs.", 16, -116, "GameFontDisableSmall")
-    conds.empty = text(conds, "None yet: the bar follows its Show setting alone.", 16, -150, "GameFontDisableSmall")
+    text(d, "Usable: as your action bar shows it. Aura: from Tracked Buffs.", 16, -292, "GameFontDisableSmall")
+    d.empty = text(d, "None: the icon always shows.", 16, -322, "GameFontDisableSmall")
   end
-  conds:Show()
+  editor:Show()
   BS.RefreshConfig()
 end
 
-local function refreshConditions(b)
-  f.condBtn:SetText(#b.conditions > 0 and ("Conditions (%d)"):format(#b.conditions) or "Conditions")
-  if not (conds and conds:IsShown()) then return end
+local function refreshEditor()
+  if not (editor and editor:IsShown()) then return end
+  if not (selected and tContains(selected.icons, editing)) then return editor:Hide() end
+  local d, ic = editor, editing
+  d.look:GenerateMenu()
+  local own = ic.look == "custom"
+  d.spellLabel:SetText(own and "Spell (its picture and cooldown; optional)" or "Spell")
+  d.spell:SetText(ic.spell and ic.spell.name or "Pick a spell")
+  d.texLabel:SetShown(own)
+  d.tex:SetShown(own)
+  if not d.tex:HasFocus() then d.tex:SetText(ic.texture and tostring(ic.texture) or "") end
+  d.swipe:SetShown(own)
+  d.swipe:SetChecked(ic.swipe)
+  d.swipe:SetEnabled(ic.spell ~= nil)
+  d.lookNote:SetShown(not own)
+  d.lookNote:SetText(ic.look == "aura" and "Blizzard shows it only while the aura is up, with its timer."
+    .. " Needs the spell in Tracked Buffs." or "Blizzard's icon, with its cooldown and charges.")
   local untracked = {}
   for _, q in ipairs(BS.gates or {}) do
-    if q.bar == b and q.frame == false then untracked[q.cond] = true end
+    if q.icon == ic and q.frame == false then untracked[q.cond] = true end
   end
-  for i, q in ipairs(b.conditions) do
+  for i, q in ipairs(ic.conditions) do
     local row = condRow(i)
-    row.icon:SetTexture((C_Spell and BS.try(C_Spell.GetSpellTexture, q.baseSpell)) or 134400)
-    row.name:SetText(COND_TEXT[q.kind] .. ": " .. (q.name or ("Spell " .. q.baseSpell))
+    row.icon:SetTexture(q.baseSpell and C_Spell and BS.try(C_Spell.GetSpellTexture, q.baseSpell) or 132212)
+    row.name:SetText(COND_TEXT[q.kind] .. (q.name and ": " .. q.name or "")
       .. (untracked[q] and " |cfff87171(not in Tracked Buffs)|r" or ""))
     row:Show()
   end
-  for i = #b.conditions + 1, #condRows do condRows[i]:Hide() end
-  for _, add in ipairs(conds.adds) do add:SetEnabled(#b.conditions < MAX_CONDS) end
-  conds.empty:SetShown(#b.conditions == 0)
+  for i = #ic.conditions + 1, #condRows do condRows[i]:Hide() end
+  for _, add in ipairs(d.adds) do add:SetEnabled(#ic.conditions < MAX_CONDS) end
+  d.empty:SetShown(#ic.conditions == 0)
 end
 
 ------------------------------------------------------------------------
@@ -515,40 +569,35 @@ local function build(parent)
 
   text(r, "Name", x, -40)
   f.name = input(r, x, -56, W3 - 24, false, function(v) selected.name = v end)
-  text(r, "Show", x, -92)
-  f.vis = dropdown(r, x, -108, W3 - 24, function()
-    local out = {}
-    for _, v in ipairs(VIS) do
-      out[#out + 1] = { VIS_TEXT[v], function() return selected and selected.visibility == v end,
-        function() selected.visibility = v; changed() end }
-    end
-    return out
-  end)
-  f.orient = button(r, "", 110, x, -144, function()
+  f.orient = button(r, "", 110, x, -92, function()
     selected.orientation = selected.orientation == "vertical" and "horizontal" or "vertical"
     changed()
   end)
-  text(r, "Icons run this way", x + 118, -150, "GameFontDisableSmall")
+  text(r, "Icons run this way", x + 118, -98, "GameFontDisableSmall")
   local B = function() return selected end
   local half = (W3 - 24 - 12) / 2
-  slider(barSliders, r, "Icon width", x, -180, half, 8, 200, 1,
+  slider(barSliders, r, "Icon width", x, -128, half, 8, 200, 1,
     function() return B() and B().size.w end, function(v) B().size.w = BS.Clamp(v, 1, 2000) end)
-  slider(barSliders, r, "Icon height", x + half + 12, -180, half, 8, 200, 1,
+  slider(barSliders, r, "Icon height", x + half + 12, -128, half, 8, 200, 1,
     function() return B() and B().size.h end, function(v) B().size.h = BS.Clamp(v, 1, 2000) end)
-  slider(barSliders, r, "Offset X", x, -226, half, -400, 400, 1,
+  slider(barSliders, r, "Offset X", x, -174, half, -400, 400, 1,
     function() return B() and B().offset.x end, function(v) B().offset.x = BS.Clamp(v, -2000, 2000) end)
-  slider(barSliders, r, "Offset Y", x + half + 12, -226, half, -400, 400, 1,
+  slider(barSliders, r, "Offset Y", x + half + 12, -174, half, -400, 400, 1,
     function() return B() and B().offset.y end, function(v) B().offset.y = BS.Clamp(v, -2000, 2000) end)
-  slider(barSliders, r, "Icon gap", x, -272, half, 0, 40, 1,
+  slider(barSliders, r, "Icon gap", x, -220, half, 0, 40, 1,
     function() return B() and B().gap end, function(v) B().gap = BS.Clamp(v, 0, 200) end)
-  f.condBtn = button(r, "Conditions", half, x + half + 12, -286, BS.ShowConditions)
 
-  text(r, "Spells", x, -350, "GameFontNormal")
-  f.add = button(r, "Add spell", 90, C3 + W3 - 102, -346, function() showPicker() end)
-  -- why a spell on this bar shows nothing, said where you are looking rather than in /bs check
-  f.spellNote = text(r, "", x, -378, "GameFontNormalSmall")
-  f.spellNote:SetWidth(W3 - 24)
-  f.spellNote:SetJustifyH("LEFT")
+  text(r, "Icons", x, -350, "GameFontNormal")
+  f.add = button(r, "Add icon", 90, C3 + W3 - 102, -346, function()
+    local ic = BS.NormalizeIcon({})
+    table.insert(selected.icons, ic)
+    changed()
+    BS.EditIcon(ic)
+  end)
+  -- why an icon on this bar shows nothing, said where you are looking rather than in /bs check
+  f.iconNote = text(r, "", x, -378, "GameFontNormalSmall")
+  f.iconNote:SetWidth(W3 - 24)
+  f.iconNote:SetJustifyH("LEFT")
   BS.cfg = f
   f.groupSliders, f.barSliders = groupSliders, barSliders
 
@@ -600,41 +649,34 @@ function BS.RefreshConfig()
   f.right:SetShown(selected ~= nil)
   f.empty:SetShown(selected == nil)
   if f.picker and not selected then f.picker:Hide() end
-  if conds and not selected then conds:Hide() end
+  if editor and not selected then editor:Hide() end
   local b = selected
   if not b then return end
   if not f.name:HasFocus() then f.name:SetText(b.name) end
-  f.vis:GenerateMenu()
   for _, sl in ipairs(barSliders) do sl.sync() end
   f.orient:SetText(b.orientation == "vertical" and "Vertical" or "Horizontal")
-  f.add:SetEnabled(#b.spells < MAX_SPELLS)
-  for i, sp in ipairs(b.spells) do
-    local row = spellRow(i)
-    row.icon:SetTexture((C_Spell and BS.try(C_Spell.GetSpellTexture, sp.baseSpell)) or 134400)
-    row.name:SetText(sp.name or ("Spell " .. sp.baseSpell))
+  f.add:SetEnabled(#b.icons < MAX_ICONS)
+  for i, ic in ipairs(b.icons) do
+    local row = iconRow(i)
+    row.icon:SetTexture(BS.IconTexture(ic))
+    row:SetText(summary(ic))
+    if ic == editing and editor and editor:IsShown() then row:LockHighlight() else row:UnlockHighlight() end
     row:Show()
   end
-  for i = #b.spells + 1, #spellRows do spellRows[i]:Hide() end
-  refreshConditions(b)
+  for i = #b.icons + 1, #iconRows do iconRows[i]:Hide() end
   local notes = {}
   for _, rec in ipairs(BS.placed or {}) do
-    if rec.barRef == b and not rec.frame and b.visibility ~= "usable" then
-      notes[#notes + 1] = "|cfff87171" .. rec.spell .. (BS.AURA_MODES[b.visibility]
+    if rec.barRef == b and rec.look ~= "custom" and not rec.frame then
+      notes[#notes + 1] = "|cfff87171" .. rec.spell .. (rec.look == "aura"
         and ": not in Tracked Buffs. Add it there in the Cooldown Manager.|r"
         or ": not in the Cooldown Manager. Add it there.|r")
     end
   end
-  if b.visibility == "usable" then
-    notes[#notes + 1] = "|cffa1a1aaShows while " .. (b.spells[1] and b.spells[1].name or "its spell")
-      .. " can be pressed: enough rage, a low enough target, or a proc -- as your action bar shows it."
-      .. (#b.spells > 1 and " The first spell decides." or "") .. "|r"
-  end
-  if BS.TARGET_MODES[b.visibility] and not UnitExists("target") then
-    notes[#notes + 1] = "|cfffbbf24Shows only while you have a target.|r"
-  end
-  f.spellNote:ClearAllPoints()
-  f.spellNote:SetPoint("TOPLEFT", C3 + 12, -378 - #b.spells * 22)
-  f.spellNote:SetText(table.concat(notes, "\n"))
+  if #b.icons == 0 then notes[#notes + 1] = "|cffa1a1aaAdd an icon, then pick its picture and when it shows.|r" end
+  f.iconNote:ClearAllPoints()
+  f.iconNote:SetPoint("TOPLEFT", C3 + 12, -378 - #b.icons * 26)
+  f.iconNote:SetText(table.concat(notes, "\n"))
+  refreshEditor()
 end
 
 -- Wolfpack's options window calls this whenever its Bar Stack page is on screen
