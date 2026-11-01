@@ -20,6 +20,12 @@ It used to be its own addon, github.com/severinschleps/bar-stack; that repo is n
    Blizzard shows just while the aura is up. That is what makes a stack work as a priority list: a
    higher bar covers the ones below only while it has something to say. Bars set to "Always" use
    the cooldown icon, which never hides.
+   A spell's shape follows where it is tracked: **Tracked Bars** gives Blizzard's draining bar,
+   **Tracked Buffs** an icon. No addon can run an aura's timer on a bar of its own -- in Midnight,
+   `C_UnitAuras.GetAuraDuration` and `DurationObject:SetTimeFromStart` both refuse secrets from
+   addon code (tried, and seen refused in game). "Only while debuff is missing" draws its own icon
+   and only watches Blizzard's frame, so one spell in Tracked Bars serves a "debuff is active" bar
+   and a "debuff is missing" icon together.
 4. Use **Move up** / **Move down** (or drag) to reorder. The top of the list is the top layer.
 5. **New group** starts another stack with its own position, scale and combat settings. The
    dropdown above the list picks which group you are editing; a bar's **Group** dropdown moves it.

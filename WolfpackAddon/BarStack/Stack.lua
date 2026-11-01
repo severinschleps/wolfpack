@@ -200,101 +200,17 @@ local function park(it)
   it:SetParent(hideout)
 end
 
--- "Bar" for a spell: Blizzard's icon on the left, and a timer bar of ours beside it. The bar is
--- the icon's own child, so it comes and goes with the icon -- nothing has to be read for that.
--- Its timer is whatever Blizzard hands the icon's cooldown swipe, caught on the way in: a
--- duration object goes straight to SetTimerDuration; a start and duration are wrapped in one
--- first. Neither is looked at. /bs check says which route ran.
-local TIMER_REMAINING = 1 -- Enum.StatusBarTimerDirection
-BS.timerBars = setmetatable({}, { __mode = "k" })
-local function hookTimer(it, bar)
-  local cd = it.Cooldown
-  if type(cd) ~= "table" then bar.route = "the icon has no cooldown swipe"; return end
-  -- true when the bar took it; the reason when it did not, so /bs check can say it word for word
-  local function run(dur, route)
-    local ok, err = pcall(bar.SetTimerDuration, bar, dur, 0, TIMER_REMAINING)
-    if ok then bar.route, bar.failed = route, nil; return true end
-    return false, err
-  end
-  -- Every cooldown call Blizzard makes on the swipe, by name, for /bs check: which one starts
-  -- the countdown on the icon is what the bar has to catch. Counting reads nothing.
-  bar.calls = {}
-  local mt = getmetatable(cd)
-  local methods = mt and type(mt.__index) == "table" and mt.__index or {}
-  for name, fn in pairs(methods) do
-    if type(fn) == "function" and (name:find("Cooldown") or name:find("Duration") or name == "Clear") then
-      pcall(hooksecurefunc, cd, name, function() bar.calls[name] = (bar.calls[name] or 0) + 1 end)
-    end
-  end
-  if type(cd.SetCooldownFromDurationObject) == "function" then
-    hooksecurefunc(cd, "SetCooldownFromDurationObject", function(_, dur)
-      local took, err = run(dur, "duration object")
-      if not took then bar.failed = "duration object: " .. tostring(err) end
-    end)
-  end
-  if type(cd.SetCooldown) == "function" then
-    -- Blizzard starts a buff icon's countdown with SetCooldown(start, duration), both secret.
-    -- First choice: the aura's own duration object, asked for by the instance id Blizzard keeps
-    -- on the frame. Second: start and duration wrapped in a duration object. Nothing is read.
-    hooksecurefunc(cd, "SetCooldown", function(_, start, duration)
-      local why = {}
-      local ok, dur = pcall(function() return C_UnitAuras.GetAuraDuration(it.auraDataUnit, it.auraInstanceID) end)
-      if ok then
-        local took, err = run(dur, "aura duration")
-        if took then return end
-        why[#why + 1] = "aura duration: " .. tostring(err)
-      else
-        why[#why + 1] = "aura duration: " .. tostring(dur)
-      end
-      ok, dur = pcall(function()
-        local d = C_DurationUtil.CreateDuration()
-        d:SetTimeFromStart(start, duration)
-        return d
-      end)
-      if ok then
-        local took, err = run(dur, "start and duration")
-        if took then return end
-        why[#why + 1] = "start and duration: " .. tostring(err)
-      else
-        why[#why + 1] = "start and duration: " .. tostring(dur)
-      end
-      bar.failed = table.concat(why, " | ")
-    end)
-  end
-  -- Clear is left alone: Blizzard calls it on every refresh (8 to 2 against SetCooldown in game),
-  -- and emptying the bar on it wiped the timer. When the aura ends the icon hides, bar and all.
-end
-
-local function timerBar(it, b, sp, width, height, s)
-  local bar = BS.timerBars[it]
-  if not bar then
-    bar = CreateFrame("StatusBar", nil, it)
-    bar.bg = bar:CreateTexture(nil, "BACKGROUND")
-    bar.bg:SetAllPoints()
-    bar.bg:SetColorTexture(0, 0, 0, 0.5)
-    bar.text = bar:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-    bar.text:SetPoint("LEFT", 4, 0)
-    bar:SetMinMaxValues(0, 1)
-    bar:SetValue(1) -- full until a timer arrives
-    BS.timerBars[it] = bar
-    hookTimer(it, bar)
-  end
-  bar:ClearAllPoints()
-  bar:SetPoint("TOPLEFT", it, "TOPRIGHT", 0, 0)
-  bar:SetSize(math.max(1, width) / s, height / s) -- the icon's child, so in its scaled units
-  bar:SetStatusBarTexture(BS.TEXTURES[b.style.texture])
-  bar:SetStatusBarColor(BS.Hex(b.style.color))
-  bar.text:SetText(sp.name or "")
-  bar:Show()
-end
-
+-- A spell's shape follows where it is tracked. Only Blizzard's own code may run an aura's timer
+-- on a bar -- in game, GetAuraDuration and SetTimeFromStart both refuse secrets from an addon --
+-- so a draining bar is a Tracked Bars frame, and a Tracked Buffs frame is an icon, always.
+-- "Icon" on a Tracked Bars frame squares it, leaving just its icon showing.
 local function place(it, c, b, j, viewer)
   borrow(it)
   if BS.AURA_MODES[b.visibility] then watch(it) end
   local sp, n = b.spells[j], naturalOf(it)
   local x, y, w, h = slot(b, j)
-  local asBar = sp.display == "bar"
-  local height = asBar and h or math.min(w, h)
+  local isBar = viewer == "BuffBarCooldownViewer"
+  local height = (isBar and sp.display == "bar") and h or math.min(w, h)
   local s = height / n.h
   it:SetParent(c)
   it:SetFrameStrata(c:GetFrameStrata())
@@ -302,9 +218,8 @@ local function place(it, c, b, j, viewer)
   it:SetScale(s)
   it:ClearAllPoints()
   it:SetPoint("TOPLEFT", c, "TOPLEFT", x / s, y / s) -- offsets are in the frame's own scaled units
-  if viewer == "BuffBarCooldownViewer" then
-    -- Blizzard's own bar (Tracked Bars): as tall as the slot, as wide as the slot
-    it:SetSize(w / s, n.h)
+  if isBar then
+    it:SetSize((sp.display == "bar" and w or height) / s, n.h)
     local bar = it.Bar
     if bar and bar.SetStatusBarColor then
       -- ponytail: re-styled on each layout pass only; if Blizzard recolors bars between passes, hook the item's refresh
@@ -313,11 +228,6 @@ local function place(it, c, b, j, viewer)
     end
   else
     it:SetSize(n.w, n.h) -- an icon keeps its own shape; the scale makes it `height` tall
-    if asBar then
-      timerBar(it, b, sp, w - n.w * s, height, s)
-    elseif BS.timerBars[it] then
-      BS.timerBars[it]:Hide()
-    end
   end
 end
 
@@ -460,7 +370,6 @@ function BS.Layout()
   for it, origin in pairs(borrowed) do
     if not used[it] then
       borrowed[it] = nil
-      if BS.timerBars[it] then BS.timerBars[it]:Hide() end
       local n = natural[it]
       if n then -- home the way it came: Blizzard's size and scale
         it:SetScale(n.scale)

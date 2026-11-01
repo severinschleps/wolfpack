@@ -333,64 +333,38 @@ local function shown(f) return f.w * f.scale, f.h * f.scale end
 local sw_, sh_ = shown(rendFrame)
 assert(math.abs(sw_ - 240) < 0.01 and math.abs(sh_ - 24) < 0.01, "Blizzard's bar from Tracked Bars fills the 240 x 24 slot: " .. sw_ .. " x " .. sh_)
 
--- the same spell as "Bar" from Tracked Buffs: Blizzard's icon, 24 tall, square, scaled not stretched,
--- with our timer bar filling the rest of the 240
+-- "Icon" on a Tracked Bars frame squares it: just its icon, as tall as the bar
+debuffBar.spells[1].display = "icon"
+realLayout()
+sw_, sh_ = shown(rendFrame)
+assert(math.abs(sw_ - 24) < 0.01 and math.abs(sh_ - 24) < 0.01, "a Tracked Bars frame as an icon is 24 x 24: " .. sw_)
+debuffBar.spells[1].display = "bar"
+
+-- from Tracked Buffs the frame is an icon whatever the choice: an addon may not run an aura's
+-- timer on a bar of its own (WoW refuses it, seen in game), so only Tracked Bars drain
 BuffBarCooldownViewer = nil
 BuffIconCooldownViewer = { GetItemFrames = function() return { rendFrame } end }
 realLayout()
 sw_, sh_ = shown(rendFrame)
 assert(rendFrame.w == 36 and rendFrame.h == 36, "the icon keeps its own shape")
 assert(math.abs(sw_ - 24) < 0.01 and math.abs(sh_ - 24) < 0.01, "and is 24 x 24 on screen: " .. sw_)
-local tb = BS.timerBars[rendFrame]
-assert(tb and tb._shown ~= false, "a timer bar of ours sits beside it")
--- the timer comes from whatever Blizzard hands the icon's swipe, unread
-rendFrame.Cooldown:SetCooldownFromDurationObject({ "a duration object" })
-assert(tb.route == "duration object", "the swipe's duration object runs our bar: " .. tostring(tb.route))
-assert(tb.calls.SetCooldownFromDurationObject == 1 and tb.calls.SetSwipeColor == nil,
-  "every cooldown call on the swipe is counted by name, nothing else")
-said = {}
-print = function(t) said[#said + 1] = t end
-BS.Check()
-print = keptPrint
-local swipe
-for _, t in ipairs(said) do if t:find("swipe calls: SetCooldownFromDurationObject 1") then swipe = t end end
-assert(swipe, "/bs check lists them")
--- what Blizzard really does (seen in game): SetCooldown(start, duration), both secret. The aura's
--- own duration object, asked for by the instance id on Blizzard's frame, runs the bar
-rendFrame.auraDataUnit, rendFrame.auraInstanceID = "target", 7
-local askedFor
-C_UnitAuras = { GetAuraDuration = function(unit, id) askedFor = unit .. ":" .. id; return { "Rend's duration" } end }
-rendFrame.Cooldown:SetCooldown(100, 15)
-assert(askedFor == "target:7" and tb.route == "aura duration", "the aura's duration runs the bar: " .. tostring(tb.route))
--- with neither route open, each one's own error is kept for /bs check
-C_UnitAuras = nil
-rendFrame.Cooldown:SetCooldown(100, 15)
-assert(tb.failed:find("aura duration: ") and tb.failed:find("start and duration: "), "both reasons kept: " .. tb.failed)
--- Clear no longer empties the bar: Blizzard calls it on every refresh
-tb._value = nil
-rendFrame.Cooldown:Clear()
-assert(rawget(tb, "_value") == nil, "Clear leaves the timer running")
-
--- "Icon": the same frame, 24 x 24, and our bar goes away
-debuffBar.spells[1].display = "icon"
-realLayout()
-sw_, sh_ = shown(rendFrame)
-assert(math.abs(sw_ - 24) < 0.01 and math.abs(sh_ - 24) < 0.01, "icon size follows the bar height")
+assert(BS.timerBars == nil, "no bar of our own is drawn")
+BS.RefreshConfig()
+assert((BS.cfg.spellNote._text or ""):find("Move it to Tracked Bars for a bar"), "the window says where bars come from: "
+  .. tostring(BS.cfg.spellNote._text))
 -- a tall bar: the icon fills the height, as asked
 debuffBar.size.h = 40
 realLayout()
 sw_, sh_ = shown(rendFrame)
 assert(math.abs(sh_ - 40) < 0.01, "a 40 high bar makes a 40 high icon: " .. sh_)
 debuffBar.size.h = 24
-debuffBar.spells[1].display = "bar"
 
 -- sent home: Blizzard's own size and scale come back
 BuffIconCooldownViewer = { GetItemFrames = function() return {} end }
 realLayout()
 assert(rendFrame.scale == 1 and rendFrame.w == 36 and rendFrame.h == 36, "returned the way it came")
 
--- a 30 x 30 bar has no room for a timer beside a 30 px icon: picking "Bar" widens it, and the
--- window warns whenever the width leaves none
+-- picking "Bar" widens a narrow bar, so Blizzard's bar has room to show
 debuffBar.size.w, debuffBar.size.h = 30, 30
 debuffBar.spells[1].display = "icon"
 realLayout()
@@ -403,9 +377,6 @@ end
 assert(iconOrBar, "each spell has an Icon / Bar dropdown")
 iconOrBar[2].set()
 assert(debuffBar.spells[1].display == "bar" and debuffBar.size.w == 240, "Bar widens a narrow bar: " .. debuffBar.size.w)
-debuffBar.size.w = 30
-BS.RefreshConfig()
-assert((BS.cfg.spellNote._text or ""):find("leaves no room for the bar"), "too narrow is said: " .. tostring(BS.cfg.spellNote._text))
 debuffBar.size.w, debuffBar.size.h = 240, 24
 BuffIconCooldownViewer = nil
 

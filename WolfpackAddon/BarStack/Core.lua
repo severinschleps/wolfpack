@@ -317,15 +317,6 @@ function BS.Check()
           or shown == true and "shown, but a parent is hidden" or "hidden by Blizzard",
         it:GetWidth(), it:GetHeight()))
       end
-      local tb = BS.timerBars and BS.timerBars[it]
-      if tb and not r.reminder then -- a "Bar" spell: where its timer comes from, if anywhere yet
-        local calls = {}
-        for name, n in pairs(tb.calls or {}) do calls[#calls + 1] = name .. " " .. n end
-        table.sort(calls)
-        print("      timer bar: " .. (type(tb.route) == "string" and tb.route or "no timer caught")
-          .. (type(tb.failed) == "string" and (" -- tried: " .. tb.failed) or "")
-          .. "; swipe calls: " .. (#calls > 0 and table.concat(calls, ", ") or "none seen"))
-      end
       local w = BS.watch and BS.watch[it]
       if w then -- how Blizzard switches it: decides whether "show while missing" can be built
         print(("      alpha %s; Blizzard called Show %d, Hide %d, SetShown %d%s, SetAlpha %d%s"):format(

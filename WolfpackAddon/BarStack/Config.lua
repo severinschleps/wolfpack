@@ -154,7 +154,7 @@ local function spellRow(i)
   r.name:SetPoint("LEFT", 24, 0)
   r.name:SetWidth(220)
   r.name:SetJustifyH("LEFT")
-  -- Icon: Blizzard's icon. Bar: that icon with a timer bar of ours beside it.
+  -- Bar: Blizzard's draining bar, for a spell in Tracked Bars. Icon: just its icon.
   r.display = dropdown(r, 236, 3, 84, function()
     local out = {}
     for _, d in ipairs({ { "icon", "Icon" }, { "bar", "Bar" } }) do
@@ -471,7 +471,7 @@ function BS.RefreshConfig()
     row.icon:SetTexture((C_Spell and BS.try(C_Spell.GetSpellTexture, sp.baseSpell)) or 134400)
     row.name:SetText(sp.name or ("Spell " .. sp.baseSpell))
     row.display:GenerateMenu()
-    row.display:SetShown(b.visibility ~= "missing") -- a missing debuff has no timer to run: always an icon
+    row.display:SetShown(b.visibility ~= "missing") -- a missing debuff is our own icon
     row:Show()
   end
   for i = #b.spells + 1, #spellRows do spellRows[i]:Hide() end
@@ -481,15 +481,10 @@ function BS.RefreshConfig()
       notes[#notes + 1] = "|cffff6060" .. rec.spell .. (BS.AURA_MODES[b.visibility]
         and ": not in Tracked Buffs or Tracked Bars. Add it there in the Cooldown Manager.|r"
         or ": not in the Cooldown Manager. Add it there.|r")
-    end
-  end
-  local slotW = b.orientation ~= "vertical" and b.size.w / #b.spells or b.size.w
-  local slotH = b.orientation ~= "vertical" and b.size.h or b.size.h / #b.spells
-  for _, sp in ipairs(b.spells) do
-    if sp.display == "bar" and b.visibility ~= "missing" and slotW - slotH < slotH then
-      notes[#notes + 1] = ("|cffffaa00Width %d leaves no room for the bar beside the %d px icon. Make it wider.|r")
-        :format(b.size.w, slotH)
-      break
+    elseif rec.barRef == b and b.visibility ~= "missing" and b.spells[rec.index]
+      and b.spells[rec.index].display == "bar" and rec.viewer ~= "BuffBarCooldownViewer" then
+      notes[#notes + 1] = "|cffffaa00" .. rec.spell .. " is in Tracked Buffs, so it shows as an icon: WoW lets only "
+        .. "Blizzard's own Tracked Bars drain. Move it to Tracked Bars for a bar.|r"
     end
   end
   if BS.TARGET_MODES[b.visibility] and not UnitExists("target") then
