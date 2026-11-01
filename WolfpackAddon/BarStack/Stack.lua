@@ -357,15 +357,64 @@ local function catchDuration(it)
   for _, m in ipairs(BS.CD_METHODS) do
     if type(cd[m]) == "function" then
       calls[m] = 0
-      hooksecurefunc(cd, m, function(_, d)
+      hooksecurefunc(cd, m, function(_, a, b)
         calls[m] = calls[m] + 1
         if m == "SetCooldownFromDurationObject" then
-          BS.durOf[it] = d
-          BS.flashSeen.objects = BS.flashSeen.objects + 1
+          BS.durOf[it], BS.timesOf[it] = a, nil
+          BS.routeOf[it] = "Blizzard's duration object"
+        elseif m == "SetCooldown" then
+          BS.FromStart(it, a, b)
+        elseif m == "Clear" then
+          BS.durOf[it], BS.timesOf[it] = nil, nil
         end
       end)
     end
   end
+end
+
+-- Blizzard sets this icon's cooldown from a start and a length (seen in game). Three ways to get
+-- "how much is left" out of them, first one that works; /bs check says which one ran.
+BS.timesOf = setmetatable({}, { __mode = "k" }) -- Blizzard frame -> { start, length }, readable
+BS.routeOf = setmetatable({}, { __mode = "k" }) -- Blizzard frame -> how its time left is known
+function BS.FromStart(it, start, length)
+  BS.durOf[it], BS.timesOf[it] = nil, nil
+  -- 1. plain numbers: the fraction is worked out here
+  if type(start) == "number" and type(length) == "number" and not BS.secret(start) and not BS.secret(length) then
+    BS.timesOf[it] = { start, length }
+    BS.routeOf[it] = "plain numbers"
+    return
+  end
+  local why = { "start and length are secret" }
+  -- 2. secret: a duration object of our own, built from them unread
+  local ok, d = pcall(function()
+    local dur = C_DurationUtil.CreateDuration()
+    dur:SetTimeFromStart(start, length)
+    return dur
+  end)
+  if ok and d then
+    BS.durOf[it], BS.routeOf[it] = d, "our duration object"
+    return
+  end
+  why[#why + 1] = "own duration object: " .. tostring(d)
+  -- 3. the aura's own duration, by its instance id on Blizzard's frame
+  local id = it.auraInstanceID
+  if id == nil and type(it.GetAuraSpellInstanceID) == "function" then
+    local got, v = pcall(it.GetAuraSpellInstanceID, it)
+    if got then id = v end
+  end
+  if id ~= nil then
+    for _, unit in ipairs({ "target", "player" }) do
+      local got, dur = pcall(C_UnitAuras.GetAuraDuration, unit, id)
+      if got and dur then
+        BS.durOf[it], BS.routeOf[it] = dur, "aura duration (" .. unit .. ")"
+        return
+      end
+      why[#why + 1] = "aura duration (" .. unit .. "): " .. tostring(dur)
+    end
+  else
+    why[#why + 1] = "no aura instance id on the frame"
+  end
+  BS.routeOf[it] = "none -- " .. table.concat(why, " | ")
 end
 
 local curves = {}
@@ -449,9 +498,15 @@ end
 
 function BS.UpdateFlashes()
   local lit = {}
+  local now = GetTime()
   for _, v in ipairs(BS.flashes) do
-    local d, c = BS.durOf[v.it], curveAt(v.pct)
-    if d and c then
+    local t, d, c = BS.timesOf[v.it], BS.durOf[v.it], curveAt(v.pct)
+    if t and t[2] > 0 then
+      local left = (t[1] + t[2] - now) / t[2]
+      v.frame:SetAlpha(left > 0 and left < v.pct / 100 and 1 or 0)
+      BS.flashSeen.result = "working"
+      lit[v.frame] = true
+    elseif d and c then
       local ok, err = pcall(function() v.frame:SetAlpha(d:EvaluateRemainingPercent(c)) end)
       BS.flashSeen.result = ok and "working" or tostring(err)
       lit[v.frame] = ok or nil

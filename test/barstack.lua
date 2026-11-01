@@ -265,7 +265,10 @@ C_CurveUtil = { CreateCurve = function()
 end }
 local function aura(left) return { EvaluateRemainingPercent = function(_, c) return c:at(left) end } end
 local function flashOf(it) for _, v in ipairs(BS.flashes) do if v.it == it then return v end end end
-buffFrame.Cooldown = { SetCooldownFromDurationObject = function() end }
+buffFrame.Cooldown = { SetCooldownFromDurationObject = function() end, SetCooldown = function() end,
+  Clear = function() end }
+local now = 100
+GetTime = function() return now end
 gB.bars[1].flashAt = 20
 realLayout()
 local fx = flashOf(buffFrame)
@@ -283,6 +286,36 @@ BS.UpdateFlashes()
 assert(fx.frame._alpha == 1, "with Show all bars on too: the options page is where it gets set up")
 BS.preview = nil
 assert(BS.cdCalls[buffFrame].SetCooldownFromDurationObject == 2, "/bs check can say how Blizzard set the cooldown")
+-- what Blizzard really does in game: SetCooldown(start, length). Plain numbers are worked out here
+buffFrame.Cooldown:SetCooldown(90, 20) -- 20 s long, 10 s ago: half left
+BS.UpdateFlashes()
+assert(fx.frame._alpha == 0 and BS.routeOf[buffFrame] == "plain numbers", "half left: quiet")
+now = 108 -- 2 s of 20 left: 10%
+BS.UpdateFlashes()
+assert(fx.frame._alpha == 1, "10% left: flashing")
+now = 111
+BS.UpdateFlashes()
+assert(fx.frame._alpha == 0, "run out: quiet")
+buffFrame.Cooldown:Clear()
+BS.UpdateFlashes()
+assert(fx.frame._alpha == 0 and not BS.timesOf[buffFrame], "Blizzard clears it: nothing left to ask")
+-- secret numbers are not read: they go into a duration object of our own, asked through the curve
+local SECRET = {}
+issecretvalue = function(v) return v == SECRET end
+C_DurationUtil = { CreateDuration = function()
+  return { SetTimeFromStart = function(self, st, len) assert(st == SECRET and len == SECRET); self.left = 0.1 end,
+    EvaluateRemainingPercent = function(self, c) return c:at(self.left) end }
+end }
+buffFrame.Cooldown:SetCooldown(SECRET, SECRET)
+BS.UpdateFlashes()
+assert(BS.routeOf[buffFrame] == "our duration object" and fx.frame._alpha == 1, "secret: still flashes")
+C_DurationUtil = nil -- refused: the aura's own duration, by its instance id
+buffFrame.auraInstanceID = 7
+C_UnitAuras = { GetAuraDuration = function(unit, id) if unit == "target" and id == 7 then return aura(0.5) end end }
+buffFrame.Cooldown:SetCooldown(SECRET, SECRET)
+BS.UpdateFlashes()
+assert(BS.routeOf[buffFrame] == "aura duration (target)" and fx.frame._alpha == 0, "by aura id: half left, quiet")
+C_UnitAuras, issecretvalue, buffFrame.auraInstanceID = nil, nil, nil
 gB.bars[1].flashAt = 0
 realLayout()
 BS.UpdateFlashes()

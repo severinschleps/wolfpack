@@ -338,9 +338,9 @@ function BS.Check()
             if calls[m] then seen[#seen + 1] = m .. " " .. calls[m] end
           end
         end
-        line(BS.flashSeen.result == "working", ("      flash at %d%% left: %s; Blizzard's cooldown got %s"):format(
-          r.barRef.flashAt, BS.flashSeen.result, type(calls) == "string" and calls
-          or #seen > 0 and table.concat(seen, ", ") or "not hooked yet"))
+        line(BS.flashSeen.result == "working", ("      flash at %d%% left: %s; time left from: %s; Blizzard's cooldown got %s"):format(
+          r.barRef.flashAt, BS.flashSeen.result, BS.routeOf[it] or "nothing yet -- put the debuff up",
+          type(calls) == "string" and calls or #seen > 0 and table.concat(seen, ", ") or "not hooked yet"))
       end
       local w = BS.watch and BS.watch[it]
       if w then -- how Blizzard switches it: decides whether "show while missing" can be built

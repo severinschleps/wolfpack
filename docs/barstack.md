@@ -25,10 +25,11 @@ It used to be its own addon, github.com/severinschleps/bar-stack; that repo is n
    Both debuff choices show only while you have a target.
    **Flash at % left** (0 = off) pulses an aura, debuff or proc icon near the end. On a "missing"
    bar it pulses the bar's own icon early, while the debuff is still up, so you reapply before it
-   drops; once it is gone the plain icon shows. **Icon gap** spaces the icons in a bar. The time
-   left is never read: Blizzard's duration object, hooked as it reaches the icon's Cooldown, is
-   asked through a step curve, and the answer goes straight into the flash's opacity.
-   `/bs check` says whether it is working on this client.
+   drops; once it is gone the plain icon shows. **Icon gap** spaces the icons in a bar.
+   Blizzard sets the icon's Cooldown with `SetCooldown(start, length)` (seen in game); the hook
+   catches that. Plain numbers are worked out directly; secret ones are never read but go into a
+   duration object (ours, or the aura's own by instance id), asked through a step curve whose
+   answer goes straight into the flash's opacity. `/bs check` says which way ran on this client.
 
    **Why no bars:** no addon can run an aura's timer on a bar of its own -- in Midnight,
    `C_UnitAuras.GetAuraDuration` and `DurationObject:SetTimeFromStart` both refuse secrets from
