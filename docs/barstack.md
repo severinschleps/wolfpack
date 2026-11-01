@@ -14,7 +14,7 @@ It used to be its own addon, github.com/severinschleps/bar-stack; that repo is n
 ## Use
 
 1. Add the spells you want in Blizzard's Cooldown Manager (Options › Gameplay Enhancements).
-2. Type `/bs`, or press **Bar Stack** in Wolfpack's options sidebar, to open the config window.
+2. Type `/bs`, or press **Bar Stack** in Wolfpack's options sidebar, to open its page in the options window.
 3. Click **New** to create a bar, pick when it shows under **Show**, and click **Add spell**.
    Every spell shows as Blizzard's icon, with its own countdown. "Only while aura / debuff / proc is
    active" borrow from **Tracked Buffs** only, which Blizzard shows just while the aura is up. That
@@ -35,7 +35,7 @@ It used to be its own addon, github.com/severinschleps/bar-stack; that repo is n
 
 Other commands:
 - `/bs check` shows which APIs and storage backends work on this client. Run it after a relog to see which saved settings survived.
-- **Export** / **Import** in the config window copies a profile as a string.
+- **Export** / **Import** on the Bar Stack page copies a profile as a string.
 
 ## Status
 

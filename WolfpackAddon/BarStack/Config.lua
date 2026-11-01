@@ -189,7 +189,7 @@ local function showPicker()
   if not p then
     p = window(nil, 260, 420, "Add spell")
     p:SetParent(f)
-    p:SetPoint("TOPLEFT", f, "TOPRIGHT", 4, 0)
+    p:SetPoint("TOPLEFT", f:GetParent(), "TOPRIGHT", 14, 0)
     p.hint = text(p, "", 14, -32, "GameFontHighlightSmall")
     p.hint:SetJustifyH("LEFT")
     button(p, "Open Cooldown Manager", 180, 14, -62, function()
@@ -234,7 +234,7 @@ function BS.ShowIconStyle()
   if not d then
     d = window(nil, 230, 250, "Icon style")
     d:SetParent(f)
-    d:SetPoint("TOPLEFT", f, "TOPRIGHT", 4, 0)
+    d:SetPoint("TOPLEFT", f:GetParent(), "TOPRIGHT", 14, 0)
     local I = function() return BS.profile.icons end
     text(d, "Zoom (%): trims the art's edges so it fills the icon", 14, -32, "GameFontHighlightSmall")
     d.zoom = input(d, 14, -48, 50, true, function(v) I().zoom = BS.Clamp(v, 0, 30) end)
@@ -320,20 +320,17 @@ local function showText(mode)
 end
 
 ------------------------------------------------------------------------
--- Window
+-- The editor, on Wolfpack's Bar Stack page (its options window has the title and the close button)
 ------------------------------------------------------------------------
 
-local function build()
-  f = window("BarStackConfig", 660, 520, "Bar Stack")
-  f:SetPoint("CENTER")
-  f:SetMovable(true)
-  f:RegisterForDrag("LeftButton")
-  f:SetScript("OnDragStart", f.StartMoving)
-  f:SetScript("OnDragStop", f.StopMovingOrSizing)
+local function build(parent)
+  f = CreateFrame("Frame", nil, parent)
+  f:SetSize(660, 520)
+  f:SetPoint("TOPLEFT", 8, -72)
+  f:SetScript("OnShow", function() BS.RefreshConfig() end)
   f:SetScript("OnHide", function()
     if BS.preview then BS.preview = false; BS.Apply() end
   end)
-  tinsert(UISpecialFrames, "BarStackConfig")
 
   -- left: which group, then its bars (top = top layer, drag or Move up / down to reorder)
   f.groupDrop = dropdown(f, 10, -28, 170, function()
@@ -443,7 +440,7 @@ local function build()
 end
 
 function BS.RefreshConfig()
-  if not (f and f:IsShown()) then return end
+  if not (BS.profile and f and f:IsVisible()) then return end
   local groups, bars = BS.profile.groups, G().bars
   if not tContains(bars, selected) then selected = bars[1] end
   f.groupDrop:GenerateMenu()
@@ -520,9 +517,13 @@ function BS.RefreshConfig()
   f.spellNote:SetText(table.concat(notes, "\n"))
 end
 
-function BS.ToggleConfig()
+-- Wolfpack's options window calls this whenever its Bar Stack page is on screen
+function BS.ShowConfig(parent)
   if not BS.profile then return end
-  if not f then build() end
-  f:SetShown(not f:IsShown())
+  if not f then build(parent) end
   BS.RefreshConfig()
+end
+
+function BS.ToggleConfig()
+  if ns.ShowBarStack then ns.ShowBarStack() end
 end

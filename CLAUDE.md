@@ -40,7 +40,7 @@ real bug gets a test that fails without the fix.
 ## Bar Stack
 
 `WolfpackAddon/BarStack/` is Bar Stack, which used to be its own addon: bars built from
-Blizzard's Cooldown Manager frames, with its own window (`/bs`) and its own saved data
+Blizzard's Cooldown Manager frames, with its own page in the options window (`/bs`) and its own saved data
 (`BarStackDB`, plus a copy in account CVars). It keeps its names on `ns.bs` so they never meet
 Wolfpack's. Design and status notes are in `docs/`.
 

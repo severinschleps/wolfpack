@@ -911,10 +911,15 @@ for _, name in ipairs({ "Combat Display", "Nameplates", "Buffs", "Training", "At
     assert(b, "sidebar entry missing: " .. name)
     b._scripts.OnClick(b, "LeftButton")
 end
--- the sidebar opens Bar Stack's own window
-ns.bs = { ToggleConfig = function() S.bsOpened = true end }
+-- Bar Stack is a page of this window, not a window of its own
+ns.bs = { ShowConfig = function(page) S.bsPage = page end }
 byText("Bar Stack")._scripts.OnClick(byText("Bar Stack"), "LeftButton")
-assert(S.bsOpened, "the Bar Stack button opens its window")
+assert(S.bsPage and S.bsPage:IsShown(), "the Bar Stack entry shows its page and builds the editor on it")
+ns.ShowBarStack()
+assert(not ns.cfg:IsShown(), "/bs on the Bar Stack page closes the window")
+byText("Combat Display")._scripts.OnClick(byText("Combat Display"), "LeftButton")
+ns.ShowBarStack()
+assert(ns.cfg:IsShown() and S.bsPage:IsShown(), "/bs opens it on Bar Stack")
 ns.bs = nil
 -- the training page fills itself in when it is the one on screen
 byText("Training")._scripts.OnClick(byText("Training"), "LeftButton")

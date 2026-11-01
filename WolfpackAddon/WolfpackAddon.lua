@@ -3943,7 +3943,7 @@ local function buildConfig()
     shelf("UI")
     for _, e in ipairs({ { "combat", "Combat Display", "regular" },
         { "nameplates", "Nameplates", "nameplate" }, { "buffs", "Buffs", "regular" },
-        { "other", "Other", "regular" } }) do
+        { "other", "Other", "regular" }, { "barstack", "Bar Stack", "regular" } }) do
         local b = button(cfg, e[2], 118, 12, y, function()
             section, mode = e[1], e[3]
             changed()
@@ -3951,9 +3951,6 @@ local function buildConfig()
         onRefresh(function() if section == e[1] then b:LockHighlight() else b:UnlockHighlight() end end)
         y = y - 24
     end
-    -- Bar Stack keeps its own window (BarStack/Config.lua); this only opens it
-    button(cfg, "Bar Stack", 118, 12, y, function() if ns.bs then safe(ns.bs.ToggleConfig) end end)
-    y = y - 24
 
     shelf("Adventure")
     for _, e in ipairs({ { "attune", "Attunement" }, { "training", "Training" } }) do
@@ -4010,6 +4007,10 @@ local function buildConfig()
     trainPage:SetAllPoints(barsPage)
     local attunePage = CreateFrame("Frame", nil, cfg)
     attunePage:SetAllPoints(barsPage)
+    -- Bar Stack builds its own editor (BarStack/Config.lua) into this page, 520 tall under the title
+    local bsPage = CreateFrame("Frame", nil, cfg)
+    bsPage:SetAllPoints(barsPage)
+    pageBottom = math.min(pageBottom, -600)
     ns.pages = { combat = barsPage, nameplates = questPage, buffs = buffPage, mage = magePage,
         hunter = hunterPage, warlock = lockPage, rogue = roguePage, shaman = shamanPage,
         training = trainPage, attune = attunePage, other = otherPage }
@@ -4034,6 +4035,7 @@ local function buildConfig()
             or section == "shaman" and "Shaman: weapon imbues"
             or section == "training" and "What your trainer still has"
             or section == "attune" and "Attunement: the locked doors"
+            or section == "barstack" and "Bar Stack"
             or "Combat Display")
         for _, t in ipairs(tabs) do t:SetShown(np) end
         barsPage:SetShown(section == "combat" or (np and sub == "bars"))
@@ -4047,6 +4049,8 @@ local function buildConfig()
         shamanPage:SetShown(section == "shaman")
         trainPage:SetShown(section == "training")
         attunePage:SetShown(section == "attune")
+        bsPage:SetShown(section == "barstack")
+        if section == "barstack" and ns.bs then safe(ns.bs.ShowConfig, bsPage) end
     end)
 
     local tabNote = label(barsPage, "", "GameFontDisableSmall")
@@ -5048,6 +5052,12 @@ function ns.ToggleConfig()
     end
     ns.cfg = cfg
     if cfg:IsShown() then changed() end
+end
+-- /bs: the options window, opened on Bar Stack; closes it if that is already what is on screen
+function ns.ShowBarStack()
+    if cfg and cfg:IsShown() and section == "barstack" then cfg:Hide() return end
+    section, mode = "barstack", "regular"
+    if cfg and cfg:IsShown() then changed() else ns.ToggleConfig() end
 end
 WolfpackAddon_Toggle = ns.ToggleConfig -- addon compartment (retail only, Forever has none)
 

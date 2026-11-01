@@ -171,7 +171,7 @@ CreateFrame = function() return mock() end
 UISpecialFrames, tinsert = {}, table.insert
 assert(loadfile("WolfpackAddon/BarStack/Config.lua"))("WolfpackAddon", ns)
 BS.NewBar(BS.profile.groups[1]).name = "Avatar bar"
-BS.ToggleConfig()
+BS.ShowConfig(mock())
 local function radios(fn)
   local out = {}
   fn(nil, { CreateRadio = function(_, text, isSel, set) out[#out + 1] = { text = text, isSel = isSel, set = set } end })
