@@ -156,6 +156,10 @@ local function watch(it)
       hooksecurefunc(it, m, function(_, arg)
         w[m] = w[m] + 1
         if m == "SetShown" or m == "SetAlpha" then w[m .. "Secret"] = BS.secret(arg) end
+        if BS.parts[it] then
+          BS.LogGlow(it, "the icon " .. m, m, arg)
+          if m == "Show" or m == "SetShown" then BS.HearParts(it) end -- a part made late
+        end
         for _, r in ipairs(BS.mirror[it] or {}) do
           if m == "Show" then mirror(r, true)
           elseif m == "Hide" then mirror(r, false)
@@ -335,7 +339,22 @@ local followers = setmetatable({}, { __mode = "k" }) -- Blizzard frame -> flashe
 local allFlash = setmetatable({}, { __mode = "k" }) -- every flash frame ever made
 local onBlizzard = setmetatable({}, { __mode = "k" }) -- Blizzard frame -> its flash
 local early = {} -- container -> spell slot -> { up, glow }: a missing bar's early flash
-local PART_METHODS = { "Show", "Hide", "SetShown", "Play", "Stop" }
+local PART_METHODS = { "Show", "Hide", "SetShown", "Play", "Stop", "Restart", "SetAlpha", "SetAtlas",
+  "SetVertexColor" }
+
+-- /bs glow: what Blizzard did to its icon and when, so the part that lights up near the end can be
+-- told apart from the one that lights up with the debuff. Repeats of a call are folded into one.
+BS.glowLog = setmetatable({}, { __mode = "k" }) -- Blizzard frame -> { { t, what, arg, n } }
+function BS.LogGlow(it, what, m, arg)
+  local L = BS.glowLog[it] or {}
+  BS.glowLog[it] = L
+  local last = L[#L]
+  if last and last.what == what then last.n = last.n + 1 return end
+  local a = ""
+  if m == "SetShown" or m == "SetAlpha" then a = BS.secret(arg) and "(secret)" or ("(" .. tostring(arg) .. ")") end
+  L[#L + 1] = { t = GetTime(), what = what, arg = a, n = 1 }
+  if #L > 80 then table.remove(L, 1) end
+end
 
 -- Shown while Blizzard's frame is (the debuff is up): the opposite of a reminder icon.
 BS.mirrorUp = setmetatable({}, { __mode = "k" })
@@ -356,7 +375,8 @@ end
 
 -- Listens to every widget hanging off Blizzard's frame, and one level below (an animation on a
 -- glow, say). Run on every layout: Blizzard may make a part only when it first needs one.
-local function hearParts(it)
+local heardWidget = setmetatable({}, { __mode = "k" })
+function BS.HearParts(it)
   local parts = BS.parts[it] or {}
   BS.parts[it] = parts
   local function widget(w)
@@ -364,7 +384,8 @@ local function hearParts(it)
       and type(w.GetItemFrames) ~= "function" -- a link back to the viewer is not a part
   end
   local function hear(key, w)
-    if parts[key] then return end
+    if heardWidget[w] then return end
+    heardWidget[w] = true
     local n = { _w = w }
     parts[key] = n
     for _, m in ipairs(PART_METHODS) do
@@ -372,6 +393,7 @@ local function hearParts(it)
         n[m] = 0
         hooksecurefunc(w, m, function(_, arg)
           n[m] = n[m] + 1
+          BS.LogGlow(it, key .. " " .. m, m, arg)
           if BS.glowOf[it] == key then
             for _, f in ipairs(followers[it] or {}) do light(f, m, arg) end
           end
@@ -381,15 +403,37 @@ local function hearParts(it)
     local g = BS.glowOf[it]
     if key:lower():find("pandemic") and (not g or #key < #g) then BS.glowOf[it] = key end
   end
-  for k, w in pairs(it) do
-    if type(k) == "string" and widget(w) then
-      hear(k, w)
-      for k2, w2 in pairs(w) do
-        if type(k2) == "string" and widget(w2) then hear(k .. "." .. k2, w2) end
+  -- named parts first (their keys say what they are), then unnamed children, regions and
+  -- animations, three levels down
+  local function walk(prefix, w, depth)
+    local found = {}
+    for k, v in pairs(w) do
+      if type(k) == "string" and widget(v) and not heardWidget[v] then
+        hear(prefix .. k, v)
+        found[#found + 1] = { prefix .. k, v }
       end
     end
+    for _, getter in ipairs({ "GetChildren", "GetRegions", "GetAnimationGroups" }) do
+      if type(w[getter]) == "function" then
+        local got = { pcall(w[getter], w) }
+        for i = 2, #got do
+          local v = got[i]
+          if widget(v) and not heardWidget[v] then
+            local ok, kind = pcall(v.GetObjectType, v)
+            local name = prefix .. "[" .. (ok and tostring(kind) or "?") .. " " .. (i - 1) .. "]"
+            hear(name, v)
+            found[#found + 1] = { name, v }
+          end
+        end
+      end
+    end
+    if depth < 3 then
+      for _, f in ipairs(found) do walk(f[1] .. ".", f[2], depth + 1) end
+    end
   end
+  walk("", it, 1)
 end
+local hearParts = BS.HearParts
 
 -- f's opacity now follows Blizzard's glow on `it`, starting from where the glow is right now.
 local function followGlow(it, f)

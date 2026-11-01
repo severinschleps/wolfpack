@@ -266,6 +266,8 @@ local function part()
   return w
 end
 local function flashOf(it) for _, v in ipairs(BS.flashes) do if v.it == it then return v.frame end end end
+local now = 100
+GetTime = function() return now end
 buffFrame.PandemicIcon, buffFrame.DebuffBorder = part(), part()
 gB.bars[1].flash = true
 realLayout()
@@ -276,8 +278,18 @@ buffFrame.PandemicIcon:Show()
 assert(fl._alpha == 1, "Blizzard lights its glow: we flash")
 buffFrame.PandemicIcon:Hide()
 assert(fl._alpha == 0, "and stop with it")
+now = 105
+buffFrame.DebuffBorder:Show()
 buffFrame.DebuffBorder:Show()
 assert(fl._alpha == 0, "another part does not count")
+-- /bs glow: what Blizzard did and when, repeats folded, so the part that lights near the end shows
+said = {}
+print = function(t) said[#said + 1] = t end
+BS.Glow()
+print = keptPrint
+local stamped
+for _, t in ipairs(said) do if t:find("5.0  DebuffBorder Show x2", 1, true) then stamped = t end end
+assert(stamped, "/bs glow: " .. table.concat(said, " / "))
 -- /bs check names the glow and every part Blizzard switched, so a renamed one can be found
 said = {}
 print = function(t) said[#said + 1] = t end
@@ -285,7 +297,7 @@ BS.Check()
 print = keptPrint
 local glowLine
 for _, t in ipairs(said) do if t:find("flash near the end") then glowLine = t end end
-assert(glowLine and glowLine:find("follows Blizzard's PandemicIcon") and glowLine:find("DebuffBorder %(Show 1%)"),
+assert(glowLine and glowLine:find("follows Blizzard's PandemicIcon") and glowLine:find("DebuffBorder %(Show 2%)"),
   "/bs check: " .. tostring(glowLine))
 gB.bars[1].flash = false
 realLayout()

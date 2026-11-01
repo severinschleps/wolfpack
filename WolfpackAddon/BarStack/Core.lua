@@ -357,6 +357,26 @@ function BS.Check()
   end
 end
 
+-- /bs glow: the timeline BS.LogGlow kept for every icon a flash watches, seconds from its first
+-- entry. Put the debuff up once, let it run out, then ask.
+function BS.Glow()
+  local any
+  for _, r in ipairs(BS.placed or {}) do
+    local L = r.frame and BS.glowLog[r.frame]
+    if L and #L > 0 and not (any and any[r.frame]) then
+      any = any or {}
+      any[r.frame] = true
+      print(("|cffC79C6EBar Stack|r %s (%s): what Blizzard did, seconds in"):format(r.spell, r.bar))
+      for _, e in ipairs(L) do
+        print(("  %6.1f  %s%s%s"):format(e.t - L[1].t, e.what, e.arg, e.n > 1 and (" x" .. e.n) or ""))
+      end
+    end
+  end
+  if not any then
+    print("|cffC79C6EBar Stack|r glow: nothing logged yet. Tick Flash near the end on the bar, put the debuff up, let it run out.")
+  end
+end
+
 local function cdmPrompt()
   if BS.db.cdmPrompted or BS.try(C_CVar.GetCVar, "cooldownViewerEnabled") ~= "0" then return end
   BS.db.cdmPrompted = true
@@ -412,6 +432,7 @@ end)
 SLASH_BARSTACK1, SLASH_BARSTACK2 = "/bs", "/barstack"
 SlashCmdList.BARSTACK = function(msg)
   msg = strtrim(msg or ""):lower()
-  if msg == "check" then BS.Check() elseif msg == "frames" then BS.Frames() else BS.ToggleConfig() end
+  if msg == "check" then BS.Check() elseif msg == "frames" then BS.Frames()
+  elseif msg == "glow" then BS.Glow() else BS.ToggleConfig() end
 end
 
