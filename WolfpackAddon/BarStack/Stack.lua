@@ -6,8 +6,10 @@ local BS = ns.bs
 -- into our bars and never branch on a combat value. Blizzard keeps showing/hiding them.
 
 local BASE, STEP = 10, 10 -- bar frame level = BASE + layer * STEP
-BS.TEXTURES = { flat = "Interface\\Buttons\\WHITE8x8", blizzard = "Interface\\TargetingFrame\\UI-StatusBar" }
-BS.ALL_VIEWERS = { "EssentialCooldownViewer", "UtilityCooldownViewer", "BuffIconCooldownViewer", "BuffBarCooldownViewer" }
+-- Icons only. Tracked Bars is left alone: no addon may run an aura's timer on a bar of its own
+-- (GetAuraDuration and SetTimeFromStart both refuse secrets from addon code, tried in game), and
+-- Blizzard's own Tracked Bars frames turned out not to say reliably which spell they show.
+BS.ALL_VIEWERS = { "EssentialCooldownViewer", "UtilityCooldownViewer", "BuffIconCooldownViewer" }
 
 local stacks = {}     -- group id -> stack frame
 BS.stacks = stacks
@@ -20,14 +22,10 @@ local borrowed = {}   -- Blizzard item frame -> the viewer it came from
 BS.AURA_MODES = { aura = true, debuff = true, proc = true, missing = true }
 
 -- Which viewers a widget may borrow from, in preference order.
-local function sources(visibility, display)
-  local icon, bar = "BuffIconCooldownViewer", "BuffBarCooldownViewer"
-  if BS.AURA_MODES[visibility] then
-    if display == "bar" then return { bar, icon } end
-    return { icon, bar }
-  end
+local function sources(visibility)
+  if BS.AURA_MODES[visibility] then return { "BuffIconCooldownViewer" } end
   -- "always": the cooldowns first, but a buff put on such a bar is still found
-  return { "EssentialCooldownViewer", "UtilityCooldownViewer", icon, bar }
+  return { "EssentialCooldownViewer", "UtilityCooldownViewer", "BuffIconCooldownViewer" }
 end
 
 -- The spell a frame is showing, and whether an answer came back secret on the way. A secret is
@@ -103,7 +101,7 @@ function BS.Matches(item, sp)
 end
 
 local function find(sp, visibility, used)
-  for _, name in ipairs(sources(visibility, sp.display)) do
+  for _, name in ipairs(sources(visibility)) do
     local v = _G[name]
     if v then
       for _, it in ipairs(items(v)) do
@@ -223,41 +221,20 @@ local function park(it)
   it:SetParent(hideout)
 end
 
--- A spell's shape follows where it is tracked. Only Blizzard's own code may run an aura's timer
--- on a bar -- in game, GetAuraDuration and SetTimeFromStart both refuse secrets from an addon --
--- so a draining bar is a Tracked Bars frame, and a Tracked Buffs frame is an icon, always.
--- "Icon" on a Tracked Bars frame squares it, leaving just its icon showing.
-local function place(it, c, b, j, viewer)
+-- An icon, as tall as its slot allows and square, scaled from Blizzard's own size.
+local function place(it, c, b, j)
   borrow(it)
   if BS.AURA_MODES[b.visibility] then watch(it) end
-  local sp, n = b.spells[j], naturalOf(it)
+  local n = naturalOf(it)
   local x, y, w, h = slot(b, j)
-  local isBar = viewer == "BuffBarCooldownViewer"
-  local height = (isBar and sp.display == "bar") and h or math.min(w, h)
-  local s = height / n.h
+  local s = math.min(w, h) / n.h
   it:SetParent(c)
   it:SetFrameStrata(c:GetFrameStrata())
   it:SetFrameLevel(c:GetFrameLevel() + 1)
   it:SetScale(s)
   it:ClearAllPoints()
   it:SetPoint("TOPLEFT", c, "TOPLEFT", x / s, y / s) -- offsets are in the frame's own scaled units
-  if isBar then
-    it:SetSize((sp.display == "bar" and w or height) / s, n.h)
-    local bar = it.Bar
-    if bar and bar.SetStatusBarColor then
-      -- ponytail: re-styled on each layout pass only; if Blizzard recolors bars between passes, hook the item's refresh
-      pcall(bar.SetStatusBarTexture, bar, BS.TEXTURES[b.style.texture])
-      pcall(bar.SetStatusBarColor, bar, BS.Hex(b.style.color))
-    end
-  else
-    it:SetSize(n.w, n.h) -- an icon keeps its own shape; the scale makes it `height` tall
-  end
-end
-
-function BS.Hex(s)
-  local r, g, b = tostring(s):match("^#?(%x%x)(%x%x)(%x%x)$")
-  if not r then return 1, 1, 1 end
-  return tonumber(r, 16) / 255, tonumber(g, 16) / 255, tonumber(b, 16) / 255
+  it:SetSize(n.w, n.h) -- an icon keeps its own shape; the scale sets its size
 end
 
 local hooked = {}
@@ -357,7 +334,7 @@ function BS.Layout()
           missing[#missing + 1] = { rec = rec, sp = sp } -- matched after every other bar has its frame
         elseif it then
           used[it] = true
-          place(it, c, b, j, from)
+          place(it, c, b, j)
         end
       end
     end
@@ -370,7 +347,7 @@ function BS.Layout()
     if not liveStacks[st] then st:Hide() end -- a deleted group
   end
   -- A "missing" bar only watches the frame, so it may share one another bar shows: one Rend in
-  -- Tracked Bars serves both a "debuff is active" bar and a "debuff is missing" one. A frame no
+  -- Tracked Buffs serves both a "debuff is active" bar and a "debuff is missing" one. A frame no
   -- other bar shows is parked out of sight instead.
   BS.mirror = setmetatable({}, { __mode = "k" })
   for _, m in ipairs(missing) do
@@ -492,10 +469,10 @@ function BS.ViewerStats(v)
 end
 
 -- Spells currently in the Cooldown Manager, ranks grouped into one entry by name.
--- `buffsOnly`: just Tracked Buffs and Tracked Bars, which is all an aura or debuff bar can use.
+-- `buffsOnly`: just Tracked Buffs, which is all an aura or debuff bar can use.
 function BS.AvailableSpells(buffsOnly)
   local seen, out = {}, {}
-  for _, name in ipairs(buffsOnly and { "BuffIconCooldownViewer", "BuffBarCooldownViewer" } or BS.ALL_VIEWERS) do
+  for _, name in ipairs(buffsOnly and { "BuffIconCooldownViewer" } or BS.ALL_VIEWERS) do
     local v = _G[name]
     if v then
       for _, it in ipairs(items(v)) do

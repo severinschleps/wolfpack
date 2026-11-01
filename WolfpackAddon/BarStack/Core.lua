@@ -31,7 +31,6 @@ local STACK_DEFAULTS = { point = "CENTER", x = 0, y = -180, scale = 1, alpha = 1
 local BAR_DEFAULTS = {
   name = "New bar", offset = { x = 0, y = 0 }, size = { w = 240, h = 24 },
   orientation = "horizontal", visibility = "always", spells = {},
-  style = { texture = "flat", color = "#C79C6E" },
 }
 local ENUMS = { visibility = { always = true, aura = true, debuff = true, proc = true, missing = true }, orientation = { horizontal = true, vertical = true } }
 local Clamp = BS.Clamp
@@ -56,7 +55,7 @@ function BS.NormalizeBar(b)
   for k, ok in pairs(ENUMS) do
     if not ok[b[k]] then b[k] = BAR_DEFAULTS[k] end
   end
-  if not BS.TEXTURES[b.style.texture] then b.style.texture = "flat" end
+  b.style = nil -- bar texture and color: gone with bars
   b.offset.x, b.offset.y = Clamp(b.offset.x, -2000, 2000), Clamp(b.offset.y, -2000, 2000)
   b.size.w, b.size.h = Clamp(b.size.w, 1, 2000), Clamp(b.size.h, 1, 2000)
   local spells = {}
@@ -65,7 +64,6 @@ function BS.NormalizeBar(b)
       spells[#spells + 1] = {
         baseSpell = sp.baseSpell,
         name = type(sp.name) == "string" and sp.name or BS.SpellName(sp.baseSpell),
-        display = sp.display == "bar" and "bar" or "icon",
       }
     end
   end
@@ -294,7 +292,7 @@ function BS.Check()
     local it, what = r.frame, ("%s / %s / %s: "):format(r.group, r.bar, r.spell)
     if not it then
       line(false, what .. (BS.AURA_MODES[r.visibility]
-        and "not in Tracked Buffs or Tracked Bars -- add it there in the Cooldown Manager"
+        and "not in Tracked Buffs -- add it there in the Cooldown Manager"
         or "no Cooldown Manager frame has this spell"))
     else
       -- a frame Blizzard drives with a secret may answer in secrets too: report, never test them

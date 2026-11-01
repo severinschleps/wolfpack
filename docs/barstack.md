@@ -16,16 +16,18 @@ It used to be its own addon, github.com/severinschleps/bar-stack; that repo is n
 1. Add the spells you want in Blizzard's Cooldown Manager (Options › Gameplay Enhancements).
 2. Type `/bs`, or press **Bar Stack** in Wolfpack's options sidebar, to open the config window.
 3. Click **New** to create a bar, pick when it shows under **Show**, and click **Add spell**.
-   "Only while aura / debuff / proc is active" borrow from Tracked Buffs or Tracked Bars only, which
-   Blizzard shows just while the aura is up. That is what makes a stack work as a priority list: a
-   higher bar covers the ones below only while it has something to say. Bars set to "Always" use
-   the cooldown icon, which never hides.
-   A spell's shape follows where it is tracked: **Tracked Bars** gives Blizzard's draining bar,
-   **Tracked Buffs** an icon. No addon can run an aura's timer on a bar of its own -- in Midnight,
+   Every spell shows as Blizzard's icon, with its own countdown. "Only while aura / debuff / proc is
+   active" borrow from **Tracked Buffs** only, which Blizzard shows just while the aura is up. That
+   is what makes a stack work as a priority list: a higher bar covers the ones below only while it
+   has something to say. Bars set to "Always" use the cooldown icon, which never hides.
+   "Only while debuff is missing" draws its own icon and only watches Blizzard's frame, so one
+   spell in Tracked Buffs serves a "debuff is active" icon and a "debuff is missing" icon together.
+   Both debuff choices show only while you have a target.
+
+   **Why no bars:** no addon can run an aura's timer on a bar of its own -- in Midnight,
    `C_UnitAuras.GetAuraDuration` and `DurationObject:SetTimeFromStart` both refuse secrets from
-   addon code (tried, and seen refused in game). "Only while debuff is missing" draws its own icon
-   and only watches Blizzard's frame, so one spell in Tracked Bars serves a "debuff is active" bar
-   and a "debuff is missing" icon together.
+   addon code (tried, and seen refused in game). Blizzard's own Tracked Bars frames were tried too:
+   they did not say reliably which spell they show, so Bar Stack leaves Tracked Bars alone.
 4. Use **Move up** / **Move down** (or drag) to reorder. The top of the list is the top layer.
 5. **New group** starts another stack with its own position, scale and combat settings. The
    dropdown above the list picks which group you are editing; a bar's **Group** dropdown moves it.

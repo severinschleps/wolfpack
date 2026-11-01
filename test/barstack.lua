@@ -47,8 +47,8 @@ BS.Layout = function() end
 -- normalize garbage (e.g. a hostile import string)
 local b = BS.NormalizeBar({ name = 5, size = { w = -3, h = 0 / 0 }, visibility = "nope", spells = { { baseSpell = 7384 }, "junk", { baseSpell = "x" } }, style = { texture = "../evil" } })
 assert(b.name == "New bar" and b.size.w == 1 and b.size.h == 1)
-assert(b.visibility == "always" and b.style.texture == "flat" and b.style.color == "#C79C6E")
-assert(#b.spells == 1 and b.spells[1].name == "Overpower" and b.spells[1].display == "icon")
+assert(b.visibility == "always" and b.style == nil, "no bar styling: icons only")
+assert(#b.spells == 1 and b.spells[1].name == "Overpower" and b.spells[1].display == nil)
 
 -- storage round trip through the CVar chunks (SavedVariables missing, like on Forever)
 BarStackDB = nil
@@ -131,8 +131,9 @@ for _, mode in ipairs({ "aura", "debuff", "proc" }) do
 end
 local avatarBuff = { GetSpellID = function() return 107574 end }
 BuffBarCooldownViewer = { GetItemFrames = function() return { avatarBuff } end }
-assert(BS.Find({ baseSpell = 107574, name = "Avatar", display = "icon" }, "aura", {}) == avatarBuff,
-  "tracked as a buff bar, it is found there even for an icon")
+assert(BS.Find({ baseSpell = 107574, name = "Avatar" }, "aura", {}) == nil, "Tracked Bars is never used: icons only")
+BuffIconCooldownViewer = { GetItemFrames = function() return { avatarBuff } end }
+assert(BS.Find({ baseSpell = 107574, name = "Avatar" }, "aura", {}) == avatarBuff, "Tracked Buffs is where an aura comes from")
 assert(BS.Find({ baseSpell = 107574, name = "Avatar", display = "icon" }, "always", {}) == avatarCD,
   "an always bar still takes the cooldown")
 BuffIconCooldownViewer, BuffBarCooldownViewer = nil, nil
@@ -308,19 +309,17 @@ BS.UpdateVisibility()
 assert(missingC._shown == true and debuffC._shown == true, "Show all bars shows them anyway, to place them")
 BS.preview = nil
 
--- one Rend, in Tracked Bars only, serves both: the "active" bar shows Blizzard's frame as its bar,
--- the "missing" bar watches that same frame and flips its own icon
+-- one Rend, in Tracked Buffs, serves both: the "active" bar shows Blizzard's icon, the "missing"
+-- bar watches that same frame and flips its own icon
 rendFrame.shown = false
-BuffIconCooldownViewer = nil
-BuffBarCooldownViewer = { GetItemFrames = function() return { rendFrame } end }
-debuffBar.spells[1].display = "bar"
+BuffIconCooldownViewer = { GetItemFrames = function() return { rendFrame } end }
 realLayout()
 local activeRec, missingRec
 for _, r in ipairs(BS.placed) do
   if r.spell == "Rend" and r.visibility == "debuff" then activeRec = r end
   if r.spell == "Rend" and r.visibility == "missing" then missingRec = r end
 end
-assert(activeRec.frame == rendFrame and rendFrame.parent == activeRec.barFrame, "the active bar shows Blizzard's Rend bar")
+assert(activeRec.frame == rendFrame and rendFrame.parent == activeRec.barFrame, "the active bar shows Blizzard's Rend icon")
 assert(missingRec.frame == rendFrame, "the missing bar watches the very same frame")
 assert(missingRec.reminder._alpha == 1, "no Rend: the missing icon shows")
 rendFrame:Show()
@@ -328,60 +327,33 @@ assert(missingRec.reminder._alpha == 0 and rendFrame.parent == activeRec.barFram
   "Rend up: the icon hides, and the frame stays in the active bar")
 rendFrame:Hide()
 assert(missingRec.reminder._alpha == 1, "Rend off: the icon is back")
--- sizes are what the bar says, on screen: frame size times its scale
+
+-- sizes are what the bar says, on screen: frame size times its scale. An icon is square and as
+-- tall as the bar, scaled from Blizzard's own size, never stretched
 local function shown(f) return f.w * f.scale, f.h * f.scale end
 local sw_, sh_ = shown(rendFrame)
-assert(math.abs(sw_ - 240) < 0.01 and math.abs(sh_ - 24) < 0.01, "Blizzard's bar from Tracked Bars fills the 240 x 24 slot: " .. sw_ .. " x " .. sh_)
-
--- "Icon" on a Tracked Bars frame squares it: just its icon, as tall as the bar
-debuffBar.spells[1].display = "icon"
-realLayout()
-sw_, sh_ = shown(rendFrame)
-assert(math.abs(sw_ - 24) < 0.01 and math.abs(sh_ - 24) < 0.01, "a Tracked Bars frame as an icon is 24 x 24: " .. sw_)
-debuffBar.spells[1].display = "bar"
-
--- from Tracked Buffs the frame is an icon whatever the choice: an addon may not run an aura's
--- timer on a bar of its own (WoW refuses it, seen in game), so only Tracked Bars drain
-BuffBarCooldownViewer = nil
-BuffIconCooldownViewer = { GetItemFrames = function() return { rendFrame } end }
-realLayout()
-sw_, sh_ = shown(rendFrame)
 assert(rendFrame.w == 36 and rendFrame.h == 36, "the icon keeps its own shape")
 assert(math.abs(sw_ - 24) < 0.01 and math.abs(sh_ - 24) < 0.01, "and is 24 x 24 on screen: " .. sw_)
-assert(BS.timerBars == nil, "no bar of our own is drawn")
-BS.RefreshConfig()
-assert((BS.cfg.spellNote._text or ""):find("Move it to Tracked Bars for a bar"), "the window says where bars come from: "
-  .. tostring(BS.cfg.spellNote._text))
--- a tall bar: the icon fills the height, as asked
 debuffBar.size.h = 40
 realLayout()
 sw_, sh_ = shown(rendFrame)
 assert(math.abs(sh_ - 40) < 0.01, "a 40 high bar makes a 40 high icon: " .. sh_)
 debuffBar.size.h = 24
+-- and no Icon / Bar choice is left in the window
+BS.RefreshConfig()
+for _, fn in ipairs(menus) do
+  local r = radios(fn)
+  assert(not (r[1] and r[1].text == "Icon"), "the Icon / Bar dropdown is gone")
+end
 
 -- sent home: Blizzard's own size and scale come back
 BuffIconCooldownViewer = { GetItemFrames = function() return {} end }
 realLayout()
 assert(rendFrame.scale == 1 and rendFrame.w == 36 and rendFrame.h == 36, "returned the way it came")
-
--- picking "Bar" widens a narrow bar, so Blizzard's bar has room to show
-debuffBar.size.w, debuffBar.size.h = 30, 30
-debuffBar.spells[1].display = "icon"
-realLayout()
-BS.RefreshConfig()
-local iconOrBar
-for _, fn in ipairs(menus) do
-  local r = radios(fn)
-  if r[1] and r[1].text == "Icon" and r[2] and r[2].text == "Bar" then iconOrBar = r end
-end
-assert(iconOrBar, "each spell has an Icon / Bar dropdown")
-iconOrBar[2].set()
-assert(debuffBar.spells[1].display == "bar" and debuffBar.size.w == 240, "Bar widens a narrow bar: " .. debuffBar.size.w)
-debuffBar.size.w, debuffBar.size.h = 240, 24
 BuffIconCooldownViewer = nil
 
--- a frame Blizzard has dropped no longer answers for its spell: Rend moved from Tracked Buffs to
--- Tracked Bars must be watched on its new bar, not on the old icon we once borrowed
+-- a frame Blizzard has dropped no longer answers for its spell: when Blizzard moves Rend to a new
+-- icon frame, the bars follow it rather than the old frame we once borrowed
 local oldIcon = mock()
 oldIcon.GetSpellID = function() return 772 end
 BuffIconCooldownViewer = { GetItemFrames = function() return { oldIcon } end }
@@ -399,16 +371,16 @@ end
 issecretvalue = function(v) return v == "SECRET" end
 oldIcon.GetSpellID = function() return "SECRET" end
 assert(BS.FrameSpell(oldIcon) == 772, "secret: the frame is still Rend's")
--- Rend moves to Tracked Bars: Blizzard clears the old icon, which then answers nothing
+-- Blizzard clears the old icon, which then answers nothing
 oldIcon.GetSpellID = function() return nil end
 assert(BS.FrameSpell(oldIcon) == nil, "cleared: it no longer stands for Rend")
 issecretvalue = nil
-local newBar = mock()
-newBar.GetSpellID = function() return 772 end
-BuffBarCooldownViewer = { GetItemFrames = function() return { newBar } end }
+local newIcon = mock()
+newIcon.GetSpellID = function() return 772 end
+BuffIconCooldownViewer.GetItemFrames = function() return { newIcon } end
 realLayout()
 for _, r in ipairs(BS.placed) do
-  if r.spell == "Rend" then assert(r.frame == newBar, r.visibility .. " bar follows Rend to Tracked Bars") end
+  if r.spell == "Rend" then assert(r.frame == newIcon, r.visibility .. " bar follows Rend to its new frame") end
 end
 -- /bs frames lists every frame with each way of asking its spell, and survives what it cannot ask
 said = {}
@@ -424,16 +396,15 @@ BuffIconCooldownViewer, BuffBarCooldownViewer = nil, nil
 realLayout()
 BS.RefreshConfig()
 local note = BS.cfg.spellNote._text or ""
-assert(note:find("Rend: not in Tracked Buffs or Tracked Bars"), "an untracked debuff is named: " .. note)
+assert(note:find("Rend: not in Tracked Buffs"), "an untracked debuff is named: " .. note)
 assert(note:find("only while you have a target"), "and so is the target rule: " .. note)
 
--- the picker for an aura or debuff bar offers Tracked Buffs / Bars only
+-- the picker for an aura or debuff bar offers Tracked Buffs only
 EssentialCooldownViewer = { GetItemFrames = function() return { cdFrame } end }
-BuffBarCooldownViewer = { GetItemFrames = function() return { rendFrame } end }
+BuffIconCooldownViewer = { GetItemFrames = function() return { rendFrame } end }
 local all, buffsOnly = BS.AvailableSpells(), BS.AvailableSpells(true)
 assert(#all == 2 and #buffsOnly == 1 and buffsOnly[1].name == "Rend", "only the tracked debuff is offered")
-assert(buffsOnly[1].viewer == "BuffBarCooldownViewer", "and it says it comes from Tracked Bars, so it starts as a bar")
-BuffBarCooldownViewer = nil
+BuffIconCooldownViewer = nil
 
 -- a frame whose spell comes back secret in combat keeps the last readable answer
 local pooled = { GetSpellID = function() return 772 end }
@@ -441,5 +412,4 @@ assert(BS.FrameSpell(pooled) == 772)
 pooled.GetSpellID = function() error("secret") end
 assert(BS.FrameSpell(pooled) == 772, "the frame is still Rend's, so it stays in the bar")
 
-assert(select(1, BS.Hex("#FF0000")) == 1 and select(2, BS.Hex("bad")) == 1)
 print("barstack ok")

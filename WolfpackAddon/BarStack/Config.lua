@@ -19,13 +19,6 @@ local function G()
   return group
 end
 
--- Blizzard's bar needs room: widen a bar narrower than three times its height
-local function widenForBar(b)
-  if b.orientation ~= "vertical" and b.size.w / #b.spells < b.size.h * 3 then
-    b.size.w = math.min(2000, b.size.h * 8 * #b.spells)
-  end
-end
-
 local function changed()
   BS.Changed()
   BS.RefreshConfig()
@@ -161,24 +154,11 @@ local function spellRow(i)
   r.name:SetPoint("LEFT", 24, 0)
   r.name:SetWidth(220)
   r.name:SetJustifyH("LEFT")
-  -- Bar: Blizzard's draining bar, for a spell in Tracked Bars. Icon: just its icon.
-  r.display = dropdown(r, 236, 3, 84, function()
-    local out = {}
-    for _, d in ipairs({ { "icon", "Icon" }, { "bar", "Bar" } }) do
-      out[#out + 1] = { d[2], function() return selected and selected.spells[i] and selected.spells[i].display == d[1] end,
-        function()
-          selected.spells[i].display = d[1]
-          if d[1] == "bar" then widenForBar(selected) end
-          changed()
-        end }
-    end
-    return out
-  end)
   r.remove = button(r, "X", 24, nil, nil, function()
     table.remove(selected.spells, i)
     changed()
   end)
-  r.remove:SetPoint("LEFT", 326, 0)
+  r.remove:SetPoint("LEFT", 250, 0)
   spellRows[i] = r
   return r
 end
@@ -195,10 +175,7 @@ local function pickRow(i)
   r.text = r:CreateFontString(nil, "OVERLAY", "GameFontHighlightLeft")
   r.text:SetPoint("LEFT", 24, 0)
   r:SetScript("OnClick", function(self)
-    -- the shape follows where Blizzard tracks it: Tracked Bars starts as a bar, anything else an icon
-    local display = self.sp.viewer == "BuffBarCooldownViewer" and "bar" or "icon"
-    table.insert(selected.spells, { baseSpell = self.sp.baseSpell, name = self.sp.name, display = display })
-    if display == "bar" then widenForBar(selected) end
+    table.insert(selected.spells, { baseSpell = self.sp.baseSpell, name = self.sp.name })
     f.picker:Hide()
     changed()
   end)
@@ -224,7 +201,7 @@ local function showPicker()
     f.picker = p
   end
   local buffsOnly = selected and BS.AURA_MODES[selected.visibility]
-  p.hint:SetText(buffsOnly and "Tracked Buffs and Tracked Bars only:\nthat is all this bar's Show setting can use."
+  p.hint:SetText(buffsOnly and "Tracked Buffs only:\nthat is all this bar's Show setting can use."
     or "Lists spells in Blizzard's Cooldown Manager.\nMissing one? Add it there first.")
   local spells = BS.AvailableSpells(buffsOnly)
   p.list:SetHeight(math.max(1, #spells * 22))
@@ -281,20 +258,6 @@ local function showText(mode)
   d:Show()
   d.edit:SetFocus()
   d.edit:HighlightText()
-end
-
-local function pickColor()
-  local b = selected
-  local r0, g0, b0 = BS.Hex(b.style.color)
-  local function set(r, g, bl)
-    b.style.color = ("#%02X%02X%02X"):format(math.floor(r * 255 + 0.5), math.floor(g * 255 + 0.5), math.floor(bl * 255 + 0.5))
-    changed()
-  end
-  ColorPickerFrame:SetupColorPickerAndShow({
-    r = r0, g = g0, b = b0,
-    swatchFunc = function() set(ColorPickerFrame:GetColorRGB()) end,
-    cancelFunc = function() set(r0, g0, b0) end,
-  })
 end
 
 ------------------------------------------------------------------------
@@ -381,14 +344,6 @@ local function build()
     selected.orientation = selected.orientation == "vertical" and "horizontal" or "vertical"
     changed()
   end)
-  f.tex = button(r, "", 120, RIGHT + 118, -124, function()
-    selected.style.texture = selected.style.texture == "flat" and "blizzard" or "flat"
-    changed()
-  end)
-  button(r, "Color", 70, RIGHT + 246, -124, pickColor)
-  f.swatch = r:CreateTexture(nil, "ARTWORK")
-  f.swatch:SetSize(20, 20)
-  f.swatch:SetPoint("TOPLEFT", RIGHT + 322, -125)
 
   text(r, "Spells", RIGHT, -160)
   -- why a spell on this bar shows nothing, said where you are looking rather than in /bs check
@@ -469,15 +424,11 @@ function BS.RefreshConfig()
   local vals = { b.size.w, b.size.h, b.offset.x, b.offset.y }
   for i, e in ipairs(f.nums) do e:SetText(tostring(vals[i])) end
   f.orient:SetText(b.orientation == "vertical" and "Vertical" or "Horizontal")
-  f.tex:SetText("Texture: " .. b.style.texture)
-  f.swatch:SetColorTexture(BS.Hex(b.style.color))
   f.add:SetEnabled(#b.spells < MAX_SPELLS)
   for i, sp in ipairs(b.spells) do
     local row = spellRow(i)
     row.icon:SetTexture((C_Spell and BS.try(C_Spell.GetSpellTexture, sp.baseSpell)) or 134400)
     row.name:SetText(sp.name or ("Spell " .. sp.baseSpell))
-    row.display:GenerateMenu()
-    row.display:SetShown(b.visibility ~= "missing") -- a missing debuff is our own icon
     row:Show()
   end
   for i = #b.spells + 1, #spellRows do spellRows[i]:Hide() end
@@ -485,12 +436,8 @@ function BS.RefreshConfig()
   for _, rec in ipairs(BS.placed or {}) do
     if rec.barRef == b and not rec.frame then
       notes[#notes + 1] = "|cffff6060" .. rec.spell .. (BS.AURA_MODES[b.visibility]
-        and ": not in Tracked Buffs or Tracked Bars. Add it there in the Cooldown Manager.|r"
+        and ": not in Tracked Buffs. Add it there in the Cooldown Manager.|r"
         or ": not in the Cooldown Manager. Add it there.|r")
-    elseif rec.barRef == b and b.visibility ~= "missing" and b.spells[rec.index]
-      and b.spells[rec.index].display == "bar" and rec.viewer ~= "BuffBarCooldownViewer" then
-      notes[#notes + 1] = "|cffffaa00" .. rec.spell .. " is in Tracked Buffs, so it shows as an icon: WoW lets only "
-        .. "Blizzard's own Tracked Bars drain. Move it to Tracked Bars for a bar.|r"
     end
   end
   if BS.TARGET_MODES[b.visibility] and not UnitExists("target") then
