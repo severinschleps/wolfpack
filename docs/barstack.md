@@ -15,7 +15,8 @@ It used to be its own addon, github.com/severinschleps/bar-stack; that repo is n
 
 1. Add the spells you want in Blizzard's Cooldown Manager (Options › Gameplay Enhancements).
 2. Type `/bs`, or press **Bar Stack** in Wolfpack's options sidebar, to open its page in the options window.
-3. The flow is group > bar > icon > conditions. Click **New** to create a bar, then **Add icon**.
+3. The flow is group > bar > icon > conditions. Click **New** to create a bar (**Settings** above
+   the list opens its name, size, direction and offset in a flyout), then **Add icon**.
    The **Icon** dialog opens beside the window:
    - **Looks like**: *My own picture* (a spell's picture, or a texture typed in: file ID, path
      or spell name, optionally with the spell's cooldown swipe), *Blizzard's cooldown icon*

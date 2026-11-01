@@ -178,12 +178,12 @@ end
 -- The bar's icons, the Icon dialog, and the spell picker both use
 ------------------------------------------------------------------------
 
-local editor -- the Icon dialog, made the first time it is opened
+local editor, settings -- the Icon and Bar settings flyouts, made the first time they are opened
 
 local function iconRow(i)
   if iconRows[i] then return iconRows[i] end
   local r = ui.Button(f.right, "", W3 - 24, true)
-  r:SetPoint("TOPLEFT", C3 + 12, -374 - (i - 1) * 26)
+  r:SetPoint("TOPLEFT", C3 + 12, -40 - (i - 1) * 26)
   r.icon = r:CreateTexture(nil, "ARTWORK")
   r.icon:SetSize(20, 20)
   r.icon:SetPoint("LEFT", 4, 0)
@@ -292,6 +292,7 @@ end
 -- The Icon dialog: first what the icon looks like, then when it shows.
 function BS.EditIcon(ic)
   editing = ic
+  if settings then settings:Hide() end -- one flyout at a time, they open in the same place
   if not editor then
     local d = dialog(320, 470, "Icon")
     editor, f.editor = d, d
@@ -344,6 +345,45 @@ function BS.EditIcon(ic)
   end
   editor:Show()
   BS.RefreshConfig()
+end
+
+-- Bar settings: its name, which way its icons run, their size, its place in the stack.
+function BS.ShowBarSettings()
+  if not selected then return end
+  if not settings then
+    local d = dialog(300, 390, "Bar settings")
+    settings = d
+    local x, w = 16, 268
+    text(d, "Name", x, -48)
+    d.name = input(d, x, -64, w, false, function(v) selected.name = v end)
+    d.orient = button(d, "", 110, x, -100, function()
+      selected.orientation = selected.orientation == "vertical" and "horizontal" or "vertical"
+      changed()
+    end)
+    text(d, "Icons run this way", x + 118, -106, "GameFontDisableSmall")
+    local B = function() return selected end
+    slider(barSliders, d, "Icon width", x, -136, w, 8, 200, 1,
+      function() return B() and B().size.w end, function(v) B().size.w = BS.Clamp(v, 1, 2000) end)
+    slider(barSliders, d, "Icon height", x, -182, w, 8, 200, 1,
+      function() return B() and B().size.h end, function(v) B().size.h = BS.Clamp(v, 1, 2000) end)
+    slider(barSliders, d, "Offset X", x, -228, w, -400, 400, 1,
+      function() return B() and B().offset.x end, function(v) B().offset.x = BS.Clamp(v, -2000, 2000) end)
+    slider(barSliders, d, "Offset Y", x, -274, w, -400, 400, 1,
+      function() return B() and B().offset.y end, function(v) B().offset.y = BS.Clamp(v, -2000, 2000) end)
+    slider(barSliders, d, "Icon gap", x, -320, w, 0, 40, 1,
+      function() return B() and B().gap end, function(v) B().gap = BS.Clamp(v, 0, 200) end)
+  end
+  if editor then editor:Hide() end
+  if f.picker then f.picker:Hide() end
+  settings:Show()
+  BS.RefreshConfig()
+end
+
+local function refreshSettings(b)
+  if not (settings and settings:IsShown()) then return end
+  if not settings.name:HasFocus() then settings.name:SetText(b.name) end
+  settings.orient:SetText(b.orientation == "vertical" and "Vertical" or "Horizontal")
+  for _, sl in ipairs(barSliders) do sl.sync() end
 end
 
 local function refreshEditor()
@@ -496,8 +536,7 @@ local function build(parent)
 
   ui.card(f, C1, 0, W12, -BOTTOM)
   ui.card(f, C2, 0, W12, -BOTTOM)
-  ui.card(f, C3, 0, W3, 326)
-  ui.card(f, C3, -338, W3, -338 - BOTTOM)
+  ui.card(f, C3, 0, W3, -BOTTOM)
 
   -- column 1: the group (each one is a stack of its own) and its stack settings
   local x = C1 + 12
@@ -531,6 +570,7 @@ local function build(parent)
   -- column 2: its bars (top = top layer, drag or Move up / down to reorder)
   x = C2 + 12
   text(f, "Bars", x, -12, "GameFontNormal")
+  f.settings = button(f, "Settings", 90, C2 + W12 - 102, -8, BS.ShowBarSettings)
   f.list = scroll(f, x, -40, 196, 390)
   button(f, "New", 64, x, -442, function()
     selected = BS.NewBar(G())
@@ -559,43 +599,24 @@ local function build(parent)
   hint:SetWidth(206)
   hint:SetJustifyH("LEFT")
 
-  -- column 3: the selected bar, then its spells
+  -- column 3: the selected bar's icons (its settings are a flyout, from the Bars column)
   x = C3 + 12
-  text(f, "Bar", x, -12, "GameFontNormal")
   f.empty = text(f, "No bars yet. Click New to create one.", x, -40, "GameFontDisableSmall")
   local r = CreateFrame("Frame", nil, f)
   r:SetAllPoints()
   f.right = r
-
-  text(r, "Name", x, -40)
-  f.name = input(r, x, -56, W3 - 24, false, function(v) selected.name = v end)
-  f.orient = button(r, "", 110, x, -92, function()
-    selected.orientation = selected.orientation == "vertical" and "horizontal" or "vertical"
-    changed()
-  end)
-  text(r, "Icons run this way", x + 118, -98, "GameFontDisableSmall")
-  local B = function() return selected end
-  local half = (W3 - 24 - 12) / 2
-  slider(barSliders, r, "Icon width", x, -128, half, 8, 200, 1,
-    function() return B() and B().size.w end, function(v) B().size.w = BS.Clamp(v, 1, 2000) end)
-  slider(barSliders, r, "Icon height", x + half + 12, -128, half, 8, 200, 1,
-    function() return B() and B().size.h end, function(v) B().size.h = BS.Clamp(v, 1, 2000) end)
-  slider(barSliders, r, "Offset X", x, -174, half, -400, 400, 1,
-    function() return B() and B().offset.x end, function(v) B().offset.x = BS.Clamp(v, -2000, 2000) end)
-  slider(barSliders, r, "Offset Y", x + half + 12, -174, half, -400, 400, 1,
-    function() return B() and B().offset.y end, function(v) B().offset.y = BS.Clamp(v, -2000, 2000) end)
-  slider(barSliders, r, "Icon gap", x, -220, half, 0, 40, 1,
-    function() return B() and B().gap end, function(v) B().gap = BS.Clamp(v, 0, 200) end)
-
-  text(r, "Icons", x, -350, "GameFontNormal")
-  f.add = button(r, "Add icon", 90, C3 + W3 - 102, -346, function()
+  f.iconsTitle = text(r, "Icons", x, -12, "GameFontNormal")
+  f.iconsTitle:SetWidth(W3 - 130)
+  f.iconsTitle:SetJustifyH("LEFT")
+  f.iconsTitle:SetWordWrap(false)
+  f.add = button(r, "Add icon", 90, C3 + W3 - 102, -8, function()
     local ic = BS.NormalizeIcon({})
     table.insert(selected.icons, ic)
     changed()
     BS.EditIcon(ic)
   end)
   -- why an icon on this bar shows nothing, said where you are looking rather than in /bs check
-  f.iconNote = text(r, "", x, -378, "GameFontNormalSmall")
+  f.iconNote = text(r, "", x, -44, "GameFontNormalSmall")
   f.iconNote:SetWidth(W3 - 24)
   f.iconNote:SetJustifyH("LEFT")
   BS.cfg = f
@@ -650,11 +671,12 @@ function BS.RefreshConfig()
   f.empty:SetShown(selected == nil)
   if f.picker and not selected then f.picker:Hide() end
   if editor and not selected then editor:Hide() end
+  if settings and not selected then settings:Hide() end
+  f.settings:SetEnabled(selected ~= nil)
   local b = selected
   if not b then return end
-  if not f.name:HasFocus() then f.name:SetText(b.name) end
-  for _, sl in ipairs(barSliders) do sl.sync() end
-  f.orient:SetText(b.orientation == "vertical" and "Vertical" or "Horizontal")
+  f.iconsTitle:SetText("Icons  |cff71717a" .. b.name .. "|r")
+  refreshSettings(b)
   f.add:SetEnabled(#b.icons < MAX_ICONS)
   for i, ic in ipairs(b.icons) do
     local row = iconRow(i)
@@ -674,7 +696,7 @@ function BS.RefreshConfig()
   end
   if #b.icons == 0 then notes[#notes + 1] = "|cffa1a1aaAdd an icon, then pick its picture and when it shows.|r" end
   f.iconNote:ClearAllPoints()
-  f.iconNote:SetPoint("TOPLEFT", C3 + 12, -378 - #b.icons * 26)
+  f.iconNote:SetPoint("TOPLEFT", C3 + 12, -44 - #b.icons * 26)
   f.iconNote:SetText(table.concat(notes, "\n"))
   refreshEditor()
 end

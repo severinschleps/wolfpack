@@ -213,6 +213,10 @@ assert(BS.preview == true, "the page opens with every bar shown")
 -- the sliders move what they say: the picked bar inside its stack, and the stack on screen
 local saves, realSave = 0, BS.Save
 BS.Save = function() saves = saves + 1 end
+-- the bar's settings live in a flyout, opened by Settings in the Bars column
+assert(#BS.cfg.barSliders == 0, "no bar settings until asked for")
+BS.cfg.settings._onOnClick()
+assert(#BS.cfg.barSliders == 5, "Settings opens them: icon width and height, offsets, gap")
 local offX, posY = BS.cfg.barSliders[3], BS.cfg.groupSliders[4]
 offX._onOnValueChanged(offX, 37.4)
 assert(BS.profile.groups[1].bars[1].offset.x == 37, "Offset X moves the bar, in whole pixels")
