@@ -36,7 +36,7 @@ local BAR_DEFAULTS = {
   name = "New bar", offset = { x = 0, y = 0 }, size = { w = 36, h = 36 }, -- one icon; the bar is n of them
   orientation = "horizontal", visibility = "always", spells = {},
   gap = 0, -- px between icons
-  flashAt = 0, -- flash under this % of the aura's time left; 0 = never
+  flash = false, -- flash in Blizzard's refresh window, about the last 30%
 }
 local ENUMS = { visibility = { always = true, usable = true, aura = true, debuff = true, proc = true, missing = true }, orientation = { horizontal = true, vertical = true } }
 local Clamp = BS.Clamp
@@ -62,9 +62,10 @@ function BS.NormalizeBar(b)
     if not ok[b[k]] then b[k] = BAR_DEFAULTS[k] end
   end
   b.style = nil -- bar texture and color: gone with bars
-  if b.flashLow == true and b.flashAt == 0 then b.flashAt = 25 end -- the first, on / off version
-  b.flashLow = nil
-  b.gap, b.flashAt = Clamp(math.floor(b.gap + 0.5), 0, 200), Clamp(math.floor(b.flashAt + 0.5), 0, 100)
+  -- earlier flash settings, a % that could never work and the on / off before it
+  if b.flashLow == true or (type(b.flashAt) == "number" and b.flashAt > 0) then b.flash = true end
+  b.flashLow, b.flashAt = nil, nil
+  b.gap = Clamp(math.floor(b.gap + 0.5), 0, 200)
   b.offset.x, b.offset.y = Clamp(b.offset.x, -2000, 2000), Clamp(b.offset.y, -2000, 2000)
   local spells = {}
   for _, sp in ipairs(b.spells) do
@@ -331,16 +332,19 @@ function BS.Check()
           or shown == true and "shown, but a parent is hidden" or "hidden by Blizzard",
         it:GetWidth(), it:GetHeight()))
       end
-      if r.barRef and r.barRef.flashAt > 0 then
-        local calls, seen = BS.cdCalls[it], {}
-        if type(calls) == "table" then
-          for _, m in ipairs(BS.CD_METHODS) do
-            if calls[m] then seen[#seen + 1] = m .. " " .. calls[m] end
+      if r.barRef and r.barRef.flash then
+        local key, switched = BS.glowOf[it], {}
+        for k, n in pairs(BS.parts[it] or {}) do
+          local got = {}
+          for _, m in ipairs({ "Show", "Hide", "SetShown", "Play", "Stop" }) do
+            if (n[m] or 0) > 0 then got[#got + 1] = m .. " " .. n[m] end
           end
+          if #got > 0 then switched[#switched + 1] = k .. " (" .. table.concat(got, ", ") .. ")" end
         end
-        line(BS.flashSeen.result == "working", ("      flash at %d%% left: %s; time left from: %s; Blizzard's cooldown got %s"):format(
-          r.barRef.flashAt, BS.flashSeen.result, BS.routeOf[it] or "nothing yet -- put the debuff up",
-          type(calls) == "string" and calls or #seen > 0 and table.concat(seen, ", ") or "not hooked yet"))
+        table.sort(switched)
+        line(key ~= nil, ("      flash near the end: %s; parts Blizzard switched: %s"):format(
+          key and ("follows Blizzard's " .. key) or "no part named Pandemic on Blizzard's frame",
+          #switched > 0 and table.concat(switched, "; ") or "none yet"))
       end
       local w = BS.watch and BS.watch[it]
       if w then -- how Blizzard switches it: decides whether "show while missing" can be built

@@ -23,13 +23,16 @@ It used to be its own addon, github.com/severinschleps/bar-stack; that repo is n
    "Only while debuff is missing" draws its own icon and only watches Blizzard's frame, so one
    spell in Tracked Buffs serves a "debuff is active" icon and a "debuff is missing" icon together.
    Both debuff choices show only while you have a target.
-   **Flash at % left** (0 = off) pulses an aura, debuff or proc icon near the end. On a "missing"
-   bar it pulses the bar's own icon early, while the debuff is still up, so you reapply before it
-   drops; once it is gone the plain icon shows. **Icon gap** spaces the icons in a bar.
-   Blizzard sets the icon's Cooldown with `SetCooldown(start, length)` (seen in game); the hook
-   catches that. Plain numbers are worked out directly; secret ones are never read but go into a
-   duration object (ours, or the aura's own by instance id), asked through a step curve whose
-   answer goes straight into the flash's opacity. `/bs check` says which way ran on this client.
+   **Flash near the end** pulses an aura, debuff or proc icon in its refresh window. On a
+   "missing" bar it shows the bar's own icon early, pulsing, while the debuff is still up, so you
+   reapply before it drops; once it is gone the plain icon shows. **Icon gap** spaces the icons.
+
+   **Why not a % of your own:** in Midnight an addon cannot reach an aura's time left at all.
+   Tried in game: Blizzard sets the icon's Cooldown with `SetCooldown(start, length)`, both
+   secret; `DurationObject:SetTimeFromStart` refuses them and `C_UnitAuras.GetAuraDuration`
+   refuses the aura, both "while tainted". So the flash follows the one thing an addon can hear:
+   Blizzard showing its own refresh-window (pandemic) glow, about the last 30%. `/bs check` lists
+   the glow it follows and every part of Blizzard's icon that switched.
 
    **Why no bars:** no addon can run an aura's timer on a bar of its own -- in Midnight,
    `C_UnitAuras.GetAuraDuration` and `DurationObject:SetTimeFromStart` both refuse secrets from

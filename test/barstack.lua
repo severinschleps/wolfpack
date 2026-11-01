@@ -254,73 +254,44 @@ local probe
 for _, t in ipairs(said) do if t:find("Blizzard called Show 1, Hide 2") then probe = t end end
 assert(probe, "/bs check reports the calls")
 
--- "flash at % left": the time left is never read. Blizzard's duration object, caught as it is
--- handed to the icon's Cooldown, is asked through a step curve: 1 under the bar's %, 0 above
-Enum = Enum or {}
-Enum.LuaCurveType = { Step = 1 }
-C_CurveUtil = { CreateCurve = function()
-  local pts = {}
-  return { SetType = function() end, AddPoint = function(_, x, y) pts[#pts + 1] = { x, y } end,
-    at = function(_, x) local y for _, p in ipairs(pts) do if x >= p[1] then y = p[2] end end return y end }
-end }
-local function aura(left) return { EvaluateRemainingPercent = function(_, c) return c:at(left) end } end
-local function flashOf(it) for _, v in ipairs(BS.flashes) do if v.it == it then return v end end end
-buffFrame.Cooldown = { SetCooldownFromDurationObject = function() end, SetCooldown = function() end,
-  Clear = function() end }
-local now = 100
-GetTime = function() return now end
-gB.bars[1].flashAt = 20
+-- "flash near the end": the time left is secret to addons, so the flash follows Blizzard's own
+-- refresh-window glow, a part of its icon it shows and hides
+local function part()
+  local w = { shown = false }
+  w.IsObjectType = function() return true end
+  w.Show = function(self) self.shown = true end
+  w.Hide = function(self) self.shown = false end
+  w.SetShown = function(self, v) self.shown = v end
+  w.IsShown = function(self) return self.shown end
+  return w
+end
+local function flashOf(it) for _, v in ipairs(BS.flashes) do if v.it == it then return v.frame end end end
+buffFrame.PandemicIcon, buffFrame.DebuffBorder = part(), part()
+gB.bars[1].flash = true
 realLayout()
-local fx = flashOf(buffFrame)
-assert(fx and fx.pct == 20, "an aura bar set to 20% gets a flash")
-BS.UpdateFlashes()
-assert(fx.frame._alpha == 0, "no duration yet: no flash")
-buffFrame.Cooldown:SetCooldownFromDurationObject(aura(0.5))
-BS.UpdateFlashes()
-assert(fx.frame._alpha == 0, "half left: quiet")
-buffFrame.Cooldown:SetCooldownFromDurationObject(aura(0.1))
-BS.UpdateFlashes()
-assert(fx.frame._alpha == 1 and BS.flashSeen.result == "working", "10% left: flashing")
-BS.preview = true
-BS.UpdateFlashes()
-assert(fx.frame._alpha == 1, "with Show all bars on too: the options page is where it gets set up")
-BS.preview = nil
-assert(BS.cdCalls[buffFrame].SetCooldownFromDurationObject == 2, "/bs check can say how Blizzard set the cooldown")
--- what Blizzard really does in game: SetCooldown(start, length). Plain numbers are worked out here
-buffFrame.Cooldown:SetCooldown(90, 20) -- 20 s long, 10 s ago: half left
-BS.UpdateFlashes()
-assert(fx.frame._alpha == 0 and BS.routeOf[buffFrame] == "plain numbers", "half left: quiet")
-now = 108 -- 2 s of 20 left: 10%
-BS.UpdateFlashes()
-assert(fx.frame._alpha == 1, "10% left: flashing")
-now = 111
-BS.UpdateFlashes()
-assert(fx.frame._alpha == 0, "run out: quiet")
-buffFrame.Cooldown:Clear()
-BS.UpdateFlashes()
-assert(fx.frame._alpha == 0 and not BS.timesOf[buffFrame], "Blizzard clears it: nothing left to ask")
--- secret numbers are not read: they go into a duration object of our own, asked through the curve
-local SECRET = {}
-issecretvalue = function(v) return v == SECRET end
-C_DurationUtil = { CreateDuration = function()
-  return { SetTimeFromStart = function(self, st, len) assert(st == SECRET and len == SECRET); self.left = 0.1 end,
-    EvaluateRemainingPercent = function(self, c) return c:at(self.left) end }
-end }
-buffFrame.Cooldown:SetCooldown(SECRET, SECRET)
-BS.UpdateFlashes()
-assert(BS.routeOf[buffFrame] == "our duration object" and fx.frame._alpha == 1, "secret: still flashes")
-C_DurationUtil = nil -- refused: the aura's own duration, by its instance id
-buffFrame.auraInstanceID = 7
-C_UnitAuras = { GetAuraDuration = function(unit, id) if unit == "target" and id == 7 then return aura(0.5) end end }
-buffFrame.Cooldown:SetCooldown(SECRET, SECRET)
-BS.UpdateFlashes()
-assert(BS.routeOf[buffFrame] == "aura duration (target)" and fx.frame._alpha == 0, "by aura id: half left, quiet")
-C_UnitAuras, issecretvalue, buffFrame.auraInstanceID = nil, nil, nil
-gB.bars[1].flashAt = 0
+local fl = flashOf(buffFrame)
+assert(fl and BS.glowOf[buffFrame] == "PandemicIcon", "the flash follows Blizzard's pandemic part")
+assert(fl._alpha == 0, "not in the refresh window: quiet")
+buffFrame.PandemicIcon:Show()
+assert(fl._alpha == 1, "Blizzard lights its glow: we flash")
+buffFrame.PandemicIcon:Hide()
+assert(fl._alpha == 0, "and stop with it")
+buffFrame.DebuffBorder:Show()
+assert(fl._alpha == 0, "another part does not count")
+-- /bs check names the glow and every part Blizzard switched, so a renamed one can be found
+said = {}
+print = function(t) said[#said + 1] = t end
+BS.Check()
+print = keptPrint
+local glowLine
+for _, t in ipairs(said) do if t:find("flash near the end") then glowLine = t end end
+assert(glowLine and glowLine:find("follows Blizzard's PandemicIcon") and glowLine:find("DebuffBorder %(Show 1%)"),
+  "/bs check: " .. tostring(glowLine))
+gB.bars[1].flash = false
 realLayout()
-BS.UpdateFlashes()
-assert(not flashOf(buffFrame) and fx.frame._alpha == 0, "0%: off")
-assert(BS.NormalizeBar({ flashLow = true }).flashAt == 25, "the old on / off flash becomes 25%")
+assert(not flashOf(buffFrame) and fl._alpha == 0, "off: no flash")
+assert(BS.NormalizeBar({ flashAt = 20 }).flash == true and BS.NormalizeBar({ flashLow = true }).flash == true,
+  "earlier flash settings carry over as on")
 
 -- "only while debuff is missing": Blizzard's Rend frame is parked out of sight, and our own Rend
 -- icon shows exactly while Blizzard's frame is hidden
@@ -435,23 +406,21 @@ assert(missingPlate and missingPlate._alpha == 1, "Rend off: the missing icon's 
 rendFrame:Show()
 assert(missingPlate._alpha == 0, "Rend up: the missing icon's plate hides with it")
 rendFrame:Hide()
--- and it can flash early: its own icon pulses while Rend is still up with under 15% left, so the
--- reapply comes before the gap. Once Rend is gone the plain reminder takes over, without a flash
-missingRec.barRef.flashAt = 15
+-- and it can show early: its own icon pulses while Rend is still up and Blizzard's refresh-window
+-- glow is lit, so the reapply comes before the gap. Once Rend is gone the plain reminder takes over
+rendFrame.PandemicIcon = part()
+missingRec.barRef.flash = true
 realLayout()
 local ef, up = flashOf(rendFrame), BS.mirrorUp[rendFrame] and BS.mirrorUp[rendFrame][1]
-assert(ef and ef.pct == 15 and up, "the missing bar has an early flash")
+assert(ef and up, "the missing bar has an early flash")
 rendFrame:Show()
-assert(up._alpha == 1, "Rend up: the early flash may show")
-rendFrame.Cooldown:SetCooldownFromDurationObject(aura(0.5))
-BS.UpdateFlashes()
-assert(ef.frame._alpha == 0, "half left: quiet")
-rendFrame.Cooldown:SetCooldownFromDurationObject(aura(0.1))
-BS.UpdateFlashes()
-assert(ef.frame._alpha == 1, "10% left: the reminder flashes before Rend is gone")
+assert(up._alpha == 1 and ef._alpha == 0, "Rend up, early on: nothing yet")
+rendFrame.PandemicIcon:SetShown(true)
+assert(ef._alpha == 1, "refresh window: the reminder flashes before Rend is gone")
+rendFrame.PandemicIcon:SetShown(false)
 rendFrame:Hide()
 assert(up._alpha == 0 and missingRec.reminder._alpha == 1, "Rend gone: the steady reminder, no flash")
-missingRec.barRef.flashAt = 0
+missingRec.barRef.flash = false
 realLayout()
 
 -- sizes are what the bar says, on screen: frame size times its scale. Size is one icon (36 x 36
