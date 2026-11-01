@@ -278,6 +278,11 @@ assert(fx.frame._alpha == 0, "half left: quiet")
 buffFrame.Cooldown:SetCooldownFromDurationObject(aura(0.1))
 BS.UpdateFlashes()
 assert(fx.frame._alpha == 1 and BS.flashSeen.result == "working", "10% left: flashing")
+BS.preview = true
+BS.UpdateFlashes()
+assert(fx.frame._alpha == 1, "with Show all bars on too: the options page is where it gets set up")
+BS.preview = nil
+assert(BS.cdCalls[buffFrame].SetCooldownFromDurationObject == 2, "/bs check can say how Blizzard set the cooldown")
 gB.bars[1].flashAt = 0
 realLayout()
 BS.UpdateFlashes()

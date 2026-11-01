@@ -332,8 +332,15 @@ function BS.Check()
         it:GetWidth(), it:GetHeight()))
       end
       if r.barRef and r.barRef.flashAt > 0 then
-        line(BS.flashSeen.result == "working", ("      flash at %d%% left: %d duration objects from Blizzard, %s"):format(
-          r.barRef.flashAt, BS.flashSeen.objects, BS.flashSeen.result))
+        local calls, seen = BS.cdCalls[it], {}
+        if type(calls) == "table" then
+          for _, m in ipairs(BS.CD_METHODS) do
+            if calls[m] then seen[#seen + 1] = m .. " " .. calls[m] end
+          end
+        end
+        line(BS.flashSeen.result == "working", ("      flash at %d%% left: %s; Blizzard's cooldown got %s"):format(
+          r.barRef.flashAt, BS.flashSeen.result, type(calls) == "string" and calls
+          or #seen > 0 and table.concat(seen, ", ") or "not hooked yet"))
       end
       local w = BS.watch and BS.watch[it]
       if w then -- how Blizzard switches it: decides whether "show while missing" can be built

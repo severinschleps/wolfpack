@@ -335,15 +335,36 @@ local allFlash = setmetatable({}, { __mode = "k" }) -- every flash frame ever ma
 local onBlizzard = setmetatable({}, { __mode = "k" }) -- Blizzard frame -> its flash
 local early = {} -- container -> spell slot -> { up, glow }: a missing bar's early flash
 
+-- Every way Blizzard may set the icon's cooldown is counted, for /bs check: only the duration
+-- object is usable, the rest say which way Blizzard went instead.
+BS.CD_METHODS = { "SetCooldownFromDurationObject", "SetCooldown", "SetCooldownDuration",
+  "SetCooldownUNIX", "SetCooldownFromExpirationTime", "Clear" }
+BS.cdCalls = setmetatable({}, { __mode = "k" }) -- Blizzard frame -> { method -> count } or a reason
 local function catchDuration(it)
   if caught[it] then return end
   caught[it] = true
   local cd = it.Cooldown
-  if type(cd) == "table" and type(cd.SetCooldownFromDurationObject) == "function" then
-    hooksecurefunc(cd, "SetCooldownFromDurationObject", function(_, d)
-      BS.durOf[it] = d
-      BS.flashSeen.objects = BS.flashSeen.objects + 1
-    end)
+  if type(cd) ~= "table" and type(it.GetCooldownFrame) == "function" then
+    local ok, got = pcall(it.GetCooldownFrame, it)
+    if ok then cd = got end
+  end
+  if type(cd) ~= "table" then
+    BS.cdCalls[it] = "Blizzard's frame has no Cooldown"
+    return
+  end
+  local calls = {}
+  BS.cdCalls[it] = calls
+  for _, m in ipairs(BS.CD_METHODS) do
+    if type(cd[m]) == "function" then
+      calls[m] = 0
+      hooksecurefunc(cd, m, function(_, d)
+        calls[m] = calls[m] + 1
+        if m == "SetCooldownFromDurationObject" then
+          BS.durOf[it] = d
+          BS.flashSeen.objects = BS.flashSeen.objects + 1
+        end
+      end)
+    end
   end
 end
 
@@ -430,7 +451,7 @@ function BS.UpdateFlashes()
   local lit = {}
   for _, v in ipairs(BS.flashes) do
     local d, c = BS.durOf[v.it], curveAt(v.pct)
-    if d and c and not BS.preview then
+    if d and c then
       local ok, err = pcall(function() v.frame:SetAlpha(d:EvaluateRemainingPercent(c)) end)
       BS.flashSeen.result = ok and "working" or tostring(err)
       lit[v.frame] = ok or nil
