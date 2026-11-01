@@ -3,9 +3,9 @@ ns.bs = ns.bs or {}
 local BS = ns.bs
 local ui = ns.ui
 
-local VIS = { "always", "usable", "aura", "debuff", "missing", "proc" }
+local VIS = { "always", "usable", "aura", "auramissing", "debuff", "missing", "proc" }
 local VIS_TEXT = { always = "Always", usable = "Only while usable", aura = "Only while aura is active",
-  debuff = "Only while debuff is active",
+  auramissing = "Only while aura is missing", debuff = "Only while debuff is active",
   missing = "Only while debuff is missing", proc = "Only while proc is active" }
 BS.VIS, BS.VIS_TEXT = VIS, VIS_TEXT
 local MAX_SPELLS = 8 -- ponytail: no scrolling in the spell list; a bar holds "one or a few" spells

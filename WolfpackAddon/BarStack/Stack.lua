@@ -19,7 +19,7 @@ local borrowed = {}   -- Blizzard item frame -> the viewer it came from
 -- Bars that show only while something is up. Only Blizzard's buff viewers show and hide a
 -- frame with its aura -- a debuff you put on the target and a proc buff included -- so these
 -- borrow from nowhere else: a cooldown icon would simply always be there.
-BS.AURA_MODES = { aura = true, debuff = true, proc = true, missing = true }
+BS.AURA_MODES = { aura = true, auramissing = true, debuff = true, proc = true, missing = true }
 
 -- Which viewers a widget may borrow from, in preference order.
 local function sources(visibility)
@@ -473,7 +473,7 @@ function BS.Layout()
         local rec = { group = g.name, bar = b.name, spell = sp.name or tostring(sp.baseSpell),
           visibility = b.visibility, frame = it, viewer = from, container = c, barFrame = c, barRef = b, index = j }
         BS.placed[#BS.placed + 1] = rec
-        if b.visibility == "missing" then
+        if b.visibility == "missing" or b.visibility == "auramissing" then
           rec.reminder = reminder(c, b, j)
           missing[#missing + 1] = { rec = rec, sp = sp } -- matched after every other bar has its frame
         elseif b.visibility == "usable" then

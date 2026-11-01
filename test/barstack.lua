@@ -207,12 +207,13 @@ for _, fn in ipairs(menus) do
   local r = radios(fn)
   if r[1] and r[1].text == "Always" then vis = r end
 end
-assert(vis and #vis == 6, "the Show dropdown has six choices")
+assert(vis and #vis == 7, "the Show dropdown has seven choices")
 assert(vis[2].text == "Only while usable" and vis[3].text == "Only while aura is active"
-  and vis[4].text == "Only while debuff is active" and vis[5].text == "Only while debuff is missing"
-  and vis[6].text == "Only while proc is active", "named as asked")
-vis[4].set()
-assert(BS.profile.groups[1].bars[1].visibility == "debuff" and vis[4].isSel(), "picking one sets the bar")
+  and vis[4].text == "Only while aura is missing"
+  and vis[5].text == "Only while debuff is active" and vis[6].text == "Only while debuff is missing"
+  and vis[7].text == "Only while proc is active", "named as asked")
+vis[5].set()
+assert(BS.profile.groups[1].bars[1].visibility == "debuff" and vis[5].isSel(), "picking one sets the bar")
 
 -- a layout pass over two groups: one stack frame each, every spell accounted for
 hooksecurefunc = function() end
@@ -341,6 +342,23 @@ BS.preview = true
 BS.UpdateVisibility()
 assert(missingC._shown == true and debuffC._shown == true, "Show all bars shows them anyway, to place them")
 BS.preview = nil
+-- "only while aura is missing": a missing bar for your own buffs, which needs no target
+local buffGone = BS.NewBar(gA)
+buffGone.visibility = "auramissing"
+buffGone.spells = { { baseSpell = 772, name = "Rend", display = "icon" } }
+realLayout()
+local goneRec
+for _, r in ipairs(BS.placed) do if r.barRef == buffGone then goneRec = r end end
+assert(goneRec.reminder and goneRec.frame == rendFrame, "it watches the aura's frame with an icon of its own")
+rendFrame:Show()
+assert(goneRec.reminder._alpha == 0, "aura up: hidden")
+rendFrame:Hide()
+assert(goneRec.reminder._alpha == 1, "aura gone: shown")
+S_target = false
+BS.UpdateVisibility()
+assert(goneRec.barFrame._shown == true, "no target needed")
+table.remove(gA.bars, tIndexOf(gA.bars, buffGone))
+realLayout()
 
 -- one Rend, in Tracked Buffs, serves both: the "active" bar shows Blizzard's icon, the "missing"
 -- bar watches that same frame and flips its own icon

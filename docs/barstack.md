@@ -22,7 +22,8 @@ It used to be its own addon, github.com/severinschleps/bar-stack; that repo is n
    has something to say. Bars set to "Always" use the cooldown icon, which never hides.
    "Only while debuff is missing" draws its own icon and only watches Blizzard's frame, so one
    spell in Tracked Buffs serves a "debuff is active" icon and a "debuff is missing" icon together.
-   Both debuff choices show only while you have a target.
+   Both debuff choices show only while you have a target. "Only while aura is missing" works
+   like "debuff is missing" without that rule, for your own buffs.
    **Icon gap** spaces the icons in a bar.
 
    **Why no flash near the end:** tried, and taken out. In Midnight an addon cannot reach an

@@ -38,7 +38,7 @@ local BAR_DEFAULTS = {
   conditions = {}, -- { kind = "usable" | "active" | "missing", baseSpell, name }: every one must hold too
   gap = 0, -- px between icons
 }
-local ENUMS = { visibility = { always = true, usable = true, aura = true, debuff = true, proc = true, missing = true }, orientation = { horizontal = true, vertical = true } }
+local ENUMS = { visibility = { always = true, usable = true, aura = true, auramissing = true, debuff = true, proc = true, missing = true }, orientation = { horizontal = true, vertical = true } }
 BS.COND_KINDS = { usable = true, active = true, missing = true }
 local Clamp = BS.Clamp
 
