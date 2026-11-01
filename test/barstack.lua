@@ -50,6 +50,15 @@ assert(b.name == "New bar" and b.size.w == 1 and b.size.h == 1)
 assert(b.visibility == "always" and b.style == nil, "no bar styling: icons only")
 assert(#b.spells == 1 and b.spells[1].name == "Overpower" and b.spells[1].display == nil)
 
+-- size is one icon. A bar saved when size was the whole bar is cut into its spells, once
+local old = BS.NormalizeBar({ size = { w = 240, h = 24 }, spells = { { baseSpell = 7384 }, { baseSpell = 100 } } })
+assert(old.size.w == 120 and old.size.h == 24, "two spells on a 240 wide bar: 120 per icon")
+assert(BS.NormalizeBar(old).size.w == 120, "and only once")
+local oldV = BS.NormalizeBar({ size = { w = 30, h = 90 }, orientation = "vertical",
+  spells = { { baseSpell = 7384 }, { baseSpell = 100 }, { baseSpell = 7887 } } })
+assert(oldV.size.w == 30 and oldV.size.h == 30, "a vertical bar is cut along its height")
+assert(BS.NormalizeBar({}).size.w == 36, "a new bar starts at one 36 px icon")
+
 -- storage round trip through the CVar chunks (SavedVariables missing, like on Forever)
 BarStackDB = nil
 BS.LoadDB(); BS.LoadProfile()
@@ -360,17 +369,21 @@ rendFrame:Show()
 assert(missingPlate._alpha == 0, "Rend up: the missing icon's plate hides with it")
 rendFrame:Hide()
 
--- sizes are what the bar says, on screen: frame size times its scale. An icon is square and as
--- tall as the bar, scaled from Blizzard's own size, never stretched
+-- sizes are what the bar says, on screen: frame size times its scale. Size is one icon (36 x 36
+-- for a new bar), square, scaled from Blizzard's own size, never stretched
 local function shown(f) return f.w * f.scale, f.h * f.scale end
 local sw_, sh_ = shown(rendFrame)
 assert(rendFrame.w == 36 and rendFrame.h == 36, "the icon keeps its own shape")
-assert(math.abs(sw_ - 24) < 0.01 and math.abs(sh_ - 24) < 0.01, "and is 24 x 24 on screen: " .. sw_)
-debuffBar.size.h = 40
+assert(math.abs(sw_ - 36) < 0.01 and math.abs(sh_ - 36) < 0.01, "and is 36 x 36 on screen: " .. sw_)
+debuffBar.size.w, debuffBar.size.h = 40, 40
 realLayout()
 sw_, sh_ = shown(rendFrame)
-assert(math.abs(sh_ - 40) < 0.01, "a 40 high bar makes a 40 high icon: " .. sh_)
-debuffBar.size.h = 24
+assert(math.abs(sh_ - 40) < 0.01, "a 40 px icon is 40 px on screen: " .. sh_)
+debuffBar.size.w, debuffBar.size.h = 36, 36
+local three = { size = { w = 40, h = 30 }, spells = { 1, 2, 3 } }
+assert(select(1, BS.BarSize(three)) == 120 and select(2, BS.BarSize(three)) == 30, "the bar is three icons wide")
+three.orientation = "vertical"
+assert(select(1, BS.BarSize(three)) == 40 and select(2, BS.BarSize(three)) == 90, "or three tall")
 -- and no Icon / Bar choice is left in the window
 BS.RefreshConfig()
 for _, fn in ipairs(menus) do

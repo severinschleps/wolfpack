@@ -33,7 +33,7 @@ local ICON_DEFAULTS = { zoom = 8, border = 1, color = { 0, 0, 0, 1 }, radius = 0
 BS.RADII = { [0] = true, [12] = true, [25] = true, [50] = true }
 local STACK_DEFAULTS = { point = "CENTER", x = 0, y = -180, scale = 1, alpha = 1, showInCombat = true, showOutOfCombat = true }
 local BAR_DEFAULTS = {
-  name = "New bar", offset = { x = 0, y = 0 }, size = { w = 240, h = 24 },
+  name = "New bar", offset = { x = 0, y = 0 }, size = { w = 36, h = 36 }, -- one icon; the bar is n of them
   orientation = "horizontal", visibility = "always", spells = {},
 }
 local ENUMS = { visibility = { always = true, usable = true, aura = true, debuff = true, proc = true, missing = true }, orientation = { horizontal = true, vertical = true } }
@@ -61,7 +61,6 @@ function BS.NormalizeBar(b)
   end
   b.style = nil -- bar texture and color: gone with bars
   b.offset.x, b.offset.y = Clamp(b.offset.x, -2000, 2000), Clamp(b.offset.y, -2000, 2000)
-  b.size.w, b.size.h = Clamp(b.size.w, 1, 2000), Clamp(b.size.h, 1, 2000)
   local spells = {}
   for _, sp in ipairs(b.spells) do
     if type(sp) == "table" and type(sp.baseSpell) == "number" then
@@ -72,6 +71,14 @@ function BS.NormalizeBar(b)
     end
   end
   b.spells = spells
+  -- size was once the whole bar; it is one icon now. An older bar's size is cut into its spells,
+  -- along the way the icons run, so it looks the same as before.
+  if not b.perIcon then
+    local n = math.max(1, #spells)
+    if b.orientation == "vertical" then b.size.h = b.size.h / n else b.size.w = b.size.w / n end
+    b.perIcon = true
+  end
+  b.size.w, b.size.h = Clamp(math.floor(b.size.w + 0.5), 1, 2000), Clamp(math.floor(b.size.h + 0.5), 1, 2000)
   return b
 end
 

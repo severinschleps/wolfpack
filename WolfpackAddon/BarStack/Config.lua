@@ -460,9 +460,9 @@ local function build(parent)
   text(r, "Icons run this way", x + 118, -150, "GameFontDisableSmall")
   local B = function() return selected end
   local half = (W3 - 24 - 12) / 2
-  slider(barSliders, r, "Width", x, -180, half, 1, 600, 1,
+  slider(barSliders, r, "Icon width", x, -180, half, 8, 200, 1,
     function() return B() and B().size.w end, function(v) B().size.w = BS.Clamp(v, 1, 2000) end)
-  slider(barSliders, r, "Height", x + half + 12, -180, half, 1, 300, 1,
+  slider(barSliders, r, "Icon height", x + half + 12, -180, half, 8, 200, 1,
     function() return B() and B().size.h end, function(v) B().size.h = BS.Clamp(v, 1, 2000) end)
   slider(barSliders, r, "Offset X", x, -226, half, -400, 400, 1,
     function() return B() and B().offset.x end, function(v) B().offset.x = BS.Clamp(v, -2000, 2000) end)

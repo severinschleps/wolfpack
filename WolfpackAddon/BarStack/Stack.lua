@@ -165,12 +165,17 @@ local function watch(it)
   end
 end
 
--- Where spell j sits inside its bar: the whole slot, x/y from the bar's top-left.
+-- Where spell j sits inside its bar: one icon's slot (size is per icon), x/y from the bar's top-left.
 local function slot(b, j)
-  local horiz = b.orientation ~= "vertical"
-  local w = horiz and b.size.w / #b.spells or b.size.w
-  local h = horiz and b.size.h or b.size.h / #b.spells
+  local horiz, w, h = b.orientation ~= "vertical", b.size.w, b.size.h
   return horiz and (j - 1) * w or 0, horiz and 0 or -(j - 1) * h, w, h
+end
+
+-- The whole bar: one slot per spell, along the way the icons run.
+function BS.BarSize(b)
+  local n = math.max(1, #b.spells)
+  if b.orientation == "vertical" then return b.size.w, b.size.h * n end
+  return b.size.w * n, b.size.h
 end
 
 -- A cooldown swipe over one of our own icons. The cooldown is secret in combat, but WoW hands
@@ -410,12 +415,13 @@ function BS.Layout()
       c:SetParent(st)
       c:ClearAllPoints()
       c:SetPoint("CENTER", st, "CENTER", b.offset.x, b.offset.y)
-      c:SetSize(b.size.w, b.size.h)
+      local bw, bh = BS.BarSize(b)
+      c:SetSize(bw, bh)
       c:SetFrameLevel(BASE + b.layer * STEP)
       c.preview:SetFrameLevel(c:GetFrameLevel() + 5)
       c.preview:SetShown(BS.preview == true)
-      sw = math.max(sw, math.abs(b.offset.x) * 2 + b.size.w)
-      sh = math.max(sh, math.abs(b.offset.y) * 2 + b.size.h)
+      sw = math.max(sw, math.abs(b.offset.x) * 2 + bw)
+      sh = math.max(sh, math.abs(b.offset.y) * 2 + bh)
       for _, r in pairs(c.reminders or {}) do r:Hide() end
       for _, cd in pairs(c.swipes or {}) do cd:Hide() end
       for _, k in pairs(styleSets[c] or {}) do k.border:Hide() end -- styleIcon shows the ones in use
