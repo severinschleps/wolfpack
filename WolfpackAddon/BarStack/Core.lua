@@ -377,7 +377,7 @@ function BS.Check()
       line(true, what .. "own picture" .. (r.swipe and "; swipe: " .. tostring(BS.swipeSeen[r.icon] or "not fed yet") or ""))
     elseif not it then
       line(false, what .. (r.look == "aura"
-        and "not in Tracked Buffs -- add it there in the Cooldown Manager"
+        and "not in Tracked Buffs (Tracked Bars is not read) -- move it there in the Cooldown Manager"
         or "no Cooldown Manager frame has this spell"))
     else
       -- a frame Blizzard drives with a secret may answer in secrets too: report, never test them
@@ -407,7 +407,7 @@ function BS.Check()
         line(q.frame ~= false, ("      if %s %s -- %s, now %s"):format(q.cond.kind, q.cond.name or "",
           (q.cond.kind == "usable" or q.cond.kind == "target") and "asks WoW"
             or q.frame and "watching its Tracked Buffs frame"
-            or "not in Tracked Buffs -- add it there in the Cooldown Manager",
+            or "not in Tracked Buffs (Tracked Bars is not read) -- move it there in the Cooldown Manager",
           BS.secret(a) and "switched by a secret" or a > 0 and "yes" or "no"))
       end
     end

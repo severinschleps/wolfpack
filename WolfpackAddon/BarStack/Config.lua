@@ -411,7 +411,7 @@ local function refreshEditor()
     local row = condRow(i)
     row.icon:SetTexture(q.baseSpell and C_Spell and BS.try(C_Spell.GetSpellTexture, q.baseSpell) or 132212)
     row.name:SetText(COND_TEXT[q.kind] .. (q.name and ": " .. q.name or "")
-      .. (untracked[q] and " |cfff87171(not in Tracked Buffs)|r" or ""))
+      .. (untracked[q] and " |cfff87171(not in Tracked Buffs; Tracked Bars is not read)|r" or ""))
     row:Show()
   end
   for i = #ic.conditions + 1, #condRows do condRows[i]:Hide() end
@@ -690,7 +690,7 @@ function BS.RefreshConfig()
   for _, rec in ipairs(BS.placed or {}) do
     if rec.barRef == b and rec.look ~= "custom" and not rec.frame then
       notes[#notes + 1] = "|cfff87171" .. rec.spell .. (rec.look == "aura"
-        and ": not in Tracked Buffs. Add it there in the Cooldown Manager.|r"
+        and ": not in Tracked Buffs. Tracked Bars is not read: move it to Tracked Buffs in the Cooldown Manager.|r"
         or ": not in the Cooldown Manager. Add it there.|r")
     end
   end
