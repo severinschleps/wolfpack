@@ -189,7 +189,7 @@ local function iconRow(i)
   r.icon:SetPoint("LEFT", 4, 0)
   r:GetFontString():ClearAllPoints()
   r:GetFontString():SetPoint("LEFT", 30, 0)
-  r:GetFontString():SetPoint("RIGHT", -70, 0)
+  r:GetFontString():SetPoint("RIGHT", -118, 0)
   r:GetFontString():SetJustifyH("LEFT")
   r:SetScript("OnClick", function() BS.EditIcon(selected.icons[i]) end)
   r.remove = ui.Button(r, "Remove", 64, true)
@@ -199,6 +199,22 @@ local function iconRow(i)
     table.remove(selected.icons, i)
     changed()
   end)
+  -- the order the icons run in the bar: one arrow each way, the dropdowns' own arrow
+  local function arrow(d, x)
+    local b = ui.Button(r, "", 22, true)
+    b:SetPoint("RIGHT", x, 0)
+    local t = b:CreateTexture(nil, "OVERLAY")
+    t:SetTexture("Interface\\Buttons\\Arrow-Down-Up")
+    if d < 0 then t:SetTexCoord(0, 1, 1, 0) end -- flipped: up
+    t:SetDesaturated(true)
+    t:SetSize(14, 14)
+    t:SetPoint("CENTER", 0, d < 0 and 3 or -3)
+    b:SetScript("OnClick", function()
+      if BS.MoveIcon(selected, i, d) then changed() end
+    end)
+    return b
+  end
+  r.up, r.down = arrow(-1, -94), arrow(1, -70)
   iconRows[i] = r
   return r
 end
@@ -634,7 +650,7 @@ local function build(parent)
   f.iconNote:SetWidth(W3 - 24)
   f.iconNote:SetJustifyH("LEFT")
   BS.cfg = f
-  f.groupSliders, f.barSliders = groupSliders, barSliders
+  f.groupSliders, f.barSliders, f.iconRows = groupSliders, barSliders, iconRows
 
   -- footer: what the whole profile shares
   f.preview = checkbox(f, "Show all bars", 2, -572, preview)
@@ -701,6 +717,8 @@ function BS.RefreshConfig()
     local row = iconRow(i)
     row.icon:SetTexture(BS.IconTexture(ic))
     row:SetText(summary(ic))
+    row.up:SetEnabled(i > 1)
+    row.down:SetEnabled(i < #b.icons)
     if ic == editing and editor and editor:IsShown() then row:LockHighlight() else row:UnlockHighlight() end
     row:Show()
   end

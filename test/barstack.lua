@@ -569,6 +569,22 @@ assert(pickBtn and pickBtn.onPick, "Usable asks which spell")
 pickBtn.onPick({ baseSpell = 163201, name = "Execute" })
 assert(made.conditions[2].kind == "usable" and made.conditions[2].name == "Execute", "the picked spell becomes the condition")
 
+-- the icons' order in a bar: up and down, not past either end
+local order = { icons = { "a", "b", "c" } }
+assert(BS.MoveIcon(order, 2, -1) and order.icons[1] == "b" and order.icons[2] == "a", "up one")
+assert(BS.MoveIcon(order, 2, 1) and order.icons[3] == "a", "down one")
+assert(not BS.MoveIcon(order, 1, -1) and not BS.MoveIcon(order, 3, 1), "nothing past either end")
+-- the window's arrows do it on the picked bar: the icon made above is its last one
+local holder
+for _, bar in ipairs(gA.bars) do if tContains(bar.icons, made) then holder = bar end end
+local at = tIndexOf(holder.icons, made)
+assert(at > 1, "the picked bar has an icon above it")
+BS.RefreshConfig()
+BS.cfg.iconRows[at].up._onOnClick()
+assert(holder.icons[at - 1] == made, "the up arrow moves it one place up")
+BS.cfg.iconRows[at - 1].down._onOnClick()
+assert(holder.icons[at] == made, "and the down arrow back")
+
 -- the picker for an aura offers Tracked Buffs only
 EssentialCooldownViewer = { GetItemFrames = function() return { cdFrame } end }
 BuffIconCooldownViewer = { GetItemFrames = function() return { rendFrame } end }

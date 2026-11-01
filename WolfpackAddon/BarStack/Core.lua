@@ -213,6 +213,14 @@ function BS.GroupOf(bar)
 end
 
 -- One step up (-1, towards the top layer) or down (+1) in its stack. False at either end.
+-- Icon i of a bar one place left / up (d = -1) or right / down (d = 1), not past either end.
+function BS.MoveIcon(bar, i, d)
+  local icons, j = bar.icons, i + d
+  if not (icons[i] and icons[j]) then return false end
+  icons[i], icons[j] = icons[j], icons[i]
+  return true
+end
+
 function BS.MoveBar(bar, d)
   local g = BS.GroupOf(bar)
   local bars = g and g.bars
