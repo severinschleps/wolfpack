@@ -9,24 +9,25 @@ local BASE, STEP = 10, 10 -- bar frame level = BASE + layer * STEP
 BS.TEXTURES = { flat = "Interface\\Buttons\\WHITE8x8", blizzard = "Interface\\TargetingFrame\\UI-StatusBar" }
 BS.ALL_VIEWERS = { "EssentialCooldownViewer", "UtilityCooldownViewer", "BuffIconCooldownViewer", "BuffBarCooldownViewer" }
 
-local stack
+local stacks = {}     -- group id -> stack frame
+BS.stacks = stacks
 local containers = {} -- bar id -> container frame
 local borrowed = {}   -- Blizzard item frame -> the viewer it came from
 
--- Which viewers a widget may borrow from, in preference order. The preferred ones come
--- first; every other viewer follows, because the picker offers spells from all four and a
--- buff put on an "always" bar must still be found rather than leave the bar empty.
+-- Bars that show only while something is up. Only Blizzard's buff viewers show and hide a
+-- frame with its aura -- a debuff you put on the target and a proc buff included -- so these
+-- borrow from nowhere else: a cooldown icon would simply always be there.
+BS.AURA_MODES = { aura = true, debuff = true, proc = true }
+
+-- Which viewers a widget may borrow from, in preference order.
 local function sources(visibility, display)
-  local buffs = display == "bar" and "BuffBarCooldownViewer" or "BuffIconCooldownViewer"
-  local list
-  if visibility == "aura" then list = { buffs }
-  -- proc not tracked as an aura: fall back to the cooldown frame with Blizzard's proc glow
-  elseif visibility == "proc" then list = { buffs, "EssentialCooldownViewer", "UtilityCooldownViewer" }
-  else list = { "EssentialCooldownViewer", "UtilityCooldownViewer" } end
-  for _, name in ipairs(BS.ALL_VIEWERS) do
-    if not tContains(list, name) then list[#list + 1] = name end
+  local icon, bar = "BuffIconCooldownViewer", "BuffBarCooldownViewer"
+  if BS.AURA_MODES[visibility] then
+    if display == "bar" then return { bar, icon } end
+    return { icon, bar }
   end
-  return list
+  -- "always": the cooldowns first, but a buff put on such a bar is still found
+  return { "EssentialCooldownViewer", "UtilityCooldownViewer", icon, bar }
 end
 
 function BS.FrameSpell(item)
@@ -82,7 +83,7 @@ BS.Find = find
 
 local function container(id)
   if containers[id] then return containers[id] end
-  local c = CreateFrame("Frame", nil, stack)
+  local c = CreateFrame("Frame", nil, UIParent) -- moved onto its group's stack by Layout
   c.preview = CreateFrame("Frame", nil, c)
   c.preview:SetAllPoints()
   local bg = c.preview:CreateTexture(nil, "BACKGROUND")
@@ -139,42 +140,90 @@ local function hookViewers()
   end
 end
 
-function BS.Layout()
-  if not stack then return end
-  hookViewers()
-  local p, used, live = BS.profile, {}, {}
-  BS.placed = {} -- what the last pass did with every spell, for /bs check
-  local s = p.stack
-  stack:ClearAllPoints()
-  stack:SetPoint(s.point, UIParent, s.point, s.x, s.y)
-  stack:SetScale(s.scale)
-  stack:SetAlpha(s.alpha)
-  local n, sw, sh = #p.bars, 40, 40
-  for i, b in ipairs(p.bars) do
-    b.layer = n - i + 1 -- top of the list = top layer
-    local c = container(b.id)
-    live[c] = true
-    c:ClearAllPoints()
-    c:SetPoint("CENTER", stack, "CENTER", b.offset.x, b.offset.y)
-    c:SetSize(b.size.w, b.size.h)
-    c:SetFrameLevel(BASE + b.layer * STEP)
-    c.preview:SetFrameLevel(c:GetFrameLevel() + 5)
-    c.preview:SetShown(BS.preview == true)
-    c:Show()
-    sw = math.max(sw, math.abs(b.offset.x) * 2 + b.size.w)
-    sh = math.max(sh, math.abs(b.offset.y) * 2 + b.size.h)
-    for j, sp in ipairs(b.spells) do
-      local it, from = find(sp, b.visibility, used)
-      BS.placed[#BS.placed + 1] = { bar = b.name, spell = sp.name or tostring(sp.baseSpell), frame = it, viewer = from, container = c }
-      if it then
-        used[it] = true
-        place(it, c, b, j)
+-- One frame per group, made the first time the group is laid out.
+local function stackFor(g)
+  if stacks[g.id] then return stacks[g.id] end
+  local st = CreateFrame("Frame", nil, UIParent)
+  st:SetFrameStrata("MEDIUM")
+  st:SetMovable(true)
+  st:SetClampedToScreen(true)
+
+  -- Edit Mode overlay: outline + the group's name, drag to move. Nothing else is editable there.
+  local edit = CreateFrame("Frame", nil, st)
+  edit:SetAllPoints()
+  edit:SetFrameLevel(8000)
+  edit:EnableMouse(true)
+  edit:RegisterForDrag("LeftButton")
+  edit:SetScript("OnDragStart", function() st:StartMoving() end)
+  edit:SetScript("OnDragStop", function()
+    st:StopMovingOrSizing()
+    for _, g2 in ipairs(BS.profile.groups) do
+      if stacks[g2.id] == st then
+        local s, sc = g2.stack, st:GetScale()
+        local x, y = st:GetCenter()
+        local ux, uy = UIParent:GetCenter()
+        s.point = "CENTER"
+        s.x, s.y = math.floor(x - ux / sc + 0.5), math.floor(y - uy / sc + 0.5)
       end
     end
+    BS.Changed()
+  end)
+  local t = edit:CreateTexture(nil, "BACKGROUND")
+  t:SetAllPoints()
+  t:SetColorTexture(0.25, 0.55, 1, 0.35)
+  edit.label = edit:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+  edit.label:SetPoint("CENTER")
+  edit:SetShown(BS.editing == true)
+  st.edit = edit
+  stacks[g.id] = st
+  return st
+end
+
+function BS.Layout()
+  if not BS.ready then return end
+  hookViewers()
+  local used, live, liveStacks = {}, {}, {}
+  BS.placed = {} -- what the last pass did with every spell, for /bs check
+  for _, g in ipairs(BS.profile.groups) do
+    local st, s = stackFor(g), g.stack
+    liveStacks[st] = true
+    st:ClearAllPoints()
+    st:SetPoint(s.point, UIParent, s.point, s.x, s.y)
+    st:SetScale(s.scale)
+    st:SetAlpha(s.alpha)
+    st.edit.label:SetText(g.name)
+    local n, sw, sh = #g.bars, 40, 40
+    for i, b in ipairs(g.bars) do
+      b.layer = n - i + 1 -- top of the list = top layer
+      local c = container(b.id)
+      live[c] = true
+      c:SetParent(st)
+      c:ClearAllPoints()
+      c:SetPoint("CENTER", st, "CENTER", b.offset.x, b.offset.y)
+      c:SetSize(b.size.w, b.size.h)
+      c:SetFrameLevel(BASE + b.layer * STEP)
+      c.preview:SetFrameLevel(c:GetFrameLevel() + 5)
+      c.preview:SetShown(BS.preview == true)
+      c:Show()
+      sw = math.max(sw, math.abs(b.offset.x) * 2 + b.size.w)
+      sh = math.max(sh, math.abs(b.offset.y) * 2 + b.size.h)
+      for j, sp in ipairs(b.spells) do
+        local it, from = find(sp, b.visibility, used)
+        BS.placed[#BS.placed + 1] = { group = g.name, bar = b.name, spell = sp.name or tostring(sp.baseSpell),
+          visibility = b.visibility, frame = it, viewer = from, container = c }
+        if it then
+          used[it] = true
+          place(it, c, b, j)
+        end
+      end
+    end
+    st:SetSize(sw, sh)
   end
-  stack:SetSize(sw, sh)
   for _, c in pairs(containers) do
     if not live[c] then c:Hide() end
+  end
+  for _, st in pairs(stacks) do
+    if not liveStacks[st] then st:Hide() end -- a deleted group
   end
   -- ponytail: returned frames sit unanchored until Blizzard's next layout pass; we never call its layout ourselves (taint)
   for it, origin in pairs(borrowed) do
@@ -196,53 +245,25 @@ function BS.Reapply()
 end
 
 function BS.UpdateVisibility()
-  if not stack then return end
-  local s = BS.profile.stack
-  stack:SetShown(BS.preview or BS.editing or (BS.inCombat and s.showInCombat) or (not BS.inCombat and s.showOutOfCombat))
-end
-
-local function savePosition()
-  stack:StopMovingOrSizing()
-  local s, sc = BS.profile.stack, stack:GetScale()
-  local x, y = stack:GetCenter()
-  local ux, uy = UIParent:GetCenter()
-  s.point = "CENTER"
-  s.x, s.y = math.floor(x - ux / sc + 0.5), math.floor(y - uy / sc + 0.5)
-  BS.Changed()
+  for _, g in ipairs(BS.profile.groups) do
+    local st, s = stacks[g.id], g.stack
+    if st then
+      st:SetShown(BS.preview or BS.editing or (BS.inCombat and s.showInCombat) or (not BS.inCombat and s.showOutOfCombat))
+    end
+  end
 end
 
 function BS.SetEditing(on)
   BS.editing = on
-  stack.edit:SetShown(on)
+  for _, st in pairs(stacks) do st.edit:SetShown(on) end
   BS.UpdateVisibility()
 end
 
 function BS.Init()
-  stack = CreateFrame("Frame", "BarStackFrame", UIParent)
-  stack:SetFrameStrata("MEDIUM")
-  stack:SetMovable(true)
-  stack:SetClampedToScreen(true)
-
-  -- Edit Mode overlay: outline + label, drag to move. Nothing else is editable there.
-  local edit = CreateFrame("Frame", nil, stack)
-  edit:SetAllPoints()
-  edit:SetFrameLevel(8000)
-  edit:EnableMouse(true)
-  edit:RegisterForDrag("LeftButton")
-  edit:SetScript("OnDragStart", function() stack:StartMoving() end)
-  edit:SetScript("OnDragStop", savePosition)
-  local t = edit:CreateTexture(nil, "BACKGROUND")
-  t:SetAllPoints()
-  t:SetColorTexture(0.25, 0.55, 1, 0.35)
-  local label = edit:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
-  label:SetPoint("CENTER")
-  label:SetText("Bar Stack")
-  edit:Hide()
-  stack.edit = edit
-
+  BS.ready = true
   if EventRegistry then
-    EventRegistry:RegisterCallback("EditMode.Enter", function() BS.SetEditing(true) end, stack)
-    EventRegistry:RegisterCallback("EditMode.Exit", function() BS.SetEditing(false) end, stack)
+    EventRegistry:RegisterCallback("EditMode.Enter", function() BS.SetEditing(true) end, BS)
+    EventRegistry:RegisterCallback("EditMode.Exit", function() BS.SetEditing(false) end, BS)
   end
 end
 

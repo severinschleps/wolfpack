@@ -2,13 +2,22 @@ local _, ns = ...
 ns.bs = ns.bs or {}
 local BS = ns.bs
 
-local VIS = { "always", "aura", "proc" }
-local VIS_TEXT = { always = "Always", aura = "While aura active", proc = "While proc active" }
+local VIS = { "always", "aura", "debuff", "proc" }
+local VIS_TEXT = { always = "Always", aura = "Only while aura is active", debuff = "Only while debuff is active",
+  proc = "Only while proc is active" }
+BS.VIS, BS.VIS_TEXT = VIS, VIS_TEXT
 local MAX_SPELLS = 8 -- ponytail: no scrolling in the spell list; a bar holds "one or a few" spells
 local RIGHT = 210
 
-local f, selected, dragFrom
+local f, selected, dragFrom, group
 local listRows, spellRows, pickRows = {}, {}, {}
+
+-- The group whose bars the window shows; the first one if the old pick is gone.
+local function G()
+  local groups = BS.profile.groups
+  if not tContains(groups, group) then group = groups[1] end
+  return group
+end
 
 local function changed()
   BS.Changed()
@@ -56,6 +65,25 @@ local function checkbox(parent, s, x, y, onClick)
   return c
 end
 
+-- items() -> { { text, isSelected(), onSelect() }, ... }, asked afresh each time the menu opens
+local function dropdown(parent, x, y, w, items)
+  local d = CreateFrame("DropdownButton", nil, parent, "WowStyle1DropdownTemplate")
+  d:SetPoint("TOPLEFT", x, y)
+  d:SetWidth(w)
+  d:SetupMenu(function(_, root)
+    for _, it in ipairs(items()) do root:CreateRadio(it[1], it[2], it[3]) end
+  end)
+  return d
+end
+
+local function groupItems(onSelect)
+  local out = {}
+  for _, g in ipairs(BS.profile.groups) do
+    out[#out + 1] = { g.name, function() return g == onSelect.current() end, function() onSelect.set(g) end }
+  end
+  return out
+end
+
 local function scroll(parent, x, y, w, h)
   local sf = CreateFrame("ScrollFrame", nil, parent, "UIPanelScrollFrameTemplate")
   sf:SetPoint("TOPLEFT", x, y)
@@ -91,12 +119,12 @@ local function listRow(i)
   r.text:SetPoint("RIGHT", -4, 0)
   r:RegisterForDrag("LeftButton")
   r:SetScript("OnClick", function(self)
-    selected = BS.profile.bars[self.index]
+    selected = G().bars[self.index]
     BS.RefreshConfig()
   end)
   r:SetScript("OnDragStart", function(self) dragFrom = self.index end)
   r:SetScript("OnDragStop", function()
-    local bars = BS.profile.bars
+    local bars = G().bars
     for _, o in ipairs(listRows) do
       if dragFrom and o:IsShown() and o:IsMouseOver() and o.index ~= dragFrom then
         table.insert(bars, o.index, table.remove(bars, dragFrom))
@@ -218,7 +246,7 @@ local function showText(mode)
     d.ok = button(d, "Import", 100, nil, nil, function()
       if BS.Import(d.edit:GetText()) then
         d:Hide()
-        selected = nil
+        group, selected = nil, nil
         BS.RefreshConfig()
       else
         d.status:SetText("Not a valid Bar Stack string.")
@@ -254,7 +282,7 @@ end
 ------------------------------------------------------------------------
 
 local function build()
-  f = window("BarStackConfig", 660, 500, "Bar Stack")
+  f = window("BarStackConfig", 660, 520, "Bar Stack")
   f:SetPoint("CENTER")
   f:SetMovable(true)
   f:RegisterForDrag("LeftButton")
@@ -265,9 +293,11 @@ local function build()
   end)
   tinsert(UISpecialFrames, "BarStackConfig")
 
-  -- left: bar list
-  text(f, "Bars (top = top layer, drag to reorder)", 14, -32)
-  f.list = scroll(f, 12, -50, 166, 306)
+  -- left: which group, then its bars (top = top layer, drag or Move up / down to reorder)
+  f.groupDrop = dropdown(f, 10, -28, 170, function()
+    return groupItems({ current = G, set = function(g) group, selected = g, nil; BS.RefreshConfig() end })
+  end)
+  f.list = scroll(f, 12, -58, 166, 298)
   f.up = button(f, "Move up", 82, 12, -364, function()
     if selected and BS.MoveBar(selected, -1) then changed() end
   end)
@@ -275,20 +305,20 @@ local function build()
     if selected and BS.MoveBar(selected, 1) then changed() end
   end)
   button(f, "New", 58, 12, -388, function()
-    selected = BS.NewBar()
+    selected = BS.NewBar(G())
     changed()
   end)
   button(f, "Copy", 58, 72, -388, function()
     if not selected then return end
     local copy = CopyTable(selected)
     copy.id, copy.name = nil, selected.name .. " copy"
-    table.insert(BS.profile.bars, tIndexOf(BS.profile.bars, selected), BS.NormalizeBar(copy))
+    table.insert(G().bars, tIndexOf(G().bars, selected), BS.NormalizeBar(copy))
     selected = copy
     changed()
   end)
   button(f, "Delete", 58, 132, -388, function()
-    local i = selected and tIndexOf(BS.profile.bars, selected)
-    if i then table.remove(BS.profile.bars, i); selected = nil; changed() end
+    local i = selected and tIndexOf(G().bars, selected)
+    if i then table.remove(G().bars, i); selected = nil; changed() end
   end)
 
   -- right: selected bar
@@ -299,10 +329,19 @@ local function build()
 
   text(r, "Name", RIGHT, -32)
   f.name = input(r, RIGHT, -46, 200, false, function(v) selected.name = v end)
-  text(r, "Visibility", 430, -32)
-  f.vis = button(r, "", 170, 430, -46, function()
-    selected.visibility = VIS[(tIndexOf(VIS, selected.visibility) or 0) % #VIS + 1]
-    changed()
+  text(r, "Show", 430, -32)
+  f.vis = dropdown(r, 426, -44, 190, function()
+    local out = {}
+    for _, v in ipairs(VIS) do
+      out[#out + 1] = { VIS_TEXT[v], function() return selected and selected.visibility == v end,
+        function() selected.visibility = v; changed() end }
+    end
+    return out
+  end)
+  text(r, "Group", 530, -78)
+  f.barGroup = dropdown(r, 526, -90, 120, function()
+    return groupItems({ current = function() return selected and BS.GroupOf(selected) end,
+      set = function(g) if BS.MoveToGroup(selected, g) then group = g; changed() end end })
   end)
 
   local nums = {
@@ -334,28 +373,44 @@ local function build()
   text(r, "Spells", RIGHT, -160)
   f.add = button(r, "Add spell", 100, RIGHT + 236, -154, showPicker)
 
-  -- bottom: stack + tools
-  text(f, "Stack", 14, -420)
-  text(f, "Scale", 60, -420, "GameFontHighlightSmall")
-  f.scale = input(f, 92, -416, 40, true, function(v) BS.profile.stack.scale = BS.Clamp(v, 0.3, 3) end)
-  text(f, "Opacity", 150, -420, "GameFontHighlightSmall")
-  f.alpha = input(f, 194, -416, 40, true, function(v) BS.profile.stack.alpha = BS.Clamp(v, 0, 1) end)
-  f.inCombat = checkbox(f, "Show in combat", 260, -414, function(on) BS.profile.stack.showInCombat = on; changed() end)
-  f.outCombat = checkbox(f, "Show out of combat", 400, -414, function(on) BS.profile.stack.showOutOfCombat = on; changed() end)
+  -- bottom: the group (each one is a stack of its own), its stack settings, tools
+  text(f, "Group", 14, -424)
+  f.groupName = input(f, 50, -420, 120, false, function(v) G().name = v end)
+  button(f, "New group", 90, 186, -420, function()
+    group, selected = BS.NewGroup(), nil
+    changed()
+  end)
+  f.delGroup = button(f, "Delete group", 100, 282, -420, function()
+    if BS.DeleteGroup(G()) then group, selected = nil, nil; changed() end
+  end)
+  f.groupNote = text(f, "Empty a group to delete it.", 392, -425, "GameFontDisableSmall")
 
-  f.preview = checkbox(f, "Show all bars", 12, -452, function(on)
+  text(f, "Stack", 14, -456)
+  text(f, "Scale", 60, -456, "GameFontHighlightSmall")
+  f.scale = input(f, 92, -452, 40, true, function(v) G().stack.scale = BS.Clamp(v, 0.3, 3) end)
+  text(f, "Opacity", 150, -456, "GameFontHighlightSmall")
+  f.alpha = input(f, 194, -452, 40, true, function(v) G().stack.alpha = BS.Clamp(v, 0, 1) end)
+  f.inCombat = checkbox(f, "Show in combat", 260, -450, function(on) G().stack.showInCombat = on; changed() end)
+  f.outCombat = checkbox(f, "Show out of combat", 400, -450, function(on) G().stack.showOutOfCombat = on; changed() end)
+
+  f.preview = checkbox(f, "Show all bars", 12, -484, function(on)
     BS.preview = on
     BS.Apply()
   end)
-  button(f, "Export", 80, 400, -454, function() showText("export") end)
-  button(f, "Import", 80, 486, -454, function() showText("import") end)
-  f.combatNote = text(f, "Changes apply after combat.", 140, -458, "GameFontRedSmall")
+  button(f, "Export", 80, 400, -486, function() showText("export") end)
+  button(f, "Import", 80, 486, -486, function() showText("import") end)
+  f.combatNote = text(f, "Changes apply after combat.", 140, -490, "GameFontRedSmall")
 end
 
 function BS.RefreshConfig()
   if not (f and f:IsShown()) then return end
-  local bars = BS.profile.bars
+  local groups, bars = BS.profile.groups, G().bars
   if not tContains(bars, selected) then selected = bars[1] end
+  f.groupDrop:GenerateMenu()
+  if not f.groupName:HasFocus() then f.groupName:SetText(G().name) end
+  local canDelete = #groups > 1 and #bars == 0
+  f.delGroup:SetEnabled(canDelete)
+  f.groupNote:SetShown(not canDelete and #groups > 1)
 
   f.list:SetHeight(math.max(1, #bars * 22))
   for i, b in ipairs(bars) do
@@ -370,7 +425,7 @@ function BS.RefreshConfig()
   f.up:SetEnabled(at ~= nil and at > 1)
   f.down:SetEnabled(at ~= nil and at < #bars)
 
-  local s = BS.profile.stack
+  local s = G().stack
   f.scale:SetText(tostring(s.scale))
   f.alpha:SetText(tostring(s.alpha))
   f.inCombat:SetChecked(s.showInCombat)
@@ -384,7 +439,8 @@ function BS.RefreshConfig()
   local b = selected
   if not b then return end
   f.name:SetText(b.name)
-  f.vis:SetText(VIS_TEXT[b.visibility])
+  f.vis:GenerateMenu()
+  f.barGroup:GenerateMenu()
   local vals = { b.size.w, b.size.h, b.offset.x, b.offset.y }
   for i, e in ipairs(f.nums) do e:SetText(tostring(vals[i])) end
   f.orient:SetText(b.orientation == "vertical" and "Vertical" or "Horizontal")

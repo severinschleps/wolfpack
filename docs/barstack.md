@@ -15,9 +15,15 @@ It used to be its own addon, github.com/severinschleps/bar-stack; that repo is n
 
 1. Add the spells you want in Blizzard's Cooldown Manager (Options › Gameplay Enhancements).
 2. Type `/bs`, or press **Bar Stack** in Wolfpack's options sidebar, to open the config window.
-3. Click **New** to create a bar, then set its visibility mode and click **Add spell**.
-4. Drag bars in the list to reorder them. The top of the list is the top layer.
-5. Open Edit Mode to drag the stack around the screen.
+3. Click **New** to create a bar, pick when it shows under **Show**, and click **Add spell**.
+   "Only while aura / debuff / proc is active" borrow from Tracked Buffs or Tracked Bars only, which
+   Blizzard shows just while the aura is up. That is what makes a stack work as a priority list: a
+   higher bar covers the ones below only while it has something to say. Bars set to "Always" use
+   the cooldown icon, which never hides.
+4. Use **Move up** / **Move down** (or drag) to reorder. The top of the list is the top layer.
+5. **New group** starts another stack with its own position, scale and combat settings. The
+   dropdown above the list picks which group you are editing; a bar's **Group** dropdown moves it.
+6. Open Edit Mode to drag each stack around the screen.
 
 Other commands:
 - `/bs check` shows which APIs and storage backends work on this client. Run it after a relog to see which saved settings survived.

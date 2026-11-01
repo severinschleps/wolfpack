@@ -40,6 +40,7 @@ assert(loadfile("WolfpackAddon/BarStack/Core.lua"))("WolfpackAddon", ns)
 assert(loadfile("WolfpackAddon/BarStack/Stack.lua"))("WolfpackAddon", ns)
 local BS = ns.bs
 assert(BS and ns.ToggleConfig == nil, "Bar Stack keeps its names on its own table")
+local realLayout = BS.Layout
 BS.Layout = function() end
 
 -- normalize garbage (e.g. a hostile import string)
@@ -51,13 +52,13 @@ assert(#b.spells == 1 and b.spells[1].name == "Overpower" and b.spells[1].displa
 -- storage round trip through the CVar chunks (SavedVariables missing, like on Forever)
 BarStackDB = nil
 BS.LoadDB(); BS.LoadProfile()
-BS.NewBar().name = "Proc"
+BS.NewBar(BS.profile.groups[1]).name = "Proc"
 BS.Save()
 assert(cvars.barStackData3 ~= "" and cvars.barStackData40 == "", "payload should span a few chunks")
 BarStackDB = nil
 BS.LoadDB(); BS.LoadProfile()
 assert(BS.cvFound and not BS.svFound)
-assert(BS.profile.bars[1].name == "Proc", "profile restored from CVars")
+assert(BS.profile.groups[1].bars[1].name == "Proc", "profile restored from CVars")
 
 -- newest backend wins
 BarStackDB = { updated = 1, profiles = {} }
@@ -67,18 +68,39 @@ assert(BS.db.profiles["Tester-Realm:1"], "CVar copy is newer than the stale Save
 -- import rejects junk, accepts an export
 assert(not BS.Import("garbage"))
 local s = BS.Export()
-BS.profile.bars = {}
-assert(BS.Import(s) and BS.profile.bars[1].name == "Proc")
+BS.profile.groups[1].bars = {}
+assert(BS.Import(s) and BS.profile.groups[1].bars[1].name == "Proc")
+
+-- a version 1 profile (one stack, one list of bars) becomes the first group, nothing lost
+local old = BS.NormalizeProfile({ version = 1, stack = { x = 50, y = 60 }, bars = { { name = "Old" } } })
+assert(old.version == 2 and #old.groups == 1 and old.stack == nil and old.bars == nil, "migrated to groups")
+assert(old.groups[1].stack.x == 50 and old.groups[1].bars[1].name == "Old", "position and bars kept")
+-- and an old export string still imports
+BS.db.profiles["Tester-Realm:1"] = nil
+assert(BS.Import(BS.Encode({ version = 1, bars = { { name = "Imported" } } })), "an old string imports")
+assert(BS.profile.groups[1].bars[1].name == "Imported")
 
 -- moving a bar up and down the stack, and not past either end
-BS.profile.bars = {}
-local low = BS.NewBar(); low.name = "Low"
-local high = BS.NewBar(); high.name = "High" -- NewBar puts it at the top
-assert(BS.profile.bars[1] == high and BS.profile.bars[2] == low)
-assert(BS.MoveBar(low, -1) and BS.profile.bars[1] == low, "Move up takes it a layer higher")
+local g1 = BS.profile.groups[1]
+g1.bars = {}
+local low = BS.NewBar(g1); low.name = "Low"
+local high = BS.NewBar(g1); high.name = "High" -- NewBar puts it at the top
+assert(g1.bars[1] == high and g1.bars[2] == low)
+assert(BS.MoveBar(low, -1) and g1.bars[1] == low, "Move up takes it a layer higher")
 assert(not BS.MoveBar(low, -1), "nothing above the top layer")
-assert(BS.MoveBar(low, 1) and BS.profile.bars[2] == low, "Move down puts it back")
+assert(BS.MoveBar(low, 1) and g1.bars[2] == low, "Move down puts it back")
 assert(not BS.MoveBar(low, 1), "nothing below the bottom layer")
+
+-- groups: each is a stack of its own; a bar moves between them, and only an empty group goes
+local g2 = BS.NewGroup()
+assert(#BS.profile.groups == 2 and g2.name == "Stack 2" and g2.stack.y == -180, "a new group starts as its own stack")
+assert(g2.stack ~= g1.stack, "with settings of its own")
+assert(BS.MoveToGroup(high, g2) and g2.bars[1] == high and BS.GroupOf(high) == g2, "a bar moves to another group")
+assert(#g1.bars == 1 and not tContains(g1.bars, high), "and leaves the old one")
+assert(not BS.DeleteGroup(g2), "a group with bars is kept")
+BS.MoveToGroup(high, g1)
+assert(BS.DeleteGroup(g2) and #BS.profile.groups == 1, "an empty one goes")
+assert(not BS.DeleteGroup(g1), "the last group always stays")
 
 -- ranks: a frame showing rank 2 matches a widget saved with rank 1
 local item = { GetSpellID = function() return 7887 end }
@@ -96,7 +118,75 @@ EssentialCooldownViewer = { GetItemFrames = function() return {} end }
 BuffIconCooldownViewer = { GetItemFrames = function() return { buff } end }
 local it, from = BS.Find({ baseSpell = 100, name = "Charge", display = "icon" }, "always", {})
 assert(it == buff and from == "BuffIconCooldownViewer", "a buff on an always bar is found")
-BuffIconCooldownViewer = nil
+-- Avatar on an "only while aura is active" bar: its cooldown icon is always up, so it must not
+-- be borrowed; only a buff viewer frame shows and hides with the aura
+local avatarCD = { GetSpellID = function() return 107574 end }
+names[107574] = "Avatar"
+EssentialCooldownViewer = { GetItemFrames = function() return { avatarCD } end }
+BuffIconCooldownViewer = { GetItemFrames = function() return {} end }
+for _, mode in ipairs({ "aura", "debuff", "proc" }) do
+  assert(BS.Find({ baseSpell = 107574, name = "Avatar", display = "icon" }, mode, {}) == nil,
+    mode .. ": the always-up cooldown icon is not used")
+end
+local avatarBuff = { GetSpellID = function() return 107574 end }
+BuffBarCooldownViewer = { GetItemFrames = function() return { avatarBuff } end }
+assert(BS.Find({ baseSpell = 107574, name = "Avatar", display = "icon" }, "aura", {}) == avatarBuff,
+  "tracked as a buff bar, it is found there even for an icon")
+assert(BS.Find({ baseSpell = 107574, name = "Avatar", display = "icon" }, "always", {}) == avatarCD,
+  "an always bar still takes the cooldown")
+BuffIconCooldownViewer, BuffBarCooldownViewer = nil, nil
+
+-- the window: built against frames that answer anything, with the dropdown menus captured
+local menus = {}
+local function mock()
+  return setmetatable({}, {
+    __index = function(t, k)
+      if k == "SetupMenu" then return function(self, fn) menus[#menus + 1] = fn end end
+      if k == "GetFrameLevel" or k == "GetScale" then return function() return 1 end end
+      if k == "GetCenter" then return function() return 0, 0 end end
+      local m = mock()
+      rawset(t, k, m)
+      return m
+    end,
+    __call = function() return mock() end,
+  })
+end
+CreateFrame = function() return mock() end
+UISpecialFrames, tinsert = {}, table.insert
+assert(loadfile("WolfpackAddon/BarStack/Config.lua"))("WolfpackAddon", ns)
+BS.NewBar(BS.profile.groups[1]).name = "Avatar bar"
+BS.ToggleConfig()
+local function radios(fn)
+  local out = {}
+  fn(nil, { CreateRadio = function(_, text, isSel, set) out[#out + 1] = { text = text, isSel = isSel, set = set } end })
+  return out
+end
+local vis
+for _, fn in ipairs(menus) do
+  local r = radios(fn)
+  if r[1] and r[1].text == "Always" then vis = r end
+end
+assert(vis and #vis == 4, "the Show dropdown has four choices")
+assert(vis[2].text == "Only while aura is active" and vis[3].text == "Only while debuff is active"
+  and vis[4].text == "Only while proc is active", "named as asked")
+vis[3].set()
+assert(BS.profile.groups[1].bars[1].visibility == "debuff" and vis[3].isSel(), "picking one sets the bar")
+
+-- a layout pass over two groups: one stack frame each, every spell accounted for
+hooksecurefunc = function() end
+local cdFrame = mock()
+cdFrame.GetSpellID = function() return 100 end
+EssentialCooldownViewer = { GetItemFrames = function() return { cdFrame } end }
+local gA, gB = BS.profile.groups[1], BS.NewGroup()
+gA.bars = {}
+BS.NewBar(gA).spells = { { baseSpell = 100, name = "Charge", display = "icon" } }
+BS.NewBar(gB).spells = { { baseSpell = 107574, name = "Avatar", display = "icon" } }
+gB.bars[1].visibility = "aura"
+BS.ready = true
+realLayout()
+assert(BS.stacks[gA.id] and BS.stacks[gB.id] and BS.stacks[gA.id] ~= BS.stacks[gB.id], "a stack frame per group")
+assert(#BS.placed == 2 and BS.placed[1].frame == cdFrame and BS.placed[1].group == "Stack 1", "Charge placed in Stack 1")
+assert(BS.placed[2].frame == nil and BS.placed[2].visibility == "aura", "Avatar has no buff frame, so nothing is borrowed")
 
 assert(select(1, BS.Hex("#FF0000")) == 1 and select(2, BS.Hex("bad")) == 1)
 print("barstack ok")

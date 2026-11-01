@@ -33,7 +33,7 @@ local BAR_DEFAULTS = {
   orientation = "horizontal", visibility = "always", spells = {},
   style = { texture = "flat", color = "#C79C6E" },
 }
-local ENUMS = { visibility = { always = true, aura = true, proc = true }, orientation = { horizontal = true, vertical = true } }
+local ENUMS = { visibility = { always = true, aura = true, debuff = true, proc = true }, orientation = { horizontal = true, vertical = true } }
 local Clamp = BS.Clamp
 
 -- copy defaults into t wherever a field is missing or has the wrong type
@@ -48,9 +48,11 @@ local function fill(t, defaults)
   return t
 end
 
+local function newID(prefix) return ("%s%d-%d"):format(prefix, time(), math.random(1e6)) end
+
 function BS.NormalizeBar(b)
   fill(b, BAR_DEFAULTS)
-  if type(b.id) ~= "string" then b.id = ("b%d-%d"):format(time(), math.random(1e6)) end
+  if type(b.id) ~= "string" then b.id = newID("b") end
   for k, ok in pairs(ENUMS) do
     if not ok[b[k]] then b[k] = BAR_DEFAULTS[k] end
   end
@@ -71,34 +73,85 @@ function BS.NormalizeBar(b)
   return b
 end
 
-function BS.NormalizeProfile(p)
-  fill(p, { version = 1, updated = 0, stack = STACK_DEFAULTS, bars = {} })
-  local s = p.stack
+-- A group is one stack on screen: its own position, scale and combat rules, and its own bars.
+function BS.NormalizeGroup(g, i)
+  fill(g, { name = "Stack " .. (i or 1), stack = STACK_DEFAULTS, bars = {} })
+  if type(g.id) ~= "string" then g.id = newID("g") end
+  local s = g.stack
   s.point = "CENTER" -- the only anchor we ever write
   s.x, s.y = Clamp(s.x, -4000, 4000), Clamp(s.y, -4000, 4000)
   s.scale, s.alpha = Clamp(s.scale, 0.3, 3), Clamp(s.alpha, 0, 1)
   local bars = {}
-  for _, b in ipairs(p.bars) do
+  for _, b in ipairs(g.bars) do
     if type(b) == "table" then bars[#bars + 1] = BS.NormalizeBar(b) end
   end
-  p.bars = bars
+  g.bars = bars
+  return g
+end
+
+-- Version 1 had one stack and one list of bars; it becomes the first group.
+function BS.NormalizeProfile(p)
+  if type(p.groups) ~= "table" then
+    p.groups = { { stack = type(p.stack) == "table" and p.stack or nil, bars = type(p.bars) == "table" and p.bars or nil } }
+  end
+  p.stack, p.bars = nil, nil
+  p.version = 2
+  if type(p.updated) ~= "number" then p.updated = 0 end
+  local groups = {}
+  for _, g in ipairs(p.groups) do
+    if type(g) == "table" then groups[#groups + 1] = BS.NormalizeGroup(g, #groups + 1) end
+  end
+  if #groups == 0 then groups[1] = BS.NormalizeGroup({}, 1) end
+  p.groups = groups
   return p
 end
 
--- One step up (-1, towards the top layer) or down (+1) in the stack. False at either end.
+function BS.NewBar(group, index)
+  local b = BS.NormalizeBar({})
+  table.insert(group.bars, index or 1, b)
+  return b
+end
+
+function BS.NewGroup()
+  local groups = BS.profile.groups
+  local g = BS.NormalizeGroup({}, #groups + 1)
+  groups[#groups + 1] = g
+  return g
+end
+
+-- Only an empty group goes, and never the last one: deleting a group never deletes bars.
+function BS.DeleteGroup(g)
+  local groups = BS.profile.groups
+  local i = tIndexOf(groups, g)
+  if not i or #groups < 2 or #g.bars > 0 then return false end
+  table.remove(groups, i)
+  return true
+end
+
+function BS.GroupOf(bar)
+  for _, g in ipairs(BS.profile.groups) do
+    if tContains(g.bars, bar) then return g end
+  end
+end
+
+-- One step up (-1, towards the top layer) or down (+1) in its stack. False at either end.
 function BS.MoveBar(bar, d)
-  local bars = BS.profile.bars
-  local i = tIndexOf(bars, bar)
+  local g = BS.GroupOf(bar)
+  local bars = g and g.bars
+  local i = bars and tIndexOf(bars, bar)
   local j = i and i + d
   if not (j and bars[j]) then return false end
   bars[i], bars[j] = bars[j], bars[i]
   return true
 end
 
-function BS.NewBar(index)
-  local b = BS.NormalizeBar({})
-  table.insert(BS.profile.bars, index or 1, b)
-  return b
+-- Into another group's stack, as its top layer.
+function BS.MoveToGroup(bar, g)
+  local from = BS.GroupOf(bar)
+  if not from or from == g then return false end
+  table.remove(from.bars, tIndexOf(from.bars, bar))
+  table.insert(g.bars, 1, bar)
+  return true
 end
 
 ------------------------------------------------------------------------
@@ -191,7 +244,7 @@ function BS.Export() return BS.Encode(BS.profile) end
 
 function BS.Import(s)
   local p = BS.Decode(type(s) == "string" and (s:gsub("%s", "")) or nil)
-  if not p or p.version ~= 1 or type(p.bars) ~= "table" then return false end
+  if not p or not (type(p.groups) == "table" or type(p.bars) == "table") then return false end
   BS.db.profiles[profileKey()] = p
   BS.LoadProfile()
   BS.Save()
@@ -230,15 +283,19 @@ function BS.Check()
     line(mapped > 0, ("%s: %s, %d frames, %d mapped to spells, hooked: %s"):format(name, _G[name] and "found" or "missing",
       total, mapped, hooks and #hooks > 0 and table.concat(hooks, ", ") or "nothing"))
   end
-  local stack = BarStackFrame
-  line(stack and stack:IsVisible(), ("stack frame %s"):format(not stack and "missing"
-    or stack:IsVisible() and ("visible at %d, %d"):format(stack:GetCenter()) or "hidden"))
+  for _, g in ipairs(BS.profile.groups) do
+    local st = BS.stacks and BS.stacks[g.id]
+    line(st and st:IsVisible(), ("group %s: %d bars, %s"):format(g.name, #g.bars, not st and "no frame yet"
+      or st:IsVisible() and ("visible at %d, %d"):format(st:GetCenter()) or "hidden"))
+  end
   -- every spell of every bar, as the last layout pass left it
   if not BS.placed or #BS.placed == 0 then line(false, "no spells on any bar yet") end
   for _, r in ipairs(BS.placed or {}) do
-    local it, what = r.frame, ("%s / %s: "):format(r.bar, r.spell)
+    local it, what = r.frame, ("%s / %s / %s: "):format(r.group, r.bar, r.spell)
     if not it then
-      line(false, what .. "no Cooldown Manager frame has this spell")
+      line(false, what .. (BS.AURA_MODES[r.visibility]
+        and "not in Tracked Buffs or Tracked Bars -- add it there in the Cooldown Manager"
+        or "no Cooldown Manager frame has this spell"))
     else
       local ours = it:GetParent() == r.container
       line(ours and it:IsVisible(), what .. ("from %s, %s, %s, %dx%d"):format(r.viewer,
