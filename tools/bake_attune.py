@@ -15,7 +15,7 @@ import re
 import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-import fetch_loot as F   # its cache and its polite fetching
+import wowhead as F   # its cache and its polite fetching
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 OUT = os.path.join(os.path.dirname(HERE), "WolfpackAddon", "Data", "Attune.lua")

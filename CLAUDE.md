@@ -3,19 +3,18 @@
 ## Install to the game after every change
 
 Whenever you change anything under `WolfpackAddon/`, run the test and then
-mirror the folder into the live game so the next `/reload` picks it up:
+mirror the folder into both live games -- Forever and Midnight (retail) -- so the
+next `/reload` picks it up:
 
 ```bash
-luajit test/smoke.lua \
-  && rsync -a --delete WolfpackAddon/ \
-     "/Users/severin/Games/World of Warcraft/_classic_beta_/Interface/AddOns/WolfpackAddon/" \
-  && rsync -a --delete WolfpackAddon_Loot/ \
-     "/Users/severin/Games/World of Warcraft/_classic_beta_/Interface/AddOns/WolfpackAddon_Loot/"
+luajit test/smoke.lua && for g in _forever_ _retail_; do
+  rsync -a --delete WolfpackAddon/ \
+    "/Users/severin/Games/World of Warcraft/$g/Interface/AddOns/WolfpackAddon/"
+done
 ```
 
-There are two addon folders: `WolfpackAddon/` and `WolfpackAddon_Loot/`, which holds
-only the dungeon tables so they can be switched off in the game's addon list. Both
-need installing.
+One copy serves both: the toc lists Forever's interface (16001) and Midnight's
+(120105, 120107). Add the new number when either client patches.
 
 Do this before you report the change as done, in the same turn as the edit.
 Never install a version whose test fails; fix it first.
@@ -34,56 +33,15 @@ the very same directory, so either works in the command above.
 prints `smoke ok`. Every non-trivial change gets a check there, and a fix for a
 real bug gets a test that fails without the fix.
 
-## Dungeon and training data
+## Training and attunement data
 
 `WolfpackAddon/Data/` holds generated tables. Nothing in there is hand-written:
 
 - `Training.lua` — trainer spells, copied from What's Training? (MIT), `Classes/Camelot`.
-- `../WolfpackAddon_Loot/Data.lua` — dungeon bosses, loot and quests, built by
-  `tools/fetch_loot.py` from Wowhead's Forever section. It sets a global,
-  `WolfpackAddonLootData`, because it is a separate addon. Rerun it when Forever
-  patches:
-  `python3 tools/fetch_loot.py` (add `--refresh` to ignore the cache).
-
-- boss positions inside that same file (`spots`), added by `tools/fetch_bosses.py` from
-  SimpleDungeonMap (MIT, Babilounet). Run it after `fetch_loot.py`, which it expects to
-  have just rebuilt the file:
-  `python3 tools/fetch_loot.py && python3 tools/fetch_bosses.py --check`
-  `--check` draws a picture per dungeon under `tools/.cache/check` with the pins on it.
-  A position that lands on black is dropped rather than shipped in the wrong place, which
-  is what happens to the other floors of a multi-floor dungeon.
-
 - `Attune.lua` — what each locked door wants, built by `tools/bake_attune.py`. The table of
   ids lives in that script and every one is checked against Wowhead's Forever pages before
-  it ships; a name that does not come back the same is dropped. Nothing is taken from the
-  Attune addon, which is All Rights Reserved.
+  it ships (fetched through `tools/wowhead.py`); a name that does not come back the same is
+  dropped. Nothing is taken from the Attune addon, which is All Rights Reserved.
 
 An addon cannot reach the network at runtime, so shipping a generated table is the
 only way this data gets in. Keep `tools/.cache/` out of git.
-
-## Quests
-
-`WolfpackAddon_Quests/` is a fourth addon folder, built by `tools/fetch_quests.py` from
-Wowhead's listings: every zone's own page plus the whole list sliced into level bands,
-which together reach 99% of Forever's 5,202 quests (one listing caps at 1,000). Three
-piles -- dungeon, raid, and everything else. `--detail` reads each quest's own page for
-the giver, the spot and the chain, which takes hours the first time and is cached after.
-
-```bash
-python3 tools/fetch_quests.py --detail
-rsync -a --delete WolfpackAddon_Quests/ \
-  "/Users/severin/Games/World of Warcraft/_classic_beta_/Interface/AddOns/WolfpackAddon_Quests/"
-```
-
-## Dungeon maps
-
-`WolfpackAddon_Maps/` is a third addon folder, built by `tools/fetch_maps.py` from
-Wowhead's Forever map pictures (`classicplus` tree, 1002x668 originals cut into six
-256x256 TGA tiles each). It exists because this client ships map art for outdoor
-zones only and gives no map position inside an instance. Install it alongside the
-other two:
-
-```bash
-rsync -a --delete WolfpackAddon_Maps/ \
-  "/Users/severin/Games/World of Warcraft/_classic_beta_/Interface/AddOns/WolfpackAddon_Maps/"
-```

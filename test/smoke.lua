@@ -227,37 +227,7 @@ UnitRace = function() return "Orc", "Orc", S.raceID or 2 end
 UnitFactionGroup = function() return S.faction or "Horde" end
 IsSpellKnown = function(id) return (S.known or {})[id] == true end
 GetMoneyString = function(c) return tostring(math.floor(c / 10000)) .. "g" end
--- the game's macro list: 120 slots, names unique, nothing doing in combat
-S.gameMacros = {}
-GetMacroIndexByName = function(name)
-    for i, m in ipairs(S.gameMacros) do if m.name == name then return i end end
-    return 0
-end
-CreateMacro = function(name, icon, body, perChar)
-    assert(not S.combat, "the game refuses macros in combat")
-    perChar = perChar and true or false
-    local room, used = perChar and (S.charRoom or 18) or (S.macroRoom or 120), 0
-    for _, m in ipairs(S.gameMacros) do
-        if (m.perChar and true or false) == perChar then used = used + 1 end
-    end
-    if used >= room then error("out of macro slots") end
-    S.gameMacros[#S.gameMacros + 1] = { name = name, icon = icon, body = body, perChar = perChar }
-    return #S.gameMacros
-end
-GetNumMacros = function()
-    local shared, mine = 0, 0
-    for _, m in ipairs(S.gameMacros) do
-        if m.perChar then mine = mine + 1 else shared = shared + 1 end
-    end
-    return shared, mine
-end
-EditMacro = function(i, name, icon, body)
-    S.gameMacros[i] = { name = name, icon = icon, body = body }
-end
-PickupMacro = function(i) S.cursor = S.gameMacros[i] end
 GameTooltip.SetSpellByID = function(_, id) S.tooltip = id end
-GetNumMacroIcons = function() return S.macroIcons and #S.macroIcons or 0 end
-GetMacroIconInfo = function(i) return (S.macroIcons or {})[i] end
 C_SpellBook = { GetSpellBookItemName = function(i) return (S.book or {})[i] and S.book[i][1] or nil end }
 GetInventorySlotInfo = function() return 0 end
 GetInventoryItemID = function() return S.ammoID end
@@ -470,10 +440,11 @@ DAMAGE_TEXT_FONT = "Fonts\\FRIZQT__.TTF"
 local ns = {}
 CompactUnitFrame_SetUpFrame = function() end -- Blizzard's; the addon hooks it
 assert(loadfile("WolfpackAddon/Data/Training.lua"))("WolfpackAddon", ns) -- loaded first, per the toc
-assert(loadfile("WolfpackAddon/Data/Macros.lua"))("WolfpackAddon", ns)
 assert(loadfile("WolfpackAddon/Data/Attune.lua"))("WolfpackAddon", ns)
-assert(loadfile("WolfpackAddon_Loot/Data.lua"))() -- its own addon; it sets a global
-assert(loadfile("WolfpackAddon_Quests/Data.lua"))()
+-- one copy for both clients: Forever (16001) and Midnight (12.1.5) must both be in the toc
+S.toc = io.open("WolfpackAddon/WolfpackAddon.toc"):read("*a")
+assert(S.toc:match("## Interface:[^\n]*16001") and S.toc:match("## Interface:[^\n]*120105"),
+    "the toc names both Forever and Midnight")
 assert(loadfile("WolfpackAddon/WolfpackAddon.lua"))("WolfpackAddon", ns)
 for _, c in ipairs({ "DRUID", "HUNTER", "MAGE", "PALADIN", "PRIEST", "ROGUE", "SHAMAN",
     "WARLOCK", "WARRIOR" }) do
@@ -934,41 +905,12 @@ boxes[5]._text = "90"; boxes[5]._scripts.OnEnterPressed(boxes[5])
 assert(prof().nameplate.gap == 4 and prof().nameplate.x == -150 and prof().nameplate.bars.health.width == 90, "nameplate edits")
 assert(prof().regular.gap == 30 and prof().regular.x == 0 and prof().regular.bars.health.width == 220, "regular untouched")
 -- every sidebar entry is really there, opens its page, and that page has settings on it
-for _, name in ipairs({ "Combat Display", "Nameplates", "Buffs", "Training",
-    "Dungeons & Raids", "Dungeon quests", "Raid quests", "Normal quests", "Other",
+for _, name in ipairs({ "Combat Display", "Nameplates", "Buffs", "Training", "Attunement", "Other",
     "Hunter", "Mage", "Rogue", "Shaman", "Warlock" }) do
     local b = byText(name)
     assert(b, "sidebar entry missing: " .. name)
     b._scripts.OnClick(b, "LeftButton")
 end
--- Macros live in their own section now, one shelf per class plus a general one
-for _, e in ipairs(ns.MACRO_SHELVES) do
-    local b = byText(e[2] == "General" and "General" or e[2])
-    assert(b, "no shelf button for " .. e[2])
-end
-byText("General")._scripts.OnClick(byText("General"), "LeftButton")
-assert(ns.macroPage:IsShown() and ns.macroClass == "GENERAL", "the general shelf opens")
--- every class page is settings only; the macros are not on it any more
-byText("Mage")._scripts.OnClick(byText("Mage"), "LeftButton")
-assert(ns.pages.mage:IsShown() and not ns.macroPage:IsShown(), "Mage settings, no macros")
--- New macro, rename it, and it is on the shelf that is open
-byText("Warrior")._scripts.OnClick(byText("Warrior"), "LeftButton")
-assert(ns.macroClass == "WARRIOR", "the warrior shelf is the open one")
-local before = #ns.mc.shelf("WARRIOR")
-byText("New macro")._scripts.OnClick(byText("New macro"), "LeftButton")
-assert(#ns.mc.shelf("WARRIOR") == before + 1, "a new one is added")
-ns.macro.name._text = "Pull"
-ns.macro.name._scripts.OnEnterPressed(ns.macro.name)
-assert(ns.mc.shelf("WARRIOR")[ns.macro.picked].name == "Pull", "and renaming it sticks")
--- shift-clicking a spell or an item drops its name into the macro you are editing
-ns.macro.body._focus, ns.macro.body._text = true, "/cast "
-assert(ns.mc.takeLink("|cff71d5ff|Hspell:1234|h[Shadow Word: Pain]|h|r"), "a spell link is taken")
-assert(ns.macro.body._text:find("Shadow Word: Pain"), "by name, not as a link: "
-    .. ns.macro.body._text)
-assert(ns.mc.takeLink("|cffffffff|Hitem:858|h[Lesser Healing Potion]|h|r"), "and an item link")
-assert(not ns.mc.takeLink(nil), "nothing at all is not taken")
-ns.macro.body._focus = false
-assert(not ns.mc.takeLink("|Hspell:1|h[Something]|h"), "nothing is taken while you are elsewhere")
 -- the training page fills itself in when it is the one on screen
 byText("Training")._scripts.OnClick(byText("Training"), "LeftButton")
 assert(ns.trainRows[1] and ns.trainRows[1]:IsShown(), "the trainer list has rows on it")
@@ -985,189 +927,6 @@ trSpell._scripts.OnLeave(trSpell)
 local trHeader = ns.trainRows[1]
 trHeader._scripts.OnEnter(trHeader) -- a level heading has nothing to show
 assert(not ns.errored, "and a heading is simply passed over")
--- and so does the dungeon page: a place is picked for you, its bosses and loot drawn
-byText("Dungeons & Raids")._scripts.OnClick(byText("Dungeons & Raids"), "LeftButton")
-assert(#WolfpackAddonLootData > 0, "the dungeon addon is loaded")
-assert(prof().dungeons.pick > 0, "one is picked, near your level")
-assert(ns.dung.picks[1] and ns.dung.picks[1]:IsShown(), "the dungeon list is drawn")
-assert(ns.dung.rows[1] and ns.dung.rows[1]:IsShown(), "and so is that dungeon's loot")
-local sawBoss, sawItem = false, false
-for _, r in ipairs(ns.dung.rows) do
-    if r:IsShown() and r.itemID then sawItem = true elseif r:IsShown() then sawBoss = true end
-end
-assert(sawBoss and sawItem, "bosses with items under them")
--- every quest says where you stand with it
-local dm
-for _, d in ipairs(WolfpackAddonLootData) do if d.name == "The Deadmines" then dm = d end end
-assert(dm and #dm.quests > 0, "Deadmines has quests")
-local qu = dm.quests[1] -- { id, name, level, min, side }
-S.level, S.faction, S.questDone, S.questLog = 60, "Alliance", {}, {}
-assert(ns.lt.questState(qu) == "open", "level is there and it is your side: pick it up")
-S.questDone = { [qu[1]] = true }
-assert(ns.lt.questState(qu) == "done", "handed in already")
-S.questDone, S.questLog = {}, { [qu[1]] = 3 }
-assert(ns.lt.questState(qu) == "log", "it is in your log right now")
-S.questLog = {}
-S.level = 2
-assert(ns.lt.questState(qu) == "low", "too low for it yet")
-S.level, S.faction = 60, "Horde"
-assert(ns.lt.questState(qu) == "faction", "an Alliance quest is not yours to take")
-S.faction = "Alliance"
--- the quests tab paints that state next to the name; the loot tab has only loot on it
-byText("Dungeons & Raids")._scripts.OnClick(byText("Dungeons & Raids"), "LeftButton")
-byText("Loot")._scripts.OnClick(byText("Loot"), "LeftButton")
-for _, r in ipairs(ns.dung.rows) do
-    assert(not (r:IsShown() and r.quest), "no quests among the loot")
-end
-byText("Quests")._scripts.OnClick(byText("Quests"), "LeftButton")
-S.sawState = false
-for _, r in ipairs(ns.dqPanel.rows) do
-    if r:IsShown() and r.quest then
-        assert(r.right._text ~= "", "a quest row carries its state: " .. tostring(r.right._text))
-        S.sawState = true
-    end
-end
-assert(S.sawState, "quests are on their own tab")
-byText("Loot")._scripts.OnClick(byText("Loot"), "LeftButton")
--- the map tab draws the game's own tiles and puts you on them
-S.mapArt = { [291] = { layer = { layerWidth = 1000, layerHeight = 800, tileWidth = 500,
-    tileHeight = 400 }, tiles = { 11, 12, 13, 14 } } }
-ns.lt.maps = nil -- rebuilt from the mock's own map table below
-assert(ns.lt.mapFor("The Deadmines") == 291, "the dungeon's own map is found by name")
-assert(ns.lt.mapFor("Deadmines") == 291, "and a near enough name finds it too")
-assert(ns.lt.mapFor("the deadmines") == 291, "case does not matter")
--- and the surest answer of all: the map you are standing on
-assert(ns.lt.whereAmI().id == 84, "the game says which map you are on")
-S.bestMap = 291
-assert(ns.lt.mapFor("The Deadmines") == 291, "standing in it, that is the map, index or no index")
-ns.lt.maps = nil
-assert(ns.lt.mapFor("The Deadmines") == 291, "even with nothing in the index at all")
-S.bestMap = nil
-SlashCmdList.WOLFPACKADDON("map")
-assert(not ns.errored, "the map probe runs clean")
-S.zone = "Ragefire Chasm"
-assert(ns.lt.inHere("Ragefire Chasm"), "the zone text says which place you are in")
-assert(not ns.lt.inHere("The Deadmines"), "and which you are not")
--- and walking into one opens the list on it
-S.zone, ns.dung.lastZone = "The Deadmines", nil
-byText("Dungeons & Raids")._scripts.OnClick(byText("Dungeons & Raids"), "LeftButton")
-assert(WolfpackAddonLootData[prof().dungeons.pick].name == "The Deadmines",
-    "the list opens on the place you walked into")
-prof().dungeons.pick = 1
-byText("Dungeons & Raids")._scripts.OnClick(byText("Dungeons & Raids"), "LeftButton")
-assert(prof().dungeons.pick == 1, "and picking another one afterwards still sticks")
-S.zone, ns.dung.lastZone = nil, nil
-assert(select(1, ns.lt.art(291)).layerWidth == 1000, "the game hands over its tiles")
-assert(ns.lt.art(999) == nil, "and says nothing for a map it has no art for")
--- you are only on it once the game will say where you are
-S.playerX = false
-assert(ns.lt.youAreHere(291) == nil, "outside, the game says nothing")
-S.playerX, S.playerY, S.facing = 0, 0, nil
-assert(ns.lt.youAreHere(291) == nil, "and a flat zero is the same as saying nothing")
-S.playerX, S.playerY, S.facing = 0.4, 0.6, math.pi
-assert(select(1, ns.lt.youAreHere(291)) == 0.4, "inside, it puts you on the map")
-assert(select(3, ns.lt.youAreHere(291)) == math.pi, "facing the way you are looking")
-assert(ns.compass(0) == "north" and ns.compass(math.pi) == "south", "the compass reads plainly")
-assert(ns.compass(math.pi / 2) == "west", "and west is a quarter turn round")
-ns.lt.hasMap, ns.dung.hasMap = nil, nil -- ask again now the mock has art for one
-prof().dungeons.tab = "map"
-byText("Dungeons & Raids")._scripts.OnClick(byText("Dungeons & Raids"), "LeftButton")
-assert(not ns.errored, "the map tab draws without complaint")
-assert(ns.dung.hasMap == true, "a client with dungeon art is offered the map tab")
--- and a client with none is not offered a tab that can only disappoint
-S.mapArt, ns.lt.maps, ns.lt.hasMap, ns.dung.hasMap = nil, nil, nil, nil
-byText("Dungeons & Raids")._scripts.OnClick(byText("Dungeons & Raids"), "LeftButton")
-assert(ns.dung.hasMap == false and prof().dungeons.tab == "loot", "no art, no tab")
--- unless the pictures travel with the addon, which is this client's only way to see one
-local aZone = WolfpackAddonLootData[1].id
-WolfpackAddonMapData = { [aZone] = { name = "X", across = 3, down = 2,
-    tiles = { "a", "b", "c", "d", "e", "f" } } }
-assert(select(1, ns.lt.shipped({ id = aZone })).across == 3, "a shipped map has its own shape")
-assert(ns.lt.shipped({ id = -1 }) == nil, "and a dungeon without one has nothing")
-ns.lt.hasMap, ns.dung.hasMap = nil, nil
-prof().dungeons.tab, prof().dungeons.pick = "map", 1 -- the one the picture is for
-byText("Dungeons & Raids")._scripts.OnClick(byText("Dungeons & Raids"), "LeftButton")
-assert(ns.dung.hasMap == true, "shipped pictures bring the tab back")
-assert(ns.dung.tiles[1]:IsShown(), "and they are drawn")
-assert(not ns.dung.you:IsShown() and not ns.dung.dot:IsShown(),
-    "with no arrow, since the client will not say where you are")
--- the boss spots ride along in the loot tables and simply appear
-local dungeon
-for _, d in ipairs(WolfpackAddonLootData) do
-    if d.spots and #d.spots > 2 then dungeon = d break end
-end
-assert(dungeon, "some dungeon ships boss positions")
-WolfpackAddonDB.bossPins = nil
-assert(#ns.lt.spots(dungeon) == #dungeon.spots, "every one of them is a pin")
-assert(ns.lt.spots(dungeon)[1].x > 0 and ns.lt.spots(dungeon)[1].x < 1, "as a fraction across")
-WolfpackAddonMapData[dungeon.id] = { name = dungeon.name, across = 3, down = 2,
-    tiles = { "a", "b", "c", "d", "e", "f" } }
-for i, d in ipairs(WolfpackAddonLootData) do
-    if d == dungeon then prof().dungeons.pick = i end
-end
-ns.dung.hasMap = nil
-byText("Dungeons & Raids")._scripts.OnClick(byText("Dungeons & Raids"), "LeftButton")
-assert(ns.dung.pins[1]:IsShown() and ns.dung.pins[1].boss == dungeon.spots[1][1],
-    "the bosses are on the map without anybody placing them")
--- one placed by hand sits on top and wins
-ns.lt.pins(dungeon.id)[dungeon.spots[1][1]] = { x = 0.5, y = 0.25 }
-assert(ns.lt.spots(dungeon)[1].x == 0.5 and ns.lt.spots(dungeon)[1].mine,
-    "your own spot beats the shipped one")
-assert(#ns.lt.spots(dungeon) == #dungeon.spots, "and does not double it up")
-assert(WolfpackAddonDB.bossPins[dungeon.id][dungeon.spots[1][1]].x == 0.5, "saved with the addon")
-byText("Clear this one")._scripts.OnClick(byText("Clear this one"), "LeftButton")
-assert(not ns.lt.spots(dungeon)[1].mine, "clearing leaves the shipped ones standing")
-WolfpackAddonMapData, ns.lt.hasMap, ns.dung.hasMap = nil, nil, nil
-prof().dungeons.tab = "loot"
-S.mapArt = { [291] = { layer = { layerWidth = 1000, layerHeight = 800, tileWidth = 500,
-    tileHeight = 400 }, tiles = { 11, 12, 13, 14 } } }
-prof().dungeons.tab = "loot"
-byText("Dungeons & Raids")._scripts.OnClick(byText("Dungeons & Raids"), "LeftButton")
-S.playerX, S.playerY, S.facing, S.mapArt = nil, nil, nil, nil
-
--- clicking a quest opens the map where it is handed out and pins the spot
-local withGiver
-for _, d in ipairs(WolfpackAddonLootData) do
-    for _, x in ipairs(d.quests) do if x[6] and (x[8] or 0) > 0 then withGiver = x break end end
-    if withGiver then break end
-end
-assert(withGiver, "at least one quest knows who hands it out")
-assert(ns.lt.mapByName("Westfall") == 52, "a zone name finds its map")
-assert(ns.lt.mapByName("Nowhere") == nil, "and an unknown one finds nothing")
-local here = { 166, "The Defias Brotherhood", 22, 14, 1, "Gryan Stoutmantle", "Westfall", 56.2, 47.6 }
-S.waypoint, S.mapShown, S.superTrack = nil, nil, nil
-assert(ns.lt.showOnMap(here), "a quest with a spot goes on the map")
-assert(S.mapShown == 52, "the map opens on that zone")
-assert(S.waypoint and math.abs(S.waypoint.x - 0.562) < 1e-9
-    and math.abs(S.waypoint.y - 0.476) < 1e-9, "the pin lands on the spot")
-assert(S.superTrack == true, "with the arrow pointing at it")
--- a zone this client does not know, and a quest nobody hands out, are both simply declined
-S.waypoint, S.mapShown = nil, nil
-assert(not ns.lt.showOnMap({ 1, "?", 1, 1, 3, "Someone", "Elsewhen", 10, 10 }), "no such zone")
-assert(not ns.lt.showOnMap({ 1, "?", 1, 1, 3, nil, nil, 0, 0 }), "nobody hands it out")
-assert(S.mapShown == nil and S.waypoint == nil, "and nothing was poked either time")
--- clicking a row on the quests tab goes through the same door
-byText("Quests")._scripts.OnClick(byText("Quests"), "LeftButton")
-local row
-for _, r in ipairs(ns.dqPanel.rows) do if r:IsShown() and r.quest then row = r break end end
-assert(row, "a quest row is on the quests tab")
-row._scripts.OnClick(row)
-assert(not ns.errored, "clicking one never errors, wherever it points")
-byText("Loot")._scripts.OnClick(byText("Loot"), "LeftButton")
--- in a fight nothing is touched
-S.combat = true
-S.waypoint, S.mapShown = nil, nil
-assert(not ns.lt.showOnMap(here), "not mid-fight")
-assert(S.mapShown == nil and S.waypoint == nil, "and nothing was poked")
-S.combat = false
--- and with that addon switched off the page says so instead of falling over
-local keptLoot = WolfpackAddonLootData
-WolfpackAddonLootData = nil
-byText("Dungeons & Raids")._scripts.OnClick(byText("Dungeons & Raids"), "LeftButton")
-assert(not ns.errored, "no data, no error")
-assert(ns.dung.empty:IsShown() and ns.dung.empty._text:find("not loaded"), "it explains itself")
-WolfpackAddonLootData = keptLoot
-byText("Dungeons & Raids")._scripts.OnClick(byText("Dungeons & Raids"), "LeftButton")
 for section, page in pairs(ns.pages) do
     assert((ns.boxesOn[page] or 0) > 0, "nothing on the " .. section .. " page")
 end
@@ -1257,7 +1016,7 @@ assert(Q.kill.icon == 135274 and Q.kill.size == 32 and Q.loot.size == 20 and Q.x
 assert(h.kill._tex == 135274 and h.kill._w == 32 and h.box._w == 54 and h.box._point[4] == -5, "live plate row restyled")
 byText("Combat Display")._scripts.OnClick(byText("Combat Display"), "LeftButton")
 
--- The options window sizes itself to its tallest column -- now the sidebar, with four shelves
+-- The options window sizes itself to its tallest column -- now the sidebar, with three shelves
 -- on it. It clamps to the screen, so this only guards against it growing without anyone noticing.
 assert(ns.configHeight > 400 and ns.configHeight < 840, "window height " .. ns.configHeight)
 
@@ -2148,92 +1907,6 @@ fire("UNIT_MAXPOWER")
 assert(not ns.frames.flight:IsShown(), "and leaves it again once you are down")
 prof().regular.bars.flight.show = false
 
--- the map tab is offered the moment the section opens, not after it has drawn once
-ns.lt.hasMap, ns.dung.hasMap = nil, nil
-WolfpackAddonMapData = { [WolfpackAddonLootData[1].id] = { name = "X", across = 3, down = 2,
-    tiles = { "a", "b", "c", "d", "e", "f" } } }
-byText("Other")._scripts.OnClick(byText("Other"), "LeftButton")
-byText("Dungeons & Raids")._scripts.OnClick(byText("Dungeons & Raids"), "LeftButton")
-assert(byText("Map"):IsShown(), "the map tab is there on the first look")
-WolfpackAddonMapData, ns.lt.hasMap, ns.dung.hasMap = nil, nil, nil
-
--- Dungeon quests: a tab of Dungeons & Raids now, not a shelf of its own
-byText("Dungeons & Raids")._scripts.OnClick(byText("Dungeons & Raids"), "LeftButton")
-byText("Quests")._scripts.OnClick(byText("Quests"), "LeftButton")
-assert(ns.tabPages.quests:IsShown() and not ns.pages.dungeons:IsShown(), "the quests tab opens")
--- and back to the loot, which is what the section opens on
-byText("Loot")._scripts.OnClick(byText("Loot"), "LeftButton")
-assert(ns.pages.dungeons:IsShown() and not ns.tabPages.quests:IsShown(), "the loot tab comes back")
-byText("Quests")._scripts.OnClick(byText("Quests"), "LeftButton")
-assert(ns.dqPanel.picks[1]:IsShown(), "the dungeon list is drawn")
-assert(ns.dqPanel.picks[1]._text:find("%d+%-%d+"), "with the level the place wants: "
-    .. ns.dqPanel.picks[1]._text)
-assert(ns.dqPanel.rows[1]:IsShown() and ns.dqPanel.rows[1].quest, "and its quests beside it")
--- a quest in a chain says where in the chain it sits
-S.chained = nil
-for _, d in ipairs(WolfpackAddonLootData) do
-    for _, x in ipairs(d.quests) do if (x[11] or 0) > 1 and x[12] then S.chained = x end end
-end
-assert(S.chained, "some quest knows what comes before it")
-assert(S.chained[12] ~= "" and S.chained[10] > 0, "a step number and the one before it")
--- the two filters cut the list down
-prof().dungeons.openOnly = true
-byText("Quests")._scripts.OnClick(byText("Quests"), "LeftButton")
-for _, r in ipairs(ns.dqPanel.rows) do
-    if r:IsShown() then assert(ns.lt.questState(r.quest) == "open", "only the ones you can take") end
-end
-prof().dungeons.openOnly = false
-
--- The three quest piles: dungeon, raid and everything out in the world
-assert(#ns.lt.pile("dungeon") > 100 and #ns.lt.pile("raid") > 100
-    and #ns.lt.pile("normal") > 1000, "all three piles shipped")
-S.questDone, S.questLog, S.level, S.faction = {}, {}, 60, "Horde"
-S.aQuest = ns.lt.pile("dungeon")[1]
-assert(ns.lt.pileState(S.aQuest) ~= nil, "every quest has a standing")
--- the five ways a quest can be out of reach, and the one way it is not
-S.aQuest = { 1, "Test", 30, 25, 3, 0, "Durotar" }
-S.level = 30
-assert(ns.lt.pileState(S.aQuest) == "open", "your level, your side, anybody's class")
-S.level = 10
-assert(ns.lt.pileState(S.aQuest) == "low", "under the level it wants")
-S.level = 60
-assert(ns.lt.pileState(S.aQuest) == "trivial", "and far enough past it to have outgrown it")
-S.level = 30
-S.aQuest[5] = 1
-assert(ns.lt.pileState(S.aQuest) == "faction", "an Alliance quest on a Horde character")
-S.aQuest[5] = 3
-S.aQuest[6] = ns.CLASS_BITS[select(2, UnitClass("player")) == "MAGE" and "DRUID" or "MAGE"]
-assert(ns.lt.pileState(S.aQuest) == "class", "somebody else's class quest")
-S.aQuest[6] = ns.CLASS_BITS[select(2, UnitClass("player"))]
-assert(ns.lt.pileState(S.aQuest) == "open", "and their own is theirs to take")
-S.aQuest[6] = 0
-S.questDone[1] = true
-assert(ns.lt.pileState(S.aQuest) == "done", "one you have handed in")
-S.questDone[1], S.questLog[1] = nil, 3
-assert(ns.lt.pileState(S.aQuest) == "log", "and one you are carrying")
-S.questLog[1] = nil
--- the page lists them, counts them, and cuts them down
-byText("Dungeon quests")._scripts.OnClick(byText("Dungeon quests"), "LeftButton")
-assert(ns.pilePanel.rows[1]:IsShown(), "the dungeon pile is drawn")
-assert(ns.pilePanel.count._text:find(" of "), "with a count: " .. ns.pilePanel.count._text)
-S.beforeFilter = tonumber(ns.pilePanel.count._text:match("^(%d+)"))
-prof().quests.openOnly = true
-byText("Raid quests")._scripts.OnClick(byText("Raid quests"), "LeftButton")
-for _, r in ipairs(ns.pilePanel.rows) do
-    if r:IsShown() then assert(ns.lt.pileState(r.quest) == "open", "only what you can take") end
-end
-prof().quests.openOnly = false
-byText("Normal quests")._scripts.OnClick(byText("Normal quests"), "LeftButton")
-assert(ns.pilePanel.rows[1]:IsShown(), "and the world pile too")
--- the zone box narrows it
-ns.pilePanel.zone._text = "durotar"
-byText("Normal quests")._scripts.OnClick(byText("Normal quests"), "LeftButton")
-for _, r in ipairs(ns.pilePanel.rows) do
-    if r:IsShown() then assert((r.quest[7] or ""):lower():find("durotar"), "only that zone") end
-end
-ns.pilePanel.zone._text = ""
-S.questDone, S.questLog, S.faction = {}, {}, "Horde"
-
 -- Attunements: keys you carry, chains you have finished, standings you have reached
 assert(#ns.attune > 0, "the attunement list shipped with the addon")
 S.faction, S.questDone, S.items, S.standing = "Horde", {}, {}, {}
@@ -2268,167 +1941,13 @@ for _, row in ipairs(ns.attune) do
     if row.side == "alliance" then assert(ns.at.forMe(row), "an Alliance one is") end
     if row.side == "both" then assert(ns.at.forMe(row), "and everyone gets the shared ones") end
 end
--- the page draws places with their steps under them, on its own tab
-byText("Dungeons & Raids")._scripts.OnClick(byText("Dungeons & Raids"), "LeftButton")
+-- the page draws places with their steps under them, on its own sidebar entry
 byText("Attunement")._scripts.OnClick(byText("Attunement"), "LeftButton")
-assert(ns.tabPages.attune:IsShown(), "the attunement tab opens")
+assert(ns.pages.attune:IsShown(), "the attunement page opens")
 assert(ns.attunePanel.rows[1]:IsShown(), "the list is drawn")
 assert(ns.attunePanel.rows[1].right._text:find(" of "), "a place counts its steps")
 assert(ns.attunePanel.rows[2].right._text ~= "", "and a step says what kind it is")
 S.questDone, S.items, S.standing, S.faction = {}, {}, {}, "Horde"
-
--- Macros: kept here without limit, handed to the game one at a time
-login("WARRIOR", 1)
-S.gameMacros, S.cursor = {}, nil
--- baked macros are added beside what is already there, and only ever once
-S.gameMacros = {}
-WolfpackAddonDB.macros = { WARRIOR = { { name = "Mine", body = "/cast Charge" } } }
-WolfpackAddonDB.macrosBaked = nil
-fire("PLAYER_LOGIN")
-local war = ns.mc.shelf("WARRIOR")
-assert(war[1].name == "Mine", "what you already had stays where it was")
-assert(#war > 1, "and the baked ones are appended after it")
-local count = #war
-table.remove(war, 2) -- throw one of the baked ones away
-fire("PLAYER_LOGIN")
-assert(#ns.mc.shelf("WARRIOR") == count - 1, "one you delete stays deleted on the next login")
-WolfpackAddonDB.macros, WolfpackAddonDB.macrosBaked = nil, nil
-fire("PLAYER_LOGIN")
-
--- the shelves arrive with macros already on them, one lot per class
-assert(#ns.mc.shelf("WARRIOR") > 0 and #ns.mc.shelf("PRIEST") > 0, "shelves come stocked")
-assert(#ns.mc.shelf("GENERAL") > 0, "including the ones that suit anybody")
-local heroic
-for _, m in ipairs(ns.mc.shelf("WARRIOR")) do
-    if m.body:find("heroic strike") then heroic = m end
-end
-assert(heroic and heroic.name == "Heroic Strike", "named after what it casts, not after the class")
-for _, m in ipairs(ns.mc.shelf("WARRIOR")) do assert(#m.name <= 16, "and within the game's limit") end
-local shelf = ns.mc.shelf("WARRIOR")
-local stocked = #shelf
-for i = 1, 200 do shelf[stocked + i] = { name = "Charge " .. i, body = "/cast Charge" } end
-assert(#ns.mc.shelf("WARRIOR") == stocked + 200, "and hundreds more fit, past what the game holds")
-assert(WolfpackAddonDB.macros.WARRIOR[stocked + 7].name == "Charge 7", "saved with the addon")
--- handing one over writes a real macro, and editing it keeps the same slot
-local mine = shelf[stocked + 1]
-local idx = ns.mc.toGame(mine)
-assert(idx == 1 and S.gameMacros[1].body == "/cast Charge", "the game took it")
-mine.body = "/cast Heroic Strike"
-assert(ns.mc.toGame(mine) == 1 and #S.gameMacros == 1, "the same one keeps its slot")
-assert(S.gameMacros[1].body == "/cast Heroic Strike", "with the new text")
--- renaming it moves the same slot rather than making a second one
-mine.name = "Charge again"
-assert(ns.mc.toGame(mine) == 1 and #S.gameMacros == 1, "a rename stays in its own slot")
-assert(S.gameMacros[1].name == "Charge again", "under the new name")
--- a name the game already has is left alone; this one takes a number beside it
-S.gameMacros[2] = { name = "Taken", body = "yours from before" }
-local other = { name = "Taken", body = "/cast Cleave" }
-local at = ns.mc.toGame(other)
-assert(at == 3 and S.gameMacros[2].body == "yours from before", "your own macro is untouched")
-assert(S.gameMacros[3].name == "Taken 2", "and this one sits beside it")
--- a macro casting something known arrives wearing that spell's icon
-S.spellTextures = { Charge = 132337, ["mongoose bite"] = 132215, Shoot = 135498,
-    ["Revive Pet"] = 132163 }
-assert(ns.mc.guessIcon("/cast Charge") == 132337, "icon comes from the spell it casts")
-assert(ns.mc.guessIcon("/say hello") == nil, "and nothing to guess from otherwise")
--- the same icon the game would give it: #showtooltip first, whatever else the macro does
-assert(ns.mc.guessIcon("#showtooltip mongoose bite\n/startattack\n/cast Charge") == 132215,
-    "what its tooltip names wins over what it happens to cast first")
-assert(ns.mc.guessIcon("#showtooltip\n/startattack\n/cast Charge") == 132337,
-    "an empty #showtooltip falls through to the spell")
-assert(ns.mc.guessIcon("/startattack\n/castsequence reset=3 !Shoot, null") == 135498,
-    "a castsequence is read past its reset clause and its bang")
-assert(ns.mc.guessIcon("/cast [mod:shift] Revive Pet; [nopet] Call Pet") == 132163,
-    "and a conditional is stepped over")
-assert(ns.mc.guessIcon("#showtooltip\n/use item:22895") == nil, "an item id is not a spell")
--- what actually gets drawn: chosen first, then the macro's own, then a question mark
-assert(ns.mc.iconOf({ icon = 4242, body = "/cast Charge" }) == 4242, "a chosen icon wins")
-assert(ns.mc.iconOf({ icon = "7831521", body = "" }) == 7831521,
-    "a file id written down as text is still a file id, not a path that draws nothing")
-assert(ns.mc.iconOf({ body = "/cast Charge" }) == 132337, "then the one the game would give it")
-assert(ns.mc.iconOf({ body = "/say hi" }) == 134400, "and a question mark when nothing else says")
-assert(ns.mc.iconOf(nil) == 134400, "nothing at all still draws something")
-assert(ns.mc.texture("INV_Misc_QuestionMark") == "Interface\\Icons\\INV_Misc_QuestionMark",
-    "a bare icon name is given its folder")
-assert(ns.mc.texture("Interface/Icons/INV_Sword_04") == "Interface/Icons/INV_Sword_04",
-    "a path is left alone")
--- and the roster draws that, rather than a blank square
-byText("General")._scripts.OnClick(byText("General"), "LeftButton")
-for i, e in ipairs(ns.mc.shelf("GENERAL")) do
-    assert(ns.macro.rows[i].tex._tex, "every macro on the roster draws something")
-    assert(type(ns.macro.rows[i].tex._tex) ~= "string"
-        or ns.macro.rows[i].tex._tex:find("Interface"), "and it is a real texture, not a bare id")
-end
--- picking one up puts it on the cursor, ready for an action bar
-assert(ns.mc.pickUp(shelf[stocked + 2]) and S.cursor.name == "Charge 2", "it is on the cursor")
--- the game full, and combat, are both said out loud rather than swallowed
--- what the game is given is a file id or a bare name; a path is what it refuses
-S.gameMacros = {}
-local pathy = { name = "Pathy", body = "/say hi", icon = "Interface/Icons/INV_Sword_04" }
-ns.mc.toGame(pathy)
-assert(S.gameMacros[1].icon == "INV_Sword_04", "the folder is stripped off for the game")
-assert(ns.mc.iconOf(pathy) == "Interface/Icons/INV_Sword_04", "while the screen still gets a path")
-assert(ns.mc.iconFor({ body = "/say hi" }) == 134400, "and no icon at all is the question mark")
--- the shared list full, this character's own eighteen take over
-S.gameMacros = {}
-ns.mc.SHARED_SLOTS, ns.mc.CHAR_SLOTS = 2, 3
-for i = 1, 2 do ns.mc.toGame({ name = "Filler " .. i, body = "/say " .. i }) end
-assert(select(1, ns.mc.room()) == 2, "the shared list is full")
-local spill = { name = "Spill", body = "/say spill" }
-local at = ns.mc.toGame(spill)
-assert(at and S.gameMacros[at].perChar == true, "it goes into a character slot instead")
-assert(spill.perChar == true, "and remembers that is where it lives")
--- both full, and it says which is which rather than just refusing
-for i = 1, 2 do ns.mc.toGame({ name = "More " .. i, body = "/say m" .. i }) end
-local ok, why = ns.mc.toGame({ name = "Nope", body = "/say no" })
-assert(not ok and why:find("both macro lists are full"), "both full: " .. tostring(why))
-assert(why:find("2 of 2") and why:find("3 of 3"), "with the counts spelled out: " .. why)
--- an empty name is what the game refuses outright, and "" is truthy in Lua
-S.gameMacros = {}
-assert(ns.mc.toGame({ name = "", body = "/say hi" }), "a macro with no name still saves")
-assert(S.gameMacros[1].name == "Macro", "under a name the game will take")
-ns.mc.toGame({ name = "   ", body = "/say hi" })
-assert(S.gameMacros[2].name == "Macro 2", "and so does one that is only spaces")
-ns.mc.toGame({ name = "  Pull  ", body = "/say hi" })
-assert(S.gameMacros[3].name == "Pull", "while a padded one is trimmed, not renamed")
--- the probe walks every call shape without leaving anything behind
-S.gameMacros = {}
-DeleteMacro = function(i) table.remove(S.gameMacros, i) end
-SlashCmdList.WOLFPACKADDON("macro")
-assert(not ns.errored, "the macro probe runs clean")
-assert(#S.gameMacros == 0, "and tidies up after itself")
-
--- a whole shelf at once: the shared list first, then the character's own, and it says where it got to
-S.gameMacros = {}
-ns.mc.SHARED_SLOTS, ns.mc.CHAR_SLOTS = 3, 2
-WolfpackAddonDB.macros.TESTS = {}
-for i = 1, 8 do
-    WolfpackAddonDB.macros.TESTS[i] = { name = "Bulk " .. i, body = "/say " .. i }
-end
-S.bulk = { ns.mc.shelfToGame("TESTS") }
-assert(S.bulk[1] == 5, "it filled both lists: " .. S.bulk[1])
-assert(S.bulk[3] == 3 and S.bulk[4] == 2, "three shared, two here")
-assert(S.bulk[2] and S.bulk[2]:find("both macro lists are full"), "and says why it stopped")
-S.bulk = 0
-for _, m in ipairs(S.gameMacros) do if m.perChar then S.bulk = S.bulk + 1 end end
-assert(S.bulk == 2, "the last two went into character slots")
-ns.mc.SHARED_SLOTS, ns.mc.CHAR_SLOTS = 120, 18
-WolfpackAddonDB.macros.TESTS = nil
-
--- a refusal that is not about room says what the game actually said
-ns.mc.SHARED_SLOTS, ns.mc.CHAR_SLOTS = 120, 18
-S.gameMacros = {}
-local kept = CreateMacro
-CreateMacro = function() error("some other trouble entirely") end
-ok, why = ns.mc.toGame({ name = "Odd", body = "/say odd" })
-assert(not ok and why:find("some other trouble"), "the game's own words: " .. tostring(why))
-CreateMacro = kept
-S.macroRoom, S.charRoom = nil, nil
-S.combat = true
-ok, why = ns.mc.toGame(shelf[stocked + 50])
-assert(not ok and why:find("fighting"), "not in combat: " .. tostring(why))
-S.combat = false
-for i = stocked + 1, stocked + 200 do shelf[i] = nil end
 
 -- Training: the trainer's list, cut down by level and by what is already learned
 login("PRIEST", 0)
