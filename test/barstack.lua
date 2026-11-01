@@ -380,6 +380,24 @@ assert(debuffBar.spells[1].display == "bar" and debuffBar.size.w == 240, "Bar wi
 debuffBar.size.w, debuffBar.size.h = 240, 24
 BuffIconCooldownViewer = nil
 
+-- a frame Blizzard has dropped no longer answers for its spell: Rend moved from Tracked Buffs to
+-- Tracked Bars must be watched on its new bar, not on the old icon we once borrowed
+local oldIcon = mock()
+oldIcon.GetSpellID = function() return 772 end
+BuffIconCooldownViewer = { GetItemFrames = function() return { oldIcon } end }
+oldIcon.GetParent = function(self) return rawget(self, "parent") or BuffIconCooldownViewer end
+oldIcon.SetParent = function(self, p) rawset(self, "parent", p) end
+realLayout() -- the missing bar borrows the old icon while it is the only Rend there is
+BuffIconCooldownViewer.GetItemFrames = function() return {} end -- Rend is gone from Tracked Buffs
+local newBar = mock()
+newBar.GetSpellID = function() return 772 end
+BuffBarCooldownViewer = { GetItemFrames = function() return { newBar } end }
+realLayout()
+for _, r in ipairs(BS.placed) do
+  if r.spell == "Rend" then assert(r.frame == newBar, r.visibility .. " bar follows Rend to Tracked Bars") end
+end
+BuffIconCooldownViewer, BuffBarCooldownViewer = nil, nil
+
 -- the window says, under the spell list, why the selected bar shows nothing
 realLayout()
 BS.RefreshConfig()

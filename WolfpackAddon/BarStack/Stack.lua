@@ -59,14 +59,20 @@ local function items(viewer)
   local function add(it)
     if it and not seen[it] then seen[it] = true; list[#list + 1] = it end
   end
+  -- Blizzard's own list is the truth: it holds the frames it uses, wherever we have put them.
+  -- Frames we borrowed count only when there is no such list (children of the viewer are all we
+  -- have then, and ours are no longer its children) -- otherwise a frame Blizzard has dropped,
+  -- say Rend's icon after Rend moved to Tracked Bars, would go on answering for Rend.
   local ok, frames = pcall(viewer.GetItemFrames, viewer)
   if ok and type(frames) == "table" then
     for _, it in ipairs(frames) do add(it) end
-  elseif viewer.itemFramePool then
-    pcall(function() for it in viewer.itemFramePool:EnumerateActive() do add(it) end end)
-  else
-    for _, it in ipairs({ viewer:GetChildren() }) do add(it) end
+    return list
   end
+  if viewer.itemFramePool then
+    local listed = pcall(function() for it in viewer.itemFramePool:EnumerateActive() do add(it) end end)
+    if listed then return list end
+  end
+  for _, it in ipairs({ viewer:GetChildren() }) do add(it) end
   for it, origin in pairs(borrowed) do
     if origin == viewer then add(it) end
   end
