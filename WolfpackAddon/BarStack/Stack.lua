@@ -108,7 +108,7 @@ end
 -- Show/Hide say plainly which way; a secret SetShown argument is handed on to
 -- SetAlphaFromBoolean without being looked at. The hooks only listen and count (for /bs check).
 BS.watch = setmetatable({}, { __mode = "k" })
-BS.mirror = setmetatable({}, { __mode = "k" }) -- Blizzard debuff frame -> our reminder icon
+BS.mirror = setmetatable({}, { __mode = "k" }) -- Blizzard debuff frame -> our reminder icons
 local WATCHED = { "Show", "Hide", "SetShown", "SetAlpha" }
 local hideout
 
@@ -130,11 +130,11 @@ local function watch(it)
       hooksecurefunc(it, m, function(_, arg)
         w[m] = w[m] + 1
         if m == "SetShown" or m == "SetAlpha" then w[m .. "Secret"] = BS.secret(arg) end
-        local r = BS.mirror[it]
-        if not r then return end
-        if m == "Show" then mirror(r, true)
-        elseif m == "Hide" then mirror(r, false)
-        elseif m == "SetShown" then mirror(r, arg) end
+        for _, r in ipairs(BS.mirror[it] or {}) do
+          if m == "Show" then mirror(r, true)
+          elseif m == "Hide" then mirror(r, false)
+          elseif m == "SetShown" then mirror(r, arg) end
+        end
       end)
     end
   end
@@ -169,18 +169,13 @@ end
 
 -- Out of sight but still Blizzard's to show and hide: a hidden parent keeps it from drawing,
 -- while its own shown flag goes on changing, which is what the hooks follow.
-local function park(it, r)
+local function park(it)
   if not borrowed[it] then borrowed[it] = it:GetParent() end
   if not hideout then
     hideout = CreateFrame("Frame", nil, UIParent)
     hideout:Hide()
   end
-  watch(it)
-  BS.mirror[it] = r
   it:SetParent(hideout)
-  local ok, shown = pcall(it.IsShown, it)
-  if ok then mirror(r, shown) end
-  return hideout
 end
 
 local function place(it, c, b, j)
@@ -269,7 +264,7 @@ end
 function BS.Layout()
   if not BS.ready then return end
   hookViewers()
-  local used, live, liveStacks = {}, {}, {}
+  local used, live, liveStacks, missing = {}, {}, {}, {}
   BS.placed = {} -- what the last pass did with every spell, for /bs check
   for _, g in ipairs(BS.profile.groups) do
     local st, s = stackFor(g), g.stack
@@ -301,10 +296,7 @@ function BS.Layout()
         BS.placed[#BS.placed + 1] = rec
         if b.visibility == "missing" then
           rec.reminder = reminder(c, b, j)
-          if it then
-            used[it] = true
-            rec.container = park(it, rec.reminder)
-          end
+          missing[#missing + 1] = { rec = rec, sp = sp } -- matched after every other bar has its frame
         elseif it then
           used[it] = true
           place(it, c, b, j)
@@ -319,11 +311,30 @@ function BS.Layout()
   for _, st in pairs(stacks) do
     if not liveStacks[st] then st:Hide() end -- a deleted group
   end
+  -- A "missing" bar only watches the frame, so it may share one another bar shows: one Rend in
+  -- Tracked Bars serves both a "debuff is active" bar and a "debuff is missing" one. A frame no
+  -- other bar shows is parked out of sight instead.
+  BS.mirror = setmetatable({}, { __mode = "k" })
+  for _, m in ipairs(missing) do
+    local it, from = find(m.sp, "missing", {})
+    m.rec.frame, m.rec.viewer = it, from
+    if it then
+      if not used[it] then
+        used[it] = true
+        park(it)
+      end
+      m.rec.container = it:GetParent()
+      watch(it)
+      BS.mirror[it] = BS.mirror[it] or {}
+      table.insert(BS.mirror[it], m.rec.reminder)
+      local ok, shown = pcall(it.IsShown, it)
+      if ok then mirror(m.rec.reminder, shown) end
+    end
+  end
   -- ponytail: returned frames sit unanchored until Blizzard's next layout pass; we never call its layout ourselves (taint)
   for it, origin in pairs(borrowed) do
     if not used[it] then
       borrowed[it] = nil
-      BS.mirror[it] = nil
       it:SetParent(origin)
     end
   end

@@ -229,6 +229,7 @@ rendFrame.Hide = function(self) self.shown = false end
 rendFrame.SetShown = function(self, v) self.shown = v end
 rendFrame.SetAlpha = function() end
 rendFrame.SetParent = function(self, p) self.parent = p end
+rendFrame.GetParent = function(self) return self.parent end
 BuffIconCooldownViewer = { GetItemFrames = function() return { rendFrame } end }
 local rendBar = BS.NewBar(gA)
 rendBar.visibility = "missing"
@@ -294,7 +295,28 @@ BS.preview = true
 BS.UpdateVisibility()
 assert(missingC._shown == true and debuffC._shown == true, "Show all bars shows them anyway, to place them")
 BS.preview = nil
+
+-- one Rend, in Tracked Bars only, serves both: the "active" bar shows Blizzard's frame as its bar,
+-- the "missing" bar watches that same frame and flips its own icon
+rendFrame.shown = false
 BuffIconCooldownViewer = nil
+BuffBarCooldownViewer = { GetItemFrames = function() return { rendFrame } end }
+debuffBar.spells[1].display = "bar"
+realLayout()
+local activeRec, missingRec
+for _, r in ipairs(BS.placed) do
+  if r.spell == "Rend" and r.visibility == "debuff" then activeRec = r end
+  if r.spell == "Rend" and r.visibility == "missing" then missingRec = r end
+end
+assert(activeRec.frame == rendFrame and rendFrame.parent == activeRec.barFrame, "the active bar shows Blizzard's Rend bar")
+assert(missingRec.frame == rendFrame, "the missing bar watches the very same frame")
+assert(missingRec.reminder._alpha == 1, "no Rend: the missing icon shows")
+rendFrame:Show()
+assert(missingRec.reminder._alpha == 0 and rendFrame.parent == activeRec.barFrame,
+  "Rend up: the icon hides, and the frame stays in the active bar")
+rendFrame:Hide()
+assert(missingRec.reminder._alpha == 1, "Rend off: the icon is back")
+BuffBarCooldownViewer = nil
 
 -- the window says, under the spell list, why the selected bar shows nothing
 realLayout()
