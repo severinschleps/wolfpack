@@ -48,6 +48,10 @@ It used to be its own addon, github.com/severinschleps/bar-stack; that repo is n
    `C_UnitAuras.GetAuraDuration` and `DurationObject:SetTimeFromStart` both refuse secrets from
    addon code (tried, and seen refused in game). Blizzard's own Tracked Bars frames were tried too:
    they did not say reliably which spell they show, so Bar Stack leaves Tracked Bars alone.
+   **Hide Blizzard's Cooldown Manager** (on by default, at the bottom of the page) keeps
+   Blizzard's viewers invisible. Do not hide them with their own Visibility setting in Edit
+   Mode: a hidden viewer fills none of its icons (seen in game, in and out of combat), so Bar
+   Stack has nothing to read. Leave that on Always; Edit Mode shows them again to place them.
 4. Use **Move up** / **Move down** (or drag) to reorder. The top of the list is the top layer.
 5. **New group** starts another stack with its own position, scale and combat settings. The
    dropdown above the list picks which group you are editing.

@@ -166,7 +166,8 @@ function BS.NormalizeProfile(p)
   end
   p.stack, p.bars = nil, nil
   p.version = 2
-  fill(p, { icons = ICON_DEFAULTS })
+  -- hideBlizzard: Blizzard's viewers kept shown but invisible (see BS.FadeViewers)
+  fill(p, { icons = ICON_DEFAULTS, hideBlizzard = true })
   local ic = p.icons
   ic.zoom, ic.border = Clamp(ic.zoom, 0, 30), Clamp(ic.border, 0, 8)
   if not BS.RADII[ic.radius] then ic.radius = 0 end
@@ -360,9 +361,14 @@ function BS.Check()
     local cat = Enum and Enum.CooldownViewerCategory and Enum.CooldownViewerCategory[CAT[name]] or ({ 0, 1, 2 })[i] -- Essential, Utility, TrackedBuff
     local okSet, set = pcall(function() return CV.GetCooldownViewerCategorySet(cat) end)
     local given = okSet and type(set) == "table" and #set or okSet and "none" or "cannot ask"
+    local hidden = v and BS.try(v.IsShown, v) == false
     line(mapped > 0, ("%s: %s%s, %d frames, %d mapped to spells, Blizzard gave it %s spells, hooked: %s"):format(name,
-      v and "found" or "missing", v and (BS.try(v.IsShown, v) == false and ", |cffff4040hidden|r" or ", shown") or "", total, mapped,
+      v and "found" or "missing", v and (hidden and ", |cffff4040hidden|r" or ", shown") or "", total, mapped,
       tostring(given), hooks and #hooks > 0 and table.concat(hooks, ", ") or "nothing"))
+    if hidden then
+      print("      Hidden by its Visibility in Edit Mode, it fills no icons, so Bar Stack reads nothing. Set it"
+        .. " to Always: Bar Stack's \"Hide Blizzard's Cooldown Manager\" keeps it out of sight and working.")
+    end
   end
   for _, g in ipairs(BS.profile.groups) do
     local st = BS.stacks and BS.stacks[g.id]

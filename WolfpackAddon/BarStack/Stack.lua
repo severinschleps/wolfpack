@@ -552,7 +552,29 @@ function BS.Reapply()
   if not ok then geterrorhandler()(err) end
 end
 
+-- Blizzard fills a viewer's icons only while the viewer is shown: hidden by its Visibility in Edit
+-- Mode, it has nothing for Bar Stack to read (seen in game: every frame empty, in and out of
+-- combat). So it stays shown and goes invisible here instead, and comes back in Edit Mode to be
+-- placed. Blizzard's own Opacity setting calls SetAlpha too; the hook puts 0 back.
+local faded, fadeHooked = false, {}
+function BS.FadeViewers()
+  local hide = BS.profile.hideBlizzard and not BS.editing
+  if not hide and not faded then return end -- never touched: Blizzard's opacity is its own
+  faded = hide
+  for _, name in ipairs(BS.ALL_VIEWERS) do
+    local v = _G[name]
+    if v and type(v.SetAlpha) == "function" then
+      if not fadeHooked[v] then
+        fadeHooked[v] = true
+        hooksecurefunc(v, "SetAlpha", function(self, a) if faded and a ~= 0 then self:SetAlpha(0) end end)
+      end
+      v:SetAlpha(hide and 0 or 1)
+    end
+  end
+end
+
 function BS.UpdateVisibility()
+  BS.FadeViewers()
   local placing = BS.preview or BS.editing
   for _, g in ipairs(BS.profile.groups) do
     local st, s = stacks[g.id], g.stack

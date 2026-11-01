@@ -576,6 +576,29 @@ assert(#all == 2 and #buffsOnly == 1 and buffsOnly[1].name == "Rend", "only the 
 BuffIconCooldownViewer = nil
 EssentialCooldownViewer = nil
 
+-- Blizzard's viewers stay shown but invisible: hidden by their Visibility setting they fill no
+-- icons at all, and Bar Stack had nothing to read (seen in game: every frame empty, in combat too)
+local viewer = mock()
+viewer.SetAlpha = function(self, a) rawset(self, "_alpha", a) end
+viewer.GetItemFrames = function() return {} end
+EssentialCooldownViewer = viewer
+assert(BS.profile.hideBlizzard == true, "on by default")
+BS.UpdateVisibility()
+assert(viewer._alpha == 0, "invisible, never Hide()")
+viewer:SetAlpha(1) -- Blizzard's own Opacity setting
+assert(viewer._alpha == 0, "Blizzard's opacity is put back to 0")
+BS.SetEditing(true)
+assert(viewer._alpha == 1, "Edit Mode: back, to be placed")
+BS.SetEditing(false)
+assert(viewer._alpha == 0, "and gone again after")
+BS.profile.hideBlizzard = false
+BS.UpdateVisibility()
+assert(viewer._alpha == 1, "switched off: visible again")
+viewer:SetAlpha(0.6)
+assert(viewer._alpha == 0.6, "and its opacity is Blizzard's own")
+assert(BS.NormalizeProfile({}).hideBlizzard == true, "a new profile hides them")
+EssentialCooldownViewer = nil
+
 -- a frame whose spell comes back secret in combat keeps the last readable answer
 local pooled = { GetSpellID = function() return 772 end }
 assert(BS.FrameSpell(pooled) == 772)

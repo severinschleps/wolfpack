@@ -624,7 +624,11 @@ local function build(parent)
 
   -- footer: what the whole profile shares
   f.preview = checkbox(f, "Show all bars", 2, -572, preview)
-  f.combatNote = text(f, "Changes apply after combat.", 150, -572, "GameFontRedSmall")
+  f.hideBlizzard = checkbox(f, "Hide Blizzard's Cooldown Manager", 140, -572, function(on)
+    BS.profile.hideBlizzard = on
+    changed()
+  end)
+  f.combatNote = text(f, "Changes apply after combat.", 400, -572, "GameFontRedSmall")
   button(f, "Icon style", 96, W - 268, -568, BS.ShowIconStyle)
   button(f, "Export", 80, W - 166, -568, function() showText("export") end)
   button(f, "Import", 80, W - 80, -568, function() showText("import") end)
@@ -665,6 +669,7 @@ function BS.RefreshConfig()
   f.inCombat:SetChecked(s.showInCombat)
   f.outCombat:SetChecked(s.showOutOfCombat)
   f.preview:SetChecked(BS.preview == true)
+  f.hideBlizzard:SetChecked(BS.profile.hideBlizzard)
   f.combatNote:SetShown(BS.pending == true)
 
   f.right:SetShown(selected ~= nil)
