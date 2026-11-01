@@ -222,6 +222,64 @@ end
 -- Export / import
 ------------------------------------------------------------------------
 
+------------------------------------------------------------------------
+-- Icon style: zoom, border and corners for every icon in the profile
+------------------------------------------------------------------------
+
+local RADIUS = { { 0, "Square" }, { 12, "Small" }, { 25, "Medium" }, { 50, "Round" } }
+local iconStyle -- the dialog, made the first time it is opened
+
+function BS.ShowIconStyle()
+  local d = iconStyle
+  if not d then
+    d = window(nil, 230, 250, "Icon style")
+    d:SetParent(f)
+    d:SetPoint("TOPLEFT", f, "TOPRIGHT", 4, 0)
+    local I = function() return BS.profile.icons end
+    text(d, "Zoom (%): trims the art's edges so it fills the icon", 14, -32, "GameFontHighlightSmall")
+    d.zoom = input(d, 14, -48, 50, true, function(v) I().zoom = BS.Clamp(v, 0, 30) end)
+    text(d, "Border (px)", 14, -82, "GameFontHighlightSmall")
+    d.border = input(d, 14, -98, 50, true, function(v) I().border = BS.Clamp(math.floor(v + 0.5), 0, 8) end)
+    text(d, "Border color", 100, -82, "GameFontHighlightSmall")
+    d.swatch = d:CreateTexture(nil, "ARTWORK")
+    d.swatch:SetSize(22, 22)
+    d.swatch:SetPoint("TOPLEFT", 104, -98)
+    button(d, "Pick", 60, 132, -97, function()
+      local c = I().color
+      local r0, g0, b0, a0 = c[1], c[2], c[3], c[4]
+      local function set(r, g, b, a)
+        c[1], c[2], c[3], c[4] = r, g, b, a
+        changed()
+      end
+      ColorPickerFrame:SetupColorPickerAndShow({
+        r = r0, g = g0, b = b0, opacity = a0, hasOpacity = true,
+        swatchFunc = function()
+          local r, g, b = ColorPickerFrame:GetColorRGB()
+          set(r, g, b, ColorPickerFrame:GetColorAlpha())
+        end,
+        opacityFunc = function()
+          local r, g, b = ColorPickerFrame:GetColorRGB()
+          set(r, g, b, ColorPickerFrame:GetColorAlpha())
+        end,
+        cancelFunc = function() set(r0, g0, b0, a0) end,
+      })
+    end)
+    text(d, "Corners", 14, -134, "GameFontHighlightSmall")
+    d.radius = dropdown(d, 10, -150, 150, function()
+      local out = {}
+      for _, e in ipairs(RADIUS) do
+        out[#out + 1] = { e[2], function() return I().radius == e[1] end,
+          function() I().radius = e[1]; changed() end }
+      end
+      return out
+    end)
+    text(d, "Applies to every icon in this profile.", 14, -196, "GameFontDisableSmall")
+    iconStyle = d
+  end
+  d:Show()
+  BS.RefreshConfig()
+end
+
 local function showText(mode)
   local d = f.textDialog
   if not d then
@@ -378,6 +436,7 @@ local function build()
     BS.preview = on
     BS.Apply()
   end)
+  button(f, "Icon style", 90, 304, -486, BS.ShowIconStyle)
   button(f, "Export", 80, 400, -486, function() showText("export") end)
   button(f, "Import", 80, 486, -486, function() showText("import") end)
   f.combatNote = text(f, "Changes apply after combat.", 140, -490, "GameFontRedSmall")
@@ -388,6 +447,13 @@ function BS.RefreshConfig()
   local groups, bars = BS.profile.groups, G().bars
   if not tContains(bars, selected) then selected = bars[1] end
   f.groupDrop:GenerateMenu()
+  local d, ic = iconStyle, BS.profile.icons
+  if d and d:IsShown() then
+    if not d.zoom:HasFocus() then d.zoom:SetText(tostring(ic.zoom)) end
+    if not d.border:HasFocus() then d.border:SetText(tostring(ic.border)) end
+    d.swatch:SetColorTexture(ic.color[1], ic.color[2], ic.color[3], ic.color[4])
+    d.radius:GenerateMenu()
+  end
   if not f.groupName:HasFocus() then f.groupName:SetText(G().name) end
   local canDelete = #groups > 1 and #bars == 0
   f.delGroup:SetEnabled(canDelete)

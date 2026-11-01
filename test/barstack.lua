@@ -154,6 +154,10 @@ local function mock()
       if k == "Hide" then return function(self) rawset(self, "_shown", false) end end
       if k == "Show" then return function(self) rawset(self, "_shown", true) end end
       if k == "SetText" then return function(self, v) rawset(self, "_text", v) end end
+      if k == "SetTexCoord" then return function(self, ...) rawset(self, "_coords", { ... }) end end
+      if k == "GetTexCoord" then return function(self) return unpack(rawget(self, "_coords") or { 0, 1, 0, 1 }) end end
+      if k == "AddMaskTexture" then return function(self, m) rawset(self, "_mask", m) end end
+      if k == "RemoveMaskTexture" then return function(self) rawset(self, "_mask", false) end end
       if k == "SetValue" then return function(self, v) rawset(self, "_value", v) end end
       if k == "GetAlpha" then return function(self) return rawget(self, "_alpha") or 1 end end
       local m = mock()
@@ -474,6 +478,38 @@ assert(fedStart == "100/6" and BS.swipeSeen[exBar.id] == "start and duration", "
 C_Spell.GetSpellCooldown = nil
 BS.UpdateUsable()
 assert(BS.swipeSeen[exBar.id]:find("^none") and BS.swipeSeen[exBar.id]:find("duration object: "), "both reasons kept")
+-- Icon style: the art zoomed to fill the icon, a border plate behind it, corners rounded alike
+local ic = BS.profile.icons
+assert(ic.zoom == 8 and ic.border == 1 and ic.radius == 0, "a profile starts with a slight zoom and a 1 px border")
+local icon = exRec.reminder
+assert(icon._coords[1] == 0.08 and icon._coords[2] == 0.92, "our own icon is zoomed 8% a side")
+local sty = exC.styles.own1
+assert(sty and rawget(sty.border, "_shown") ~= false, "a border plate behind it")
+ic.zoom, ic.border, ic.radius = 20, 3, 25
+realLayout()
+assert(icon._coords[1] == 0.2, "zoom follows the setting")
+assert(rawget(icon, "_mask") and rawget(sty.border, "_mask"), "rounded: icon and border cut by the same shape")
+ic.radius = 0
+realLayout()
+assert(rawget(icon, "_mask") == false, "square again: the mask comes off")
+ic.border = 0
+realLayout()
+assert(rawget(sty.border, "_shown") == false, "no border: no plate")
+ic.zoom, ic.border = 8, 1
+-- garbage in a saved profile is put right
+local fixed = BS.NormalizeProfile({ icons = { zoom = 99, border = -4, radius = 13, color = { 5, "x" } } })
+assert(fixed.icons.zoom == 30 and fixed.icons.border == 0 and fixed.icons.radius == 0, "clamped")
+-- the window's Icon style dialog edits it
+BS.ShowIconStyle()
+local corners
+for _, fn in ipairs(menus) do
+  local r = radios(fn)
+  if r[1] and r[1].text == "Square" then corners = r end
+end
+assert(corners and #corners == 4 and corners[4].text == "Round", "corners: square, small, medium, round")
+corners[4].set()
+assert(ic.radius == 50 and corners[4].isSel(), "picking Round sets it")
+ic.radius = 0
 C_Spell.IsSpellUsable = nil
 EssentialCooldownViewer = nil
 

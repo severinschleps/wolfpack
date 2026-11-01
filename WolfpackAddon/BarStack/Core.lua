@@ -27,6 +27,10 @@ end
 -- Profile schema
 ------------------------------------------------------------------------
 
+-- How every icon looks: zoom crops the art's edges (percent per side), a border plate of `border`
+-- px sits behind it, and `radius` rounds both (0 square, 12 / 25 small and medium, 50 a circle).
+local ICON_DEFAULTS = { zoom = 8, border = 1, color = { 0, 0, 0, 1 }, radius = 0 }
+BS.RADII = { [0] = true, [12] = true, [25] = true, [50] = true }
 local STACK_DEFAULTS = { point = "CENTER", x = 0, y = -180, scale = 1, alpha = 1, showInCombat = true, showOutOfCombat = true }
 local BAR_DEFAULTS = {
   name = "New bar", offset = { x = 0, y = 0 }, size = { w = 240, h = 24 },
@@ -94,6 +98,11 @@ function BS.NormalizeProfile(p)
   end
   p.stack, p.bars = nil, nil
   p.version = 2
+  fill(p, { icons = ICON_DEFAULTS })
+  local ic = p.icons
+  ic.zoom, ic.border = Clamp(ic.zoom, 0, 30), Clamp(ic.border, 0, 8)
+  if not BS.RADII[ic.radius] then ic.radius = 0 end
+  for i = 1, 4 do ic.color[i] = Clamp(ic.color[i], 0, 1) end
   if type(p.updated) ~= "number" then p.updated = 0 end
   local groups = {}
   for _, g in ipairs(p.groups) do

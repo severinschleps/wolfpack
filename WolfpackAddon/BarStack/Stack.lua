@@ -201,6 +201,52 @@ local function feedSwipe(cd, id)
   return "none -- " .. table.concat(why, " | ")
 end
 
+-- The icon style, on any icon texture -- ours, or the one inside a frame we borrowed. The border
+-- is a plate behind the icon, on our bar (`owner`), cut to the same shape by its own mask.
+local MASKS = { [12] = "i12", [25] = "i25", [50] = "i50" } -- Wolfpack's own Media/Icon art
+local MASK_PATH = "Interface\\AddOns\\WolfpackAddon\\Media\\Icon\\"
+local maskOn = setmetatable({}, { __mode = "k" }) -- mask -> on its texture
+local function setMask(tex, m, file)
+  if file then
+    m:SetTexture(MASK_PATH .. file .. ".tga", "CLAMPTOBLACKADDITIVE", "CLAMPTOBLACKADDITIVE")
+    if not maskOn[m] then tex:AddMaskTexture(m); maskOn[m] = true end
+  elseif maskOn[m] then
+    tex:RemoveMaskTexture(m)
+    maskOn[m] = nil
+  end
+end
+
+local function styleIcon(tex, owner, key)
+  local st = BS.profile.icons
+  local z = st.zoom / 100
+  tex:SetTexCoord(z, 1 - z, z, 1 - z)
+  owner.styles = owner.styles or {}
+  local k = owner.styles[key]
+  if not k then
+    k = { border = owner:CreateTexture(nil, "BACKGROUND") }
+    k.borderMask = owner:CreateMaskTexture()
+    owner.styles[key] = k
+  end
+  if k.tex ~= tex then -- a new texture in this slot: its mask has to belong to its own frame
+    if k.tex and k.iconMask then setMask(k.tex, k.iconMask, nil) end
+    k.tex, k.iconMask = tex, (tex:GetParent() or owner):CreateMaskTexture()
+  end
+  local file, e = MASKS[st.radius], st.border
+  k.iconMask:SetAllPoints(tex)
+  setMask(tex, k.iconMask, file)
+  k.border:ClearAllPoints()
+  k.border:SetPoint("TOPLEFT", tex, "TOPLEFT", -e, e)
+  k.border:SetPoint("BOTTOMRIGHT", tex, "BOTTOMRIGHT", e, -e)
+  k.border:SetColorTexture(st.color[1], st.color[2], st.color[3], st.color[4])
+  k.borderMask:SetAllPoints(k.border)
+  setMask(k.border, k.borderMask, file)
+  k.border:SetShown(e > 0)
+  return k
+end
+
+-- Blizzard's crop on a borrowed icon, to put back when the frame goes home.
+local styled = setmetatable({}, { __mode = "k" }) -- borrowed frame -> { tex, key style, coords }
+
 local function reminder(c, b, j)
   c.reminders = c.reminders or {}
   local r = c.reminders[j]
@@ -216,6 +262,7 @@ local function reminder(c, b, j)
   r:SetTexture((C_Spell and BS.try(C_Spell.GetSpellTexture, b.spells[j].baseSpell)) or 134400)
   r:SetAlpha(1) -- missing until Blizzard's frame says otherwise
   r:Show()
+  styleIcon(r, c, "own" .. j)
   return r
 end
 
@@ -267,6 +314,11 @@ local function place(it, c, b, j)
   it:ClearAllPoints()
   it:SetPoint("TOPLEFT", c, "TOPLEFT", x / s, y / s) -- offsets are in the frame's own scaled units
   it:SetSize(n.w, n.h) -- an icon keeps its own shape; the scale sets its size
+  local tex = it.Icon
+  if type(tex) == "table" and tex.SetTexCoord then
+    if not styled[it] then styled[it] = { tex = tex, coords = { tex:GetTexCoord() } } end
+    styled[it].k = styleIcon(tex, c, "borrowed" .. j)
+  end
 end
 
 local hooked = {}
@@ -357,6 +409,7 @@ function BS.Layout()
       sh = math.max(sh, math.abs(b.offset.y) * 2 + b.size.h)
       for _, r in pairs(c.reminders or {}) do r:Hide() end
       for _, cd in pairs(c.swipes or {}) do cd:Hide() end
+      for _, k in pairs(c.styles or {}) do k.border:Hide() end -- styleIcon shows the ones in use
       for j, sp in ipairs(b.spells) do
         -- a usable bar draws its own icon and borrows nothing (see below)
         local it, from
@@ -411,6 +464,12 @@ function BS.Layout()
   for it, origin in pairs(borrowed) do
     if not used[it] then
       borrowed[it] = nil
+      local sty = styled[it]
+      if sty then -- Blizzard's own crop back, our mask off; the border stays with our bar
+        if #sty.coords == 8 then pcall(sty.tex.SetTexCoord, sty.tex, unpack(sty.coords)) end
+        if sty.k and sty.k.iconMask then setMask(sty.tex, sty.k.iconMask, nil) end
+        styled[it] = nil
+      end
       local n = natural[it]
       if n then -- home the way it came: Blizzard's size and scale
         it:SetScale(n.scale)
