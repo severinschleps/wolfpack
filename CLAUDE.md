@@ -7,7 +7,7 @@ mirror the folder into both live games -- Forever and Midnight (retail) -- so th
 next `/reload` picks it up:
 
 ```bash
-luajit test/smoke.lua && for g in _forever_ _retail_; do
+luajit test/smoke.lua && luajit test/barstack.lua && for g in _forever_ _retail_; do
   rsync -a --delete WolfpackAddon/ \
     "/Users/severin/Games/World of Warcraft/$g/Interface/AddOns/WolfpackAddon/"
 done
@@ -34,8 +34,15 @@ the very same directory, so either works in the command above.
 ## Testing
 
 `test/smoke.lua` runs the addon against a mock WoW API: `luajit test/smoke.lua`
-prints `smoke ok`. Every non-trivial change gets a check there, and a fix for a
+prints `smoke ok`. `test/barstack.lua` does the same for Bar Stack and prints `barstack ok`. Every non-trivial change gets a check there, and a fix for a
 real bug gets a test that fails without the fix.
+
+## Bar Stack
+
+`WolfpackAddon/BarStack/` is Bar Stack, which used to be its own addon: bars built from
+Blizzard's Cooldown Manager frames, with its own window (`/bs`) and its own saved data
+(`BarStackDB`, plus a copy in account CVars). It keeps its names on `ns.bs` so they never meet
+Wolfpack's. Design and status notes are in `docs/`.
 
 ## Training and attunement data
 

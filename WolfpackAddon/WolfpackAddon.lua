@@ -3951,6 +3951,9 @@ local function buildConfig()
         onRefresh(function() if section == e[1] then b:LockHighlight() else b:UnlockHighlight() end end)
         y = y - 24
     end
+    -- Bar Stack keeps its own window (BarStack/Config.lua); this only opens it
+    button(cfg, "Bar Stack", 118, 12, y, function() if ns.bs then safe(ns.bs.ToggleConfig) end end)
+    y = y - 24
 
     shelf("Adventure")
     for _, e in ipairs({ { "attune", "Attunement" }, { "training", "Training" } }) do

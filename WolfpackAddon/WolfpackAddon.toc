@@ -1,11 +1,14 @@
 ## Interface: 16001, 120105, 120107
 ## Title: Wolfpack Addon
-## Notes: Health, power, combo point and druid mana bars, on screen and on nameplates, plus quest mob icons. /wolfpack (or /wp) to configure.
+## Notes: Health, power, combo point and druid mana bars, on screen and on nameplates, plus quest mob icons and Bar Stack (/bs). /wolfpack (or /wp) to configure.
 ## Author: severin
 ## Version: 1.0.0
-## SavedVariables: WolfpackAddonDB
+## SavedVariables: WolfpackAddonDB, BarStackDB
 ## AddonCompartmentFunc: WolfpackAddon_Toggle
 
 Data\Training.lua
 Data\Attune.lua
 WolfpackAddon.lua
+BarStack\Core.lua
+BarStack\Stack.lua
+BarStack\Config.lua

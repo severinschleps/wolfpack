@@ -911,6 +911,11 @@ for _, name in ipairs({ "Combat Display", "Nameplates", "Buffs", "Training", "At
     assert(b, "sidebar entry missing: " .. name)
     b._scripts.OnClick(b, "LeftButton")
 end
+-- the sidebar opens Bar Stack's own window
+ns.bs = { ToggleConfig = function() S.bsOpened = true end }
+byText("Bar Stack")._scripts.OnClick(byText("Bar Stack"), "LeftButton")
+assert(S.bsOpened, "the Bar Stack button opens its window")
+ns.bs = nil
 -- the training page fills itself in when it is the one on screen
 byText("Training")._scripts.OnClick(byText("Training"), "LeftButton")
 assert(ns.trainRows[1] and ns.trainRows[1]:IsShown(), "the trainer list has rows on it")
