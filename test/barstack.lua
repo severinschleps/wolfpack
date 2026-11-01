@@ -5,6 +5,7 @@ GetBuildInfo = function() return "12.0.0", "1", "", 120000 end
 CreateFrame = function() return { RegisterEvent = function() end, SetScript = function() end } end
 SlashCmdList = {}
 time = os.time
+tIndexOf = function(t, v) for i, x in ipairs(t) do if x == v then return i end end end
 tContains = function(t, v) for _, x in ipairs(t) do if x == v then return true end end return false end
 CopyTable = function(t)
   local c = {}
@@ -68,6 +69,16 @@ assert(not BS.Import("garbage"))
 local s = BS.Export()
 BS.profile.bars = {}
 assert(BS.Import(s) and BS.profile.bars[1].name == "Proc")
+
+-- moving a bar up and down the stack, and not past either end
+BS.profile.bars = {}
+local low = BS.NewBar(); low.name = "Low"
+local high = BS.NewBar(); high.name = "High" -- NewBar puts it at the top
+assert(BS.profile.bars[1] == high and BS.profile.bars[2] == low)
+assert(BS.MoveBar(low, -1) and BS.profile.bars[1] == low, "Move up takes it a layer higher")
+assert(not BS.MoveBar(low, -1), "nothing above the top layer")
+assert(BS.MoveBar(low, 1) and BS.profile.bars[2] == low, "Move down puts it back")
+assert(not BS.MoveBar(low, 1), "nothing below the bottom layer")
 
 -- ranks: a frame showing rank 2 matches a widget saved with rank 1
 local item = { GetSpellID = function() return 7887 end }

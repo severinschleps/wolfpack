@@ -267,7 +267,13 @@ local function build()
 
   -- left: bar list
   text(f, "Bars (top = top layer, drag to reorder)", 14, -32)
-  f.list = scroll(f, 12, -50, 166, 330)
+  f.list = scroll(f, 12, -50, 166, 306)
+  f.up = button(f, "Move up", 82, 12, -364, function()
+    if selected and BS.MoveBar(selected, -1) then changed() end
+  end)
+  f.down = button(f, "Move down", 82, 96, -364, function()
+    if selected and BS.MoveBar(selected, 1) then changed() end
+  end)
   button(f, "New", 58, 12, -388, function()
     selected = BS.NewBar()
     changed()
@@ -360,6 +366,9 @@ function BS.RefreshConfig()
     row:Show()
   end
   for i = #bars + 1, #listRows do listRows[i]:Hide() end
+  local at = selected and tIndexOf(bars, selected)
+  f.up:SetEnabled(at ~= nil and at > 1)
+  f.down:SetEnabled(at ~= nil and at < #bars)
 
   local s = BS.profile.stack
   f.scale:SetText(tostring(s.scale))

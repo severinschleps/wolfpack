@@ -87,9 +87,7 @@ local function container(id)
   c.preview:SetAllPoints()
   local bg = c.preview:CreateTexture(nil, "BACKGROUND")
   bg:SetAllPoints()
-  bg:SetColorTexture(0, 0, 0, 0.35)
-  c.label = c.preview:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-  c.label:SetPoint("LEFT", 4, 0)
+  bg:SetColorTexture(0, 0, 0, 0.35) -- no name drawn on the bar: the config list says which is which
   containers[id] = c
   return c
 end
@@ -162,7 +160,6 @@ function BS.Layout()
     c:SetFrameLevel(BASE + b.layer * STEP)
     c.preview:SetFrameLevel(c:GetFrameLevel() + 5)
     c.preview:SetShown(BS.preview == true)
-    c.label:SetText(b.layer .. "  " .. b.name)
     c:Show()
     sw = math.max(sw, math.abs(b.offset.x) * 2 + b.size.w)
     sh = math.max(sh, math.abs(b.offset.y) * 2 + b.size.h)

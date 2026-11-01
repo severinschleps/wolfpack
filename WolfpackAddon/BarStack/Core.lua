@@ -85,6 +85,16 @@ function BS.NormalizeProfile(p)
   return p
 end
 
+-- One step up (-1, towards the top layer) or down (+1) in the stack. False at either end.
+function BS.MoveBar(bar, d)
+  local bars = BS.profile.bars
+  local i = tIndexOf(bars, bar)
+  local j = i and i + d
+  if not (j and bars[j]) then return false end
+  bars[i], bars[j] = bars[j], bars[i]
+  return true
+end
+
 function BS.NewBar(index)
   local b = BS.NormalizeBar({})
   table.insert(BS.profile.bars, index or 1, b)
