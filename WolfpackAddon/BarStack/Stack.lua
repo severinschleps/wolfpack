@@ -143,8 +143,9 @@ local function follow(t, yes, on, off)
   end
 end
 
+-- Conditions stay live while the page is open ("Show all bars" shows each bar's box, so there is
+-- still something to place): what you see while you build an icon is what it does in play.
 local function setGate(q, v)
-  if BS.preview or BS.editing then return q.gate:SetAlpha(1) end -- placing: every icon on screen
   local a = GATE_ALPHA[q.cond.kind]
   follow(q.gate, v, a[1], a[2])
 end

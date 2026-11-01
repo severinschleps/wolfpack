@@ -342,9 +342,15 @@ rendFrame.shown = false
 S_target = false
 BS.UpdateVisibility() -- what PLAYER_TARGET_CHANGED does
 assert(tG._alpha == 0, "no target: hidden")
+-- with the page open ("Show all bars" is on), the conditions still follow the game: you test an
+-- icon while you build it. Forcing them on hid nothing while Rend was up (seen in game)
 BS.preview = true
 BS.UpdateVisibility()
-assert(tG._alpha == 1, "Show all bars shows it anyway, to place it")
+assert(tG._alpha == 0, "page open, no target: still hidden")
+rendFrame:Show()
+assert(mG._alpha == 0, "page open, Rend goes up: the missing icon hides")
+rendFrame:Hide()
+assert(mG._alpha == 1, "page open, Rend falls off: back")
 BS.preview = nil
 S_target = true
 BS.UpdateVisibility()
@@ -465,10 +471,9 @@ issecretvalue = nil
 usableNow = false
 BS.preview = true
 BS.UpdateUsable()
-assert(uG._alpha == 1, "Show all bars shows it")
+assert(uG._alpha == 0, "page open: not usable still hides it")
 BS.preview = nil
 BS.UpdateUsable()
-assert(uG._alpha == 0, "and hides it again after")
 said = {}
 print = function(t) said[#said + 1] = t end
 BS.Check()
