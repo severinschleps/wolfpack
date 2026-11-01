@@ -348,6 +348,7 @@ ev:RegisterEvent("ADDON_LOADED")
 ev:RegisterEvent("PLAYER_REGEN_DISABLED")
 ev:RegisterEvent("PLAYER_REGEN_ENABLED")
 ev:RegisterEvent("PLAYER_SPECIALIZATION_CHANGED")
+ev:RegisterEvent("PLAYER_TARGET_CHANGED")
 ev:SetScript("OnEvent", function(_, event, arg)
   if event == "PLAYER_LOGIN" then
     BS.LoadDB()
@@ -357,6 +358,8 @@ ev:SetScript("OnEvent", function(_, event, arg)
     cdmPrompt()
   elseif event == "ADDON_LOADED" then
     if arg == "Blizzard_CooldownViewer" and BS.profile then BS.Apply() end
+  elseif event == "PLAYER_TARGET_CHANGED" then
+    if BS.profile then BS.UpdateVisibility() end
   elseif event == "PLAYER_REGEN_DISABLED" then
     BS.inCombat = true
     BS.UpdateVisibility()

@@ -31,6 +31,7 @@ C_EncodingUtil = {
   DeserializeCBOR = function(s) return reg[tonumber(s)] end,
 }
 UnitName = function() return "Tester" end
+UnitExists = function(u) return u == "target" and S_target or false end
 GetRealmName = function() return "Realm" end
 GetSpecialization = function() return 1 end
 InCombatLockdown = function() return false end
@@ -145,6 +146,7 @@ local function mock()
       if k == "GetFrameLevel" or k == "GetScale" or k == "GetWidth" or k == "GetHeight" then return function() return 1 end end
       if k == "GetCenter" then return function() return 0, 0 end end
       if k == "SetAlpha" then return function(self, a) rawset(self, "_alpha", a) end end
+      if k == "SetShown" then return function(self, v) rawset(self, "_shown", v) end end
       if k == "GetAlpha" then return function(self) return rawget(self, "_alpha") or 1 end end
       local m = mock()
       rawset(t, k, m)
@@ -268,6 +270,29 @@ BS.Check()
 print = keptPrint
 for _, t in ipairs(said) do if t:find("Rend: watching") then why = t end end
 assert(why:find("reminder icon"), "and reports the reminder once it is watched: " .. why)
+
+-- debuff bars, active or missing, only show with a target; other bars do not care
+local debuffBar = BS.NewBar(gA)
+debuffBar.visibility = "debuff"
+debuffBar.spells = { { baseSpell = 772, name = "Rend", display = "icon" } }
+realLayout()
+local frameOf = {}
+for _, r in ipairs(BS.placed) do frameOf[r.bar] = frameOf[r.bar] or {}; frameOf[r.bar][r.visibility] = r.barFrame end
+local missingC, debuffC = frameOf[rendBar.name].missing, frameOf[debuffBar.name].debuff
+local alwaysC
+for _, r in ipairs(BS.placed) do if r.spell == "Charge" then alwaysC = r.barFrame end end -- an always bar
+S_target = false
+BS.UpdateVisibility()
+assert(missingC._shown == false and debuffC._shown == false, "no target: both debuff bars hide")
+assert(alwaysC._shown == true, "an always bar stays")
+S_target = true
+BS.UpdateVisibility()
+assert(missingC._shown == true and debuffC._shown == true, "a target: both are back")
+S_target = false
+BS.preview = true
+BS.UpdateVisibility()
+assert(missingC._shown == true and debuffC._shown == true, "Show all bars shows them anyway, to place them")
+BS.preview = nil
 BuffIconCooldownViewer = nil
 
 assert(select(1, BS.Hex("#FF0000")) == 1 and select(2, BS.Hex("bad")) == 1)

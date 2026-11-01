@@ -281,14 +281,13 @@ function BS.Layout()
       c:SetFrameLevel(BASE + b.layer * STEP)
       c.preview:SetFrameLevel(c:GetFrameLevel() + 5)
       c.preview:SetShown(BS.preview == true)
-      c:Show()
       sw = math.max(sw, math.abs(b.offset.x) * 2 + b.size.w)
       sh = math.max(sh, math.abs(b.offset.y) * 2 + b.size.h)
       for _, r in pairs(c.reminders or {}) do r:Hide() end
       for j, sp in ipairs(b.spells) do
         local it, from = find(sp, b.visibility, used)
         local rec = { group = g.name, bar = b.name, spell = sp.name or tostring(sp.baseSpell),
-          visibility = b.visibility, frame = it, viewer = from, container = c }
+          visibility = b.visibility, frame = it, viewer = from, container = c, barFrame = c }
         BS.placed[#BS.placed + 1] = rec
         if b.visibility == "missing" then
           rec.reminder = reminder(c, b, j)
@@ -330,11 +329,21 @@ function BS.Reapply()
   if not ok then geterrorhandler()(err) end
 end
 
+-- Debuff bars, either way round, are about your target: with no target there is nothing to say.
+-- UnitExists is not secret, so this is decided here, in combat too.
+BS.TARGET_MODES = { debuff = true, missing = true }
+
 function BS.UpdateVisibility()
+  local placing = BS.preview or BS.editing
+  local hasTarget = UnitExists("target") and true or false
   for _, g in ipairs(BS.profile.groups) do
     local st, s = stacks[g.id], g.stack
     if st then
-      st:SetShown(BS.preview or BS.editing or (BS.inCombat and s.showInCombat) or (not BS.inCombat and s.showOutOfCombat))
+      st:SetShown(placing or (BS.inCombat and s.showInCombat) or (not BS.inCombat and s.showOutOfCombat))
+    end
+    for _, b in ipairs(g.bars) do
+      local c = containers[b.id]
+      if c then c:SetShown(placing or hasTarget or not BS.TARGET_MODES[b.visibility]) end
     end
   end
 end
