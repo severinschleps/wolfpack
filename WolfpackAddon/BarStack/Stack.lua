@@ -30,25 +30,46 @@ local function sources(visibility, display)
   return { "EssentialCooldownViewer", "UtilityCooldownViewer", icon, bar }
 end
 
+-- The spell a frame is showing, and whether an answer came back secret on the way. A secret is
+-- noted, never looked at; nil means the frame holds no spell at all (Blizzard has cleared it).
 local function readSpell(item)
-  local id = BS.try(item.GetSpellID, item)
-  if type(id) == "number" then return id end
-  local info = item.cooldownInfo or BS.try(item.GetCooldownInfo, item)
-  if type(info) ~= "table" and C_CooldownViewer then
-    local cd = item.cooldownID or BS.try(item.GetCooldownID, item)
-    info = cd and BS.try(C_CooldownViewer.GetCooldownViewerCooldownInfo, cd)
+  local secret = false
+  local function seen(v)
+    if BS.secret(v) then secret = true; return nil end
+    return v
   end
-  id = type(info) == "table" and info.spellID
-  if not BS.secret(id) and type(id) == "number" then return id end
+  local ok, id = pcall(item.GetSpellID, item)
+  if not ok then secret = true end -- could not ask: as unknown as a secret (a cleared frame answers nil)
+  id = ok and seen(id) or nil
+  if type(id) == "number" then return id end
+  local okInfo, info = pcall(function() return seen(item.cooldownInfo) or seen(item:GetCooldownInfo()) end)
+  info = okInfo and info or nil
+  if type(info) ~= "table" and C_CooldownViewer then
+    local okCD, cd = pcall(function() return seen(item.cooldownID) or seen(item:GetCooldownID()) end)
+    if okCD and cd then
+      local okLook, found = pcall(C_CooldownViewer.GetCooldownViewerCooldownInfo, cd)
+      info = okLook and seen(found) or nil
+    end
+  end
+  if type(info) == "table" then
+    id = seen(info.spellID)
+    if type(id) == "number" then return id end
+  end
+  return nil, secret
 end
 
 -- In combat the answer can come back secret -- right when an aura lands and Blizzard lays its
--- viewer out again, which is when we re-match. The last readable answer for the frame stands,
--- so a debuff bar does not hand its frame back the moment the debuff goes up.
+-- viewer out again, which is when we re-match. Then the last readable answer for the frame
+-- stands. But a frame that answers nothing has been cleared by Blizzard, and is forgotten: it
+-- must not go on standing for a spell it no longer shows.
 local spellOf = setmetatable({}, { __mode = "k" })
 function BS.FrameSpell(item)
-  local id = readSpell(item)
-  if id then spellOf[item] = id end
+  local id, secret = readSpell(item)
+  if id then
+    spellOf[item] = id
+  elseif not secret then
+    spellOf[item] = nil
+  end
   return spellOf[item]
 end
 
@@ -59,20 +80,16 @@ local function items(viewer)
   local function add(it)
     if it and not seen[it] then seen[it] = true; list[#list + 1] = it end
   end
-  -- Blizzard's own list is the truth: it holds the frames it uses, wherever we have put them.
-  -- Frames we borrowed count only when there is no such list (children of the viewer are all we
-  -- have then, and ours are no longer its children) -- otherwise a frame Blizzard has dropped,
-  -- say Rend's icon after Rend moved to Tracked Bars, would go on answering for Rend.
+  -- Blizzard lists only the frames still inside its viewer, so the ones we have moved into a
+  -- stack are added back. A frame Blizzard has since cleared is still listed, but answers no
+  -- spell (see FrameSpell), so it matches nothing.
   local ok, frames = pcall(viewer.GetItemFrames, viewer)
   if ok and type(frames) == "table" then
     for _, it in ipairs(frames) do add(it) end
-    return list
+  elseif not (viewer.itemFramePool
+    and pcall(function() for it in viewer.itemFramePool:EnumerateActive() do add(it) end end)) then
+    for _, it in ipairs({ viewer:GetChildren() }) do add(it) end
   end
-  if viewer.itemFramePool then
-    local listed = pcall(function() for it in viewer.itemFramePool:EnumerateActive() do add(it) end end)
-    if listed then return list end
-  end
-  for _, it in ipairs({ viewer:GetChildren() }) do add(it) end
   for it, origin in pairs(borrowed) do
     if origin == viewer then add(it) end
   end

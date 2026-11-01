@@ -388,7 +388,21 @@ BuffIconCooldownViewer = { GetItemFrames = function() return { oldIcon } end }
 oldIcon.GetParent = function(self) return rawget(self, "parent") or BuffIconCooldownViewer end
 oldIcon.SetParent = function(self, p) rawset(self, "parent", p) end
 realLayout() -- the missing bar borrows the old icon while it is the only Rend there is
-BuffIconCooldownViewer.GetItemFrames = function() return {} end -- Rend is gone from Tracked Buffs
+-- Blizzard lists only what is still inside its viewer: the borrowed icon is off its list, and
+-- must still be found -- this is what went wrong in game, every frame we had placed went missing
+BuffIconCooldownViewer.GetItemFrames = function() return {} end
+realLayout()
+for _, r in ipairs(BS.placed) do
+  if r.spell == "Rend" then assert(r.frame == oldIcon, "a frame we placed is still ours, though Blizzard no longer lists it") end
+end
+-- in combat its spell comes back secret: the last readable answer stands
+issecretvalue = function(v) return v == "SECRET" end
+oldIcon.GetSpellID = function() return "SECRET" end
+assert(BS.FrameSpell(oldIcon) == 772, "secret: the frame is still Rend's")
+-- Rend moves to Tracked Bars: Blizzard clears the old icon, which then answers nothing
+oldIcon.GetSpellID = function() return nil end
+assert(BS.FrameSpell(oldIcon) == nil, "cleared: it no longer stands for Rend")
+issecretvalue = nil
 local newBar = mock()
 newBar.GetSpellID = function() return 772 end
 BuffBarCooldownViewer = { GetItemFrames = function() return { newBar } end }
