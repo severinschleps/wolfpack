@@ -93,8 +93,28 @@ local function container(id)
   return c
 end
 
+-- How Blizzard shows and hides a buff frame, counted per call. Show/Hide (or SetShown with a
+-- readable argument) would let a bar do the opposite -- show an icon while a debuff is missing;
+-- a secret alpha would not. /bs check reports it. Hooks only listen, they change nothing.
+BS.watch = setmetatable({}, { __mode = "k" })
+local WATCHED = { "Show", "Hide", "SetShown", "SetAlpha" }
+local function watch(it)
+  if BS.watch[it] then return end
+  local w = { Show = 0, Hide = 0, SetShown = 0, SetAlpha = 0 }
+  BS.watch[it] = w
+  for _, m in ipairs(WATCHED) do
+    if type(it[m]) == "function" then
+      hooksecurefunc(it, m, function(_, arg)
+        w[m] = w[m] + 1
+        if m == "SetShown" or m == "SetAlpha" then w[m .. "Secret"] = BS.secret(arg) end
+      end)
+    end
+  end
+end
+
 local function place(it, c, b, j)
   if not borrowed[it] then borrowed[it] = it:GetParent() end
+  if BS.AURA_MODES[b.visibility] then watch(it) end
   local sp, horiz = b.spells[j], b.orientation ~= "vertical"
   local w = horiz and b.size.w / #b.spells or b.size.w
   local h = horiz and b.size.h or b.size.h / #b.spells

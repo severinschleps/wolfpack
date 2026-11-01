@@ -142,7 +142,7 @@ local function mock()
   return setmetatable({}, {
     __index = function(t, k)
       if k == "SetupMenu" then return function(self, fn) menus[#menus + 1] = fn end end
-      if k == "GetFrameLevel" or k == "GetScale" then return function() return 1 end end
+      if k == "GetFrameLevel" or k == "GetScale" or k == "GetWidth" or k == "GetHeight" then return function() return 1 end end
       if k == "GetCenter" then return function() return 0, 0 end end
       local m = mock()
       rawset(t, k, m)
@@ -187,6 +187,30 @@ realLayout()
 assert(BS.stacks[gA.id] and BS.stacks[gB.id] and BS.stacks[gA.id] ~= BS.stacks[gB.id], "a stack frame per group")
 assert(#BS.placed == 2 and BS.placed[1].frame == cdFrame and BS.placed[1].group == "Stack 1", "Charge placed in Stack 1")
 assert(BS.placed[2].frame == nil and BS.placed[2].visibility == "aura", "Avatar has no buff frame, so nothing is borrowed")
+
+-- the show-while-missing probe: an aura bar's frame has Blizzard's Show / Hide / SetAlpha counted
+hooksecurefunc = function(t, m, fn)
+  local orig = t[m]
+  t[m] = function(...) local r = orig(...); fn(...); return r end
+end
+local buffFrame = mock()
+buffFrame.GetSpellID = function() return 107574 end
+for _, m in ipairs({ "Show", "Hide", "SetShown", "SetAlpha" }) do buffFrame[m] = function() end end
+BuffIconCooldownViewer = { GetItemFrames = function() return { buffFrame } end }
+realLayout()
+assert(BS.placed[2].frame == buffFrame and BS.watch[buffFrame], "a borrowed buff frame is watched")
+buffFrame:Hide(); buffFrame:Show(); buffFrame:Hide()
+buffFrame:SetAlpha(0.5)
+local w = BS.watch[buffFrame]
+assert(w.Hide == 2 and w.Show == 1 and w.SetAlpha == 1 and not w.SetAlphaSecret, "every call counted: " .. w.Hide)
+assert(BS.watch[cdFrame] == nil, "an always bar's cooldown frame is left alone")
+local said, keptPrint = {}, print
+print = function(t) said[#said + 1] = t end
+BS.Check()
+print = keptPrint
+local probe
+for _, t in ipairs(said) do if t:find("Blizzard called Show 1, Hide 2") then probe = t end end
+assert(probe, "/bs check reports the calls")
 
 assert(select(1, BS.Hex("#FF0000")) == 1 and select(2, BS.Hex("bad")) == 1)
 print("barstack ok")

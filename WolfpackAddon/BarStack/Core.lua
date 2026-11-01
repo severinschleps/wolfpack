@@ -297,11 +297,26 @@ function BS.Check()
         and "not in Tracked Buffs or Tracked Bars -- add it there in the Cooldown Manager"
         or "no Cooldown Manager frame has this spell"))
     else
+      -- a frame Blizzard drives with a secret may answer in secrets too: report, never test them
+      local function look(m)
+        local ok, v = pcall(it[m], it)
+        if not ok then return "error" end
+        return BS.secret(v) and "secret" or v
+      end
       local ours = it:GetParent() == r.container
-      line(ours and it:IsVisible(), what .. ("from %s, %s, %s, %dx%d"):format(r.viewer,
+      local vis, shown, alpha = look("IsVisible"), look("IsShown"), look("GetAlpha")
+      line(ours and vis == true, what .. ("from %s, %s, %s, %dx%d"):format(r.viewer,
         ours and "in the stack" or "taken back by Blizzard",
-        it:IsVisible() and "visible" or it:IsShown() and "shown, but a parent is hidden" or "hidden by Blizzard",
+        vis == true and "visible" or vis == "secret" and "visibility is secret"
+          or shown == true and "shown, but a parent is hidden" or "hidden by Blizzard",
         it:GetWidth(), it:GetHeight()))
+      local w = BS.watch and BS.watch[it]
+      if w then -- how Blizzard switches it: decides whether "show while missing" can be built
+        print(("      alpha %s; Blizzard called Show %d, Hide %d, SetShown %d%s, SetAlpha %d%s"):format(
+          type(alpha) == "number" and ("%.2f"):format(alpha) or tostring(alpha),
+          w.Show, w.Hide, w.SetShown, w.SetShownSecret and " (secret)" or "",
+          w.SetAlpha, w.SetAlphaSecret and " (secret)" or ""))
+      end
     end
   end
 end
