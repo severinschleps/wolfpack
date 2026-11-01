@@ -452,7 +452,7 @@ local function build(parent)
     selected.orientation = selected.orientation == "vertical" and "horizontal" or "vertical"
     changed()
   end)
-  text(r, "Icons run this way", x + 118, -150, "GameFontDisableSmall")
+  f.flash = checkbox(r, "Flash under 25% left", x + 130, -148, function(on) selected.flashLow = on; changed() end)
   local B = function() return selected end
   local half = (W3 - 24 - 12) / 2
   slider(barSliders, r, "Icon width", x, -180, half, 8, 200, 1,
@@ -527,6 +527,8 @@ function BS.RefreshConfig()
   f.vis:GenerateMenu()
   for _, sl in ipairs(barSliders) do sl.sync() end
   f.orient:SetText(b.orientation == "vertical" and "Vertical" or "Horizontal")
+  f.flash:SetShown(BS.FLASH_MODES[b.visibility] == true)
+  f.flash:SetChecked(b.flashLow)
   f.add:SetEnabled(#b.spells < MAX_SPELLS)
   for i, sp in ipairs(b.spells) do
     local row = spellRow(i)

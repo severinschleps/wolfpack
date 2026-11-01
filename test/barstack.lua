@@ -254,6 +254,34 @@ local probe
 for _, t in ipairs(said) do if t:find("Blizzard called Show 1, Hide 2") then probe = t end end
 assert(probe, "/bs check reports the calls")
 
+-- "flash when low": the time left is never read. Blizzard's duration object, caught as it is
+-- handed to the icon's Cooldown, is asked through a step curve: 1 under 25% left, 0 above
+Enum = Enum or {}
+Enum.LuaCurveType = { Step = 1 }
+C_CurveUtil = { CreateCurve = function()
+  local pts = {}
+  return { SetType = function() end, AddPoint = function(_, x, y) pts[#pts + 1] = { x, y } end,
+    at = function(_, x) local y for _, p in ipairs(pts) do if x >= p[1] then y = p[2] end end return y end }
+end }
+local function aura(left) return { EvaluateRemainingPercent = function(_, c) return c:at(left) end } end
+buffFrame.Cooldown = { SetCooldownFromDurationObject = function() end }
+gB.bars[1].flashLow = true
+realLayout()
+local fx = BS.flashes[buffFrame]
+assert(fx and fx.on, "an aura bar with the option on gets a flash")
+BS.UpdateFlashes()
+assert(fx.frame._alpha == 0, "no duration yet: no flash")
+buffFrame.Cooldown:SetCooldownFromDurationObject(aura(0.8))
+BS.UpdateFlashes()
+assert(fx.frame._alpha == 0, "80% left: quiet")
+buffFrame.Cooldown:SetCooldownFromDurationObject(aura(0.2))
+BS.UpdateFlashes()
+assert(fx.frame._alpha == 1 and BS.flashSeen.result == "working", "20% left: flashing")
+gB.bars[1].flashLow = false
+realLayout()
+BS.UpdateFlashes()
+assert(not fx.on and fx.frame._alpha == 0, "option off: it stops")
+
 -- "only while debuff is missing": Blizzard's Rend frame is parked out of sight, and our own Rend
 -- icon shows exactly while Blizzard's frame is hidden
 names[772] = "Rend"

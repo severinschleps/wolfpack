@@ -34,7 +34,7 @@ BS.RADII = { [0] = true, [12] = true, [25] = true, [50] = true }
 local STACK_DEFAULTS = { point = "CENTER", x = 0, y = -180, scale = 1, alpha = 1, showInCombat = true, showOutOfCombat = true }
 local BAR_DEFAULTS = {
   name = "New bar", offset = { x = 0, y = 0 }, size = { w = 36, h = 36 }, -- one icon; the bar is n of them
-  orientation = "horizontal", visibility = "always", spells = {},
+  orientation = "horizontal", visibility = "always", spells = {}, flashLow = false,
 }
 local ENUMS = { visibility = { always = true, usable = true, aura = true, debuff = true, proc = true, missing = true }, orientation = { horizontal = true, vertical = true } }
 local Clamp = BS.Clamp
@@ -325,6 +325,11 @@ function BS.Check()
         vis == true and "visible" or vis == "secret" and "visibility is secret"
           or shown == true and "shown, but a parent is hidden" or "hidden by Blizzard",
         it:GetWidth(), it:GetHeight()))
+      end
+      local fx = BS.flashes and BS.flashes[it]
+      if fx and fx.on then
+        line(BS.flashSeen.result == "working", ("      flash when low: %d duration objects from Blizzard, %s"):format(
+          BS.flashSeen.objects, BS.flashSeen.result))
       end
       local w = BS.watch and BS.watch[it]
       if w then -- how Blizzard switches it: decides whether "show while missing" can be built

@@ -23,6 +23,10 @@ It used to be its own addon, github.com/severinschleps/bar-stack; that repo is n
    "Only while debuff is missing" draws its own icon and only watches Blizzard's frame, so one
    spell in Tracked Buffs serves a "debuff is active" icon and a "debuff is missing" icon together.
    Both debuff choices show only while you have a target.
+   **Flash under 25% left** (aura, debuff and proc bars) pulses the icon near the end. The time
+   left is never read: Blizzard's duration object, hooked as it reaches the icon's Cooldown, is
+   asked through a step curve, and the answer goes straight into the flash's opacity.
+   `/bs check` says whether it is working on this client.
 
    **Why no bars:** no addon can run an aura's timer on a bar of its own -- in Midnight,
    `C_UnitAuras.GetAuraDuration` and `DurationObject:SetTimeFromStart` both refuse secrets from
@@ -30,7 +34,7 @@ It used to be its own addon, github.com/severinschleps/bar-stack; that repo is n
    they did not say reliably which spell they show, so Bar Stack leaves Tracked Bars alone.
 4. Use **Move up** / **Move down** (or drag) to reorder. The top of the list is the top layer.
 5. **New group** starts another stack with its own position, scale and combat settings. The
-   dropdown above the list picks which group you are editing; a bar's **Group** dropdown moves it.
+   dropdown above the list picks which group you are editing.
 6. Open Edit Mode to drag each stack around the screen.
 
 Other commands:

@@ -20,6 +20,7 @@ local borrowed = {}   -- Blizzard item frame -> the viewer it came from
 -- frame with its aura -- a debuff you put on the target and a proc buff included -- so these
 -- borrow from nowhere else: a cooldown icon would simply always be there.
 BS.AURA_MODES = { aura = true, debuff = true, proc = true, missing = true }
+BS.FLASH_MODES = { aura = true, debuff = true, proc = true } -- the ones that show Blizzard's aura icon
 
 -- Which viewers a widget may borrow from, in preference order.
 local function sources(visibility)
@@ -314,6 +315,82 @@ local function park(it)
   it:SetParent(hideout)
 end
 
+-- "Flash when low": an aura's time left is secret, so it is never read. Blizzard hands each
+-- Tracked Buffs icon's Cooldown a duration object; we hook that hand-over and keep the object,
+-- and a step curve turns its remaining percent into the flash's opacity inside the game:
+-- 1 under LOW, 0 above. Nothing is learned or guessed, so a refresh or a new target just works.
+local LOW = 0.25
+BS.flashes = setmetatable({}, { __mode = "k" }) -- borrowed frame -> { frame, dur, on }
+BS.flashSeen = { objects = 0, result = "not asked yet" } -- for /bs check
+local lowCurve
+local function curve()
+  if lowCurve == nil then
+    lowCurve = false
+    pcall(function()
+      local c = C_CurveUtil.CreateCurve()
+      c:SetType(Enum.LuaCurveType.Step)
+      c:AddPoint(0, 1)
+      c:AddPoint(LOW, 0)
+      lowCurve = c
+    end)
+  end
+  return lowCurve or nil
+end
+
+-- A white pulse over the icon, on a frame of our own inside Blizzard's (so it hides with it).
+-- ponytail: square, even on rounded icons
+local function flashFor(it)
+  local fx = BS.flashes[it]
+  if fx then return fx end
+  local fl = CreateFrame("Frame", nil, it)
+  fl:SetAllPoints(type(it.Icon) == "table" and it.Icon or it)
+  fl:SetFrameLevel(it:GetFrameLevel() + 20)
+  fl:SetAlpha(0)
+  local t = fl:CreateTexture(nil, "OVERLAY")
+  t:SetAllPoints()
+  t:SetColorTexture(1, 1, 1, 1)
+  t:SetBlendMode("ADD")
+  local ag = t:CreateAnimationGroup()
+  ag:SetLooping("BOUNCE")
+  local a = ag:CreateAnimation("Alpha")
+  a:SetFromAlpha(0)
+  a:SetToAlpha(0.55)
+  a:SetDuration(0.35)
+  ag:Play()
+  fx = { frame = fl }
+  local cd = it.Cooldown
+  if type(cd) == "table" and type(cd.SetCooldownFromDurationObject) == "function" then
+    hooksecurefunc(cd, "SetCooldownFromDurationObject", function(_, d)
+      fx.dur = d
+      BS.flashSeen.objects = BS.flashSeen.objects + 1
+    end)
+  end
+  BS.flashes[it] = fx
+  return fx
+end
+
+function BS.UpdateFlashes()
+  local c = curve()
+  for _, fx in pairs(BS.flashes) do
+    local shown = false
+    if fx.on and fx.dur and c then
+      local ok, err = pcall(function() fx.frame:SetAlpha(fx.dur:EvaluateRemainingPercent(c)) end)
+      BS.flashSeen.result = ok and "working" or tostring(err)
+      shown = ok
+    end
+    if not shown then fx.frame:SetAlpha(0) end
+  end
+end
+
+local flashTicker = CreateFrame("Frame")
+local sinceFlash = 0
+flashTicker:SetScript("OnUpdate", function(_, elapsed)
+  sinceFlash = sinceFlash + elapsed
+  if sinceFlash < 0.1 or not next(BS.flashes) then return end
+  sinceFlash = 0
+  BS.UpdateFlashes()
+end)
+
 -- An icon, as tall as its slot allows and square, scaled from Blizzard's own size.
 local function place(it, c, b, j)
   borrow(it)
@@ -333,6 +410,9 @@ local function place(it, c, b, j)
     if not styled[it] then styled[it] = { tex = tex, coords = { tex:GetTexCoord() } } end
     styled[it].k = styleIcon(tex, it, "plate", s)
   end
+  local flash = b.flashLow and BS.FLASH_MODES[b.visibility] or false
+  if flash then flashFor(it) end
+  if BS.flashes[it] then BS.flashes[it].on = flash end
 end
 
 local hooked = {}
@@ -486,6 +566,8 @@ function BS.Layout()
         if sty.k then sty.k.border:Hide() end -- our plate leaves Blizzard's frame with us
         styled[it] = nil
       end
+      local fx = BS.flashes[it]
+      if fx then fx.on = false; fx.frame:SetAlpha(0) end -- no flash on Blizzard's own frame
       local n = natural[it]
       if n then -- home the way it came: Blizzard's size and scale
         it:SetScale(n.scale)
