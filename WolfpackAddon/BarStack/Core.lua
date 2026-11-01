@@ -29,13 +29,13 @@ end
 
 -- How every icon looks: zoom crops the art's edges (percent per side), a border plate of `border`
 -- px sits behind it, and `radius` rounds both (0 square, 12 / 25 small and medium, 50 a circle).
-local ICON_DEFAULTS = { zoom = 8, border = 1, color = { 0, 0, 0, 1 }, radius = 0 }
+local ICON_DEFAULTS = { zoom = 8, border = 2, color = { 0, 0, 0, 1 }, radius = 12 }
 BS.RADII = { [0] = true, [12] = true, [25] = true, [50] = true }
 local STACK_DEFAULTS = { point = "CENTER", x = 0, y = -180, scale = 1, alpha = 1, showInCombat = true, showOutOfCombat = true }
 local BAR_DEFAULTS = {
   name = "New bar", offset = { x = 0, y = 0 }, size = { w = 36, h = 36 }, -- one icon; the bar is n of them
   orientation = "horizontal", icons = {},
-  gap = 0, -- px between icons
+  gap = 8, -- px between icons
 }
 local ENUMS = { orientation = { horizontal = true, vertical = true } }
 -- An icon: what it looks like, and when it shows.

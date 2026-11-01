@@ -519,7 +519,8 @@ C_Spell.GetSpellTexture = function() return 1 end
 
 -- Icon style: the art zoomed to fill the icon, a border plate behind it, corners rounded alike
 local ic = BS.profile.icons
-assert(ic.zoom == 8 and ic.border == 1 and ic.radius == 0, "a profile starts with a slight zoom and a 1 px border")
+assert(ic.zoom == 8 and ic.border == 2 and ic.radius == 12, "a profile starts with a slight zoom, a 2 px border and small corners")
+assert(BS.NormalizeBar({}).gap == 8, "and 8 px between icons")
 local own = exRec.reminder
 assert(own._coords[1] == 0.08 and own._coords[2] == 0.92, "our own icon is zoomed 8% a side")
 local plate = BS.borderOf[own]
