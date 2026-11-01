@@ -149,10 +149,31 @@ end
 -- Bar list (top = top layer, drag to reorder)
 ------------------------------------------------------------------------
 
+-- An arrow button at the right of a list row, x from its right edge: d = -1 up, 1 down. It draws
+-- the dropdowns' own arrow, flipped for up.
+local function arrow(row, d, x, onClick)
+  local b = ui.Button(row, "", 22, true)
+  b:SetPoint("RIGHT", x, 0)
+  local t = b:CreateTexture(nil, "OVERLAY")
+  t:SetTexture("Interface\\Buttons\\Arrow-Down-Up")
+  if d < 0 then t:SetTexCoord(0, 1, 1, 0) end -- flipped: up
+  t:SetDesaturated(true)
+  t:SetSize(14, 14)
+  t:SetPoint("CENTER", 0, d < 0 and 3 or -3)
+  b:SetScript("OnClick", onClick)
+  return b
+end
+
 local function listRow(i)
   if listRows[i] then return listRows[i] end
   local r = ui.Button(f.list, "", 196, true)
   r:SetPoint("TOPLEFT", 0, -(i - 1) * 26)
+  r:GetFontString():SetPoint("RIGHT", -50, 0)
+  -- a layer up or down; the top of the list draws over the rest
+  local function move(d)
+    return function() if BS.MoveBar(G().bars[i], d) then changed() end end
+  end
+  r.up, r.down = arrow(r, -1, -24, move(-1)), arrow(r, 1, 0, move(1))
   r:RegisterForDrag("LeftButton")
   r:SetScript("OnClick", function(self)
     selected = G().bars[self.index]
@@ -199,22 +220,11 @@ local function iconRow(i)
     table.remove(selected.icons, i)
     changed()
   end)
-  -- the order the icons run in the bar: one arrow each way, the dropdowns' own arrow
-  local function arrow(d, x)
-    local b = ui.Button(r, "", 22, true)
-    b:SetPoint("RIGHT", x, 0)
-    local t = b:CreateTexture(nil, "OVERLAY")
-    t:SetTexture("Interface\\Buttons\\Arrow-Down-Up")
-    if d < 0 then t:SetTexCoord(0, 1, 1, 0) end -- flipped: up
-    t:SetDesaturated(true)
-    t:SetSize(14, 14)
-    t:SetPoint("CENTER", 0, d < 0 and 3 or -3)
-    b:SetScript("OnClick", function()
-      if BS.MoveIcon(selected, i, d) then changed() end
-    end)
-    return b
+  -- the order the icons run in the bar: one arrow each way
+  local function move(d)
+    return function() if BS.MoveIcon(selected, i, d) then changed() end end
   end
-  r.up, r.down = arrow(-1, -94), arrow(1, -70)
+  r.up, r.down = arrow(r, -1, -94, move(-1)), arrow(r, 1, -70, move(1))
   iconRows[i] = r
   return r
 end
@@ -597,16 +607,16 @@ local function build(parent)
   f.inCombat = checkbox(f, "Show in combat", x, -388, function(on) S().showInCombat = on; changed() end)
   f.outCombat = checkbox(f, "Show out of combat", x, -414, function(on) S().showOutOfCombat = on; changed() end)
 
-  -- column 2: its bars (top = top layer, drag or Move up / down to reorder)
+  -- column 2: its bars (top = top layer, the arrows or a drag reorder them)
   x = C2 + 12
   text(f, "Bars", x, -12, "GameFontNormal")
   f.settings = button(f, "Settings", 90, C2 + W12 - 102, -8, BS.ShowBarSettings)
-  f.list = scroll(f, x, -40, 196, 390)
-  button(f, "New", 64, x, -442, function()
+  f.list = scroll(f, x, -40, 196, 420)
+  button(f, "New", 64, x, -472, function()
     selected = BS.NewBar(G())
     changed()
   end)
-  button(f, "Copy", 64, x + 70, -442, function()
+  button(f, "Copy", 64, x + 70, -472, function()
     if not selected then return end
     local copy = CopyTable(selected)
     copy.id, copy.name = nil, selected.name .. " copy"
@@ -614,17 +624,11 @@ local function build(parent)
     selected = copy
     changed()
   end)
-  button(f, "Delete", 66, x + 140, -442, function()
+  button(f, "Delete", 66, x + 140, -472, function()
     local i = selected and tIndexOf(G().bars, selected)
     if i then table.remove(G().bars, i); selected = nil; changed() end
   end)
-  f.up = button(f, "Move up", 100, x, -472, function()
-    if selected and BS.MoveBar(selected, -1) then changed() end
-  end)
-  f.down = button(f, "Move down", 100, x + 106, -472, function()
-    if selected and BS.MoveBar(selected, 1) then changed() end
-  end)
-  local hint = text(f, "The top bar draws over the others. Drag one to reorder.", x, -508,
+  local hint = text(f, "The top bar draws over the others. Use the arrows or drag one to reorder.", x, -508,
     "GameFontDisableSmall")
   hint:SetWidth(206)
   hint:SetJustifyH("LEFT")
@@ -650,7 +654,7 @@ local function build(parent)
   f.iconNote:SetWidth(W3 - 24)
   f.iconNote:SetJustifyH("LEFT")
   BS.cfg = f
-  f.groupSliders, f.barSliders, f.iconRows = groupSliders, barSliders, iconRows
+  f.groupSliders, f.barSliders, f.iconRows, f.listRows = groupSliders, barSliders, iconRows, listRows
 
   -- footer: what the whole profile shares
   f.preview = checkbox(f, "Show all bars", 2, -572, preview)
@@ -687,12 +691,11 @@ function BS.RefreshConfig()
     row.index = i
     row:SetText(("|cff71717a%d|r   %s"):format(#bars - i + 1, b.name))
     if b == selected then row:LockHighlight() else row:UnlockHighlight() end
+    row.up:SetEnabled(i > 1)
+    row.down:SetEnabled(i < #bars)
     row:Show()
   end
   for i = #bars + 1, #listRows do listRows[i]:Hide() end
-  local at = selected and tIndexOf(bars, selected)
-  f.up:SetEnabled(at ~= nil and at > 1)
-  f.down:SetEnabled(at ~= nil and at < #bars)
 
   local s = G().stack
   for _, sl in ipairs(groupSliders) do sl.sync() end

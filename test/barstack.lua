@@ -585,6 +585,15 @@ assert(holder.icons[at - 1] == made, "the up arrow moves it one place up")
 BS.cfg.iconRows[at - 1].down._onOnClick()
 assert(holder.icons[at] == made, "and the down arrow back")
 
+-- and the bars' order the same way, from their rows in the Bars list
+local topBar, secondBar = gA.bars[1], gA.bars[2]
+BS.RefreshConfig()
+BS.cfg.listRows[2].up._onOnClick()
+assert(gA.bars[1] == secondBar and gA.bars[2] == topBar, "a bar's up arrow takes it a layer higher")
+BS.cfg.listRows[1].down._onOnClick()
+assert(gA.bars[1] == topBar, "and its down arrow back")
+assert(rawget(BS.cfg, "up") == nil and rawget(BS.cfg, "down") == nil, "no Move up / Move down buttons under the list")
+
 -- the picker for an aura offers Tracked Buffs only
 EssentialCooldownViewer = { GetItemFrames = function() return { cdFrame } end }
 BuffIconCooldownViewer = { GetItemFrames = function() return { rendFrame } end }

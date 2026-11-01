@@ -53,7 +53,7 @@ It used to be its own addon, github.com/severinschleps/bar-stack; that repo is n
    Blizzard's viewers invisible. Do not hide them with their own Visibility setting in Edit
    Mode: a hidden viewer fills none of its icons (seen in game, in and out of combat), so Bar
    Stack has nothing to read. Leave that on Always; Edit Mode shows them again to place them.
-4. Use **Move up** / **Move down** (or drag) to reorder. The top of the list is the top layer.
+4. Use the up / down arrows on a bar's row (or drag it) to reorder; icons in a bar have the same arrows. The top of the list is the top layer.
 5. **New group** starts another stack with its own position, scale and combat settings. The
    dropdown above the list picks which group you are editing.
 6. Open Edit Mode to drag each stack around the screen.
