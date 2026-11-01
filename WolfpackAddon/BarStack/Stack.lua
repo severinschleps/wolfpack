@@ -211,7 +211,18 @@ local function hookTimer(it, bar)
   local cd = it.Cooldown
   if type(cd) ~= "table" then bar.route = "the icon has no cooldown swipe"; return end
   local function run(dur, route)
-    if pcall(bar.SetTimerDuration, bar, dur, 0, TIMER_REMAINING) then bar.route = route end
+    if pcall(bar.SetTimerDuration, bar, dur, 0, TIMER_REMAINING) then bar.route = route
+    else bar.failed = route end
+  end
+  -- Every cooldown call Blizzard makes on the swipe, by name, for /bs check: which one starts
+  -- the countdown on the icon is what the bar has to catch. Counting reads nothing.
+  bar.calls = {}
+  local mt = getmetatable(cd)
+  local methods = mt and type(mt.__index) == "table" and mt.__index or {}
+  for name, fn in pairs(methods) do
+    if type(fn) == "function" and (name:find("Cooldown") or name:find("Duration") or name == "Clear") then
+      pcall(hooksecurefunc, cd, name, function() bar.calls[name] = (bar.calls[name] or 0) + 1 end)
+    end
   end
   if type(cd.SetCooldownFromDurationObject) == "function" then
     hooksecurefunc(cd, "SetCooldownFromDurationObject", function(_, dur) run(dur, "duration object") end)

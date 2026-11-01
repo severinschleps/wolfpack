@@ -238,7 +238,9 @@ rendFrame.GetWidth = function(self) return self.w or 36 end
 rendFrame.GetHeight = function(self) return self.h or 36 end
 rendFrame.GetScale = function(self) return self.scale or 1 end
 rendFrame.SetScale = function(self, v) self.scale = v end
-rendFrame.Cooldown = { SetCooldownFromDurationObject = function() end, Clear = function() end }
+-- a widget: its methods live on the metatable, the way the game hands them out
+rendFrame.Cooldown = setmetatable({}, { __index = { SetCooldownFromDurationObject = function() end,
+  SetCooldown = function() end, Clear = function() end, SetSwipeColor = function() end } })
 BuffIconCooldownViewer = { GetItemFrames = function() return { rendFrame } end }
 local rendBar = BS.NewBar(gA)
 rendBar.visibility = "missing"
@@ -343,6 +345,15 @@ assert(tb and tb._shown ~= false, "a timer bar of ours sits beside it")
 -- the timer comes from whatever Blizzard hands the icon's swipe, unread
 rendFrame.Cooldown:SetCooldownFromDurationObject({ "a duration object" })
 assert(tb.route == "duration object", "the swipe's duration object runs our bar: " .. tostring(tb.route))
+assert(tb.calls.SetCooldownFromDurationObject == 1 and tb.calls.SetSwipeColor == nil,
+  "every cooldown call on the swipe is counted by name, nothing else")
+said = {}
+print = function(t) said[#said + 1] = t end
+BS.Check()
+print = keptPrint
+local swipe
+for _, t in ipairs(said) do if t:find("swipe calls: SetCooldownFromDurationObject 1") then swipe = t end end
+assert(swipe, "/bs check lists them")
 
 -- "Icon": the same frame, 24 x 24, and our bar goes away
 debuffBar.spells[1].display = "icon"
