@@ -616,53 +616,6 @@ fire("PLAYER_LOGIN")
 assert(eh.show and eh.beside and not prof().regular.bars.health.target, "old switch carried over")
 eh.show, eh.beside = false, false
 
--- Buffs and debuffs: yours left of the bars growing left, row 1 buffs, row 2 debuffs
-local au = prof().regular.auras
-local function icon(k) return rawget(ns.au.icons, k) end
-au.show = true
-S.auras = { { name = "Battle Shout", spellId = 6673, icon = 132333, auraInstanceID = 1 },
-    { name = "Rend", spellId = 772, icon = 132155, auraInstanceID = 2, applications = 3 } }
-S.debuffs = { { name = "Hamstring", spellId = 1715, icon = 132316, auraInstanceID = 3 } }
-fire("UNIT_AURA", "player")
-local b1, b2, d1 = icon("player1:1"), icon("player1:2"), icon("player2:1")
-assert(b1:IsShown() and b1.tex._tex == 132333 and b2.tex._tex == 132155 and d1.tex._tex == 132316, "icons")
-assert(b1._point[1] == "TOPRIGHT" and b1._point[2] == WolfpackAddonFrame and b1._point[3] == "TOPLEFT"
-    and b1._point[4] == -6 and b1._point[5] == 0, "top-right corner at the bars' left edge")
-assert(b2._point[4] == -6 - 26 and d1._point[5] == -26, "grows left; debuffs a row down")
-assert(b2.count._text == 3, "a stack count")
-assert(not icon("enemy1:1") or not icon("enemy1:1"):IsShown(), "no target, no enemy icons")
-S.targetHP = 800; fire("PLAYER_TARGET_CHANGED")
-local e1 = icon("enemy1:1")
-assert(e1:IsShown() and e1._point[1] == "TOPLEFT" and e1._point[3] == "TOPRIGHT" and e1._point[4] == 6
-    and icon("enemy1:2")._point[4] == 6 + 26, "your target's: right of the bars, growing right")
--- whitelist by name, any case; blacklist by spell ID
-au.filter, au.names = "only", { "rend" }
-fire("UNIT_AURA", "player")
-assert(b1.tex._tex == 132155 and not b2:IsShown() and not d1:IsShown(), "only Rend")
-au.filter, au.names = "except", { "6673" }
-fire("UNIT_AURA", "player")
-assert(b1.tex._tex == 132155 and not b2:IsShown() and d1:IsShown(), "all but Battle Shout")
--- in a fight: a refusal keeps what is shown; a secret name is judged by what it was called before
-S.combat = true
-fire("UNIT_AURA", "player")
-assert(b1:IsShown() and b1.tex._tex == 132155 and d1:IsShown(), "refused: the icons stay")
-S.realRead = C_UnitAuras.GetAuraDataByIndex
-C_UnitAuras.GetAuraDataByIndex = function(_, i, filter)
-    local a = filter ~= "HARMFUL" and ({ { name = SECRET, spellId = SECRET, icon = 132333, auraInstanceID = 1 },
-        { name = SECRET, spellId = SECRET, icon = 132155, auraInstanceID = 2 },
-        { name = SECRET, spellId = SECRET, icon = 1, auraInstanceID = 9 } })[i]
-    return a
-end
-fire("UNIT_AURA", "player")
-assert(b1.tex._tex == 132155 and b2:IsShown() and b2.tex._tex == 1, "blacklist: the known one stays out, the unknown shows")
-au.filter, au.names = "only", { "rend" }
-fire("UNIT_AURA", "player")
-assert(b1.tex._tex == 132155 and not b2:IsShown(), "whitelist: the known one shows, the unknown stays out")
-C_UnitAuras.GetAuraDataByIndex, S.combat = S.realRead, nil
-au.show, au.filter, au.names, S.auras, S.debuffs, S.targetHP = false, "all", {}, nil, nil, nil
-fire("PLAYER_TARGET_CHANGED")
-assert(not b1:IsShown() and not e1:IsShown(), "turned off: all gone")
-
 -- Background color and gradient points: one slice per pair of points, masked by the bar's fill
 local gb = prof().regular.bars.health
 gb.bgColor = { 0.1, 0.2, 0.3, 0.6 }
@@ -1061,7 +1014,7 @@ boxes[5]._text = "90"; boxes[5]._scripts.OnEnterPressed(boxes[5])
 assert(prof().nameplate.gap == 4 and prof().nameplate.x == -150 and prof().nameplate.bars.health.width == 90, "nameplate edits")
 assert(prof().regular.gap == 30 and prof().regular.x == 0 and prof().regular.bars.health.width == 220, "regular untouched")
 -- every sidebar entry is really there, opens its page, and that page has settings on it
-for _, name in ipairs({ "Combat Display", "Buffs & debuffs", "Nameplates", "Buff check", "Other",
+for _, name in ipairs({ "Combat Display", "Nameplates", "Buff check", "Other",
     "Hunter", "Mage", "Rogue", "Shaman", "Warlock" }) do
     local b = byText(name)
     assert(b, "sidebar entry missing: " .. name)
@@ -1204,18 +1157,6 @@ rb._scripts.OnClick(rb, "LeftButton")
 assert(ns.resDialog:IsShown() and ns.resDialog._point[2] == ns.cfg, "opens beside the window")
 byText("Health")._scripts.OnClick(byText("Health"), "LeftButton")
 assert(not rb:IsShown() and not ns.resDialog:IsShown(), "another bar picked: closed")
--- Buffs & debuffs page: a name typed in joins the filter list once, Remove takes it out
-byText("Buffs & debuffs")._scripts.OnClick(byText("Buffs & debuffs"), "LeftButton")
-assert(ns.pages.auras:IsShown() and not ns.pages.combat:IsShown(), "its own page")
-local nameBox
-for _, f in ipairs(created) do if f._kind == "EditBox" and f._parent == ns.pages.auras then nameBox = f end end
-nameBox._text = " Rend "; nameBox._scripts.OnEnterPressed(nameBox)
-nameBox._text = "Rend"; nameBox._scripts.OnEnterPressed(nameBox)
-assert(#prof().regular.auras.names == 1 and prof().regular.auras.names[1] == "Rend", "added once, trimmed")
-local rm = byText("Remove")
-assert(rm:IsShown(), "its row has a Remove button")
-rm._scripts.OnClick(rm, "LeftButton")
-assert(#prof().regular.auras.names == 0 and not rm:IsShown(), "removed")
 byText("Combat Display")._scripts.OnClick(byText("Combat Display"), "LeftButton")
 
 -- Auto-accept: off by default; Shift skips; item/area-trigger quests left to Blizzard
@@ -1559,12 +1500,6 @@ assert(bp.other.hover.bar1 and bp.other.hover.nope == nil and bp.other.hover.bar
 assert(bp.other.combatFont == "", "unknown combat font path refused")
 assert(bp.regular.gap == 2 and bp.regular.x == 0, "out-of-range numbers defaulted")
 assert(bp.regular.order[1] == "health" and bp.regular.order[2] == "castbar" and #bp.regular.order == 12, "order repaired")
-assert(#bp.regular.auras.names == 0, "no aura names in that one")
-blobs[#blobs + 1] = { name = "Lists", profile = { regular = { auras = { filter = "only",
-    names = { "Rend", 772, "", { "x" }, string.rep("y", 80) } } } } }
-local lp = store.profiles[ns.importString("WPA1:Bzblob" .. #blobs)].regular.auras
-assert(lp.filter == "only" and #lp.names == 3 and lp.names[1] == "Rend" and lp.names[2] == "772"
-    and #lp.names[3] == 64, "aura names: text only, numbers as text, cut to 64")
 local ns2 = bp.nameplate.bars.power.stops
 assert(#ns2 == 2 and ns2[1].pos == 10 and ns2[2].pos == 90 and ns2[1].color[1] == 1, "gradient points checked")
 local hb2 = bp.regular.bars.health

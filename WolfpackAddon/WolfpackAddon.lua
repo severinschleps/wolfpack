@@ -289,10 +289,6 @@ DEFAULTS.buffs = {
 
 -- the old "Target health beside it" switch; useProfile turns it into Enemy Health beside you
 DEFAULTS.regular.bars.health.target = false
--- Buffs and debuffs beside the bars: yours left of the group, your target's right of it.
--- filter: "all", "only" (whitelist) or "except" (blacklist) the names (or spell IDs) listed.
-DEFAULTS.regular.auras = { show = false, size = 24, spacing = 2, perRow = 8, filter = "all", names = {},
-    player = { show = true, x = -6, y = 0 }, enemy = { show = true, x = 6, y = 0 } }
 DEFAULTS.regular.hidePlayerFrame = false -- hide Blizzard's player unit frame
 DEFAULTS.regular.hideBlizzCastbar = false -- hide Blizzard's player cast bar
 DEFAULTS.regular.playerMenu = false      -- right-click on the bars opens the player menu
@@ -1117,125 +1113,6 @@ function ns.layoutRes(f)
     ns.fill(r)
     r:ClearAllPoints()
     r:SetPoint("BOTTOM", f, "BOTTOM", c.resX, c.resY)
-end
-
-------------------------------------------------------------------------------------------
--- Buffs and debuffs beside the bars: yours left of the group, growing left; your target's right
--- of it, growing right. Row 1 buffs, row 2 debuffs. A whitelist or blacklist of names (or spell
--- IDs) picks which show. In a fight the game may hand a name over secret, or not answer at all:
--- a secret one is judged by what it was called when it was last readable (by its instance), one
--- never seen readable shows for a blacklist and hides for a whitelist, and a refusal leaves the
--- icons as they were -- their swipes run down on their own.
-------------------------------------------------------------------------------------------
-ns.au = { seen = {}, icons = {}, count = {}, set = {} }
-ns.au.SIDES = { { key = "player", unit = "player", dir = -1 }, { key = "enemy", unit = "target", dir = 1 } }
-ns.au.ROWS = { "HELPFUL", "HARMFUL" }
-
--- Whether the list names it: true / false, or nil when its name is secret and was never seen.
--- What an aura is called is remembered by its instance, so a list changed mid-fight still applies.
-function ns.au.listed(a)
-    local id, seen = a.auraInstanceID, nil
-    if readable(a.name) then
-        seen = { tostring(a.name):lower(), readable(a.spellId) and tostring(a.spellId) or "" }
-        if readable(id) then ns.au.seen[id] = seen end
-    elseif readable(id) then
-        seen = ns.au.seen[id]
-    end
-    if not seen then return nil end
-    return (ns.au.set[seen[1]] or ns.au.set[seen[2]]) and true or false
-end
-
-function ns.au.allowed(a)
-    local mode = db.regular.auras.filter
-    if mode ~= "only" and mode ~= "except" then return true end
-    local hit = ns.au.listed(a)
-    if hit == nil then return mode == "except" end
-    return (mode == "only") == hit
-end
-
--- Up to max allowed auras, or nil when the game refuses to say.
-function ns.au.read(unit, filter, max)
-    local out = {}
-    for i = 1, 40 do
-        local ok, a = pcall(C_UnitAuras.GetAuraDataByIndex, unit, i, filter)
-        if not ok then return nil end
-        if type(a) ~= "table" then break end
-        if ns.au.allowed(a) then
-            out[#out + 1] = a
-            if #out >= max then break end
-        end
-    end
-    return out
-end
-
-function ns.au.icon(key)
-    local b = ns.au.icons[key]
-    if not b then
-        b = CreateFrame("Frame", nil, anchor)
-        b.tex = b:CreateTexture(nil, "ARTWORK")
-        b.tex:SetAllPoints()
-        b.tex:SetTexCoord(0.08, 0.92, 0.08, 0.92) -- trim the icon's built-in border
-        b.cd = CreateFrame("Cooldown", nil, b, "CooldownFrameTemplate")
-        b.cd:SetAllPoints()
-        b.cd:SetReverse(true)
-        b.count = b:CreateFontString(nil, "OVERLAY", "NumberFontNormalSmall")
-        b.count:SetPoint("BOTTOMRIGHT", -1, 1)
-        ns.au.icons[key] = b
-    end
-    return b
-end
-
--- Everything here is handed to the game as it came, secret or not; nothing is compared unless
--- it can be read. a = nil: a stand-in while placing the icons.
-function ns.au.draw(b, unit, a)
-    pcall(b.tex.SetTexture, b.tex, a and a.icon or 134400)
-    b.count:SetText("")
-    pcall(b.cd.Clear, b.cd)
-    if not a then return end
-    local id = a.auraInstanceID
-    local timed = C_UnitAuras.GetAuraDuration and pcall(function()
-        b.cd:SetCooldownFromDurationObject(C_UnitAuras.GetAuraDuration(unit, id))
-    end)
-    if not timed and readable(a.duration) and readable(a.expirationTime) and a.duration > 0 then
-        b.cd:SetCooldown(a.expirationTime - a.duration, a.duration)
-    end
-    if C_UnitAuras.GetAuraApplicationDisplayCount then
-        pcall(function() b.count:SetText(C_UnitAuras.GetAuraApplicationDisplayCount(unit, id, 2, 99)) end)
-    elseif readable(a.applications) and a.applications > 1 then
-        b.count:SetText(a.applications)
-    end
-end
-
-function ns.au.refresh()
-    local A, c = ns.au, db.regular.auras
-    if not InCombatLockdown() then wipe(A.seen) end -- names read fine again; start over
-    wipe(A.set)
-    for _, n in ipairs(c.names) do A.set[tostring(n):lower()] = true end
-    local step = c.size + c.spacing
-    for _, side in ipairs(A.SIDES) do
-        local sc = c[side.key]
-        local on = c.show and sc.show and (side.unit == "player" or UnitExists("target") or ns.previewing())
-        for row, filter in ipairs(A.ROWS) do
-            local list = on and A.read(side.unit, filter, c.perRow) or (not on and {})
-            if list then -- nil: the game refused, keep what is shown
-                local stand = on and #list == 0 and ns.previewing() -- three stand-ins to place them by
-                local n, key = stand and 3 or #list, side.key .. row
-                for i = 1, math.max(n, A.count[key] or 0) do
-                    local b = A.icon(key .. ":" .. i)
-                    b:SetShown(i <= n)
-                    if i <= n then
-                        b:SetSize(c.size, c.size)
-                        b:ClearAllPoints()
-                        b:SetPoint(side.dir < 0 and "TOPRIGHT" or "TOPLEFT", anchor,
-                            side.dir < 0 and "TOPLEFT" or "TOPRIGHT",
-                            sc.x + side.dir * (i - 1) * step, sc.y - (row - 1) * step)
-                        A.draw(b, side.unit, list[i])
-                    end
-                end
-                A.count[key] = n
-            end
-        end
-    end
 end
 
 local function targetPlate()
@@ -2230,7 +2107,6 @@ local function Refresh()
     syncHover()
     syncBags()
     mini.syncMinimap()
-    ns.au.refresh()
     anchor:SetScript("OnUpdate", db.regular.highlight.show and checkHover or nil)
     if not db.regular.highlight.show then setHover(false) end
 end
@@ -3585,13 +3461,6 @@ local function sanitize(src, template)
                 end
             end
             if #out.stops < 2 then out.stops = sanitize(nil, def) end
-        elseif k == "names" then -- the aura filter: names or spell IDs, as text
-            out.names = {}
-            for _, n in ipairs(type(v) == "table" and v or {}) do
-                if (type(n) == "string" and n ~= "") or type(n) == "number" then
-                    out.names[#out.names + 1] = tostring(n):sub(1, 64)
-                end
-            end
         elseif k == "hover" then -- a map: only known elements, only true
             out.hover = {}
             for _, e in ipairs(HOVER_FRAMES) do
@@ -3986,8 +3855,8 @@ local function buildConfig()
     end
 
     shelf("Interface")
-    for _, e in ipairs({ { "combat", "Combat Display" }, { "auras", "Buffs & debuffs" },
-        { "nameplates", "Nameplates", "nameplate" }, { "buffs", "Buff check" }, { "other", "Other" }, { "barstack", "Bar Stack" } }) do
+    for _, e in ipairs({ { "combat", "Combat Display" }, { "nameplates", "Nameplates", "nameplate" },
+        { "buffs", "Buff check" }, { "other", "Other" }, { "barstack", "Bar Stack" } }) do
         entry(e[1], e[2], e[3])
     end
     y = y - 12
@@ -4036,8 +3905,6 @@ local function buildConfig()
     otherPage:SetAllPoints(barsPage)
     local buffPage = CreateFrame("Frame", nil, content)
     buffPage:SetAllPoints(barsPage)
-    local auraPage = CreateFrame("Frame", nil, content)
-    auraPage:SetAllPoints(barsPage)
     local magePage = CreateFrame("Frame", nil, content)
     magePage:SetAllPoints(barsPage)
     local hunterPage = CreateFrame("Frame", nil, content)
@@ -4052,7 +3919,7 @@ local function buildConfig()
     local bsPage = CreateFrame("Frame", nil, content)
     bsPage:SetAllPoints(barsPage)
     bsPage.need = 100 + ns.ui.BS_H
-    ns.pages = { combat = barsPage, nameplates = questPage, buffs = buffPage, auras = auraPage, mage = magePage,
+    ns.pages = { combat = barsPage, nameplates = questPage, buffs = buffPage, mage = magePage,
         hunter = hunterPage, warlock = lockPage, rogue = roguePage, shaman = shamanPage,
         other = otherPage }
 
@@ -4069,7 +3936,6 @@ local function buildConfig()
         title:SetShown(not np)
         title:SetText(section == "other" and "Other"
             or section == "buffs" and "Buff check"
-            or section == "auras" and "Buffs and debuffs"
             or section == "mage" and "Mage: food and water"
             or section == "hunter" and "Hunter: ammo and pet"
             or section == "warlock" and "Warlock: soul shards"
@@ -4082,7 +3948,6 @@ local function buildConfig()
         questPage:SetShown(np and sub == "quest")
         otherPage:SetShown(section == "other")
         buffPage:SetShown(section == "buffs")
-        auraPage:SetShown(section == "auras")
         magePage:SetShown(section == "mage")
         hunterPage:SetShown(section == "hunter")
         lockPage:SetShown(section == "warlock")
@@ -4830,94 +4695,6 @@ local function buildConfig()
     end
 
     ----------------------------------------------------------------------------------
-    -- Buffs and debuffs page: icons beside the Combat Display, yours and your target's
-    ----------------------------------------------------------------------------------
-    local A = function() return db.regular.auras end
-    local aset = group(auraPage, COL[1], TOP, 202, "Icons")
-    check(auraPage, "Show", aset.x, aset:row(ROW), function() return A().show end, function(v) A().show = v end)
-    slider(auraPage, "Icon size", aset.x, aset:row(SLIDER), 10, 64,
-        function() return A().size end, function(v) A().size = v end)
-    slider(auraPage, "Space between icons", aset.x, aset:row(SLIDER), 0, 20,
-        function() return A().spacing end, function(v) A().spacing = v end)
-    slider(auraPage, "Icons per row", aset.x, aset:row(SLIDER), 1, 20,
-        function() return A().perRow end, function(v) A().perRow = v end)
-    local anote = label(auraPage, "Row 1 buffs, row 2 debuffs.", "GameFontDisableSmall")
-    anote:SetPoint("TOPLEFT", aset.x, aset:row(16))
-    aset:close()
-
-    local cursor = TOP
-    for _, side in ipairs({ { "player", "Yours", "Top-right corner at the bars' left edge; grows left." },
-        { "enemy", "Your target's", "Top-left corner at the bars' right edge; grows right." } }) do
-        local g = group(auraPage, COL[2], cursor, 202, side[2])
-        check(auraPage, "Show", g.x, g:row(ROW), function() return A()[side[1]].show end,
-            function(v) A()[side[1]].show = v end)
-        slider(auraPage, "X (left / right)", g.x, g:row(SLIDER), -400, 400,
-            function() return A()[side[1]].x end, function(v) A()[side[1]].x = v end)
-        slider(auraPage, "Y (down / up)", g.x, g:row(SLIDER), -400, 400,
-            function() return A()[side[1]].y end, function(v) A()[side[1]].y = v end)
-        local note = label(auraPage, side[3], "GameFontDisableSmall")
-        note:SetPoint("TOPLEFT", g.x, g:row(30))
-        note:SetWidth(178)
-        note:SetJustifyH("LEFT")
-        g:close()
-        cursor = g.cursor - 20
-    end
-
-    local filt = group(auraPage, COL[3], TOP, 202, "Which ones")
-    dropdown(auraPage, "Show", filt.x, filt:row(DROP), { { "All of them", "all" },
-        { "Only these (whitelist)", "only" }, { "All but these (blacklist)", "except" } },
-        function() return A().filter end, function(v) A().filter = v end, textPreview)
-    local addY = filt:row(BUTTON + 4)
-    local nameBox = ns.ui.Input(auraPage, 120)
-    nameBox:SetPoint("TOPLEFT", filt.x, addY)
-    local function addName()
-        local n = strtrim(nameBox:GetText() or "")
-        for _, have in ipairs(A().names) do if have == n then n = "" end end -- once each
-        if n ~= "" then table.insert(A().names, n) end
-        nameBox:SetText("")
-        nameBox:ClearFocus()
-        changed()
-    end
-    nameBox:SetScript("OnEnterPressed", addName)
-    button(auraPage, "Add", 54, filt.x + 124, addY, addName)
-    local MAX_NAMES = 12
-    for i = 1, MAX_NAMES do
-        local y = filt:row(ROW)
-        local name = label(auraPage, "", "GameFontHighlightSmall")
-        name:SetPoint("TOPLEFT", filt.x, y - 5)
-        name:SetWidth(116)
-        name:SetJustifyH("LEFT")
-        local del = button(auraPage, "Remove", 58, filt.x + 120, y, function()
-            table.remove(A().names, i)
-            changed()
-        end)
-        del:SetHeight(20)
-        onRefresh(function()
-            local n = A().names[i]
-            name:SetText(n or "")
-            del:SetShown(n ~= nil)
-        end)
-    end
-    local fnote = label(auraPage, "", "GameFontDisableSmall")
-    fnote:SetPoint("TOPLEFT", filt.x, filt:row(44))
-    fnote:SetWidth(178)
-    fnote:SetJustifyH("LEFT")
-    onRefresh(function()
-        fnote:SetText(#A().names >= MAX_NAMES and "The list is full." or
-            "A name, like Rend, or a spell ID. Case doesn't matter.")
-    end)
-    filt:close()
-
-    local fight = group(auraPage, COL[4], TOP, 202, "In a fight")
-    local fightNote = label(auraPage, "The game may keep an aura's name secret in combat. One "
-        .. "it named before the fight is still judged by that name; one it never named shows for a "
-        .. "blacklist and stays hidden for a whitelist.", "GameFontDisableSmall")
-    fightNote:SetPoint("TOPLEFT", fight.x, fight:row(96))
-    fightNote:SetWidth(178)
-    fightNote:SetJustifyH("LEFT")
-    fight:close()
-
-    ----------------------------------------------------------------------------------
     -- Buffs page: the out-of-combat check of who is missing what
     ----------------------------------------------------------------------------------
     local B = function() return db.buffs end
@@ -5596,7 +5373,6 @@ ev:SetScript("OnEvent", function(_, event, unit, arg2, arg3)
             listen(e, "player", "target") -- target: the enemy resource bar
         end
         listen("UNIT_QUEST_LOG_CHANGED", "player")
-        listen("UNIT_AURA", "player", "target")
         for _, e in ipairs({ "PLAYER_ENTERING_WORLD", "UPDATE_SHAPESHIFT_FORM", "PLAYER_TARGET_CHANGED",
             "NAME_PLATE_UNIT_ADDED", "NAME_PLATE_UNIT_REMOVED", "QUEST_LOG_UPDATE", "PLAYER_REGEN_ENABLED",
             "QUEST_DETAIL", "QUEST_ACCEPT_CONFIRM", "QUEST_PROGRESS", "QUEST_COMPLETE", "GOSSIP_SHOW", "QUEST_GREETING",
@@ -5634,8 +5410,7 @@ ev:SetScript("OnEvent", function(_, event, unit, arg2, arg3)
         else
             fillShown("power", "combo", "druidmana")
         end
-    elseif event == "UNIT_AURA" then
-        safe(ns.au.refresh)
+
     elseif event:find("^UNIT_SPELLCAST_") then
         safe(ns.watchTargetCast, event, unit)
         if unit == "player" then
