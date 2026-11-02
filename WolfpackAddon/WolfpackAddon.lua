@@ -1153,12 +1153,34 @@ local playerName
 -- "Boar Flank: 2/6" and "2/6 Boar Flank" both become "BoarFlank".
 local function bareText(text) return (text:gsub("[%d%p%s]", "")) end
 
+-- The modern clients list quests in C_QuestLog; Anniversary (2.5) and Classic Era (1.15) still
+-- have the old global calls, whose objectives are text like "Boar Flank: 2/6".
 local function scanQuestLog()
     wipe(objectiveInfo)
-    for i = 1, C_QuestLog.GetNumQuestLogEntries() do
-        local info = C_QuestLog.GetInfo(i)
-        if info and not info.isHeader then
-            for _, o in ipairs(C_QuestLog.GetQuestObjectives(info.questID) or {}) do
+    local Q = C_QuestLog or {}
+    local count = Q.GetNumQuestLogEntries or GetNumQuestLogEntries
+    if not count then return end
+    for i = 1, count() or 0 do
+        local header, questID
+        if Q.GetInfo then
+            local info = Q.GetInfo(i)
+            header, questID = not info or info.isHeader, info and info.questID
+        else
+            local _
+            _, _, _, header, _, _, _, questID = GetQuestLogTitle(i)
+        end
+        if not header then
+            local objectives = Q.GetQuestObjectives and questID and Q.GetQuestObjectives(questID)
+            if not objectives and GetNumQuestLeaderBoards then
+                objectives = {}
+                for j = 1, GetNumQuestLeaderBoards(i) or 0 do
+                    local text, kind, finished = GetQuestLogLeaderBoard(j, i)
+                    local have, need = (text or ""):match("(%d+)%s*/%s*(%d+)")
+                    objectives[j] = { text = text, type = kind, finished = finished,
+                        numFulfilled = tonumber(have), numRequired = tonumber(need) }
+                end
+            end
+            for _, o in ipairs(objectives or {}) do
                 if o.text and not o.finished then
                     objectiveInfo[bareText(o.text)] = { type = o.type,
                         left = math.max((o.numRequired or 0) - (o.numFulfilled or 0), 0) }
@@ -1174,6 +1196,10 @@ end
 -- it doesn't, the objective counts as yours. ponytail: objective types come from your own quest
 -- log, so a groupmate's item objective for a quest you don't have shows as a kill.
 local function questKinds(unit)
+    -- the icons are read off the unit's tooltip data, which older clients don't hand to addons
+    if not (C_TooltipInfo and LINE and C_QuestLog and C_QuestLog.UnitIsRelatedToActiveQuest) then
+        return nil, nil, {}
+    end
     local related = C_QuestLog.UnitIsRelatedToActiveQuest(unit)
     if not related and not IsInGroup() then return nil, nil, {} end -- solo: skip the tooltip
     local data = C_TooltipInfo.GetUnit(unit)
@@ -4039,6 +4065,9 @@ local function buildConfig()
     local size = group(barsPage, COL[2], TOP, 202, "")
     onRefresh(function()
         local shown = selFrame():IsShown()
+        if selected == "swing" then -- the timer draws in a row per weapon, never in its own frame
+            for _, row in ipairs(swingFrames[mode]) do shown = shown or row:IsShown() end
+        end
         size.title:SetText(BARS[selected].label .. (shown and "" or " |cff888888(hidden)|r"))
     end)
     check(barsPage, "Show", size.x, size:row(ROW), function() return cur().show end, function(v) cur().show = v end)

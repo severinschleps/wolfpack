@@ -933,6 +933,25 @@ assert(h.badge.kill.text:IsShown() and h.badge.kill.text._text == 7, "7 kills le
 assert(h.badge.loot.text._text == 4 and h.badge.loot.bg._color[1] == 0, "4 items left, black plate")
 assert(h.badge.kill.text._point[1] == "BOTTOM" and h.badge.kill.text._point[2] == h.kill, "centered above the icon")
 assert(h.badge.kill.bg._w == 12 and h.badge.kill.bg._h == 12, "plate hugs the number")
+-- Anniversary and Classic Era: no C_QuestLog list, the old global calls instead
+S.newLog = C_QuestLog
+C_QuestLog = { UnitIsRelatedToActiveQuest = S.newLog.UnitIsRelatedToActiveQuest }
+GetNumQuestLogEntries = function() return 2 end
+GetQuestLogTitle = function(i)
+    if i == 1 then return "The Barrens", 0, nil, true end
+    return "Boars", 12, nil, false, false, nil, 0, 7
+end
+GetNumQuestLeaderBoards = function(i) return i == 2 and 2 or 0 end
+GetQuestLogLeaderBoard = function(j)
+    if j == 1 then return "Boar Flank: 3/6", "item", false end
+    return "Boar slain: 3/10", "monster", false
+end
+fire("QUEST_LOG_UPDATE")
+assert(h.loot:IsShown() and h.badge.loot.text._text == 3, "item objective read from the old calls: 3 left")
+C_QuestLog, GetNumQuestLogEntries, GetQuestLogTitle = S.newLog, nil, nil
+GetNumQuestLeaderBoards, GetQuestLogLeaderBoard = nil, nil
+fire("QUEST_LOG_UPDATE")
+assert(h.badge.loot.text._text == 4, "back on the modern list")
 Q.kill.count, Q.loot.count = false, false
 fire("QUEST_LOG_UPDATE")
 assert(not h.badge.kill.text:IsShown(), "off again")
@@ -1042,6 +1061,16 @@ byText("Combat Display")._scripts.OnClick(byText("Combat Display"), "LeftButton"
 assert(ns.pages.combat.need > 1000 and ns.content._h == ns.pages.combat.need - 90 + 16,
     "the scroll area is as tall as the page")
 assert(byText("Export") and byText("Import") and byText("Reset"), "profile buttons moved to the sidebar")
+-- the swing timer draws in its rows, so it is "(hidden)" only when no row is up
+prof().locked = false
+byText("Swing Timer")._scripts.OnClick(byText("Swing Timer"), "LeftButton")
+assert(ns.swingFrames.regular[1]:IsShown() and regionWithText(ns.pages.combat, "Swing Timer"),
+    "rows up while placing: not called hidden")
+prof().regular.bars.swing.main = false; fire("UNIT_MAXPOWER")
+byText("Swing Timer")._scripts.OnClick(byText("Swing Timer"), "LeftButton")
+assert(regionWithText(ns.pages.combat, "Swing Timer |cff888888(hidden)|r"), "no row ticked: hidden")
+prof().regular.bars.swing.main, prof().locked = true, true
+byText("Health")._scripts.OnClick(byText("Health"), "LeftButton")
 -- Bar Stack is a page of this window, not a window of its own
 ns.bs = { ShowConfig = function(page) S.bsPage = page end }
 byText("Bar Stack")._scripts.OnClick(byText("Bar Stack"), "LeftButton")
