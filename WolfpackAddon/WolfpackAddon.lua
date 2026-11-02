@@ -1075,6 +1075,9 @@ function ns.fill(f)
         return
     end
     local v, max = (f.res and ns.resValue or BARS[f.key].value)(f.unit or "player")
+    -- an empty enemy resource (none at all, or nothing left) goes invisible, border and all. A
+    -- secret number can't be looked at, so the bar stays while the game keeps it secret.
+    if f.res then f:SetAlpha(((readable(max) and max <= 0) or (readable(v) and v <= 0)) and 0 or 1) end
     if f.n == 1 then
         f.segs[1]:SetMinMaxValues(0, max)
         f.segs[1]:SetValue(v)
@@ -3178,6 +3181,9 @@ local function group(parent, x, y, w, title)
     function g:close()
         local bottom = self.cursor - 8
         pageBottom = math.min(pageBottom, bottom)
+        ns.cards = ns.cards or {}
+        ns.cards[parent] = ns.cards[parent] or {}
+        table.insert(ns.cards[parent], { x = x, bottom = bottom })
         ns.ui.card(parent, x, y, w, y - bottom)
         return self
     end
@@ -3862,8 +3868,32 @@ function openStops()
     changed()
 end
 
+function ns.foldColumns(page, COL, TOP)
+    local cards, low = ns.cards and ns.cards[page] or {}, TOP
+    for _, c in ipairs(cards) do
+        if c.x < COL[3] then low = math.min(low, c.bottom) end
+    end
+    local dx, dy = COL[1] - COL[3], low - 20 - TOP
+    local need = -low
+    for _, c in ipairs(cards) do
+        need = math.max(need, -(c.x < COL[3] and c.bottom or c.bottom + dy))
+    end
+    page.need = need
+    if dy == 0 then return end
+    local items = { page:GetChildren() }
+    for _, r in ipairs({ page:GetRegions() }) do items[#items + 1] = r end
+    for _, r in ipairs(items) do
+        local point, rel, relPoint, x, y = r:GetPoint(1)
+        if r:GetNumPoints() == 1 and point == "TOPLEFT" and (rel == nil or rel == page) and relPoint == "TOPLEFT"
+            and x and x >= COL[3] then
+            r:ClearAllPoints()
+            r:SetPoint("TOPLEFT", page, "TOPLEFT", x + dx, y + dy)
+        end
+    end
+end
+
 local function buildConfig()
-    cfg = ns.ui.Window("WolfpackAddonConfig", 998, 700, "Wolfpack", 52)
+    cfg = ns.ui.Window("WolfpackAddonConfig", 680, 700, "Wolfpack", 52)
     cfg.TitleText:SetFontObject(ns.ui.TITLE)
     cfg:HookScript("OnShow", function() ns.configOpen = true; changed() end)
     cfg:HookScript("OnHide", function() ns.configOpen = false; changed() end)
@@ -3897,14 +3927,6 @@ local function buildConfig()
         local name = store.chars[charKey]
         StaticPopup_Show("WOLFPACKADDON_DELETE", name, nil, name)
     end)
-    button(cfg, "Reset", 60, 640, -14, function()
-        wipe(db)
-        merge(db, ns.freshProfile(store.chars[charKey]))
-        place()
-        changed()
-    end)
-    button(cfg, "Export", 64, 790, -14, function() openIO("export") end)
-    button(cfg, "Import", 64, 860, -14, function() openIO("import") end)
 
     -- Sidebar: what dresses the screen, then your classes
     local y = -64
@@ -3936,6 +3958,18 @@ local function buildConfig()
         end
     end
 
+    y = y - 12
+    shelf("Profile") -- the header row has no room left for these
+    button(cfg, "Export", 122, 12, y, function() openIO("export") end, true)
+    button(cfg, "Import", 122, 12, y - 28, function() openIO("import") end, true)
+    button(cfg, "Reset", 122, 12, y - 56, function()
+        wipe(db)
+        merge(db, ns.freshProfile(store.chars[charKey]))
+        place()
+        changed()
+    end, true)
+    y = y - 84
+
     ns.sidebarBottom = y
     local divider = cfg:CreateTexture(nil, "ARTWORK")
     ns.ui.paint(divider, ns.ui.C.border)
@@ -3943,32 +3977,40 @@ local function buildConfig()
     divider:SetPoint("BOTTOMLEFT", 142, 1)
     divider:SetWidth(1)
 
-    -- Pages to the right of the sidebar. The bars page edits the layout picked by `mode`.
-    local barsPage = CreateFrame("Frame", nil, cfg)
-    barsPage:SetPoint("TOPLEFT", 134, 0)
-    barsPage:SetSize(864, 700) -- height is set once every page is built
-    local questPage = CreateFrame("Frame", nil, cfg)
+    -- Pages to the right of the sidebar, in a scroll area under the title row. A page keeps the
+    -- window's coordinates (its cards start 100 down), so it sits 90 above the area's top.
+    local scroller = ns.ui.Scroll(CreateFrame("ScrollFrame", nil, cfg, "UIPanelScrollFrameTemplate"))
+    scroller:SetPoint("TOPLEFT", 143, -90)
+    scroller:SetPoint("BOTTOMRIGHT", -22, 8)
+    local content = CreateFrame("Frame", nil, scroller)
+    content:SetSize(515, 1)
+    scroller:SetScrollChild(content)
+    ns.scroller, ns.content = scroller, content
+    local barsPage = CreateFrame("Frame", nil, content)
+    barsPage:SetPoint("TOPLEFT", content, "TOPLEFT", -9, 90)
+    barsPage:SetSize(524, 700)
+    local questPage = CreateFrame("Frame", nil, content)
     questPage:SetAllPoints(barsPage)
-    local otherPage = CreateFrame("Frame", nil, cfg)
+    local otherPage = CreateFrame("Frame", nil, content)
     otherPage:SetAllPoints(barsPage)
-    local buffPage = CreateFrame("Frame", nil, cfg)
+    local buffPage = CreateFrame("Frame", nil, content)
     buffPage:SetAllPoints(barsPage)
-    local auraPage = CreateFrame("Frame", nil, cfg)
+    local auraPage = CreateFrame("Frame", nil, content)
     auraPage:SetAllPoints(barsPage)
-    local magePage = CreateFrame("Frame", nil, cfg)
+    local magePage = CreateFrame("Frame", nil, content)
     magePage:SetAllPoints(barsPage)
-    local hunterPage = CreateFrame("Frame", nil, cfg)
+    local hunterPage = CreateFrame("Frame", nil, content)
     hunterPage:SetAllPoints(barsPage)
-    local lockPage = CreateFrame("Frame", nil, cfg)
+    local lockPage = CreateFrame("Frame", nil, content)
     lockPage:SetAllPoints(barsPage)
-    local roguePage = CreateFrame("Frame", nil, cfg)
+    local roguePage = CreateFrame("Frame", nil, content)
     roguePage:SetAllPoints(barsPage)
-    local shamanPage = CreateFrame("Frame", nil, cfg)
+    local shamanPage = CreateFrame("Frame", nil, content)
     shamanPage:SetAllPoints(barsPage)
     -- Bar Stack builds its own editor (BarStack/Config.lua) into this page, under the title
-    local bsPage = CreateFrame("Frame", nil, cfg)
+    local bsPage = CreateFrame("Frame", nil, content)
     bsPage:SetAllPoints(barsPage)
-    pageBottom = math.min(pageBottom, -100 - ns.ui.BS_H)
+    bsPage.need = 100 + ns.ui.BS_H
     ns.pages = { combat = barsPage, nameplates = questPage, buffs = buffPage, auras = auraPage, mage = magePage,
         hunter = hunterPage, warlock = lockPage, rogue = roguePage, shaman = shamanPage,
         other = otherPage }
@@ -4006,6 +4048,13 @@ local function buildConfig()
         roguePage:SetShown(section == "rogue")
         shamanPage:SetShown(section == "shaman")
         bsPage:SetShown(section == "barstack")
+        local page = section == "barstack" and bsPage or ns.pages[section]
+        if np and sub == "quest" then page = questPage end
+        if page and page.need then content:SetHeight(math.max(1, page.need - 90 + 16)) end
+        if section ~= ns.shownSection then -- a new page starts at its top
+            ns.shownSection = section
+            scroller:SetVerticalScroll(0)
+        end
         if section == "barstack" and ns.bs then safe(ns.bs.ShowConfig, bsPage) end
     end)
 
@@ -4911,11 +4960,12 @@ local function buildConfig()
     spinNote:SetJustifyH("LEFT")
     spin:close()
 
-    -- the sidebar now runs past most pages, so it counts towards the height too
-    ns.configHeight = math.max(-pageBottom, -(ns.sidebarBottom or 0)) + 24
-    local height = math.min(ns.configHeight, math.floor(UIParent:GetHeight()) - 40)
-    cfg:SetHeight(height)
-    barsPage:SetHeight(height)
+    -- Four columns of cards are built; the window holds two. Columns 3 and 4 move under 1 and 2:
+    -- anything placed on the page itself right of column 2 shifts left and down, and whatever
+    -- hangs off those moves with it.
+    for _, page in pairs(ns.pages) do ns.foldColumns(page, COL, TOP) end
+    ns.configHeight = math.max(-(ns.sidebarBottom or 0) + 24, 640)
+    cfg:SetHeight(math.min(ns.configHeight, math.floor(UIParent:GetHeight()) - 40))
 end
 
 function ns.ToggleConfig()

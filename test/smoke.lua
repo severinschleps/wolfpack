@@ -76,17 +76,29 @@ function M:SetFrameStrata(v) self._strata = v end
 function M:IsMouseEnabled() return true end
 function M:GetWidth() return self._w or 140 end
 function M:GetHeight() return self._h or 100 end
+function M:SetHeight(h) self._h = h end
 function M:SetAttribute(k, v) self._attr = self._attr or {}; self._attr[k] = v end
 function M:GetUnboundedStringWidth() return 50 end
 function M:GetStringWidth() return 8 end
 function M:GetStringHeight() return 10 end
 function M:GetNumPoints() return self._point and 1 or 0 end
-function M:GetChildren() return unpack(self._children or {}) end
+function M:GetChildren() return unpack(self._children or self._kids or {}) end
 function M:GetRegions() return unpack(self._regions or {}) end
 function M:GetText() return self._text end
 function M:IsObjectType(t) return self._kind == t end
 function M:SetMaskTexture(m) self._mask = m end
-function M:GetPoint() return unpack(self._point) end
+-- like the game: SetPoint("TOPLEFT", x, y) reads back as relative to the parent
+function M:GetPoint()
+    local p = self._point
+    if not p then return end
+    if type(p[2]) == "number" then return p[1], self._parent, p[1], p[2], p[3] end
+    return unpack(p)
+end
+-- children and regions are remembered, for code that walks a frame's contents
+function M:CreateTexture() local t = new("Texture"); t._parent = self; self._regions = self._regions or {}
+    table.insert(self._regions, t); return t end
+function M:CreateFontString() local t = new("FontString"); t._parent = self; self._regions = self._regions or {}
+    table.insert(self._regions, t); return t end
 function M:SetupMenu(gen) self._gen = gen end
 function M:GenerateMenu() -- records the dropdown's radio items
     local root = { items = {} }
@@ -393,6 +405,10 @@ CreateFrame = function(kind, name, parent, template)
     local f = new(kind)
     f._name, f._parent, f._template = name, parent, template
     if name then _G[name] = f end
+    if type(parent) == "table" then -- kept apart from _children, which some tests set by hand
+        parent._kids = rawget(parent, "_kids") or {}
+        table.insert(parent._kids, f)
+    end
     created[#created + 1] = f
     return f
 end
@@ -539,6 +555,16 @@ eh.resWidth, eh.resHeight, eh.resX, eh.resY = 50, 8, -20, 5
 fire("PLAYER_TARGET_CHANGED")
 assert(rf._w == 110 and rf._h == 8 and rf._point[4] == -20 and rf._point[5] == 5, "sliders size and place it")
 eh.resWidth, eh.resHeight, eh.resX, eh.resY = 90, 4, 0, 3
+-- an empty resource hides; a secret one can't be looked at, so it stays
+assert(rf:GetAlpha() == 1, "secret power: shown")
+S.realPower = UnitPower
+UnitPower = function() return 0 end
+fire("UNIT_POWER_FREQUENT", "target")
+assert(rf:GetAlpha() == 0, "nothing left: hidden")
+UnitPower = function() return 40 end
+fire("UNIT_POWER_FREQUENT", "target")
+assert(rf:GetAlpha() == 1, "power back: shown again")
+UnitPower = S.realPower
 eh.resource = false
 fire("PLAYER_TARGET_CHANGED")
 assert(not rf:IsShown(), "resource off")
@@ -1004,6 +1030,20 @@ for _, name in ipairs({ "Combat Display", "Buffs & debuffs", "Nameplates", "Buff
     assert(b, "sidebar entry missing: " .. name)
     b._scripts.OnClick(b, "LeftButton")
 end
+-- The window is 680 wide and scrolls; each page's columns 3 and 4 sit under columns 1 and 2
+assert(ns.cfg._w == 680, "a third narrower than the old 998")
+local function regionWithText(page, text)
+    for _, r in ipairs({ page:GetRegions() }) do if r._text == text then return r end end
+end
+local colors, bars = regionWithText(ns.pages.combat, "Colors"), regionWithText(ns.pages.combat, "Bars, top to bottom")
+assert(bars._point[2] == 28 and bars._point[3] == -112, "column 1 stays")
+assert(colors._point[1] == "TOPLEFT" and colors._point[2] == ns.pages.combat and colors._point[4] == 28
+    and colors._point[5] < -400, "column 3 moved under column 1")
+assert(regionWithText(ns.pages.combat, "Gradient")._point[4] == 238, "column 4 under column 2")
+byText("Combat Display")._scripts.OnClick(byText("Combat Display"), "LeftButton")
+assert(ns.pages.combat.need > 1000 and ns.content._h == ns.pages.combat.need - 90 + 16,
+    "the scroll area is as tall as the page")
+assert(byText("Export") and byText("Import") and byText("Reset"), "profile buttons moved to the sidebar")
 -- Bar Stack is a page of this window, not a window of its own
 ns.bs = { ShowConfig = function(page) S.bsPage = page end }
 byText("Bar Stack")._scripts.OnClick(byText("Bar Stack"), "LeftButton")

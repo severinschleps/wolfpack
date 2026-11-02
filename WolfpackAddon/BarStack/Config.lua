@@ -6,15 +6,19 @@ local ui = ns.ui
 local MAX_ICONS = 8 -- ponytail: no scrolling in the icon list; a bar holds "one or a few" icons
 local MAX_CONDS = 6
 
--- Three columns of cards: the group, its bars, the picked bar (and its spells below it).
-local W, H = 832, ui.BS_H
-local C1, C2, C3 = 0, 242, 484
-local W12, W3 = 230, 348
+-- Cards: the group and its bars side by side, the picked bar's icons under both (the options
+-- window is narrow and scrolls), then the footer.
+local W, H = 472, ui.BS_H
+local C1, C2, C3 = 0, 242, 0
+local W12, W3 = 230, 472
 local BOTTOM = -556
+local Y3, H3 = BOTTOM - 16, 300 -- the icons card's top and height
+local FOOT = Y3 - H3 - 16
 
 local f, selected, dragFrom, group, editing -- editing: the icon open in the Icon dialog
 local listRows, iconRows, pickRows, condRows = {}, {}, {}, {}
 local groupSliders, barSliders = {}, {}
+local dialogs = {} -- every flyout, so leaving the page closes them
 
 -- The group whose bars the window shows; the first one if the old pick is gone.
 local function G()
@@ -138,10 +142,13 @@ end
 
 -- A dialog beside the options window.
 local function dialog(w, h, title)
+  -- beside the whole window, not the page: the page scrolls, and would cut a dialog off
+  local win = ns.cfg or f:GetParent()
   local d = ui.Window(nil, w, h, title)
-  d:SetParent(f)
+  d:SetParent(win)
   d:ClearAllPoints()
-  d:SetPoint("TOPLEFT", f:GetParent(), "TOPRIGHT", 12, 0)
+  d:SetPoint("TOPLEFT", win, "TOPRIGHT", 12, 0)
+  dialogs[#dialogs + 1] = d
   return d
 end
 
@@ -204,7 +211,7 @@ local editor, settings -- the Icon and Bar settings flyouts, made the first time
 local function iconRow(i)
   if iconRows[i] then return iconRows[i] end
   local r = ui.Button(f.right, "", W3 - 24, true)
-  r:SetPoint("TOPLEFT", C3 + 12, -40 - (i - 1) * 26)
+  r:SetPoint("TOPLEFT", C3 + 12, Y3 - 40 - (i - 1) * 26)
   r.icon = r:CreateTexture(nil, "ARTWORK")
   r.icon:SetSize(20, 20)
   r.icon:SetPoint("LEFT", 4, 0)
@@ -530,11 +537,14 @@ local function build(parent)
   f:SetPoint("TOPLEFT", 16, -100)
   -- every bar is on screen while you edit them, so there is something to place
   f:SetScript("OnShow", function() preview(true); BS.RefreshConfig() end)
-  f:SetScript("OnHide", function() if BS.preview then preview(false) end end)
+  f:SetScript("OnHide", function()
+    if BS.preview then preview(false) end
+    for _, d in ipairs(dialogs) do d:Hide() end
+  end)
 
   ui.card(f, C1, 0, W12, -BOTTOM)
   ui.card(f, C2, 0, W12, -BOTTOM)
-  ui.card(f, C3, 0, W3, -BOTTOM)
+  ui.card(f, C3, Y3, W3, H3)
 
   -- column 1: the group (each one is a stack of its own) and its stack settings
   local x = C1 + 12
@@ -593,36 +603,36 @@ local function build(parent)
 
   -- column 3: the selected bar's icons (its settings are a flyout, from the Bars column)
   x = C3 + 12
-  f.empty = text(f, "No bars yet. Click New to create one.", x, -40, "GameFontDisableSmall")
+  f.empty = text(f, "No bars yet. Click New to create one.", x, Y3 - 40, "GameFontDisableSmall")
   local r = CreateFrame("Frame", nil, f)
   r:SetAllPoints()
   f.right = r
-  f.iconsTitle = text(r, "Icons", x, -12, "GameFontNormal")
+  f.iconsTitle = text(r, "Icons", x, Y3 - 12, "GameFontNormal")
   f.iconsTitle:SetWidth(W3 - 222)
   f.iconsTitle:SetJustifyH("LEFT")
   f.iconsTitle:SetWordWrap(false)
   -- the look of every icon in the profile, top right, so it is there with or without a bar picked
-  f.iconStyle = button(f, "Icon style", 90, C3 + W3 - 102, -8, BS.ShowIconStyle)
-  f.add = button(r, "Add icon", 90, C3 + W3 - 198, -8, function()
+  f.iconStyle = button(f, "Icon style", 90, C3 + W3 - 102, Y3 - 8, BS.ShowIconStyle)
+  f.add = button(r, "Add icon", 90, C3 + W3 - 198, Y3 - 8, function()
     local ic = BS.NormalizeIcon({})
     table.insert(selected.icons, ic)
     changed()
     BS.EditIcon(ic)
   end)
   -- why an icon on this bar shows nothing, said where you are looking rather than in /bs check
-  f.iconNote = text(r, "", x, -44, "GameFontNormalSmall")
+  f.iconNote = text(r, "", x, Y3 - 44, "GameFontNormalSmall")
   f.iconNote:SetWidth(W3 - 24)
   f.iconNote:SetJustifyH("LEFT")
   BS.cfg = f
   f.groupSliders, f.barSliders, f.iconRows, f.listRows = groupSliders, barSliders, iconRows, listRows
 
   -- footer: what the whole profile shares
-  f.preview = checkbox(f, "Show all bars", 2, -572, preview)
-  f.hideBlizzard = checkbox(f, "Hide Blizzard's Cooldown Manager", 140, -572, function(on)
+  f.preview = checkbox(f, "Show all bars", 2, FOOT, preview)
+  f.hideBlizzard = checkbox(f, "Hide Blizzard's Cooldown Manager", 140, FOOT, function(on)
     BS.profile.hideBlizzard = on
     changed()
   end)
-  f.combatNote = text(f, "Changes apply after combat.", 400, -572, "GameFontRedSmall")
+  f.combatNote = text(f, "Changes apply after combat.", 2, FOOT - 28, "GameFontRedSmall")
 end
 
 function BS.RefreshConfig()
@@ -693,7 +703,7 @@ function BS.RefreshConfig()
   end
   if #b.icons == 0 then notes[#notes + 1] = "|cffa1a1aaAdd an icon, then pick its picture and when it shows.|r" end
   f.iconNote:ClearAllPoints()
-  f.iconNote:SetPoint("TOPLEFT", C3 + 12, -44 - #b.icons * 26)
+  f.iconNote:SetPoint("TOPLEFT", C3 + 12, Y3 - 44 - #b.icons * 26)
   f.iconNote:SetText(table.concat(notes, "\n"))
   refreshEditor()
 end
