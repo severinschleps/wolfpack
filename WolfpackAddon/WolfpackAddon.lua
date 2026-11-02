@@ -5305,6 +5305,34 @@ local function swingTick()
     if not swingActive() then swingTicker:SetScript("OnUpdate", nil) end
 end
 
+-- A swing starts: duration in seconds, swing type 0 main hand, 1 off hand, 2 ranged.
+-- Either may arrive secret, and the timer does math on both every frame: a secret one would
+-- throw there, over and over, and stop the whole stack from laying out. Such a swing is left
+-- untimed instead.
+function ns.startSwing(duration, kind)
+    if not (readable(duration) and readable(kind) and type(duration) == "number" and duration > 0
+        and type(kind) == "number") then return end
+    swingState[kind] = { start = GetTime(), duration = duration }
+    swingTicker:SetScript("OnUpdate", swingTick)
+    swingTick()
+end
+
+-- Anniversary and Classic Era have no PLAYER_SWING (Forever does), but their combat log still
+-- tells addons when you swing: a hit or a miss starts the next one, as long as your weapon's
+-- current speed. Dodges and parries count too; they are swings all the same.
+-- Midnight (12.x) keeps the combat log from addons, so only the classic clients read it.
+ns.swingLog = not C_SwingTimer and CombatLogGetCurrentEventInfo ~= nil and select(4, GetBuildInfo()) < 100000
+function ns.swingFromLog()
+    local _, sub, _, source, _, _, _, _, _, _, _, a12, a13, _, _, _, _, _, _, _, a21 = CombatLogGetCurrentEventInfo()
+    if source ~= UnitGUID("player") then return end
+    local off
+    if sub == "SWING_DAMAGE" then off = a21     -- isOffHand, after the damage fields
+    elseif sub == "SWING_MISSED" then off = a13 -- missType, isOffHand
+    else return end
+    local main, offSpeed = UnitAttackSpeed("player")
+    if off then ns.startSwing(offSpeed, 1) else ns.startSwing(main, 0) end
+end
+
 local petEv = CreateFrame("Frame") -- same handler as ev, for pet unit events
 
 -- Auto-sell junk: gray items that have a sell price, one every 0.2 s while the merchant window
@@ -5391,7 +5419,9 @@ local function fillShown(...)
 end
 
 ev:SetScript("OnEvent", function(_, event, unit, arg2, arg3)
-    if event == "ADDON_LOADED" then
+    if event == "COMBAT_LOG_EVENT_UNFILTERED" then -- by far the busiest, so asked first
+        safe(ns.swingFromLog)
+    elseif event == "ADDON_LOADED" then
         if unit == ADDON then applyCombatFont() end
     elseif event == "PLAYER_LOGIN" then
         -- ponytail: settings saved before profiles existed are dropped (the beta never loaded them anyway)
@@ -5440,6 +5470,7 @@ ev:SetScript("OnEvent", function(_, event, unit, arg2, arg3)
             "GOSSIP_CLOSED" }) do
             listen(e)
         end
+        if ns.swingLog then listen("COMBAT_LOG_EVENT_UNFILTERED") end -- swings, where no PLAYER_SWING
         inCombat = InCombatLockdown() -- a /reload mid-fight
         local mine = store.chars[charKey]
         if not (mine and store.profiles[mine]) then
@@ -5476,19 +5507,18 @@ ev:SetScript("OnEvent", function(_, event, unit, arg2, arg3)
         if unit == "player" then
             safe(fsr.cast, fsr, event, arg2, arg3)
             safe(castCost.track, castCost, event, arg3)
-            if event == "UNIT_SPELLCAST_SUCCEEDED" then absorb.castAt = GetTime() end
+            if event == "UNIT_SPELLCAST_SUCCEEDED" then
+                absorb.castAt = GetTime()
+                -- Auto Shot or a wand's Shoot: the ranged swing, where no PLAYER_SWING says so
+                if ns.swingLog and (arg3 == 75 or arg3 == 5019) then
+                    local ok, speed = pcall(UnitRangedDamage, "player")
+                    if ok then ns.startSwing(speed, 2) end
+                end
+            end
         end
         safe(Refresh) -- the cast bar joins or leaves the stack
     elseif event == "PLAYER_SWING" then -- unit, arg2 = duration, swing type
-        -- Either may arrive secret, and the timer does math on both every frame: a secret one
-        -- would throw there, over and over, and stop the whole stack from laying out. Such a
-        -- swing is left untimed instead.
-        if readable(unit) and readable(arg2) and type(unit) == "number" and unit > 0
-            and type(arg2) == "number" then
-            swingState[arg2] = { start = GetTime(), duration = unit }
-            swingTicker:SetScript("OnUpdate", swingTick)
-            swingTick()
-        end
+        ns.startSwing(unit, arg2)
     elseif event == "PLAYER_TOTEM_UPDATE" then -- hand the new timers over; they run themselves
         fillShown("totems")
     elseif event == "MERCHANT_SHOW" then

@@ -340,7 +340,12 @@ GetActiveTitle = function(i) return "Quest " .. i, S.greeting[i] end
 SelectActiveQuest = function(i) S.calls[#S.calls + 1] = "greetTurnin" .. i end
 GetNumAvailableQuests = function() return S.greetNew or 0 end
 SelectAvailableQuest = function(i) S.calls[#S.calls + 1] = "greetTake" .. i end
-UnitGUID = function() return S.npc end
+UnitGUID = function(unit) return unit == "player" and "Player-1" or S.npc end
+GetBuildInfo = function() return "2.5.6", "1", "", 20506 end -- Anniversary
+-- the combat log, as Anniversary and Classic Era still hand it to addons
+CombatLogGetCurrentEventInfo = function() return unpack(S.cleu or {}, 1, 21) end
+UnitAttackSpeed = function() return 2.4, 1.6 end
+UnitRangedDamage = function() return 3.0 end
 GossipFrame, QuestFrame = new(), new()
 GossipFrame._shown, QuestFrame._shown = false, false
 hooksecurefunc = function(t, name, fn)
@@ -713,6 +718,27 @@ assert(swf[3]:IsShown() and WolfpackAddonFrame._h == 72 and swf[3]._point[5] == 
 S.time = 1010; ns.swingTicker._scripts.OnUpdate()
 assert(not swf[1]:IsShown() and not swf[3]:IsShown(), "done: rows leave")
 assert(WolfpackAddonFrame._h == 48 and not ns.swingTicker._scripts.OnUpdate, "stack closed up, ticker stopped")
+-- Anniversary and Classic Era: no PLAYER_SWING; the combat log says when you swing, and the
+-- weapon's speed how long the next one takes
+assert(ns.swingLog, "a client with a combat log and no swing timer API reads the log")
+local function logged(sub, source, a12, a13, a21)
+    S.cleu = { 0, sub, false, source, "", 0, 0, "Mob-1", "", 0, 0, a12, a13 }
+    S.cleu[21] = a21
+    fire("COMBAT_LOG_EVENT_UNFILTERED")
+end
+logged("SWING_DAMAGE", "Player-2", 10)
+assert(not swf[1]:IsShown(), "someone else's swing: nothing starts")
+logged("SPELL_DAMAGE", "Player-1", 133)
+assert(not swf[1]:IsShown(), "not a swing: nothing starts")
+logged("SWING_DAMAGE", "Player-1", 25, 0, nil)
+assert(swf[1].segs[1]._max == 2.4 and swf[1].segs[1]._value == 0, "a main-hand hit: the next swing, at your speed")
+logged("SWING_MISSED", "Player-1", "DODGE", true)
+assert(swf[2]:IsShown() and swf[2].segs[1]._max == 1.6, "an off-hand dodge: the off hand's next swing")
+fire("UNIT_SPELLCAST_SUCCEEDED", "player", "cast-1", 75)
+assert(swf[3]:IsShown() and swf[3].segs[1]._max == 3.0, "Auto Shot: the ranged swing")
+S.cleu = nil
+S.time = 1020; ns.swingTicker._scripts.OnUpdate()
+assert(not swf[1]:IsShown() and not swf[2]:IsShown() and not swf[3]:IsShown(), "all three ran out")
 prof().locked = false; fire("UNIT_MAXPOWER")
 assert(swf[1]:IsShown() and swf[3]:IsShown() and swf[1].text._text == "Main hand", "unlocked: preview rows")
 assert(swf[1].segs[1]._value == 1 and swf[1].segs[1]._max == 1, "a full bar to place, not the last swing's fill")
