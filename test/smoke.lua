@@ -515,32 +515,110 @@ assert(pp[1] == "TOP" and pp[2] == WolfpackAddonFrame and pp[4] == 5 and pp[5] =
 assert(cp[4] == 0 and cp[5] == -36, "combo keeps its slot")
 R.power.x, R.power.y = 0, 0
 
--- Target health: only with the option on and a target; right of the player's health bar
-local tf = ns.targetFrame
+-- Enemy health: in the stack while you have a target, its resource always right under it
+local eh, ef = prof().regular.bars.enemyhealth, fr.enemyhealth
+local rf = ef.resFrame
 fire("PLAYER_TARGET_CHANGED")
-assert(not tf:IsShown(), "option off")
-prof().regular.bars.health.target = true
+assert(not ef:IsShown(), "off until you turn it on")
+eh.show = true
 fire("PLAYER_TARGET_CHANGED")
-assert(not tf:IsShown(), "no target")
+assert(not ef:IsShown(), "no target")
 S.targetHP = 500
 fire("PLAYER_TARGET_CHANGED")
-local tp, hp = tf._point, fr.health._point
-assert(tf:IsShown() and tp[1] == "LEFT" and tp[2] == fr.health and tp[3] == "RIGHT" and tp[4] == 2, "beside health")
-assert(fr.health._w == 109 and tf._w == 109, "220 wide, 2 gap: two halves of 109")
+assert(ef:IsShown() and ef.segs[1]._value == 500 and ef.segs[1]._max == 1000 and ef.text._text == "500",
+    "target values")
+assert(ef._point[1] == "TOP" and ef._point[5] == -20, "its own slot, right after your health")
+assert(rf:IsShown() and rf._point[1] == "TOPLEFT" and rf._point[2] == ef and rf._point[3] == "BOTTOMLEFT",
+    "the resource hangs right under it")
+assert(ef._h == 18 and rf._h == 6 and fr.power._point[5] == -20 - 18 - 6 - 2, "its slot holds both")
+assert(rf.segs[1]._sbc[1] == 1 and rf.segs[1]._sbc[2] == 1 and rf.segs[1]._sbc[3] == 0,
+    "the resource wears its power's color (energy, your yellow)")
+eh.resource = false
+fire("PLAYER_TARGET_CHANGED")
+assert(not rf:IsShown() and fr.power._point[5] == -20 - 18 - 2, "no resource: the slot shrinks")
+eh.resource = true
+
+-- Beside your health: the two share its width, and health + resource are exactly as tall as it
+eh.beside = true
+fire("PLAYER_TARGET_CHANGED")
+local tp, hp = ef._point, fr.health._point
+assert(ef:IsShown() and tp[1] == "TOPLEFT" and tp[2] == fr.health and tp[3] == "TOPRIGHT" and tp[4] == 2,
+    "beside health")
+assert(fr.health._w == 109 and ef._w == 109, "220 wide, 2 gap: two halves of 109")
 assert(hp[1] == "TOPLEFT" and hp[3] == "TOP" and hp[4] == -110, "player half starts at the bar's left edge")
-assert(tf.segs[1]._value == 500 and tf.segs[1]._max == 1000 and tf.text._text == "500", "target values")
-prof().regular.bars.health.colorMode = "class"
+assert(ef._h == 12 and rf._h == 6 and rf._w == 109, "18 tall in all: resource 6, health the other 12")
+assert(fr.power._point[5] == -20, "and it no longer takes a slot in the stack")
+eh.resHeight = 40
+fire("PLAYER_TARGET_CHANGED")
+assert(ef._h == 1 and rf._h == 17, "a resource taller than your health leaves health a sliver")
+eh.resHeight = 6
+prof().regular.bars.health.colorMode, eh.colorMode = "class", "class"
 S.targetClass = "MAGE"; fire("PLAYER_TARGET_CHANGED")
-assert(tf.segs[1]._sbc[1] == 0.2 and fr.health.segs[1]._sbc[1] == 1, "NPC target: custom color, you: class")
+assert(ef.segs[1]._sbc[1] == 0.8 and fr.health.segs[1]._sbc[1] == 1, "NPC target: custom color, you: class")
 S.targetIsPlayer = true; fire("PLAYER_TARGET_CHANGED")
-assert(tf.segs[1]._sbc[1] == 0.25, "player target: their class color")
-S.targetIsPlayer, prof().regular.bars.health.colorMode = nil, "custom"
+assert(ef.segs[1]._sbc[1] == 0.25, "player target: their class color")
+S.targetIsPlayer, prof().regular.bars.health.colorMode, eh.colorMode = nil, "custom", "custom"
 S.targetHP = 250; fire("UNIT_HEALTH", "target")
-assert(tf.segs[1]._value == 250 and fr.health.segs[1]._value == SECRET, "target updates, player keeps its own")
-assert(WolfpackAddonFrame._w == 220, "stack width ignores the target bar")
+assert(ef.segs[1]._value == 250 and fr.health.segs[1]._value == SECRET, "target updates, player keeps its own")
+rf.segs[1]._value = nil; fire("UNIT_POWER_FREQUENT", "target")
+assert(rf.segs[1]._value == SECRET, "its resource follows the target's power")
+assert(WolfpackAddonFrame._w == 220, "stack width ignores the enemy bar")
 S.targetHP = nil; fire("PLAYER_TARGET_CHANGED")
-assert(not tf:IsShown() and fr.health._w == 220 and fr.health._point[1] == "TOP", "target gone: full width again")
-prof().regular.bars.health.target = false
+assert(not ef:IsShown() and fr.health._w == 220 and fr.health._point[1] == "TOP", "target gone: full width again")
+eh.show, eh.beside = false, false
+
+-- the old "Target health beside it" switch becomes Enemy Health beside you
+prof().regular.bars.health.target = true
+fire("PLAYER_LOGIN")
+assert(eh.show and eh.beside and not prof().regular.bars.health.target, "old switch carried over")
+eh.show, eh.beside = false, false
+
+-- Buffs and debuffs: yours left of the bars growing left, row 1 buffs, row 2 debuffs
+local au = prof().regular.auras
+local function icon(k) return rawget(ns.au.icons, k) end
+au.show = true
+S.auras = { { name = "Battle Shout", spellId = 6673, icon = 132333, auraInstanceID = 1 },
+    { name = "Rend", spellId = 772, icon = 132155, auraInstanceID = 2, applications = 3 } }
+S.debuffs = { { name = "Hamstring", spellId = 1715, icon = 132316, auraInstanceID = 3 } }
+fire("UNIT_AURA", "player")
+local b1, b2, d1 = icon("player1:1"), icon("player1:2"), icon("player2:1")
+assert(b1:IsShown() and b1.tex._tex == 132333 and b2.tex._tex == 132155 and d1.tex._tex == 132316, "icons")
+assert(b1._point[1] == "TOPRIGHT" and b1._point[2] == WolfpackAddonFrame and b1._point[3] == "TOPLEFT"
+    and b1._point[4] == -6 and b1._point[5] == 0, "top-right corner at the bars' left edge")
+assert(b2._point[4] == -6 - 26 and d1._point[5] == -26, "grows left; debuffs a row down")
+assert(b2.count._text == 3, "a stack count")
+assert(not icon("enemy1:1") or not icon("enemy1:1"):IsShown(), "no target, no enemy icons")
+S.targetHP = 800; fire("PLAYER_TARGET_CHANGED")
+local e1 = icon("enemy1:1")
+assert(e1:IsShown() and e1._point[1] == "TOPLEFT" and e1._point[3] == "TOPRIGHT" and e1._point[4] == 6
+    and icon("enemy1:2")._point[4] == 6 + 26, "your target's: right of the bars, growing right")
+-- whitelist by name, any case; blacklist by spell ID
+au.filter, au.names = "only", { "rend" }
+fire("UNIT_AURA", "player")
+assert(b1.tex._tex == 132155 and not b2:IsShown() and not d1:IsShown(), "only Rend")
+au.filter, au.names = "except", { "6673" }
+fire("UNIT_AURA", "player")
+assert(b1.tex._tex == 132155 and not b2:IsShown() and d1:IsShown(), "all but Battle Shout")
+-- in a fight: a refusal keeps what is shown; a secret name is judged by what it was called before
+S.combat = true
+fire("UNIT_AURA", "player")
+assert(b1:IsShown() and b1.tex._tex == 132155 and d1:IsShown(), "refused: the icons stay")
+S.realRead = C_UnitAuras.GetAuraDataByIndex
+C_UnitAuras.GetAuraDataByIndex = function(_, i, filter)
+    local a = filter ~= "HARMFUL" and ({ { name = SECRET, spellId = SECRET, icon = 132333, auraInstanceID = 1 },
+        { name = SECRET, spellId = SECRET, icon = 132155, auraInstanceID = 2 },
+        { name = SECRET, spellId = SECRET, icon = 1, auraInstanceID = 9 } })[i]
+    return a
+end
+fire("UNIT_AURA", "player")
+assert(b1.tex._tex == 132155 and b2:IsShown() and b2.tex._tex == 1, "blacklist: the known one stays out, the unknown shows")
+au.filter, au.names = "only", { "rend" }
+fire("UNIT_AURA", "player")
+assert(b1.tex._tex == 132155 and not b2:IsShown(), "whitelist: the known one shows, the unknown stays out")
+C_UnitAuras.GetAuraDataByIndex, S.combat = S.realRead, nil
+au.show, au.filter, au.names, S.auras, S.debuffs, S.targetHP = false, "all", {}, nil, nil, nil
+fire("PLAYER_TARGET_CHANGED")
+assert(not b1:IsShown() and not e1:IsShown(), "turned off: all gone")
 
 -- Background color and gradient points: one slice per pair of points, masked by the bar's fill
 local gb = prof().regular.bars.health
@@ -911,7 +989,7 @@ boxes[5]._text = "90"; boxes[5]._scripts.OnEnterPressed(boxes[5])
 assert(prof().nameplate.gap == 4 and prof().nameplate.x == -150 and prof().nameplate.bars.health.width == 90, "nameplate edits")
 assert(prof().regular.gap == 30 and prof().regular.x == 0 and prof().regular.bars.health.width == 220, "regular untouched")
 -- every sidebar entry is really there, opens its page, and that page has settings on it
-for _, name in ipairs({ "Combat Display", "Nameplates", "Buffs", "Other",
+for _, name in ipairs({ "Combat Display", "Buffs & debuffs", "Nameplates", "Buff check", "Other",
     "Hunter", "Mage", "Rogue", "Shaman", "Warlock" }) do
     local b = byText(name)
     assert(b, "sidebar entry missing: " .. name)
@@ -1009,8 +1087,8 @@ dds[7]:GenerateMenu(); dds[8]:GenerateMenu()
 assert(#dds[7]._items == 4 and #dds[8]._items == 4, "icon choices")
 for _, it in ipairs(dds[7]._items) do assert(type(it.init(menuButton())) == "number", "icon preview") end
 dds[7]._items[3].set()
-boxes[16]._text = "32"; boxes[16]._scripts.OnEnterPressed(boxes[16]) -- kill size
-boxes[13]._text = "-5"; boxes[13]._scripts.OnEnterPressed(boxes[13]) -- row X
+boxes[17]._text = "32"; boxes[17]._scripts.OnEnterPressed(boxes[17]) -- kill size
+boxes[14]._text = "-5"; boxes[14]._scripts.OnEnterPressed(boxes[14]) -- row X
 local Q = prof().quest
 assert(Q.kill.icon == 135274 and Q.kill.size == 32 and Q.loot.size == 20 and Q.x == -5, "quest page edits")
 assert(h.kill._tex == 135274 and h.kill._w == 32 and h.box._w == 54 and h.box._point[4] == -5, "live plate row restyled")
@@ -1028,9 +1106,21 @@ prof().other.hideGryphons = true; fire("UNIT_MAXPOWER")
 assert(caps.LeftEndCap.Texture._alpha == 0 and caps.RightEndCap.Texture._alpha == 0, "hidden")
 prof().other.hideGryphons = false; fire("UNIT_MAXPOWER")
 assert(caps.LeftEndCap.Texture._alpha == 1, "shown again")
-local opBox = boxes[19] -- highlight opacity (%), after the party/raid one
+local opBox = boxes[20] -- highlight opacity (%), after the party/raid one
 opBox._text = "60"; opBox._scripts.OnEnterPressed(opBox)
 assert(math.abs(prof().regular.highlight.color[4] - 0.6) < 1e-9 and opBox._text == "60", "opacity typed")
+-- Buffs & debuffs page: a name typed in joins the filter list once, Remove takes it out
+byText("Buffs & debuffs")._scripts.OnClick(byText("Buffs & debuffs"), "LeftButton")
+assert(ns.pages.auras:IsShown() and not ns.pages.combat:IsShown(), "its own page")
+local nameBox
+for _, f in ipairs(created) do if f._kind == "EditBox" and f._parent == ns.pages.auras then nameBox = f end end
+nameBox._text = " Rend "; nameBox._scripts.OnEnterPressed(nameBox)
+nameBox._text = "Rend"; nameBox._scripts.OnEnterPressed(nameBox)
+assert(#prof().regular.auras.names == 1 and prof().regular.auras.names[1] == "Rend", "added once, trimmed")
+local rm = byText("Remove")
+assert(rm:IsShown(), "its row has a Remove button")
+rm._scripts.OnClick(rm, "LeftButton")
+assert(#prof().regular.auras.names == 0 and not rm:IsShown(), "removed")
 byText("Combat Display")._scripts.OnClick(byText("Combat Display"), "LeftButton")
 
 -- Auto-accept: off by default; Shift skips; item/area-trigger quests left to Blizzard
@@ -1373,7 +1463,13 @@ assert(#bad == 32 and bp.evil == nil and bp.locked == true, "unknown key dropped
 assert(bp.other.hover.bar1 and bp.other.hover.nope == nil and bp.other.hover.bar2 == nil, "hover: known and true only")
 assert(bp.other.combatFont == "", "unknown combat font path refused")
 assert(bp.regular.gap == 2 and bp.regular.x == 0, "out-of-range numbers defaulted")
-assert(bp.regular.order[1] == "health" and bp.regular.order[2] == "castbar" and #bp.regular.order == 11, "order repaired")
+assert(bp.regular.order[1] == "health" and bp.regular.order[2] == "castbar" and #bp.regular.order == 12, "order repaired")
+assert(#bp.regular.auras.names == 0, "no aura names in that one")
+blobs[#blobs + 1] = { name = "Lists", profile = { regular = { auras = { filter = "only",
+    names = { "Rend", 772, "", { "x" }, string.rep("y", 80) } } } } }
+local lp = store.profiles[ns.importString("WPA1:Bzblob" .. #blobs)].regular.auras
+assert(lp.filter == "only" and #lp.names == 3 and lp.names[1] == "Rend" and lp.names[2] == "772"
+    and #lp.names[3] == 64, "aura names: text only, numbers as text, cut to 64")
 local ns2 = bp.nameplate.bars.power.stops
 assert(#ns2 == 2 and ns2[1].pos == 10 and ns2[2].pos == 90 and ns2[1].color[1] == 1, "gradient points checked")
 local hb2 = bp.regular.bars.health
@@ -1476,7 +1572,7 @@ for _, m in ipairs({ "regular", "nameplate" }) do
     for _, k in ipairs(prof()[m].order) do seen[k] = true end
     assert(seen.health and seen.power and seen.combo and seen.druidmana and seen.castbar and seen.pethealth
         and seen.swing and seen.totems and seen.absorb and seen.flight and seen.targetcast
-        and #prof()[m].order == 11, "order intact")
+        and seen.enemyhealth and #prof()[m].order == 12, "order intact")
 end
 
 -- Totems: four element segments, each draining on its own; the bar is shaman-only and

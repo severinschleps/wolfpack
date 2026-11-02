@@ -158,7 +158,7 @@ end
 local function layoutDefaults(show, x, y, gap, width, h1, h2, h3, h4, h5, h6, h7, h8, h9, h10)
     local l = {
         x = x, y = y, gap = gap, grow = "down", -- "up": the group's bottom edge stays put instead
-        order = { "health", "power", "combo", "druidmana", "castbar", "targetcast", "pethealth",
+        order = { "health", "enemyhealth", "power", "combo", "druidmana", "castbar", "targetcast", "pethealth",
             "swing", "totems", "absorb", "flight" },
         bars = {
             health = barDefaults(show, width, h1, 0.2, 0.8, 0.2, show),
@@ -173,8 +173,13 @@ local function layoutDefaults(show, x, y, gap, width, h1, h2, h3, h4, h5, h6, h7
             flight = barDefaults(false, width, h10 or h5, 0.4, 0.7, 1, true), -- text = time left
             -- the color is picked from what is being cast, so its own is only a fallback
             targetcast = barDefaults(false, width, h5, 0.8, 0.3, 0.3, true),
+            -- your target's health; its resource (mana, rage...) always sits right under it
+            enemyhealth = barDefaults(false, width, h1, 0.8, 0.25, 0.2, show),
         },
     }
+    -- beside: right of your health bar, the two sharing its width, and enemy health + resource
+    -- together exactly as tall as it
+    l.bars.enemyhealth.beside, l.bars.enemyhealth.resource, l.bars.enemyhealth.resHeight = false, true, h4
     l.bars.power.colorMode = "power"
     -- "Power type color": one color per power, Blizzard's own to start with; any other power
     -- (runic power, astral power...) keeps Blizzard's
@@ -277,7 +282,12 @@ DEFAULTS.buffs = {
     skip = {}, -- [check key] = true: leave that one out
 }
 
-DEFAULTS.regular.bars.health.target = false -- target health bar right of it (Combat Display only)
+-- the old "Target health beside it" switch; useProfile turns it into Enemy Health beside you
+DEFAULTS.regular.bars.health.target = false
+-- Buffs and debuffs beside the bars: yours left of the group, your target's right of it.
+-- filter: "all", "only" (whitelist) or "except" (blacklist) the names (or spell IDs) listed.
+DEFAULTS.regular.auras = { show = false, size = 24, spacing = 2, perRow = 8, filter = "all", names = {},
+    player = { show = true, x = -6, y = 0 }, enemy = { show = true, x = 6, y = 0 } }
 DEFAULTS.regular.hidePlayerFrame = false -- hide Blizzard's player unit frame
 DEFAULTS.regular.hideBlizzCastbar = false -- hide Blizzard's player cast bar
 DEFAULTS.regular.playerMenu = false      -- right-click on the bars opens the player menu
@@ -480,7 +490,7 @@ local BARS = {
         state = function() return true, 1 end, -- a row per ticked weapon, each only while that one swings
     },
     targetcast = {
-        label = "Target Cast",
+        label = "Enemy Cast",
         -- Only while your target is casting. What comes back can be secret on this client, and
         -- a secret may not even be tested for truth -- so the test is wrapped, and a refusal is
         -- taken as a yes: the game only has something to hide when there is something there.
@@ -493,6 +503,15 @@ local BARS = {
         -- only while the griffin has you. Nobody will say how long a route takes, so the first
         -- time you fly one it is timed and remembered, and after that it counts down.
         state = function() return (ns.previewing() or ft.flying()) and true or false, 1 end,
+    },
+    enemyhealth = {
+        label = "Enemy Health",
+        -- while you have a target, and while placing the bars
+        state = function() return (UnitExists("target") or ns.previewing()) and true or false, 1 end,
+        value = function(unit)
+            if not UnitExists(unit) then return 1, 1 end -- previewing: a full bar
+            return UnitHealth(unit), UnitHealthMax(unit)
+        end,
     },
     druidmana = {
         label = "Druid Mana",
@@ -570,17 +589,20 @@ local function newBar(parent, key, mode)
     return f
 end
 
--- Target health: styled like the player's health bar; the two split its width while you have a target.
-local targetFrame = newBar(anchor, "health", "regular")
-targetFrame.unit = "target"
-ns.targetFrame = targetFrame
-
 local swingFrames = { regular = {}, nameplate = {} }
 ns.swingFrames = swingFrames
 
 for key in pairs(BARS) do
     frames[key] = newBar(anchor, key, "regular")
     plateFrames[key] = newBar(plateAnchor, key, "nameplate")
+end
+-- Enemy health reads your target; its resource bar hangs under it and wears its look
+for _, set in ipairs({ frames, plateFrames }) do
+    local f = set.enemyhealth
+    f.unit = "target"
+    f.resFrame = newBar(f, "enemyhealth", f.mode)
+    f.resFrame.unit, f.resFrame.res = "target", true
+    f.resFrame:Hide() -- until laid out: power events fill only shown bars
 end
 for i in ipairs(SWING_TYPES) do
     swingFrames.regular[i] = newBar(anchor, "swing", "regular")
@@ -688,9 +710,10 @@ local function barColors(f, c)
         local pick = c[(f.castKind or "harm") .. "Color"]
         if pick then r, g, b = pick[1], pick[2], pick[3] end
     end
-    if c.colorMode == "power" and f.key == "power" then
-        local token = select(2, UnitPowerType("player"))
-        local own, pc = c.powerColors and c.powerColors[token], PowerBarColor and PowerBarColor[token]
+    if c.colorMode == "power" and (f.key == "power" or f.res) then
+        local token = select(2, UnitPowerType(f.unit or "player"))
+        local colors = c.powerColors or db[f.mode].bars.power.powerColors -- the resource uses yours
+        local own, pc = colors and colors[token], PowerBarColor and PowerBarColor[token]
         if own then r, g, b = own[1], own[2], own[3] elseif pc then r, g, b = pc.r, pc.g, pc.b end
     elseif c.colorMode == "class" then
         local cr, cg, cb = classRGB(f.unit or "player")
@@ -707,8 +730,11 @@ local function barColors(f, c)
     return r, g, b, br, bg, bb, ba
 end
 
-local function layoutBar(f, n, width)
+-- over: settings that replace the bar's own for this layout (enemy health's height while it sits
+-- beside your health, its resource bar's height and colors)
+local function layoutBar(f, n, width, over)
     local c = db[f.mode].bars[f.key]
+    if over then c = setmetatable(over, { __index = c }) end
     width = width or c.width
     f.width = width
     local r, g, b, br, bg, bb, ba = barColors(f, c)
@@ -1030,7 +1056,7 @@ function ns.fill(f)
         end
         return
     end
-    local v, max = BARS[f.key].value(f.unit or "player")
+    local v, max = (f.res and ns.resValue or BARS[f.key].value)(f.unit or "player")
     if f.n == 1 then
         f.segs[1]:SetMinMaxValues(0, max)
         f.segs[1]:SetValue(v)
@@ -1038,6 +1064,141 @@ function ns.fill(f)
         if f.text:IsShown() and not pcall(setText, f.text, v) then f.text:SetText("") end
     else
         for i = 1, f.n do f.segs[i]:SetValue(v) end
+    end
+end
+
+function ns.resValue(unit)
+    if not UnitExists(unit) then return 1, 1 end -- previewing: a full bar
+    return UnitPower(unit), UnitPowerMax(unit)
+end
+
+-- The resource bar right under enemy health, rh tall (0 = hidden), as wide as it.
+function ns.layoutRes(f, rh)
+    local r = f.resFrame
+    r:SetShown(rh > 0)
+    if rh <= 0 then return end
+    layoutBar(r, 1, f.width, { height = rh, colorMode = "power" })
+    ns.fill(r)
+    r:ClearAllPoints()
+    r:SetPoint("TOPLEFT", f, "BOTTOMLEFT", 0, 0)
+end
+
+------------------------------------------------------------------------------------------
+-- Buffs and debuffs beside the bars: yours left of the group, growing left; your target's right
+-- of it, growing right. Row 1 buffs, row 2 debuffs. A whitelist or blacklist of names (or spell
+-- IDs) picks which show. In a fight the game may hand a name over secret, or not answer at all:
+-- a secret one is judged by what it was called when it was last readable (by its instance), one
+-- never seen readable shows for a blacklist and hides for a whitelist, and a refusal leaves the
+-- icons as they were -- their swipes run down on their own.
+------------------------------------------------------------------------------------------
+ns.au = { seen = {}, icons = {}, count = {}, set = {} }
+ns.au.SIDES = { { key = "player", unit = "player", dir = -1 }, { key = "enemy", unit = "target", dir = 1 } }
+ns.au.ROWS = { "HELPFUL", "HARMFUL" }
+
+-- Whether the list names it: true / false, or nil when its name is secret and was never seen.
+-- What an aura is called is remembered by its instance, so a list changed mid-fight still applies.
+function ns.au.listed(a)
+    local id, seen = a.auraInstanceID, nil
+    if readable(a.name) then
+        seen = { tostring(a.name):lower(), readable(a.spellId) and tostring(a.spellId) or "" }
+        if readable(id) then ns.au.seen[id] = seen end
+    elseif readable(id) then
+        seen = ns.au.seen[id]
+    end
+    if not seen then return nil end
+    return (ns.au.set[seen[1]] or ns.au.set[seen[2]]) and true or false
+end
+
+function ns.au.allowed(a)
+    local mode = db.regular.auras.filter
+    if mode ~= "only" and mode ~= "except" then return true end
+    local hit = ns.au.listed(a)
+    if hit == nil then return mode == "except" end
+    return (mode == "only") == hit
+end
+
+-- Up to max allowed auras, or nil when the game refuses to say.
+function ns.au.read(unit, filter, max)
+    local out = {}
+    for i = 1, 40 do
+        local ok, a = pcall(C_UnitAuras.GetAuraDataByIndex, unit, i, filter)
+        if not ok then return nil end
+        if type(a) ~= "table" then break end
+        if ns.au.allowed(a) then
+            out[#out + 1] = a
+            if #out >= max then break end
+        end
+    end
+    return out
+end
+
+function ns.au.icon(key)
+    local b = ns.au.icons[key]
+    if not b then
+        b = CreateFrame("Frame", nil, anchor)
+        b.tex = b:CreateTexture(nil, "ARTWORK")
+        b.tex:SetAllPoints()
+        b.tex:SetTexCoord(0.08, 0.92, 0.08, 0.92) -- trim the icon's built-in border
+        b.cd = CreateFrame("Cooldown", nil, b, "CooldownFrameTemplate")
+        b.cd:SetAllPoints()
+        b.cd:SetReverse(true)
+        b.count = b:CreateFontString(nil, "OVERLAY", "NumberFontNormalSmall")
+        b.count:SetPoint("BOTTOMRIGHT", -1, 1)
+        ns.au.icons[key] = b
+    end
+    return b
+end
+
+-- Everything here is handed to the game as it came, secret or not; nothing is compared unless
+-- it can be read. a = nil: a stand-in while placing the icons.
+function ns.au.draw(b, unit, a)
+    pcall(b.tex.SetTexture, b.tex, a and a.icon or 134400)
+    b.count:SetText("")
+    pcall(b.cd.Clear, b.cd)
+    if not a then return end
+    local id = a.auraInstanceID
+    local timed = C_UnitAuras.GetAuraDuration and pcall(function()
+        b.cd:SetCooldownFromDurationObject(C_UnitAuras.GetAuraDuration(unit, id))
+    end)
+    if not timed and readable(a.duration) and readable(a.expirationTime) and a.duration > 0 then
+        b.cd:SetCooldown(a.expirationTime - a.duration, a.duration)
+    end
+    if C_UnitAuras.GetAuraApplicationDisplayCount then
+        pcall(function() b.count:SetText(C_UnitAuras.GetAuraApplicationDisplayCount(unit, id, 2, 99)) end)
+    elseif readable(a.applications) and a.applications > 1 then
+        b.count:SetText(a.applications)
+    end
+end
+
+function ns.au.refresh()
+    local A, c = ns.au, db.regular.auras
+    if not InCombatLockdown() then wipe(A.seen) end -- names read fine again; start over
+    wipe(A.set)
+    for _, n in ipairs(c.names) do A.set[tostring(n):lower()] = true end
+    local step = c.size + c.spacing
+    for _, side in ipairs(A.SIDES) do
+        local sc = c[side.key]
+        local on = c.show and sc.show and (side.unit == "player" or UnitExists("target") or ns.previewing())
+        for row, filter in ipairs(A.ROWS) do
+            local list = on and A.read(side.unit, filter, c.perRow) or (not on and {})
+            if list then -- nil: the game refused, keep what is shown
+                local stand = on and #list == 0 and ns.previewing() -- three stand-ins to place them by
+                local n, key = stand and 3 or #list, side.key .. row
+                for i = 1, math.max(n, A.count[key] or 0) do
+                    local b = A.icon(key .. ":" .. i)
+                    b:SetShown(i <= n)
+                    if i <= n then
+                        b:SetSize(c.size, c.size)
+                        b:ClearAllPoints()
+                        b:SetPoint(side.dir < 0 and "TOPRIGHT" or "TOPLEFT", anchor,
+                            side.dir < 0 and "TOPLEFT" or "TOPRIGHT",
+                            sc.x + side.dir * (i - 1) * step, sc.y - (row - 1) * step)
+                        A.draw(b, side.unit, list[i])
+                    end
+                end
+                A.count[key] = n
+            end
+        end
     end
 end
 
@@ -1235,6 +1396,8 @@ local function stack(container, set, L, on, swings)
         local f, c = set[key], L.bars[key]
         local shown, n = BARS[key].state()
         shown = (on and shown and c.show) and true or false
+        if key == "enemyhealth" and c.beside and L == db.regular then shown = false end -- Refresh places it
+        local rh = (key == "enemyhealth" and c.resource) and c.resHeight or 0
         if key == "swing" then -- one row per ticked weapon, sharing this bar's settings
             for i, kind in ipairs(SWING_TYPES) do
                 local sf = swings[i]
@@ -1255,7 +1418,7 @@ local function stack(container, set, L, on, swings)
         end
         f:SetShown(shown)
         if shown then
-            -- f.split: the player health bar shares its width with the target health bar
+            -- f.split: the player health bar shares its width with the enemy health bar
             layoutBar(f, n, f.split and (c.width - L.gap) / 2 or nil)
             ns.fill(f)
             if h > 0 then h = h + L.gap end
@@ -1266,7 +1429,8 @@ local function stack(container, set, L, on, swings)
             else
                 f:SetPoint("TOP", container, "TOP", c.x, c.y - h)
             end
-            h = h + c.height + c.padBottom
+            if f.resFrame then ns.layoutRes(f, rh) end
+            h = h + c.height + rh + c.padBottom
             w = math.max(w, c.width)
         end
     end
@@ -1470,7 +1634,7 @@ local function setHover(on)
     for _, f in pairs(frames) do
         for _, s in ipairs(f.segs) do s.hl:SetShown(on) end
     end
-    for _, s in ipairs(targetFrame.segs) do s.hl:SetShown(on) end
+    for _, s in ipairs(frames.enemyhealth.resFrame.segs) do s.hl:SetShown(on) end
 end
 
 -- IsMouseOver works without EnableMouse, so the highlight never blocks clicks.
@@ -1971,14 +2135,19 @@ local function Refresh()
     if not moving then place() end -- keeps the pinned edge right after any settings change
     ft.tick() -- takeoff and landing, so a route gets timed whether the bar is shown or not
     local health = frames.health
-    health.split = (db.regular.bars.health.target and UnitExists("target")) and true or false
+    local eh, ef = db.regular.bars.enemyhealth, frames.enemyhealth
+    health.split = (eh.show and eh.beside and (UnitExists("target") or ns.previewing())) and true or false
     stack(anchor, frames, db.regular, true, swingFrames.regular)
-    targetFrame:SetShown(health.split and health:IsShown())
-    if targetFrame:IsShown() then
-        layoutBar(targetFrame, 1, health.width) -- the other half
-        ns.fill(targetFrame)
-        targetFrame:ClearAllPoints()
-        targetFrame:SetPoint("LEFT", health, "RIGHT", db.regular.gap, 0)
+    if health.split and health:IsShown() then
+        -- the other half of your health bar's width, and together with the resource its height
+        local H = db.regular.bars.health.height
+        local rh = eh.resource and math.min(eh.resHeight, H - 1) or 0
+        ef:Show()
+        layoutBar(ef, 1, health.width, { height = H - rh })
+        ns.fill(ef)
+        ef:ClearAllPoints()
+        ef:SetPoint("TOPLEFT", health, "TOPRIGHT", db.regular.gap, 0)
+        ns.layoutRes(ef, rh)
     end
     local plate = targetPlate()
     plateAnchor:SetParent(plate or anchor)
@@ -2004,6 +2173,7 @@ local function Refresh()
     syncHover()
     syncBags()
     mini.syncMinimap()
+    ns.au.refresh()
     anchor:SetScript("OnUpdate", db.regular.highlight.show and checkHover or nil)
     if not db.regular.highlight.show then setHover(false) end
 end
@@ -3229,6 +3399,10 @@ useProfile = function(name)
     end
     store.chars[charKey] = name
     db = store.profiles[name]
+    if db.regular.bars.health.target then
+        db.regular.bars.health.target = false
+        db.regular.bars.enemyhealth.show, db.regular.bars.enemyhealth.beside = true, true
+    end
     applyCombatFont() -- the font travels with the profile
     place()
     changed()
@@ -3346,6 +3520,13 @@ local function sanitize(src, template)
                 end
             end
             if #out.stops < 2 then out.stops = sanitize(nil, def) end
+        elseif k == "names" then -- the aura filter: names or spell IDs, as text
+            out.names = {}
+            for _, n in ipairs(type(v) == "table" and v or {}) do
+                if (type(n) == "string" and n ~= "") or type(n) == "number" then
+                    out.names[#out.names + 1] = tostring(n):sub(1, 64)
+                end
+            end
         elseif k == "hover" then -- a map: only known elements, only true
             out.hover = {}
             for _, e in ipairs(HOVER_FRAMES) do
@@ -3724,8 +3905,8 @@ local function buildConfig()
     end
 
     shelf("Interface")
-    for _, e in ipairs({ { "combat", "Combat Display" }, { "nameplates", "Nameplates", "nameplate" },
-        { "buffs", "Buffs" }, { "other", "Other" }, { "barstack", "Bar Stack" } }) do
+    for _, e in ipairs({ { "combat", "Combat Display" }, { "auras", "Buffs & debuffs" },
+        { "nameplates", "Nameplates", "nameplate" }, { "buffs", "Buff check" }, { "other", "Other" }, { "barstack", "Bar Stack" } }) do
         entry(e[1], e[2], e[3])
     end
     y = y - 12
@@ -3754,6 +3935,8 @@ local function buildConfig()
     otherPage:SetAllPoints(barsPage)
     local buffPage = CreateFrame("Frame", nil, cfg)
     buffPage:SetAllPoints(barsPage)
+    local auraPage = CreateFrame("Frame", nil, cfg)
+    auraPage:SetAllPoints(barsPage)
     local magePage = CreateFrame("Frame", nil, cfg)
     magePage:SetAllPoints(barsPage)
     local hunterPage = CreateFrame("Frame", nil, cfg)
@@ -3768,7 +3951,7 @@ local function buildConfig()
     local bsPage = CreateFrame("Frame", nil, cfg)
     bsPage:SetAllPoints(barsPage)
     pageBottom = math.min(pageBottom, -100 - ns.ui.BS_H)
-    ns.pages = { combat = barsPage, nameplates = questPage, buffs = buffPage, mage = magePage,
+    ns.pages = { combat = barsPage, nameplates = questPage, buffs = buffPage, auras = auraPage, mage = magePage,
         hunter = hunterPage, warlock = lockPage, rogue = roguePage, shaman = shamanPage,
         other = otherPage }
 
@@ -3785,6 +3968,7 @@ local function buildConfig()
         title:SetShown(not np)
         title:SetText(section == "other" and "Other"
             or section == "buffs" and "Buff check"
+            or section == "auras" and "Buffs and debuffs"
             or section == "mage" and "Mage: food and water"
             or section == "hunter" and "Hunter: ammo and pet"
             or section == "warlock" and "Warlock: soul shards"
@@ -3797,6 +3981,7 @@ local function buildConfig()
         questPage:SetShown(np and sub == "quest")
         otherPage:SetShown(section == "other")
         buffPage:SetShown(section == "buffs")
+        auraPage:SetShown(section == "auras")
         magePage:SetShown(section == "mage")
         hunterPage:SetShown(section == "hunter")
         lockPage:SetShown(section == "warlock")
@@ -3873,8 +4058,10 @@ local function buildConfig()
         size.title:SetText(BARS[selected].label .. (shown and "" or " |cff888888(hidden)|r"))
     end)
     check(barsPage, "Show", size.x, size:row(ROW), function() return cur().show end, function(v) cur().show = v end)
-    slider(barsPage, "Width", size.x, size:row(SLIDER), 10, 600, function() return cur().width end, function(v) cur().width = v end)
-    slider(barsPage, "Height", size.x, size:row(SLIDER), 2, 100, function() return cur().height end, function(v) cur().height = v end)
+    local widthSlider = slider(barsPage, "Width", size.x, size:row(SLIDER), 10, 600,
+        function() return cur().width end, function(v) cur().width = v end)
+    local heightSlider = slider(barsPage, "Height", size.x, size:row(SLIDER), 2, 100,
+        function() return cur().height end, function(v) cur().height = v end)
     slider(barsPage, "Extra space above", size.x, size:row(SLIDER), 0, 60,
         function() return cur().padTop end, function(v) cur().padTop = v end)
     slider(barsPage, "Extra space below", size.x, size:row(SLIDER), 0, 60,
@@ -3884,8 +4071,12 @@ local function buildConfig()
     size:close()
 
     local only = group(barsPage, COL[2], size.cursor - 20, 202, "Just for this bar")
-    local target = check(barsPage, "Target health beside it", only.x, only:row(ROW),
-        function() return cur().target end, function(v) cur().target = v end)
+    local beside = check(barsPage, "Beside your health", only.x, only:row(ROW),
+        function() return cur().beside end, function(v) cur().beside = v end)
+    local resCheck = check(barsPage, "Show its resource", only.x, only:row(0),
+        function() return cur().resource end, function(v) cur().resource = v end)
+    local resHeight = slider(barsPage, "Resource height", only.x, only:row(0) - ROW, 2, 60,
+        function() return cur().resHeight or 0 end, function(v) cur().resHeight = v end)
     local swingChecks = {}
     for i, kind in ipairs(SWING_TYPES) do
         swingChecks[i] = check(barsPage, kind[2], only.x, only:row(0) - (i - 1) * ROW,
@@ -3948,7 +4139,13 @@ local function buildConfig()
     local onlyNote = label(barsPage, "", "GameFontDisableSmall")
     onlyNote:SetPoint("TOPLEFT", only.x, only:row(16))
     onRefresh(function()
-        target:SetShown(selected == "health" and mode == "regular")
+        beside:SetShown(selected == "enemyhealth" and mode == "regular")
+        resCheck:SetShown(selected == "enemyhealth")
+        resHeight:SetShown(selected == "enemyhealth" and cur().resource or false)
+        -- beside your health it takes half your health bar's width and all of its height
+        local fixed = selected == "enemyhealth" and mode == "regular" and cur().beside or false
+        widthSlider:SetShown(not fixed)
+        heightSlider:SetShown(not fixed)
         healCheck:SetShown(selected == "health")
         healColor:SetShown(selected == "health")
         costCheck:SetShown(selected == "power")
@@ -3964,11 +4161,15 @@ local function buildConfig()
             and cur().icon or false)
         castSide:SetText("Icon side: " .. (cur().iconSide == "right" and "Right" or "Left"))
         local none = not (selected == "castbar" or selected == "swing" or selected == "power"
-            or selected == "health" or selected == "targetcast")
+            or selected == "health" or selected == "targetcast" or selected == "enemyhealth")
         if selected == "range" then
             onlyNote:SetText("Asks your own spells whether they would reach. The whole bar takes "
                 .. "the color of where your target stands, and says so: in melee, in the gap "
                 .. "nothing covers, in range, or too far.")
+        elseif selected == "enemyhealth" then
+            onlyNote:SetText("Your target's health, with its mana, rage or energy right under it. "
+                .. "Beside your health it takes half your health bar's width, and the two together "
+                .. "are exactly as tall as it: you set the resource, the rest is health.")
         elseif selected == "targetcast" then
             onlyNote:SetText("What your target is casting. The bar takes the color of the kind: "
                 .. "one the game says you cannot stop, a heal, or anything else. Whether it can "
@@ -4518,6 +4719,94 @@ local function buildConfig()
         swatch(page, "Running out", wgt.x, wgt:row(SWATCH), function() return W().warnColor end)
         wgt:close()
     end
+
+    ----------------------------------------------------------------------------------
+    -- Buffs and debuffs page: icons beside the Combat Display, yours and your target's
+    ----------------------------------------------------------------------------------
+    local A = function() return db.regular.auras end
+    local aset = group(auraPage, COL[1], TOP, 202, "Icons")
+    check(auraPage, "Show", aset.x, aset:row(ROW), function() return A().show end, function(v) A().show = v end)
+    slider(auraPage, "Icon size", aset.x, aset:row(SLIDER), 10, 64,
+        function() return A().size end, function(v) A().size = v end)
+    slider(auraPage, "Space between icons", aset.x, aset:row(SLIDER), 0, 20,
+        function() return A().spacing end, function(v) A().spacing = v end)
+    slider(auraPage, "Icons per row", aset.x, aset:row(SLIDER), 1, 20,
+        function() return A().perRow end, function(v) A().perRow = v end)
+    local anote = label(auraPage, "Row 1 buffs, row 2 debuffs.", "GameFontDisableSmall")
+    anote:SetPoint("TOPLEFT", aset.x, aset:row(16))
+    aset:close()
+
+    local cursor = TOP
+    for _, side in ipairs({ { "player", "Yours", "Top-right corner at the bars' left edge; grows left." },
+        { "enemy", "Your target's", "Top-left corner at the bars' right edge; grows right." } }) do
+        local g = group(auraPage, COL[2], cursor, 202, side[2])
+        check(auraPage, "Show", g.x, g:row(ROW), function() return A()[side[1]].show end,
+            function(v) A()[side[1]].show = v end)
+        slider(auraPage, "X (left / right)", g.x, g:row(SLIDER), -400, 400,
+            function() return A()[side[1]].x end, function(v) A()[side[1]].x = v end)
+        slider(auraPage, "Y (down / up)", g.x, g:row(SLIDER), -400, 400,
+            function() return A()[side[1]].y end, function(v) A()[side[1]].y = v end)
+        local note = label(auraPage, side[3], "GameFontDisableSmall")
+        note:SetPoint("TOPLEFT", g.x, g:row(30))
+        note:SetWidth(178)
+        note:SetJustifyH("LEFT")
+        g:close()
+        cursor = g.cursor - 20
+    end
+
+    local filt = group(auraPage, COL[3], TOP, 202, "Which ones")
+    dropdown(auraPage, "Show", filt.x, filt:row(DROP), { { "All of them", "all" },
+        { "Only these (whitelist)", "only" }, { "All but these (blacklist)", "except" } },
+        function() return A().filter end, function(v) A().filter = v end, textPreview)
+    local addY = filt:row(BUTTON + 4)
+    local nameBox = ns.ui.Input(auraPage, 120)
+    nameBox:SetPoint("TOPLEFT", filt.x, addY)
+    local function addName()
+        local n = strtrim(nameBox:GetText() or "")
+        for _, have in ipairs(A().names) do if have == n then n = "" end end -- once each
+        if n ~= "" then table.insert(A().names, n) end
+        nameBox:SetText("")
+        nameBox:ClearFocus()
+        changed()
+    end
+    nameBox:SetScript("OnEnterPressed", addName)
+    button(auraPage, "Add", 54, filt.x + 124, addY, addName)
+    local MAX_NAMES = 12
+    for i = 1, MAX_NAMES do
+        local y = filt:row(ROW)
+        local name = label(auraPage, "", "GameFontHighlightSmall")
+        name:SetPoint("TOPLEFT", filt.x, y - 5)
+        name:SetWidth(116)
+        name:SetJustifyH("LEFT")
+        local del = button(auraPage, "Remove", 58, filt.x + 120, y, function()
+            table.remove(A().names, i)
+            changed()
+        end)
+        del:SetHeight(20)
+        onRefresh(function()
+            local n = A().names[i]
+            name:SetText(n or "")
+            del:SetShown(n ~= nil)
+        end)
+    end
+    local fnote = label(auraPage, "", "GameFontDisableSmall")
+    fnote:SetPoint("TOPLEFT", filt.x, filt:row(44))
+    fnote:SetWidth(178)
+    fnote:SetJustifyH("LEFT")
+    onRefresh(function()
+        fnote:SetText(#A().names >= MAX_NAMES and "The list is full." or
+            "A name, like Rend, or a spell ID. Case doesn't matter.")
+    end)
+    filt:close()
+
+    local fight = group(auraPage, COL[4], TOP, 202, "In a fight")
+    local fightNote = label(auraPage, "The game may keep an aura's name secret in combat. One "
+        .. "it named before the fight is still judged by that name; one it never named shows for a "
+        .. "blacklist and stays hidden for a whitelist.", "GameFontDisableSmall")
+    fightNote:SetPoint("TOPLEFT", fight.x, fight:row(96))
+    fightNote:SetWidth(178)
+    fightNote:SetJustifyH("LEFT")
+    fight:close()
 
     ----------------------------------------------------------------------------------
     -- Buffs page: the out-of-combat check of who is missing what
@@ -5162,9 +5451,11 @@ ev:SetScript("OnEvent", function(_, event, unit, arg2, arg3)
         listen("UNIT_PET", "player") -- pet summoned, dismissed or swapped
         pcall(petEv.RegisterUnitEvent, petEv, "UNIT_HEALTH", "pet")
         pcall(petEv.RegisterUnitEvent, petEv, "UNIT_MAXHEALTH", "pet")
-        for _, e in ipairs({ "UNIT_POWER_FREQUENT", "UNIT_MAXPOWER", "UNIT_DISPLAYPOWER", "UNIT_QUEST_LOG_CHANGED" }) do
-            listen(e, "player")
+        for _, e in ipairs({ "UNIT_POWER_FREQUENT", "UNIT_MAXPOWER", "UNIT_DISPLAYPOWER" }) do
+            listen(e, "player", "target") -- target: the enemy resource bar
         end
+        listen("UNIT_QUEST_LOG_CHANGED", "player")
+        listen("UNIT_AURA", "player", "target")
         for _, e in ipairs({ "PLAYER_ENTERING_WORLD", "UPDATE_SHAPESHIFT_FORM", "PLAYER_TARGET_CHANGED",
             "NAME_PLATE_UNIT_ADDED", "NAME_PLATE_UNIT_REMOVED", "QUEST_LOG_UPDATE", "PLAYER_REGEN_ENABLED",
             "QUEST_DETAIL", "QUEST_ACCEPT_CONFIRM", "QUEST_PROGRESS", "QUEST_COMPLETE", "GOSSIP_SHOW", "QUEST_GREETING",
@@ -5181,7 +5472,6 @@ ev:SetScript("OnEvent", function(_, event, unit, arg2, arg3)
         placeMini()
     elseif event == "UNIT_HEAL_PREDICTION" then
         fillShown("health")
-        if targetFrame:IsShown() then safe(ns.fill, targetFrame) end
     elseif event == "PLAYER_TARGET_CHANGED" then
         safe(ns.watchTargetCast, event) -- a new target is not mid-cast until it says so
         safe(Refresh)
@@ -5194,9 +5484,17 @@ ev:SetScript("OnEvent", function(_, event, unit, arg2, arg3)
     elseif event == "UNIT_HEALTH" then
         fillShown("health", "pethealth")
         fillShown("absorb") -- max health scales it
-        if targetFrame:IsShown() then safe(ns.fill, targetFrame) end
+        fillShown("enemyhealth")
     elseif event == "UNIT_POWER_FREQUENT" then
-        fillShown("power", "combo", "druidmana")
+        if unit == "target" then -- only the enemy resource bars read your target's power
+            for _, set in ipairs({ frames, plateFrames }) do
+                if set.enemyhealth.resFrame:IsShown() then safe(ns.fill, set.enemyhealth.resFrame) end
+            end
+        else
+            fillShown("power", "combo", "druidmana")
+        end
+    elseif event == "UNIT_AURA" then
+        safe(ns.au.refresh)
     elseif event:find("^UNIT_SPELLCAST_") then
         safe(ns.watchTargetCast, event, unit)
         if unit == "player" then
