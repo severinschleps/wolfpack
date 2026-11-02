@@ -1,4 +1,4 @@
-## Interface: 11509, 16001, 50504, 120105, 120107
+## Interface: 11509, 16001, 20506, 50504, 120105, 120107
 ## Title: Wolfpack Addon
 ## Notes: Health, power, combo point and druid mana bars, on screen and on nameplates, plus quest mob icons and Bar Stack (/bs). /wolfpack (or /wp) to configure.
 ## Author: severin

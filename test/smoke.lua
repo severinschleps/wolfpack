@@ -440,9 +440,9 @@ DAMAGE_TEXT_FONT = "Fonts\\FRIZQT__.TTF"
 local ns = {}
 CompactUnitFrame_SetUpFrame = function() end -- Blizzard's; the addon hooks it
 assert(loadfile("WolfpackAddon/UI.lua"))("WolfpackAddon", ns) -- loaded first, per the toc
--- one copy for every client: Classic Era, Forever, Classic (Mists) and Midnight must all be in the toc
+-- one copy for every client: Classic Era, Forever, Anniversary, Classic (Mists) and Midnight must all be in the toc
 S.toc = io.open("WolfpackAddon/WolfpackAddon.toc"):read("*a")
-for _, v in ipairs({ "11509", "16001", "50504", "120105" }) do
+for _, v in ipairs({ "11509", "16001", "20506", "50504", "120105" }) do
     assert(S.toc:match("## Interface:[^\n]*" .. v), "the toc names interface " .. v)
 end
 assert(loadfile("WolfpackAddon/WolfpackAddon.lua"))("WolfpackAddon", ns)
