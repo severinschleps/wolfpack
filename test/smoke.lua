@@ -1721,6 +1721,20 @@ assert(math.abs(S.hb[1] - 0.4) < 1e-9 and math.abs(S.hb[2] - 0.925) < 1e-9, "its
 S.targetLocked = true
 fire("UNIT_SPELLCAST_START", "target")
 assert(ns.frames.targetcast.castKind == "locked", "one the game says you cannot stop")
+-- Auto color is a choice: any other mode keeps the bar its one color whatever is cast
+local tcc = prof().regular.bars.targetcast
+assert(tcc.colorMode == "auto" and tcc.autoSet, "auto by default")
+tcc.colorMode, tcc.color = "custom", { 0.1, 0.2, 0.9, 1 }
+fire("UNIT_SPELLCAST_START", "target")
+assert(ns.frames.targetcast.segs[1]._sbc[3] == 0.9 and ns.frames.targetcast.segs[1]._sbc[1] == 0.1,
+    "custom: its own color, not the grey for a cast you cannot stop")
+fire("PLAYER_LOGIN")
+assert(tcc.colorMode == "custom", "a picked mode sticks across logins")
+-- a profile from before the choice existed (always colored by kind) is moved onto auto, once
+tcc.autoSet = false
+fire("PLAYER_LOGIN")
+assert(tcc.colorMode == "auto" and tcc.autoSet, "older profile: auto, as it always looked")
+tcc.color = { 0.8, 0.3, 0.3, 1 }
 S.targetCast, S.targetLocked = nil, false
 S.targetChannel = "Drain Life"
 fire("UNIT_SPELLCAST_CHANNEL_START", "target")

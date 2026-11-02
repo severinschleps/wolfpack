@@ -192,8 +192,10 @@ local function layoutDefaults(show, x, y, gap, width, h1, h2, h3, h4, h5, h6, h7
         FOCUS = { 1, 0.5, 0.25, 1 } }
     l.bars.castbar.icon, l.bars.castbar.iconSide = true, "left"
     l.bars.targetcast.icon, l.bars.targetcast.iconSide = true, "left"
-    -- what your target is casting: one color each for a cast you cannot stop, a heal, and
-    -- everything else
+    -- what your target is casting. "Auto color": one color each for a cast you cannot stop, a
+    -- heal, and everything else. autoSet: useProfile has moved an older profile, which always
+    -- colored by kind, onto auto (once, so picking another mode sticks)
+    l.bars.targetcast.colorMode, l.bars.targetcast.autoSet = "auto", false
     l.bars.targetcast.lockedColor = { 0.6, 0.6, 0.65, 1 }
     l.bars.targetcast.healColor = { 0.2, 0.9, 0.3, 1 }
     l.bars.targetcast.harmColor = { 0.9, 0.3, 0.2, 1 }
@@ -716,7 +718,7 @@ end
 -- A bar's fill and border colors after the color modes. Alpha always comes from the swatch.
 local function barColors(f, c)
     local r, g, b = unpack(c.color)
-    if f.key == "targetcast" then
+    if f.key == "targetcast" and c.colorMode == "auto" then
         local pick = c[(f.castKind or "harm") .. "Color"]
         if pick then r, g, b = pick[1], pick[2], pick[3] end
     end
@@ -941,7 +943,7 @@ function ns.fillTargetCast(f)
     local function wear(kind)
         f.castKind = kind
         local c = db[f.mode] and db[f.mode].bars.targetcast
-        local pick = c and c[kind .. "Color"]
+        local pick = c and c.colorMode == "auto" and c[kind .. "Color"] -- otherwise layout colored it
         if pick then f.segs[1]:SetStatusBarColor(pick[1], pick[2], pick[3], pick[4] or 1) end
         if pick and c.borderMode == "bar" and not c.gradient then
             local br, bg, bb = ns.lighter(pick[1], pick[2], pick[3])
@@ -3340,6 +3342,13 @@ useProfile = function(name)
         local b = db.regular.bars[ci.bar]
         ci.x, ci.fromCenter = ci.x - math.floor((b and b.width or 0) / 2), true
     end
+    for _, m in ipairs({ "regular", "nameplate" }) do
+        local tc = db[m].bars.targetcast
+        if not tc.autoSet then
+            if tc.colorMode == "custom" then tc.colorMode = "auto" end
+            tc.autoSet = true
+        end
+    end
     if db.regular.bars.health.target then
         db.regular.bars.health.target = false
         db.regular.bars.enemyhealth.show, db.regular.bars.enemyhealth.beside = true, true
@@ -4132,7 +4141,7 @@ local function buildConfig()
             for _, w in ipairs(row) do w:SetShown(selected == "totems") end
         end
         castIcon:SetShown(selected == "castbar" or selected == "targetcast")
-        for _, w in ipairs(castKinds) do w:SetShown(selected == "targetcast") end
+        for _, w in ipairs(castKinds) do w:SetShown(selected == "targetcast" and cur().colorMode == "auto") end
         castSide:SetShown((selected == "castbar" or selected == "targetcast")
             and cur().icon or false)
         castSide:SetText("Icon side: " .. (cur().iconSide == "right" and "Right" or "Left"))
@@ -4145,8 +4154,9 @@ local function buildConfig()
         elseif selected == "enemyhealth" then
             onlyNote:SetText("") -- the resource sliders stand where this note would
         elseif selected == "targetcast" then
-            onlyNote:SetText("What your target is casting. The bar takes the color of the kind: "
-                .. "one the game says you cannot stop, a heal, or anything else. Whether it can "
+            onlyNote:SetText("What your target is casting. With Auto color (under Colors) it takes "
+                .. "the color of the kind: grey for one the game says you cannot stop, green for a "
+                .. "heal, red for anything else. Whether it can "
                 .. "be stopped the game tells us outright; whether it heals is matched by name, "
                 .. "from the list of heals a mob actually casts.")
         elseif selected == "flight" then
@@ -4168,6 +4178,7 @@ local function buildConfig()
     dropdown(barsPage, "Bar color", look.x, look:row(DROP), function()
         local list = { { "Custom", "custom" }, { "Class color", "class" } }
         if selected == "power" then list[3] = { "Power type color", "power" } end
+        if selected == "targetcast" then list[3] = { "Auto color (by kind of cast)", "auto" } end
         return list
     end, function() return cur().colorMode end, function(v) cur().colorMode = v end, textPreview)
     swatch(barsPage, "Custom color", look.x, look:row(SWATCH), function() return cur().color end, {
