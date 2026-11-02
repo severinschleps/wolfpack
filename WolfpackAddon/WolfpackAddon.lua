@@ -1478,7 +1478,7 @@ end
 ------------------------------------------------------------------------------------------
 local hider = CreateFrame("Frame")
 hider:Hide()
-local playerFrameHidden, playerFrameParent, clicker
+local playerFrameHidden, playerFrameParent
 local castHidden, castParent, castHooked
 
 -- Blizzard's player cast bar: parked under the hidden frame. Blizzard re-parents it itself when
@@ -1511,24 +1511,48 @@ local function syncProtected()
         PlayerFrame:SetParent(hide and hider or playerFrameParent)
         playerFrameHidden = hide
     end
-    -- A secure unit button over the bars, clicking like Blizzard's player frame: left targets
-    -- you, right opens the menu. Its "unit" attribute is also what makes the game treat you as
-    -- @mouseover while the cursor is on it. ponytail: not a child of the bars (it would lock
-    -- their layout in combat), so its size and spot follow them out of combat only.
+    ns.syncClickers()
+end
+
+-- Secure unit buttons over your health and power bars, clicking like Blizzard's player frame:
+-- left targets you, right opens the menu. Their "unit" attribute is also what makes the game
+-- treat you as @mouseover while the cursor is on them. ponytail: not children of the bars (that
+-- would lock the bars' layout in combat), so their size and spot follow them out of combat only
+-- -- read from where the stack put each bar, and where the group sits. With enemy health beside
+-- yours, the health one covers only your half, whether there is a target yet or not.
+ns.clickers = {}
+function ns.syncClickers()
     local R = db.regular
     local wanted = (R.playerMenu or R.playerTarget or R.playerMouseover) and true or false
-    if wanted and not clicker then
-        clicker = CreateFrame("Button", "WolfpackAddonClicker", UIParent, "SecureUnitButtonTemplate")
-        clicker:SetAttribute("unit", "player")
-        clicker:RegisterForClicks("LeftButtonUp", "RightButtonUp")
-    end
-    if clicker then
-        clicker:SetAttribute("type1", R.playerTarget and "target" or nil)
-        clicker:SetAttribute("type2", R.playerMenu and "togglemenu" or nil)
-        clicker:ClearAllPoints()
-        clicker:SetPoint("TOP", UIParent, "CENTER", R.x, R.y)
-        clicker:SetSize(anchor:GetWidth(), anchor:GetHeight())
-        clicker:SetShown(wanted and db.locked or false) -- unlocked: dragging wins
+    local top = R.grow == "up" and R.y + anchor:GetHeight() or R.y -- the group's top edge
+    for _, key in ipairs({ "health", "power" }) do
+        local c, f = ns.clickers[key], frames[key]
+        if wanted and not c then
+            c = CreateFrame("Button", key == "health" and "WolfpackAddonClicker" or "WolfpackAddonClickerPower",
+                UIParent, "SecureUnitButtonTemplate")
+            c:SetAttribute("unit", "player")
+            c:RegisterForClicks("LeftButtonUp", "RightButtonUp")
+            ns.clickers[key] = c
+        end
+        if c then
+            c:SetAttribute("type1", R.playerTarget and "target" or nil)
+            c:SetAttribute("type2", R.playerMenu and "togglemenu" or nil)
+            local point, _, _, x, y = f:GetPoint(1)
+            local on = wanted and db.locked and f:IsShown() and point ~= nil -- unlocked: dragging wins
+            c:SetShown(on or false)
+            if on then
+                local b, eh = R.bars[key], R.bars.enemyhealth
+                local w = f:GetWidth()
+                c:ClearAllPoints()
+                if key == "health" and eh.show and eh.beside then
+                    w = (b.width - R.gap) / 2
+                    c:SetPoint("TOPLEFT", UIParent, "CENTER", R.x + b.x - b.width / 2, top + y)
+                else
+                    c:SetPoint(point, UIParent, "CENTER", R.x + x, top + y)
+                end
+                c:SetSize(w, b.height)
+            end
+        end
     end
 end
 
@@ -4424,7 +4448,7 @@ local function buildConfig()
     blizz:close()
 
     -- Other page, column 4: what the mouse does over the bars, and the regen spinner
-    local mouse = group(otherPage, COL[4], TOP, 202, "Bar group mouse")
+    local mouse = group(otherPage, COL[4], TOP, 202, "Your health and power bars")
     check(otherPage, "Left-click: target yourself", mouse.x, mouse:row(ROW),
         function() return db.regular.playerTarget end, function(v) db.regular.playerTarget = v end)
     check(otherPage, "Right-click: player menu", mouse.x, mouse:row(ROW),

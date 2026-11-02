@@ -883,22 +883,37 @@ assert(pcb._parent == PlayerFrame, "restored where Blizzard last wanted it")
 pcb:SetParent(UIParent)
 assert(pcb._parent == UIParent, "option off: Blizzard moves it freely")
 
--- Right-click menu: a secure unit button over the bars, synced out of combat, off while unlocked
+-- Right-click menu: secure unit buttons over your health and power bars only, synced out of
+-- combat, off while unlocked
 assert(not WolfpackAddonClicker, "no secure button unless asked")
 R0.playerMenu = true; fire("UNIT_MAXPOWER")
-local ck = WolfpackAddonClicker
+local ck, cp = WolfpackAddonClicker, WolfpackAddonClickerPower
 assert(ck._template == "SecureUnitButtonTemplate" and ck._attr.unit == "player" and ck._attr.type2 == "togglemenu", "menu button")
-assert(ck._point[1] == "TOP" and ck._point[2] == UIParent and ck._point[4] == R0.x and ck._point[5] == R0.y, "over the bars")
-assert(ck._w == 220 and ck._h == 48 and ck:IsShown(), "same size as the bars")
+assert(cp._attr.unit == "player" and cp._attr.type2 == "togglemenu", "one on the power bar too")
+assert(ck._point[1] == "TOP" and ck._point[2] == UIParent and ck._point[3] == "CENTER" and ck._point[4] == R0.x
+    and ck._point[5] == R0.y and ck._w == 220 and ck._h == 18 and ck:IsShown(), "exactly over your health bar")
+assert(cp._point[4] == R0.x and cp._point[5] == R0.y - 20 and cp._w == 220 and cp._h == 14, "and over power, under it")
+R0.grow = "up"; fire("UNIT_MAXPOWER")
+assert(ck._point[5] == R0.y + WolfpackAddonFrame._h, "growing up: counted from the group's top all the same")
+R0.grow = "down"
+-- enemy health beside yours: the health button covers your half only, target or not
+R0.bars.enemyhealth.show, R0.bars.enemyhealth.beside = true, true; fire("UNIT_MAXPOWER")
+assert(ck._point[1] == "TOPLEFT" and ck._point[4] == R0.x - 110 and ck._w == (220 - R0.gap) / 2, "your half")
+R0.bars.enemyhealth.show, R0.bars.enemyhealth.beside = false, false
+-- a hidden bar takes its button with it
+R0.bars.power.show = false; fire("UNIT_MAXPOWER")
+assert(ck:IsShown() and not cp:IsShown(), "power hidden: no button there")
+R0.bars.power.show = true
 prof().locked = false; fire("UNIT_MAXPOWER")
-assert(not ck:IsShown(), "unlocked: drag handle gets the mouse")
+assert(not ck:IsShown() and not cp:IsShown(), "unlocked: drag handle gets the mouse")
 assert(ck._attr.type1 == nil, "left click off by default")
 prof().locked, R0.playerTarget = true, true; fire("UNIT_MAXPOWER")
 assert(ck:IsShown() and ck._attr.type1 == "target" and ck._attr.type2 == "togglemenu", "left targets, right menu")
+assert(cp._attr.type1 == "target", "on power as well")
 R0.playerMenu = false; fire("UNIT_MAXPOWER")
 assert(ck:IsShown() and ck._attr.type1 == "target" and ck._attr.type2 == nil, "left click alone")
 R0.playerTarget = false; fire("UNIT_MAXPOWER")
-assert(not ck:IsShown(), "both off")
+assert(not ck:IsShown() and not cp:IsShown(), "both off")
 R0.playerMouseover = true; fire("UNIT_MAXPOWER")
 assert(ck:IsShown() and ck._attr.unit == "player" and not ck._attr.type1 and not ck._attr.type2, "mouseover only: no clicks")
 R0.playerMouseover = false; fire("UNIT_MAXPOWER")
