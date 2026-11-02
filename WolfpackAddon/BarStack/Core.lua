@@ -304,21 +304,32 @@ function BS.Save()
   if s then writeCVars(s) end
 end
 
+-- Bar Stack's groups, bars and icons belong to the Wolfpack profile in use, one set per spec.
+local function charKey(spec)
+  return ("%s-%s:%d"):format(UnitName("player"), GetRealmName(), spec)
+end
+
 local function profileKey()
   local spec = BS.try(GetSpecialization) or 0
-  return ("%s-%s:%d"):format(UnitName("player"), GetRealmName(), spec)
+  if type(ns.profileName) ~= "string" then return charKey(spec) end
+  return ("wp:%s:%d"):format(ns.profileName, spec)
 end
 
 function BS.LoadProfile()
   local key = profileKey()
   local p = BS.db.profiles[key]
-  if type(p) ~= "table" then p = {} end
+  if type(p) ~= "table" then
+    -- saved before Bar Stack followed Wolfpack's profile: this character's set moves over once
+    local old = charKey(BS.try(GetSpecialization) or 0)
+    p = old ~= key and BS.db.profiles[old]
+    if type(p) == "table" then BS.db.profiles[old] = nil else p = {} end
+  end
   BS.profile = BS.NormalizeProfile(p)
   BS.db.profiles[key] = BS.profile
 end
 
 -- Bar Stack has no export string of its own: its profile travels inside Wolfpack's profile
--- string, which hands it back here on import (for this character and spec).
+-- string, which hands it back here on import (for the profile in use and this spec).
 function BS.ImportProfile(p)
   if type(p) ~= "table" or not (type(p.groups) == "table" or type(p.bars) == "table") then return false end
   BS.db.profiles[profileKey()] = p

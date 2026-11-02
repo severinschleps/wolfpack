@@ -60,9 +60,11 @@ It used to be its own addon, github.com/severinschleps/bar-stack; that repo is n
 
 Other commands:
 - `/bs check` shows which APIs and storage backends work on this client. Run it after a relog to see which saved settings survived.
+- Groups, bars and icons are saved to the Wolfpack profile you have chosen, one set per spec.
+  Switching profile switches them; a character's older set moves to the first profile it uses.
 - Bar Stack has no export string of its own: Wolfpack's profile string (Export / Import at the top
-  of the options window) carries Bar Stack's profile too, and importing it restores it for the
-  character and spec you are on.
+  of the options window) carries Bar Stack's profile too, and importing it restores it into the
+  profile the import switches to, for the spec you are on.
 
 ## Status
 

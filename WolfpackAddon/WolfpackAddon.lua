@@ -3232,6 +3232,13 @@ useProfile = function(name)
     applyCombatFont() -- the font travels with the profile
     place()
     changed()
+    ns.profileName = name -- Bar Stack keeps its groups, bars and icons per Wolfpack profile
+    local bs = ns.bs
+    if bs and bs.db and bs.LoadProfile then
+        bs.LoadProfile()
+        bs.Apply()
+        if bs.RefreshConfig then safe(bs.RefreshConfig) end
+    end
 end
 
 -- Your profiles plus the ready-made ones you haven't used yet.
@@ -3445,10 +3452,6 @@ local function importString(text)
     if not ok or type(data) ~= "table" or type(data.profile) ~= "table" then
         return nil, "The string is damaged or incomplete. Copy it again in full."
     end
-    -- Bar Stack's profile rides along: it goes to Bar Stack for this character and spec
-    if type(data.barStack) == "table" and ns.bs and ns.bs.ImportProfile then
-        pcall(ns.bs.ImportProfile, data.barStack)
-    end
     -- A bundle: every profile in it lands under its own name, replacing one of the same name,
     -- and each class is remembered so its characters start on the right one.
     if type(data.profiles) == "table" then
@@ -3472,6 +3475,7 @@ local function importString(text)
         local mine = store.classProfiles[class or ""]
         if not (mine and store.profiles[mine]) then mine = data.name end
         useProfile(store.profiles[mine or ""] and mine or first)
+        ns.importBarStack(data)
         return store.chars[charKey], nil, count
     end
     local base = type(data.name) == "string" and strtrim(data.name):sub(1, 32) or ""
@@ -3482,7 +3486,14 @@ local function importString(text)
         if data.combatFont == f[2] and f[2] ~= "" then store.profiles[name].other.combatFont = f[2] end
     end
     useProfile(name)
+    ns.importBarStack(data)
     return name, type(data.editMode) == "string" and data.editMode or nil
+end
+-- Bar Stack's profile rides along: it goes to the profile just switched to, for this spec
+function ns.importBarStack(data)
+    if type(data.barStack) == "table" and ns.bs and ns.bs.ImportProfile then
+        pcall(ns.bs.ImportProfile, data.barStack)
+    end
 end
 ns.exportString, ns.editModeString, ns.importString = exportString, editModeString, importString
 ns.seedFromBaked = function() return seedFromBaked() end

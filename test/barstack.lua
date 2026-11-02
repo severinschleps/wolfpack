@@ -116,6 +116,22 @@ BS.db.profiles["Tester-Realm:1"] = nil
 assert(BS.ImportProfile({ version = 1, bars = { { name = "Imported" } } }), "an old profile imports")
 assert(BS.profile.groups[1].bars[1].name == "Imported")
 
+-- groups, bars and icons belong to the Wolfpack profile in use: this character's set moves to
+-- the first one picked, another profile starts empty, and switching back brings the set back
+ns.profileName = "Warrior"
+BS.LoadProfile()
+assert(BS.profile.groups[1].bars[1].name == "Imported", "the character's set moved to the profile")
+assert(BS.db.profiles["wp:Warrior:1"] and not BS.db.profiles["Tester-Realm:1"], "stored under the profile")
+ns.profileName = "Alpha"
+BS.LoadProfile()
+assert(#BS.profile.groups[1].bars == 0, "another profile has its own, empty set")
+ns.profileName = "Warrior"
+BS.LoadProfile()
+assert(BS.profile.groups[1].bars[1].name == "Imported", "switching back restores the set")
+ns.profileName = nil
+BS.db.profiles["Tester-Realm:1"] = BS.db.profiles["wp:Warrior:1"]
+BS.LoadProfile()
+
 -- moving a bar up and down the stack, and not past either end
 local g1 = BS.profile.groups[1]
 g1.bars = {}
