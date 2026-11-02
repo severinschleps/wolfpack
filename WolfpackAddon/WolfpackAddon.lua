@@ -182,6 +182,9 @@ local function layoutDefaults(show, x, y, gap, width, h1, h2, h3, h4, h5, h6, h7
     local eh = l.bars.enemyhealth
     eh.beside, eh.resource = false, true
     eh.resHeight, eh.resWidth, eh.resX, eh.resY = math.max(2, math.floor(h1 / 4)), 90, 0, 3
+    -- its own text switch and border; the rest of its look (texture, font...) is enemy health's
+    eh.resHideText, eh.resBorderSize, eh.resBorderMode, eh.resBorderColor, eh.resRadius =
+        false, 0, "bar", { 0, 0, 0, 1 }, 0
     l.bars.power.colorMode = "power"
     -- "Power type color": one color per power, Blizzard's own to start with; any other power
     -- (runic power, astral power...) keeps Blizzard's
@@ -1093,6 +1096,13 @@ function ns.resValue(unit)
     return UnitPower(unit), UnitPowerMax(unit)
 end
 
+-- The resource bar's settings: its own size, text switch and border, over enemy health's look.
+function ns.resConf(c)
+    return setmetatable({ height = c.resHeight, colorMode = "power", text = c.text and not c.resHideText,
+        borderSize = c.resBorderSize, borderMode = c.resBorderMode, borderColor = c.resBorderColor,
+        radius = c.resRadius }, { __index = c })
+end
+
 -- The resource bar inside enemy health, drawn over it: a share of its width, placed from its
 -- bottom center.
 function ns.layoutRes(f)
@@ -1100,8 +1110,7 @@ function ns.layoutRes(f)
     r:SetShown(c.resource and true or false)
     if not c.resource then return end
     r:SetFrameLevel(f:GetFrameLevel() + 5)
-    layoutBar(r, 1, math.max(1, math.floor(f.width * c.resWidth / 100 + 0.5)),
-        { height = c.resHeight, colorMode = "power" })
+    layoutBar(r, 1, math.max(1, math.floor(f.width * c.resWidth / 100 + 0.5)), ns.resConf(c))
     ns.fill(r)
     r:ClearAllPoints()
     r:SetPoint("BOTTOM", f, "BOTTOM", c.resX, c.resY)
@@ -4142,12 +4151,9 @@ local function buildConfig()
         function() return cur().beside end, function(v) cur().beside = v end)
     local resCheck = check(barsPage, "Show its resource", only.x, only:row(0),
         function() return cur().resource end, function(v) cur().resource = v end)
-    local resSliders = {}
-    for i, r in ipairs({ { "resHeight", "Resource height", 1, 40 }, { "resWidth", "Resource width (% of bar)", 10, 100 },
-        { "resX", "Resource X", -100, 100 }, { "resY", "Resource Y (from the bottom)", -50, 50 } }) do
-        resSliders[i] = slider(barsPage, r[2], only.x, only:row(0) - ROW - (i - 1) * SLIDER, r[3], r[4],
-            function() return cur()[r[1]] or 0 end, function(v) cur()[r[1]] = v end)
-    end
+    local resButton = button(barsPage, "Resource settings", 186, only.x, only:row(0) - ROW, function()
+        ns.resDialog:SetShown(not ns.resDialog:IsShown())
+    end)
     local swingChecks = {}
     for i, kind in ipairs(SWING_TYPES) do
         swingChecks[i] = check(barsPage, kind[2], only.x, only:row(0) - (i - 1) * ROW,
@@ -4212,7 +4218,9 @@ local function buildConfig()
     onRefresh(function()
         beside:SetShown(selected == "enemyhealth" and mode == "regular")
         resCheck:SetShown(selected == "enemyhealth")
-        for _, w in ipairs(resSliders) do w:SetShown(selected == "enemyhealth" and cur().resource or false) end
+        local resOn = selected == "enemyhealth" and cur().resource or false
+        resButton:SetShown(resOn)
+        if not (resOn and (section == "combat" or section == "nameplates")) then ns.resDialog:Hide() end
         -- beside your health it takes half your health bar's width and all of its height
         local fixed = selected == "enemyhealth" and mode == "regular" and cur().beside or false
         widthSlider:SetShown(not fixed)
@@ -4253,7 +4261,7 @@ local function buildConfig()
             onlyNote:SetText(selected ~= "totems" and none and "Nothing extra for this one." or "")
         end
     end)
-    only:row(64) -- room for the four totem rows and enemy health's sliders, which sit over the rest
+    only:row(28) -- room for the four totem rows, which sit over the other controls
     only:close()
 
     -- Column 3: colors and border
@@ -4963,6 +4971,37 @@ local function buildConfig()
     -- Four columns of cards are built; the window holds two. Columns 3 and 4 move under 1 and 2:
     -- anything placed on the page itself right of column 2 shifts left and down, and whatever
     -- hangs off those moves with it.
+    -- Enemy resource dialog: beside the window, for the enemy health bar picked on the bars page
+    local rd = ns.ui.Window(nil, 230, 476, "Enemy resource")
+    rd:SetParent(cfg)
+    rd:ClearAllPoints()
+    rd:SetPoint("TOPLEFT", cfg, "TOPRIGHT", 12, 0)
+    rd:Hide()
+    ns.resDialog = rd
+    local ry = -48
+    local function rrow(h) local at = ry; ry = ry - h; return at end
+    check(rd, "Hide resource text", 16, rrow(ROW), function() return cur().resHideText end,
+        function(v) cur().resHideText = v end)
+    for _, r in ipairs({ { "resHeight", "Height", 1, 40 }, { "resWidth", "Width (% of the bar)", 10, 100 },
+        { "resX", "X", -100, 100 }, { "resY", "Y (from the bottom)", -50, 50 },
+        { "resBorderSize", "Border width", 0, 10 } }) do
+        slider(rd, r[2], 16, rrow(SLIDER), r[3], r[4],
+            function() return cur()[r[1]] or 0 end, function(v) cur()[r[1]] = v end)
+    end
+    dropdown(rd, "Border color", 16, rrow(DROP), { { "Custom", "custom" }, { "Class color", "class" },
+        { "Same as bar color", "bar" } }, function() return cur().resBorderMode end,
+        function(v) cur().resBorderMode = v end, textPreview)
+    swatch(rd, "Custom resource border", 16, rrow(SWATCH), function() return cur().resBorderColor or { 0, 0, 0, 1 } end, {
+        get = function() return cur().resBorderMode end, set = function(v) cur().resBorderMode = v end,
+        effective = function()
+            local f = selFrame()
+            return select(4, barColors(f.resFrame or f, f.resFrame and ns.resConf(cur()) or cur()))
+        end,
+    })
+    dropdown(rd, "Border radius", 16, rrow(DROP), { { "None", 0 }, { "2 px", 2 }, { "4 px", 4 },
+        { "8 px", 8 }, { "16 px", 16 }, { "Pill (50% of height)", "pill" } },
+        function() return cur().resRadius end, function(v) cur().resRadius = v end, textPreview)
+
     for _, page in pairs(ns.pages) do ns.foldColumns(page, COL, TOP) end
     ns.configHeight = math.max(-(ns.sidebarBottom or 0) + 24, 640)
     cfg:SetHeight(math.min(ns.configHeight, math.floor(UIParent:GetHeight()) - 40))

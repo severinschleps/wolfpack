@@ -555,6 +555,21 @@ eh.resWidth, eh.resHeight, eh.resX, eh.resY = 50, 8, -20, 5
 fire("PLAYER_TARGET_CHANGED")
 assert(rf._w == 110 and rf._h == 8 and rf._point[4] == -20 and rf._point[5] == 5, "sliders size and place it")
 eh.resWidth, eh.resHeight, eh.resX, eh.resY = 90, 4, 0, 3
+-- the resource's own text switch and border, over enemy health's look
+assert(rf.text:IsShown() and rf.segs[1].border._shown == false, "text like enemy health, no border yet")
+eh.resHideText, eh.resBorderSize, eh.resRadius = true, 1, 4
+eh.resBorderMode, eh.resBorderColor = "custom", { 0, 0, 1, 1 }
+fire("PLAYER_TARGET_CHANGED")
+assert(not rf.text:IsShown() and ef.text:IsShown(), "resource text hidden, health text kept")
+assert(rf.segs[1].border._shown and rf.segs[1].border._color[3] == 1 and rf.segs[1]._w == 196 and rf.segs[1]._h == 2,
+    "a 1 px blue border inside its size")
+assert(rf.segs[1].borderMask._tex:match("r2%.tga$"), "its own corner radius, capped at half its 4 px height")
+assert(ef.segs[1].border._shown == false, "enemy health's border untouched")
+eh.resBorderMode = "bar"
+fire("PLAYER_TARGET_CHANGED")
+assert(rf.segs[1].border._color[1] == 1 and rf.segs[1].border._color[3] == 0.25, "same as bar: a lighter energy yellow")
+eh.resHideText, eh.resBorderSize, eh.resRadius = false, 0, 0
+fire("PLAYER_TARGET_CHANGED")
 -- an empty resource hides; a secret one can't be looked at, so it stays
 assert(rf:GetAlpha() == 1, "secret power: shown")
 S.realPower = UnitPower
@@ -1136,8 +1151,8 @@ dds[7]:GenerateMenu(); dds[8]:GenerateMenu()
 assert(#dds[7]._items == 4 and #dds[8]._items == 4, "icon choices")
 for _, it in ipairs(dds[7]._items) do assert(type(it.init(menuButton())) == "number", "icon preview") end
 dds[7]._items[3].set()
-boxes[20]._text = "32"; boxes[20]._scripts.OnEnterPressed(boxes[20]) -- kill size
-boxes[17]._text = "-5"; boxes[17]._scripts.OnEnterPressed(boxes[17]) -- row X
+boxes[16]._text = "32"; boxes[16]._scripts.OnEnterPressed(boxes[16]) -- kill size
+boxes[13]._text = "-5"; boxes[13]._scripts.OnEnterPressed(boxes[13]) -- row X
 local Q = prof().quest
 assert(Q.kill.icon == 135274 and Q.kill.size == 32 and Q.loot.size == 20 and Q.x == -5, "quest page edits")
 assert(h.kill._tex == 135274 and h.kill._w == 32 and h.box._w == 54 and h.box._point[4] == -5, "live plate row restyled")
@@ -1155,9 +1170,18 @@ prof().other.hideGryphons = true; fire("UNIT_MAXPOWER")
 assert(caps.LeftEndCap.Texture._alpha == 0 and caps.RightEndCap.Texture._alpha == 0, "hidden")
 prof().other.hideGryphons = false; fire("UNIT_MAXPOWER")
 assert(caps.LeftEndCap.Texture._alpha == 1, "shown again")
-local opBox = boxes[23] -- highlight opacity (%), after the party/raid one
+local opBox = boxes[19] -- highlight opacity (%), after the party/raid one
 opBox._text = "60"; opBox._scripts.OnEnterPressed(opBox)
 assert(math.abs(prof().regular.highlight.color[4] - 0.6) < 1e-9 and opBox._text == "60", "opacity typed")
+-- Enemy health's resource settings open in a window beside the options, only for that bar
+byText("Combat Display")._scripts.OnClick(byText("Combat Display"), "LeftButton")
+local rb = byText("Resource settings")
+byText("Enemy Health")._scripts.OnClick(byText("Enemy Health"), "LeftButton")
+assert(rb:IsShown() and not ns.resDialog:IsShown(), "a button for it, closed")
+rb._scripts.OnClick(rb, "LeftButton")
+assert(ns.resDialog:IsShown() and ns.resDialog._point[2] == ns.cfg, "opens beside the window")
+byText("Health")._scripts.OnClick(byText("Health"), "LeftButton")
+assert(not rb:IsShown() and not ns.resDialog:IsShown(), "another bar picked: closed")
 -- Buffs & debuffs page: a name typed in joins the filter list once, Remove takes it out
 byText("Buffs & debuffs")._scripts.OnClick(byText("Buffs & debuffs"), "LeftButton")
 assert(ns.pages.auras:IsShown() and not ns.pages.combat:IsShown(), "its own page")
