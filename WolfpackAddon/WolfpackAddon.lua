@@ -106,7 +106,7 @@ local function barDefaults(show, width, height, r, g, b, text)
         text = text, padTop = 0, padBottom = 0, -- extra space above / below this bar
         font = FONTS[1][2], fontSize = 10, outline = false, textColor = { 1, 1, 1, 1 },
         colorMode = "custom", -- "custom", "class" or "power" (power bar only)
-        borderSize = 0, borderColor = { 0, 0, 0, 1 }, borderMode = "custom", radius = 0, -- border: or "class", "bar"
+        borderSize = 0, borderColor = { 0, 0, 0, 1 }, borderMode = "bar", radius = 0, -- border: or "class", "custom"
     }
 end
 
@@ -177,9 +177,11 @@ local function layoutDefaults(show, x, y, gap, width, h1, h2, h3, h4, h5, h6, h7
             enemyhealth = barDefaults(false, width, h1, 0.8, 0.25, 0.2, show),
         },
     }
-    -- beside: right of your health bar, the two sharing its width, and enemy health + resource
-    -- together exactly as tall as it
-    l.bars.enemyhealth.beside, l.bars.enemyhealth.resource, l.bars.enemyhealth.resHeight = false, true, h4
+    -- beside: right of your health bar, the two sharing its width and its height. The resource
+    -- sits inside the health bar: width in percent of it, x/y from its bottom center.
+    local eh = l.bars.enemyhealth
+    eh.beside, eh.resource = false, true
+    eh.resHeight, eh.resWidth, eh.resX, eh.resY = math.max(2, math.floor(h1 / 4)), 90, 0, 3
     l.bars.power.colorMode = "power"
     -- "Power type color": one color per power, Blizzard's own to start with; any other power
     -- (runic power, astral power...) keeps Blizzard's
@@ -596,7 +598,7 @@ for key in pairs(BARS) do
     frames[key] = newBar(anchor, key, "regular")
     plateFrames[key] = newBar(plateAnchor, key, "nameplate")
 end
--- Enemy health reads your target; its resource bar hangs under it and wears its look
+-- Enemy health reads your target; its resource bar sits inside it and wears its look
 for _, set in ipairs({ frames, plateFrames }) do
     local f = set.enemyhealth
     f.unit = "target"
@@ -703,6 +705,12 @@ local function classRGB(unit)
     if cc then return cc.r, cc.g, cc.b end
 end
 
+-- "Same as bar color" borders: a quarter of the way to white.
+function ns.lighter(r, g, b)
+    local LIFT = 0.25
+    return r + (1 - r) * LIFT, g + (1 - g) * LIFT, b + (1 - b) * LIFT
+end
+
 -- A bar's fill and border colors after the color modes. Alpha always comes from the swatch.
 local function barColors(f, c)
     local r, g, b = unpack(c.color)
@@ -721,8 +729,12 @@ local function barColors(f, c)
     end
     local br, bg, bb, ba = unpack(c.borderColor)
     if c.borderMode == "bar" then -- the bar's color, a little lighter, so the edge reads
-        local LIFT = 0.25 -- share of the way to white
-        br, bg, bb = r + (1 - r) * LIFT, g + (1 - g) * LIFT, b + (1 - b) * LIFT
+        local first = c.gradient and sortedStops(c)[1] -- a gradient: where the fill starts
+        if first then
+            br, bg, bb = ns.lighter(first.color[1], first.color[2], first.color[3])
+        else
+            br, bg, bb = ns.lighter(r, g, b)
+        end
     elseif c.borderMode == "class" then
         local cr, cg, cb = classRGB(f.unit or "player")
         if cr then br, bg, bb = cr, cg, cb end
@@ -783,16 +795,18 @@ local function layoutBar(f, n, width, over)
             s:SetPoint("LEFT", f, "LEFT", lead + (i - 1) * (w + PIP_GAP) + t, 0)
             s:SetMinMaxValues(i - 1, i) -- pip range; single bars get their real max in ns.fill()
             s.bg:SetColorTexture(unpack(c.bgColor))
-            if f.key == "totems" then -- each segment wears its element's color
+            local sr, sg, sb = br, bg, bb
+            if f.key == "totems" then -- each segment wears its element's color, border included
                 local col = c.slotColors[c.slots[i]]
                 paint(s, c, col[1], col[2], col[3], w, c.height)
+                if c.borderMode == "bar" and not c.gradient then sr, sg, sb = ns.lighter(col[1], col[2], col[3]) end
             else
                 paint(s, c, r, g, b, w, c.height)
             end
             s.border:SetShown(t > 0)
             s.border:SetPoint("TOPLEFT", s, "TOPLEFT", -t, t)
             s.border:SetPoint("BOTTOMRIGHT", s, "BOTTOMRIGHT", t, -t)
-            s.border:SetColorTexture(br, bg, bb, ba)
+            s.border:SetColorTexture(sr, sg, sb, ba)
             local radius = c.radius == "pill" and math.huge or c.radius
             round(s.border, s.borderMask, radius, w, c.height)
             s.hl:SetColorTexture(unpack(db.regular.highlight.color))
@@ -927,6 +941,10 @@ function ns.fillTargetCast(f)
         local c = db[f.mode] and db[f.mode].bars.targetcast
         local pick = c and c[kind .. "Color"]
         if pick then f.segs[1]:SetStatusBarColor(pick[1], pick[2], pick[3], pick[4] or 1) end
+        if pick and c.borderMode == "bar" and not c.gradient then
+            local br, bg, bb = ns.lighter(pick[1], pick[2], pick[3])
+            f.segs[1].border:SetColorTexture(br, bg, bb, c.borderColor[4])
+        end
     end
 
     if ns.targetCasting ~= true then -- previewing, or nothing being cast
@@ -1072,15 +1090,18 @@ function ns.resValue(unit)
     return UnitPower(unit), UnitPowerMax(unit)
 end
 
--- The resource bar right under enemy health, rh tall (0 = hidden), as wide as it.
-function ns.layoutRes(f, rh)
-    local r = f.resFrame
-    r:SetShown(rh > 0)
-    if rh <= 0 then return end
-    layoutBar(r, 1, f.width, { height = rh, colorMode = "power" })
+-- The resource bar inside enemy health, drawn over it: a share of its width, placed from its
+-- bottom center.
+function ns.layoutRes(f)
+    local r, c = f.resFrame, db[f.mode].bars.enemyhealth
+    r:SetShown(c.resource and true or false)
+    if not c.resource then return end
+    r:SetFrameLevel(f:GetFrameLevel() + 5)
+    layoutBar(r, 1, math.max(1, math.floor(f.width * c.resWidth / 100 + 0.5)),
+        { height = c.resHeight, colorMode = "power" })
     ns.fill(r)
     r:ClearAllPoints()
-    r:SetPoint("TOPLEFT", f, "BOTTOMLEFT", 0, 0)
+    r:SetPoint("BOTTOM", f, "BOTTOM", c.resX, c.resY)
 end
 
 ------------------------------------------------------------------------------------------
@@ -1397,7 +1418,6 @@ local function stack(container, set, L, on, swings)
         local shown, n = BARS[key].state()
         shown = (on and shown and c.show) and true or false
         if key == "enemyhealth" and c.beside and L == db.regular then shown = false end -- Refresh places it
-        local rh = (key == "enemyhealth" and c.resource) and c.resHeight or 0
         if key == "swing" then -- one row per ticked weapon, sharing this bar's settings
             for i, kind in ipairs(SWING_TYPES) do
                 local sf = swings[i]
@@ -1429,8 +1449,8 @@ local function stack(container, set, L, on, swings)
             else
                 f:SetPoint("TOP", container, "TOP", c.x, c.y - h)
             end
-            if f.resFrame then ns.layoutRes(f, rh) end
-            h = h + c.height + rh + c.padBottom
+            if f.resFrame then ns.layoutRes(f) end
+            h = h + c.height + c.padBottom
             w = math.max(w, c.width)
         end
     end
@@ -2139,15 +2159,13 @@ local function Refresh()
     health.split = (eh.show and eh.beside and (UnitExists("target") or ns.previewing())) and true or false
     stack(anchor, frames, db.regular, true, swingFrames.regular)
     if health.split and health:IsShown() then
-        -- the other half of your health bar's width, and together with the resource its height
-        local H = db.regular.bars.health.height
-        local rh = eh.resource and math.min(eh.resHeight, H - 1) or 0
+        -- the other half of your health bar's width, and all of its height
         ef:Show()
-        layoutBar(ef, 1, health.width, { height = H - rh })
+        layoutBar(ef, 1, health.width, { height = db.regular.bars.health.height })
         ns.fill(ef)
         ef:ClearAllPoints()
         ef:SetPoint("TOPLEFT", health, "TOPRIGHT", db.regular.gap, 0)
-        ns.layoutRes(ef, rh)
+        ns.layoutRes(ef)
     end
     local plate = targetPlate()
     plateAnchor:SetParent(plate or anchor)
@@ -4075,8 +4093,12 @@ local function buildConfig()
         function() return cur().beside end, function(v) cur().beside = v end)
     local resCheck = check(barsPage, "Show its resource", only.x, only:row(0),
         function() return cur().resource end, function(v) cur().resource = v end)
-    local resHeight = slider(barsPage, "Resource height", only.x, only:row(0) - ROW, 2, 60,
-        function() return cur().resHeight or 0 end, function(v) cur().resHeight = v end)
+    local resSliders = {}
+    for i, r in ipairs({ { "resHeight", "Resource height", 1, 40 }, { "resWidth", "Resource width (% of bar)", 10, 100 },
+        { "resX", "Resource X", -100, 100 }, { "resY", "Resource Y (from the bottom)", -50, 50 } }) do
+        resSliders[i] = slider(barsPage, r[2], only.x, only:row(0) - ROW - (i - 1) * SLIDER, r[3], r[4],
+            function() return cur()[r[1]] or 0 end, function(v) cur()[r[1]] = v end)
+    end
     local swingChecks = {}
     for i, kind in ipairs(SWING_TYPES) do
         swingChecks[i] = check(barsPage, kind[2], only.x, only:row(0) - (i - 1) * ROW,
@@ -4141,7 +4163,7 @@ local function buildConfig()
     onRefresh(function()
         beside:SetShown(selected == "enemyhealth" and mode == "regular")
         resCheck:SetShown(selected == "enemyhealth")
-        resHeight:SetShown(selected == "enemyhealth" and cur().resource or false)
+        for _, w in ipairs(resSliders) do w:SetShown(selected == "enemyhealth" and cur().resource or false) end
         -- beside your health it takes half your health bar's width and all of its height
         local fixed = selected == "enemyhealth" and mode == "regular" and cur().beside or false
         widthSlider:SetShown(not fixed)
@@ -4167,9 +4189,7 @@ local function buildConfig()
                 .. "the color of where your target stands, and says so: in melee, in the gap "
                 .. "nothing covers, in range, or too far.")
         elseif selected == "enemyhealth" then
-            onlyNote:SetText("Your target's health, with its mana, rage or energy right under it. "
-                .. "Beside your health it takes half your health bar's width, and the two together "
-                .. "are exactly as tall as it: you set the resource, the rest is health.")
+            onlyNote:SetText("") -- the resource sliders stand where this note would
         elseif selected == "targetcast" then
             onlyNote:SetText("What your target is casting. The bar takes the color of the kind: "
                 .. "one the game says you cannot stop, a heal, or anything else. Whether it can "
@@ -4184,7 +4204,7 @@ local function buildConfig()
             onlyNote:SetText(selected ~= "totems" and none and "Nothing extra for this one." or "")
         end
     end)
-    only:row(28) -- room for the four totem rows, which sit over the other controls
+    only:row(64) -- room for the four totem rows and enemy health's sliders, which sit over the rest
     only:close()
 
     -- Column 3: colors and border

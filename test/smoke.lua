@@ -528,17 +528,23 @@ fire("PLAYER_TARGET_CHANGED")
 assert(ef:IsShown() and ef.segs[1]._value == 500 and ef.segs[1]._max == 1000 and ef.text._text == "500",
     "target values")
 assert(ef._point[1] == "TOP" and ef._point[5] == -20, "its own slot, right after your health")
-assert(rf:IsShown() and rf._point[1] == "TOPLEFT" and rf._point[2] == ef and rf._point[3] == "BOTTOMLEFT",
-    "the resource hangs right under it")
-assert(ef._h == 18 and rf._h == 6 and fr.power._point[5] == -20 - 18 - 6 - 2, "its slot holds both")
+assert(rf:IsShown() and rf._point[1] == "BOTTOM" and rf._point[2] == ef and rf._point[3] == "BOTTOM"
+    and rf._point[4] == 0 and rf._point[5] == 3, "the resource sits inside it, 3 up from its bottom")
+assert(rf:GetFrameLevel() > ef:GetFrameLevel(), "drawn over the health bar")
+assert(ef._h == 18 and rf._h == 4 and rf._w == 198 and fr.power._point[5] == -20 - 18 - 2,
+    "4 tall, 90% of 220 wide, and the slot is just the health bar")
 assert(rf.segs[1]._sbc[1] == 1 and rf.segs[1]._sbc[2] == 1 and rf.segs[1]._sbc[3] == 0,
     "the resource wears its power's color (energy, your yellow)")
+eh.resWidth, eh.resHeight, eh.resX, eh.resY = 50, 8, -20, 5
+fire("PLAYER_TARGET_CHANGED")
+assert(rf._w == 110 and rf._h == 8 and rf._point[4] == -20 and rf._point[5] == 5, "sliders size and place it")
+eh.resWidth, eh.resHeight, eh.resX, eh.resY = 90, 4, 0, 3
 eh.resource = false
 fire("PLAYER_TARGET_CHANGED")
-assert(not rf:IsShown() and fr.power._point[5] == -20 - 18 - 2, "no resource: the slot shrinks")
+assert(not rf:IsShown(), "resource off")
 eh.resource = true
 
--- Beside your health: the two share its width, and health + resource are exactly as tall as it
+-- Beside your health: the two share its width and its height
 eh.beside = true
 fire("PLAYER_TARGET_CHANGED")
 local tp, hp = ef._point, fr.health._point
@@ -546,12 +552,8 @@ assert(ef:IsShown() and tp[1] == "TOPLEFT" and tp[2] == fr.health and tp[3] == "
     "beside health")
 assert(fr.health._w == 109 and ef._w == 109, "220 wide, 2 gap: two halves of 109")
 assert(hp[1] == "TOPLEFT" and hp[3] == "TOP" and hp[4] == -110, "player half starts at the bar's left edge")
-assert(ef._h == 12 and rf._h == 6 and rf._w == 109, "18 tall in all: resource 6, health the other 12")
+assert(ef._h == 18 and rf._h == 4 and rf._w == 98, "as tall as your health; the resource 90% of its half")
 assert(fr.power._point[5] == -20, "and it no longer takes a slot in the stack")
-eh.resHeight = 40
-fire("PLAYER_TARGET_CHANGED")
-assert(ef._h == 1 and rf._h == 17, "a resource taller than your health leaves health a sliver")
-eh.resHeight = 6
 prof().regular.bars.health.colorMode, eh.colorMode = "class", "class"
 S.targetClass = "MAGE"; fire("PLAYER_TARGET_CHANGED")
 assert(ef.segs[1]._sbc[1] == 0.8 and fr.health.segs[1]._sbc[1] == 1, "NPC target: custom color, you: class")
@@ -630,6 +632,13 @@ assert(#gs.slices == 0, "no slices without a gradient")
 gb.gradient = true
 fire("UNIT_MAXPOWER")
 assert(#gs.slices == 1 and gs.slices[1]:IsShown() and gs._sbc[4] == 0, "two points: one slice, fill hidden")
+-- the border is a lighter shade of where the fill starts, not of the plain color
+S.gc = gb.stops[1].color
+gb.stops[1].color = { 0, 0, 1, 1 }
+fire("UNIT_MAXPOWER")
+assert(gs.border._color[1] == 0.25 and gs.border._color[3] == 1, "gradient border from its start")
+gb.stops[1].color = S.gc
+fire("UNIT_MAXPOWER")
 assert(gs.slices[1]._masks[gs.fillMask], "slices show only over the filled part")
 tinsert(gb.stops, 2, { pos = 50, color = { 0, 1, 0, 1 } })
 fire("UNIT_MAXPOWER")
@@ -1087,8 +1096,8 @@ dds[7]:GenerateMenu(); dds[8]:GenerateMenu()
 assert(#dds[7]._items == 4 and #dds[8]._items == 4, "icon choices")
 for _, it in ipairs(dds[7]._items) do assert(type(it.init(menuButton())) == "number", "icon preview") end
 dds[7]._items[3].set()
-boxes[17]._text = "32"; boxes[17]._scripts.OnEnterPressed(boxes[17]) -- kill size
-boxes[14]._text = "-5"; boxes[14]._scripts.OnEnterPressed(boxes[14]) -- row X
+boxes[20]._text = "32"; boxes[20]._scripts.OnEnterPressed(boxes[20]) -- kill size
+boxes[17]._text = "-5"; boxes[17]._scripts.OnEnterPressed(boxes[17]) -- row X
 local Q = prof().quest
 assert(Q.kill.icon == 135274 and Q.kill.size == 32 and Q.loot.size == 20 and Q.x == -5, "quest page edits")
 assert(h.kill._tex == 135274 and h.kill._w == 32 and h.box._w == 54 and h.box._point[4] == -5, "live plate row restyled")
@@ -1106,7 +1115,7 @@ prof().other.hideGryphons = true; fire("UNIT_MAXPOWER")
 assert(caps.LeftEndCap.Texture._alpha == 0 and caps.RightEndCap.Texture._alpha == 0, "hidden")
 prof().other.hideGryphons = false; fire("UNIT_MAXPOWER")
 assert(caps.LeftEndCap.Texture._alpha == 1, "shown again")
-local opBox = boxes[20] -- highlight opacity (%), after the party/raid one
+local opBox = boxes[23] -- highlight opacity (%), after the party/raid one
 opBox._text = "60"; opBox._scripts.OnEnterPressed(opBox)
 assert(math.abs(prof().regular.highlight.color[4] - 0.6) < 1e-9 and opBox._text == "60", "opacity typed")
 -- Buffs & debuffs page: a name typed in joins the filter list once, Remove takes it out
@@ -1594,6 +1603,10 @@ tc.slotColors[4] = { 0, 1, 0, 1 }
 fire("UNIT_MAXPOWER") -- in game the options do this through changed()
 assert(tb.segs[1]._sbc[2] == 1 and tb.segs[2]._sbc[1] == 1, "air segment first, fire second")
 assert(tb.segs[2]._timer.slot == 1, "the fire totem moved with it")
+-- "Same as bar color": each segment's border a lighter shade of its own element's color
+assert(tc.borderMode == "bar", "the default border follows the bar")
+assert(tb.segs[1].border._color[2] == 1 and tb.segs[1].border._color[1] == 0.25
+    and tb.segs[2].border._color[1] == 1 and tb.segs[2].border._color[2] == 0.475, "green and red edges")
 tc.slots = { 1, 2, 3, 4 }
 login("ROGUE", 3)
 fire("UNIT_MAXPOWER")
@@ -1682,6 +1695,8 @@ S.targetCast = "Greater Heal"
 fire("UNIT_SPELLCAST_START", "target")
 assert(ns.frames.targetcast.castKind == "heal", "a heal, which is the one to stop")
 assert(ns.frames.targetcast.segs[1]._sbc[2] > 0.5, "drawn in the healing color")
+S.hb = ns.frames.targetcast.segs[1].border._color -- a lighter heal green: 0.2, 0.9, 0.3 lifted
+assert(math.abs(S.hb[1] - 0.4) < 1e-9 and math.abs(S.hb[2] - 0.925) < 1e-9, "its border follows the kind")
 S.targetLocked = true
 fire("UNIT_SPELLCAST_START", "target")
 assert(ns.frames.targetcast.castKind == "locked", "one the game says you cannot stop")
