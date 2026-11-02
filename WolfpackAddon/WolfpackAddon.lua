@@ -5212,8 +5212,9 @@ local function autoAccept(event, startItem)
     if event == "QUEST_ACCEPT_CONFIRM" then
         ConfirmAcceptQuest()
         StaticPopup_Hide("QUEST_ACCEPT")
-    elseif (startItem or 0) == 0 and not QuestIsFromAreaTrigger() then
-        if QuestGetAutoAccept() then AcknowledgeAutoAcceptQuest() else AcceptQuest() end
+    elseif (startItem or 0) == 0 and not (QuestIsFromAreaTrigger and QuestIsFromAreaTrigger()) then
+        -- neither call is on Anniversary or Classic Era, which have no such quests anyway
+        if QuestGetAutoAccept and QuestGetAutoAccept() then AcknowledgeAutoAcceptQuest() else AcceptQuest() end
     end
 end
 
@@ -5248,17 +5249,34 @@ local function npcQuests()
         fn(...)
         return true
     end
+    -- Newer clients list gossip quests in C_GossipInfo, by quest ID. Anniversary and Classic Era
+    -- have the old flat lists instead (6 values per active quest, 7 per available one), picked
+    -- by position.
+    local G = C_GossipInfo
     if db.other.autoComplete then
-        for _, q in ipairs(C_GossipInfo.GetActiveQuests() or {}) do
-            if q.isComplete and take("done" .. q.questID, C_GossipInfo.SelectActiveQuest, q.questID) then return end
+        if G and G.GetActiveQuests then
+            for _, q in ipairs(G.GetActiveQuests() or {}) do
+                if q.isComplete and take("done" .. q.questID, G.SelectActiveQuest, q.questID) then return end
+            end
+        elseif GetGossipActiveQuests then
+            local info = { GetGossipActiveQuests() }
+            for i = 1, #info / 6 do
+                if info[(i - 1) * 6 + 4] and take("oldDone" .. i, SelectGossipActiveQuest, i) then return end
+            end
         end
         for i = 1, GetNumActiveQuests() do
             if select(2, GetActiveTitle(i)) and take("greetDone" .. i, SelectActiveQuest, i) then return end
         end
     end
     if db.other.autoAccept then
-        for _, q in ipairs(C_GossipInfo.GetAvailableQuests() or {}) do
-            if take("new" .. q.questID, C_GossipInfo.SelectAvailableQuest, q.questID) then return end
+        if G and G.GetAvailableQuests then
+            for _, q in ipairs(G.GetAvailableQuests() or {}) do
+                if take("new" .. q.questID, G.SelectAvailableQuest, q.questID) then return end
+            end
+        elseif GetGossipAvailableQuests then
+            for i = 1, select("#", GetGossipAvailableQuests()) / 7 do
+                if take("oldNew" .. i, SelectGossipAvailableQuest, i) then return end
+            end
         end
         for i = 1, GetNumAvailableQuests() do
             if take("greetNew" .. i, SelectAvailableQuest, i) then return end

@@ -1211,6 +1211,12 @@ assert(calls() == "", "item and area trigger quests left alone")
 S.autoQuest = true; fire("QUEST_DETAIL", 0); S.autoQuest = false
 fire("QUEST_ACCEPT_CONFIRM")
 assert(calls() == "ack,confirm,hidepopup", "auto-accept quests acknowledged, escorts confirmed")
+-- Anniversary and Classic Era have neither the area-trigger nor the auto-accept call
+S.trig, S.auto = QuestIsFromAreaTrigger, QuestGetAutoAccept
+QuestIsFromAreaTrigger, QuestGetAutoAccept = nil, nil
+fire("QUEST_DETAIL", 0)
+assert(calls() == "accept", "accepted all the same")
+QuestIsFromAreaTrigger, QuestGetAutoAccept = S.trig, S.auto
 prof().other.autoAccept = false
 
 -- Auto-complete: finished quests picked at the NPC, handed in, reward taken unless it needs a choice
@@ -1240,6 +1246,18 @@ fire("GOSSIP_SHOW"); fire("GOSSIP_SHOW"); fire("GOSSIP_SHOW"); fire("GOSSIP_SHOW
 assert(calls() == "turnin12,take21,take22,greetTake1", "each quest once, no loop")
 fire("GOSSIP_SHOW")
 assert(calls() == "", "nothing left to pick at this NPC")
+-- the old flat gossip lists (Anniversary, Classic Era): 6 values per active quest, 7 per new one
+S.gossipInfo = C_GossipInfo
+C_GossipInfo = nil
+GetGossipActiveQuests = function() return "Boars", 12, false, false, false, false, "Wolves", 14, false, true, false, false end
+GetGossipAvailableQuests = function() return "Raptors", 15, false, 0, false, false, false end
+SelectGossipActiveQuest = function(i) S.calls[#S.calls + 1] = "oldTurnin" .. i end
+SelectGossipAvailableQuest = function(i) S.calls[#S.calls + 1] = "oldTake" .. i end
+S.greetNew, S.greeting = 0, {}
+S.npc = "npc-old"
+fire("GOSSIP_SHOW"); fire("GOSSIP_SHOW"); fire("GOSSIP_SHOW")
+assert(calls() == "oldTurnin2,oldTake1", "the finished one (Wolves, 2nd) handed in, then the new one taken, once each")
+C_GossipInfo, GetGossipActiveQuests, GetGossipAvailableQuests = S.gossipInfo, nil, nil
 S.npc = "npc-3" -- another quest giver: its own list again
 fire("GOSSIP_SHOW")
 assert(calls() == "turnin12", "new NPC starts over")
