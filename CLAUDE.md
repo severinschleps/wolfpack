@@ -3,11 +3,12 @@
 ## Install to the game after every change
 
 Whenever you change anything under `WolfpackAddon/`, run the test and then
-mirror the folder into both live games -- Forever and Midnight (retail) -- so the
+mirror the folder into all four live games -- Forever, Midnight (retail), Classic
+(Mists) and Classic Era -- so the
 next `/reload` picks it up:
 
 ```bash
-luajit test/smoke.lua && luajit test/barstack.lua && for g in _forever_ _retail_; do
+luajit test/smoke.lua && luajit test/barstack.lua && for g in _forever_ _retail_ _classic_ _classic_era_; do
   rsync -a --delete WolfpackAddon/ \
     "/Users/severin/Games/World of Warcraft/$g/Interface/AddOns/WolfpackAddon/"
 done
@@ -17,8 +18,9 @@ This is also enforced: a Stop hook in `.claude/settings.json` runs the same thin
 the end of every turn, and on a failing test it installs nothing and says so. The
 manual run is still yours to do before reporting a change as done.
 
-One copy serves both: the toc lists Forever's interface (16001) and Midnight's
-(120105, 120107). Add the new number when either client patches.
+One copy serves all: the toc lists Classic Era's interface (11509), Forever's
+(16001), Classic's (50504) and Midnight's (120105, 120107). Add the new number
+when a client patches.
 
 Do this before you report the change as done, in the same turn as the edit.
 Never install a version whose test fails; fix it first.

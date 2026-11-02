@@ -440,10 +440,11 @@ DAMAGE_TEXT_FONT = "Fonts\\FRIZQT__.TTF"
 local ns = {}
 CompactUnitFrame_SetUpFrame = function() end -- Blizzard's; the addon hooks it
 assert(loadfile("WolfpackAddon/UI.lua"))("WolfpackAddon", ns) -- loaded first, per the toc
--- one copy for both clients: Forever (16001) and Midnight (12.1.5) must both be in the toc
+-- one copy for every client: Classic Era, Forever, Classic (Mists) and Midnight must all be in the toc
 S.toc = io.open("WolfpackAddon/WolfpackAddon.toc"):read("*a")
-assert(S.toc:match("## Interface:[^\n]*16001") and S.toc:match("## Interface:[^\n]*120105"),
-    "the toc names both Forever and Midnight")
+for _, v in ipairs({ "11509", "16001", "50504", "120105" }) do
+    assert(S.toc:match("## Interface:[^\n]*" .. v), "the toc names interface " .. v)
+end
 assert(loadfile("WolfpackAddon/WolfpackAddon.lua"))("WolfpackAddon", ns)
 local function fire(e, ...) evFrame._scripts.OnEvent(evFrame, e, ...) end
 -- each class logs in as its own character
