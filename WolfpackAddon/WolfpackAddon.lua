@@ -1016,8 +1016,10 @@ end
 local function fillSwing(f)
     local kind = SWING_TYPES[f.swing]
     local st = swingState[kind[3]]
-    if not swingActive(kind[3]) then
-        f.text:SetText(kind[2]) -- preview
+    if not swingActive(kind[3]) then -- preview: a full bar, not the last swing's frozen fill
+        f.segs[1]:SetMinMaxValues(0, 1)
+        f.segs[1]:SetValue(1)
+        f.text:SetText(kind[2])
         return
     end
     local elapsed = GetTime() - st.start
@@ -5431,9 +5433,15 @@ ev:SetScript("OnEvent", function(_, event, unit, arg2, arg3)
         end
         safe(Refresh) -- the cast bar joins or leaves the stack
     elseif event == "PLAYER_SWING" then -- unit, arg2 = duration, swing type
-        swingState[arg2] = { start = GetTime(), duration = unit }
-        swingTicker:SetScript("OnUpdate", swingTick)
-        swingTick()
+        -- Either may arrive secret, and the timer does math on both every frame: a secret one
+        -- would throw there, over and over, and stop the whole stack from laying out. Such a
+        -- swing is left untimed instead.
+        if readable(unit) and readable(arg2) and type(unit) == "number" and unit > 0
+            and type(arg2) == "number" then
+            swingState[arg2] = { start = GetTime(), duration = unit }
+            swingTicker:SetScript("OnUpdate", swingTick)
+            swingTick()
+        end
     elseif event == "PLAYER_TOTEM_UPDATE" then -- hand the new timers over; they run themselves
         fillShown("totems")
     elseif event == "MERCHANT_SHOW" then

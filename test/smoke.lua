@@ -701,6 +701,13 @@ assert(swf[1].segs[1]._max == 2.6 and swf[1].segs[1]._value == 0 and swf[1].text
 assert(not swf[2]:IsShown(), "off hand still idle")
 S.time = 1001; ns.swingTicker._scripts.OnUpdate()
 assert(swf[1].segs[1]._value == 1 and swf[1].text._text == "1.6", "counts down")
+-- a swing whose numbers come back secret can't be timed: skipped, and nothing breaks
+fire("PLAYER_SWING", SECRET, 1)
+fire("PLAYER_SWING", 2.0, SECRET)
+fire("PLAYER_SWING")
+S.time = 1001.5; ns.swingTicker._scripts.OnUpdate()
+assert(not swf[2]:IsShown() and swf[1]:IsShown() and swf[1].text._text == "1.1", "secret swings skipped, main hand runs on")
+S.time = 1001
 fire("PLAYER_SWING", 1.8, 2) -- ranged
 assert(swf[3]:IsShown() and WolfpackAddonFrame._h == 72 and swf[3]._point[5] == -62, "ranged joins below it")
 S.time = 1010; ns.swingTicker._scripts.OnUpdate()
@@ -708,6 +715,7 @@ assert(not swf[1]:IsShown() and not swf[3]:IsShown(), "done: rows leave")
 assert(WolfpackAddonFrame._h == 48 and not ns.swingTicker._scripts.OnUpdate, "stack closed up, ticker stopped")
 prof().locked = false; fire("UNIT_MAXPOWER")
 assert(swf[1]:IsShown() and swf[3]:IsShown() and swf[1].text._text == "Main hand", "unlocked: preview rows")
+assert(swf[1].segs[1]._value == 1 and swf[1].segs[1]._max == 1, "a full bar to place, not the last swing's fill")
 prof().locked = true
 sw.off, sw.ranged = false, false
 fire("UNIT_MAXPOWER")
