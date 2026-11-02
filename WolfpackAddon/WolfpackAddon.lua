@@ -299,8 +299,11 @@ DEFAULTS.regular.playerMenu = false      -- right-click on the bars opens the pl
 DEFAULTS.regular.playerTarget = false    -- left-click on the bars targets yourself
 DEFAULTS.regular.playerMouseover = false -- hovering the bars makes you @mouseover
 DEFAULTS.regular.highlight = { show = false, color = { 1, 1, 1, 0.25 } } -- overlay while hovered
--- In-combat icon, centered on the left edge of a bar (or the group, if that bar is hidden) + x/y.
-DEFAULTS.regular.combatIcon = { show = true, style = "atlas", bar = "health", size = 20, x = -12, y = 0 }
+-- In-combat icon, centered on a bar (or the group, if that bar is hidden) + x/y. x once counted
+-- from the bar's left edge: useProfile moves such a profile over once (fromCenter), keeping the
+-- icon where it was -- which is also how the default, 12 left of the edge, comes out.
+DEFAULTS.regular.combatIcon = { show = true, style = "atlas", bar = "health", size = 20, x = -12, y = 0,
+    fromCenter = false }
 
 local function merge(dst, src)
     for k, v in pairs(src) do
@@ -1577,7 +1580,7 @@ local function syncCombatIcon()
     local bar = frames[ci.bar]
     local host = (bar and bar:IsShown()) and bar or anchor
     combatIcon:ClearAllPoints()
-    combatIcon:SetPoint("CENTER", host, "LEFT", ci.x, ci.y)
+    combatIcon:SetPoint("CENTER", host, "CENTER", ci.x, ci.y)
     combatIcon:SetSize(ci.size, ci.size)
     setCombatArt(combatIcon.tex, ci.style)
     -- also shown as a preview while unlocked or in the options, for placing it
@@ -3432,6 +3435,11 @@ useProfile = function(name)
     end
     store.chars[charKey] = name
     db = store.profiles[name]
+    local ci = db.regular.combatIcon
+    if not ci.fromCenter then -- x counted from the bar's left edge; now from its middle
+        local b = db.regular.bars[ci.bar]
+        ci.x, ci.fromCenter = ci.x - math.floor((b and b.width or 0) / 2), true
+    end
     if db.regular.bars.health.target then
         db.regular.bars.health.target = false
         db.regular.bars.enemyhealth.show, db.regular.bars.enemyhealth.beside = true, true
@@ -4492,7 +4500,7 @@ local function buildConfig()
         return list
     end, function() return CI().bar end, function(v) CI().bar = v end, textPreview)
     slider(otherPage, "Size", icon.x, icon:row(SLIDER), 8, 64, function() return CI().size end, function(v) CI().size = v end)
-    slider(otherPage, "X (from the bar's left)", icon.x, icon:row(SLIDER), -200, 200,
+    slider(otherPage, "X (0 = the bar's middle)", icon.x, icon:row(SLIDER), -400, 400,
         function() return CI().x end, function(v) CI().x = v end)
     slider(otherPage, "Y (down / up)", icon.x, icon:row(SLIDER), -200, 200,
         function() return CI().y end, function(v) CI().y = v end)

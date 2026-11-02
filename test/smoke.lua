@@ -770,13 +770,20 @@ assert(pb.segs[1]._value == 120 and fr.health.segs[1]._value == SECRET, "pet upd
 S.petHP = nil; fire("UNIT_PET", "player")
 assert(not pb:IsShown() and WolfpackAddonFrame._h == 48, "pet gone")
 
--- In-combat icon: in combat only (or previewing), centered on the chosen bar's left edge
+-- In-combat icon: in combat only (or previewing); x counts from the middle of the chosen bar
 local ci, icon = prof().regular.combatIcon, ns.combatIcon
 fire("UNIT_MAXPOWER")
 assert(not icon:IsShown(), "out of combat: hidden")
 fire("PLAYER_REGEN_DISABLED")
 local ip = icon._point
-assert(icon:IsShown() and ip[1] == "CENTER" and ip[2] == fr.health and ip[3] == "LEFT" and ip[4] == -12, "health bar's left edge")
+assert(icon:IsShown() and ip[1] == "CENTER" and ip[2] == fr.health and ip[3] == "CENTER" and ip[4] == -122,
+    "the old default, 12 left of the edge of a 220 bar, moved over: still there")
+assert(ci.fromCenter, "moved over once")
+ci.x = 0; fire("UNIT_MAXPOWER")
+assert(icon._point[3] == "CENTER" and icon._point[4] == 0, "x 0: the bar's middle")
+fire("PLAYER_LOGIN")
+assert(ci.x == 0, "and never moved over again")
+fire("PLAYER_REGEN_DISABLED")
 assert(icon.tex._atlas == "UI-HUD-UnitFrame-Player-CombatIcon" and icon._w == 20, "default art and size")
 ci.bar, ci.style = "druidmana", "classic"; fire("UNIT_MAXPOWER")
 assert(icon._point[2] == WolfpackAddonFrame, "attached bar hidden: falls back to the group")
