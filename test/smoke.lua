@@ -3935,6 +3935,30 @@ assert(MultiBarBottomLeft._parent == UIParent, "and back")
     o.g10.fixed, o.g10.grow, o.g10.size = "width", "down", 400
 end)()
 
+-- Tooltips: the game's default spot moved to a point of the screen or the cursor; a sample while
+-- the Tooltip page is open
+do
+    local keptTip = GameTooltip
+    GameTooltip = new()
+    GameTooltip.SetOwner = function(self, owner, anchor, x, y) self._owner = { owner, anchor, x, y } end
+    GameTooltip_SetDefaultAnchor = function(tt, parent) tt:SetOwner(parent, "ANCHOR_NONE"); tt._default = true end
+    local o = prof().tooltip
+    o.mode, o.point, o.x, o.y = "screen", "TOPRIGHT", -20, -40
+    ns.cfg:Show(); byText("Tooltip")._scripts.OnClick(byText("Tooltip"), "LeftButton")
+    assert(GameTooltip:IsShown() and GameTooltip._point[1] == "TOPRIGHT" and GameTooltip._point[2] == UIParent
+        and GameTooltip._point[4] == -20 and GameTooltip._point[5] == -40, "a sample, at the point picked")
+    o.mode = "cursor"
+    GameTooltip_SetDefaultAnchor(GameTooltip, UIParent)
+    assert(GameTooltip._owner[2] == "ANCHOR_CURSOR_RIGHT" and GameTooltip._owner[3] == -20, "beside the cursor")
+    o.mode = "game"
+    GameTooltip_SetDefaultAnchor(GameTooltip, UIParent)
+    assert(GameTooltip._owner[2] == "ANCHOR_NONE" and GameTooltip._owner[3] == nil, "the game's own spot: left alone")
+    byText("Combat Display")._scripts.OnClick(byText("Combat Display"), "LeftButton")
+    assert(not GameTooltip:IsShown(), "the sample goes with the page")
+    ns.cfg:Hide()
+    GameTooltip = keptTip
+end
+
 -- Micro menu: the game's buttons in a row of ours on a panel, placed on the screen or on the bag
 -- bar, faded until hovered if asked; out of combat only; taken again when the game moves them
 -- back; home again when turned off

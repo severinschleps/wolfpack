@@ -426,6 +426,10 @@ DEFAULTS.micro = { show = false, anchor = "screen", point = "BOTTOMRIGHT", side 
     scale = 1, gap = 2, pad = 4, hover = false, bg = { 0.05, 0.05, 0.06, 0.6 }, borderColor = { 0, 0, 0, 1 },
     borderSize = 1, buttonBg = { 0, 0, 0, 0.5 } }
 
+-- Tooltips that open where the game puts them by default: mode "game" (left alone), "screen"
+-- (`point` of the screen, then x / y) or "cursor" (beside the cursor, x / y from it)
+DEFAULTS.tooltip = { mode = "game", point = "BOTTOMRIGHT", x = -100, y = 120 }
+
 DEFAULTS.unitframes = { show = false, replace = true, fontSize = 10, power = true, powerHeight = 4,
     pets = true, petHeight = 14, roleIcon = true, marker = true,
     -- rangeFirst: players in your healing range before the rest, then by role order
@@ -5067,6 +5071,43 @@ ns.bags.ev:SetScript("OnEvent", function(_, event)
 end)
 
 ------------------------------------------------------------------------------------------
+-- Tooltips: the game's default spot (GameTooltip_SetDefaultAnchor) moved to a point of the
+-- screen or beside the cursor. Tooltips an element places itself are left alone.
+------------------------------------------------------------------------------------------
+ns.tip = {}
+function ns.tip.place(tt, parent)
+    local o = db and db.tooltip
+    if not o or o.mode == "game" then return end
+    if o.mode == "cursor" then
+        if not pcall(tt.SetOwner, tt, parent, "ANCHOR_CURSOR_RIGHT", o.x, o.y) then tt:SetOwner(parent, "ANCHOR_CURSOR") end
+    else
+        tt:SetOwner(parent, "ANCHOR_NONE")
+        tt:ClearAllPoints()
+        tt:SetPoint(o.point, UIParent, o.point, o.x, o.y)
+    end
+end
+function ns.tip.sync()
+    if not ns.tip.hooked and type(GameTooltip_SetDefaultAnchor) == "function" then
+        hooksecurefunc("GameTooltip_SetDefaultAnchor", function(tt, parent) safe(ns.tip.place, tt, parent) end)
+        ns.tip.hooked = true
+    end
+end
+-- while the Tooltip page is open: a sample where tooltips will open
+function ns.tip.preview(on)
+    if not GameTooltip then return end
+    if on then
+        GameTooltip_SetDefaultAnchor(GameTooltip, UIParent)
+        GameTooltip:SetText("Tooltip")
+        GameTooltip:AddLine("Tooltips open here.", 1, 1, 1)
+        GameTooltip:Show()
+        ns.tip.showing = true
+    elseif ns.tip.showing then
+        GameTooltip:Hide()
+        ns.tip.showing = false
+    end
+end
+
+------------------------------------------------------------------------------------------
 -- Micro menu: Blizzard's own buttons (so every click is the game's) lifted into a row of ours, on
 -- a panel, each on a dark square with a border. Moved out of combat only; when the game puts
 -- them back (a vehicle, a pet battle), they are taken again; turned off, they go home.
@@ -6005,6 +6046,8 @@ changed = function()
     safe(ns.np.all)
     safe(ns.bags.sync)
     safe(ns.micro.sync)
+    safe(ns.tip.sync)
+    safe(ns.tip.preview, cfg and cfg:IsShown() and section == "tooltip")
     -- the Unit frames page's stand-ins: as many as its tab says (General: 5), set before they're laid out
     ns.uf.preview = section == "unitframes" and (tonumber(ns.ufTab) or 5) or nil
     safe(ns.uf.sync)
@@ -7300,7 +7343,7 @@ local function buildConfig()
     shelf("Interface")
     for _, e in ipairs({ { "combat", "Combat Display" }, { "actionbars", "Action bars" }, { "bags", "Bags" },
         { "nameplates", "Nameplates" }, { "unitframes", "Unit frames" },
-        { "micro", "Micro menu" }, { "macros", "Macros" }, { "other", "Other" }, { "barstack", "Bar Stack" } }) do
+        { "micro", "Micro menu" }, { "tooltip", "Tooltip" }, { "macros", "Macros" }, { "other", "Other" }, { "barstack", "Bar Stack" } }) do
         entry(e[1], e[2], e[3])
     end
 
@@ -7331,7 +7374,9 @@ local function buildConfig()
     bsPage.need = 100 + ns.ui.BS_H
     ns.pages = { combat = barsPage, nameplates = questPage, other = otherPage, profile = profilePage, colors = colorPage, actionbars = actionPage,
         bags = CreateFrame("Frame", nil, content), unitframes = CreateFrame("Frame", nil, content),
-        macros = CreateFrame("Frame", nil, content), micro = CreateFrame("Frame", nil, content) }
+        macros = CreateFrame("Frame", nil, content), micro = CreateFrame("Frame", nil, content),
+        tooltip = CreateFrame("Frame", nil, content) }
+    ns.pages.tooltip:SetAllPoints(barsPage)
     ns.pages.macros:SetAllPoints(barsPage)
     ns.pages.micro:SetAllPoints(barsPage)
     ns.pages.bags:SetAllPoints(barsPage)
@@ -7375,6 +7420,7 @@ local function buildConfig()
             or section == "barstack" and "Bar Stack"
             or section == "macros" and "Macros"
             or section == "micro" and "Micro menu"
+            or section == "tooltip" and "Tooltip"
             or "Combat Display")
         for _, t in ipairs(tabs) do t:SetShown(np) end
         local trail = np and sub == "targeted" and ns.npTrail
@@ -7389,6 +7435,7 @@ local function buildConfig()
         ns.pages.bags:SetShown(section == "bags")
         ns.pages.macros:SetShown(section == "macros")
         ns.pages.micro:SetShown(section == "micro")
+        ns.pages.tooltip:SetShown(section == "tooltip")
         ns.pages.unitframes:SetShown(uf and ns.ufTab == "general")
         local page = section == "barstack" and bsPage or ns.pages[section]
         if uf and ns.ufTab ~= "general" then page = ns.pages["uf" .. ns.ufTab] end
@@ -8220,6 +8267,39 @@ local function buildConfig()
     slider(actionPage, "Macro name size", abt.x, abt:row(SLIDER), 6, 24, function() return AB().macroSize end,
         function(v) AB().macroSize = v end)
     abt:close()
+
+    ----------------------------------------------------------------------------------
+    -- Tooltip page (a function of its own: buildConfig is at Lua's limit of 200 locals)
+    ----------------------------------------------------------------------------------
+    ;(function()
+        local pg, O = ns.pages.tooltip, function() return db.tooltip end
+        local c = group(pg, COL[1], TOP, 202, "Where tooltips open")
+        dropdown(pg, "Anchored to", c.x, c:row(DROP), { { "Where the game puts them", "game" },
+            { "A point of the screen", "screen" }, { "The cursor", "cursor" } },
+            function() return O().mode end, function(v) O().mode = v end, textPreview)
+        local pt = dropdown(pg, "Point of the screen", c.x, c:row(DROP), { { "Top left", "TOPLEFT" }, { "Top", "TOP" },
+            { "Top right", "TOPRIGHT" }, { "Left", "LEFT" }, { "Center", "CENTER" }, { "Right", "RIGHT" },
+            { "Bottom left", "BOTTOMLEFT" }, { "Bottom", "BOTTOM" }, { "Bottom right", "BOTTOMRIGHT" } },
+            function() return O().point end, function(v) O().point = v end, textPreview)
+        local xs = slider(pg, "X offset", c.x, c:row(SLIDER), -1600, 1600, function() return O().x end,
+            function(v) O().x = v end)
+        local ys = slider(pg, "Y offset", c.x, c:row(SLIDER), -1000, 1000, function() return O().y end,
+            function(v) O().y = v end)
+        local n = label(pg, "", "GameFontDisableSmall")
+        n:SetPoint("TOPLEFT", c.x, c:row(58))
+        n:SetWidth(178)
+        n:SetJustifyH("LEFT")
+        onRefresh(function()
+            local m = O().mode
+            pt:SetShown(m == "screen")
+            xs:SetShown(m ~= "game")
+            ys:SetShown(m ~= "game")
+            n:SetText(m == "game" and "Tooltips open where the game puts them."
+                or m == "cursor" and "Beside the cursor, moved by X / Y. A sample shows while this page is open."
+                or "Tooltips open at this point of the screen, moved by X / Y. A sample shows while this page is open.")
+        end)
+        c:close()
+    end)()
 
     ----------------------------------------------------------------------------------
     -- Micro menu page (a function of its own: buildConfig is at Lua's limit of 200 locals)
@@ -9841,7 +9921,7 @@ ev:SetScript("OnEvent", function(_, event, unit, arg2, arg3)
         if ns.micro.pending then safe(ns.micro.sync) end
     else
         if event == "PLAYER_ENTERING_WORLD" and ns.mac then safe(ns.mac.sync) end -- the macro library
-        if event == "PLAYER_ENTERING_WORLD" then safe(ns.micro.sync) end
+        if event == "PLAYER_ENTERING_WORLD" then safe(ns.micro.sync); safe(ns.tip.sync) end
         if event == "NAME_PLATE_UNIT_ADDED" then safe(plateAdded, unit) end
         if event == "NAME_PLATE_UNIT_REMOVED" then safe(plateRemoved, unit) end
         -- form, max, target or nameplate changes: re-layout (target change moves the nameplate bars)
