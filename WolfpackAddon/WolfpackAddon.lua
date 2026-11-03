@@ -235,6 +235,11 @@ local function layoutDefaults(show, x, y, gap, width, h1, h2, h3, h4, h5, h6, h7
     -- your pet: anchor "stack", "below" your health (your health's width; enemy health beside you
     -- grows to match the two), or "left" / "right" of it (its height, own width)
     l.bars.pethealth.anchor = "stack"
+    -- hunters: a dot on the pet bar in its happiness color, the ammo count on the power bar
+    l.bars.pethealth.happy = { show = true, point = "LEFT", x = 6, y = 0, size = 8 }
+    l.bars.power.ammo = { show = true, point = "RIGHT", x = -4, y = 0, font = FONTS[1][2], size = 10, outline = true,
+        color = { 1, 1, 1, 1 }, lowColor = { 1, 0.4, 0.4, 1 }, low = 200 }
+    l.bars.power.ammoSet = false -- useProfile has moved the old Hunter page's settings over (once)
     local tt = l.bars.tothealth
     tt.anchor, tt.width, tt.colorMode = "right", 90, "class"
     local function copy(v)
@@ -428,6 +433,7 @@ do
     p.health = { 0.2, 0.8, 0.2, 1 }
     p.experience = { 0.58, 0, 0.55, 1 } -- Blizzard's experience purple
     p.honor = { 1, 0.4, 0, 1 }
+    p.happiness = { unhappy = { 0.9, 0.2, 0.2, 1 }, content = { 1, 0.6, 0.1, 1 }, happy = { 0.2, 0.85, 0.3, 1 } }
     p.reaction = { hostile = { 0.85, 0.2, 0.2, 1 }, neutral = { 0.95, 0.8, 0.2, 1 }, friendly = { 0.2, 0.8, 0.2, 1 } }
     -- your cast bar: casting / channeling; your target's: what kind of cast (auto color)
     p.cast = { cast = { 1, 0.7, 0, 1 }, channel = { 0.3, 0.7, 1, 1 }, harm = { 0.9, 0.3, 0.2, 1 },
@@ -1941,6 +1947,7 @@ function ns.petUnder(hf)
     pf:ClearAllPoints()
     pf:SetPoint("TOPLEFT", hf, "BOTTOMLEFT", 0, -gap)
     ns.fill(pf)
+    ns.layoutHappy(pf)
     return gap + c.height
 end
 
@@ -1958,6 +1965,7 @@ function ns.placePet()
         pf:SetPoint("TOPLEFT", hf, "TOPRIGHT", gap, 0)
     end
     ns.fill(pf)
+    ns.layoutHappy(pf)
 end
 
 function ns.placeToT()
@@ -2241,6 +2249,8 @@ local function stack(container, set, L, on, swings)
             if f.resFrame then ns.layoutRes(f) end
             if ns.AURA_BARS[key] then ns.layoutAuras(f) end
             if ns.BADGES[key] then ns.layoutBadges(f) end
+            if key == "pethealth" then ns.layoutHappy(f) end
+            if key == "power" then ns.layoutAmmo(f) end
             h = h + c.height
             if key == "health" and L == db.regular then h = h + ns.petUnder(f) end -- your pet below it
             h = h + c.padBottom
@@ -4026,69 +4036,59 @@ function hn.entry(i)
     return e
 end
 
+-- The happiness dot on the pet bar and the ammo count on the power bar (the old panel is gone).
+local HAPPY_KEYS = { "unhappy", "content", "happy" }
+function ns.layoutHappy(f)
+    local o = db[f.mode].bars.pethealth.happy
+    local d = f.happyDot
+    if not d then
+        d = CreateFrame("Frame", nil, f)
+        d.tex = d:CreateTexture(nil, "OVERLAY")
+        d.tex:SetAllPoints()
+        d.tex:SetTexture("Interface\\Buttons\\WHITE8X8")
+        d.mask = d:CreateMaskTexture()
+        d.mask:SetAllPoints(d.tex)
+        ns.iconCorners(d.tex, d.mask, 50, { 0, 1, 0, 1 }) -- a circle
+        f.happyDot = d
+    end
+    local level = (class == "HUNTER" and UnitExists("pet")) and hn.happiness() or (ns.previewing() and 3)
+    d:SetShown((o.show and level) and true or false)
+    if not d:IsShown() then return end
+    d.tex:SetVertexColor(unpack(db.colors.happiness[HAPPY_KEYS[level]]))
+    d:SetSize(o.size, o.size)
+    d:SetFrameLevel(f:GetFrameLevel() + 8)
+    d:ClearAllPoints()
+    d:SetPoint("CENTER", f, o.point, o.x, o.y)
+end
+
+function ns.layoutAmmo(f)
+    local o = db[f.mode].bars.power.ammo
+    if not f.ammoText then
+        f.ammoHost = CreateFrame("Frame", nil, f)
+        f.ammoHost:SetAllPoints(f)
+        f.ammoText = f.ammoHost:CreateFontString(nil, "OVERLAY")
+    end
+    local t = f.ammoText
+    local id, count = hn.ammo()
+    if class ~= "HUNTER" or not id then count = ns.previewing() and class == "HUNTER" and 200 or nil end
+    t:SetShown((o.show and count) and true or false)
+    if not t:IsShown() then return end
+    f.ammoHost:SetFrameLevel(f:GetFrameLevel() + 8)
+    local flags = o.outline and "OUTLINE" or ""
+    if not t:SetFont(o.font, o.size, flags) then t:SetFont(FONTS[1][2], o.size, flags) end
+    t:SetTextColor(unpack(count < o.low and o.lowColor or o.color))
+    t:SetText(count)
+    t:ClearAllPoints()
+    t:SetPoint(o.point, f, o.point, o.x, o.y)
+end
+
 function hn.refresh()
     if not db then return end
-    local o = db.hunter
-    hn.panel:ClearAllPoints()
-    hn.panel:SetPoint("CENTER", UIParent, "CENTER", o.x, o.y)
-    hn.panel:EnableMouse(not o.locked)
-    if not o.show or class ~= "HUNTER" then
-        hn.panel:Hide()
-        return
+    hn.panel:Hide()
+    for _, set in ipairs({ frames, plateFrames }) do
+        if set.pethealth:IsShown() then safe(ns.layoutHappy, set.pethealth) end
+        if set.power:IsShown() then safe(ns.layoutAmmo, set.power) end
     end
-    hn.panel:Show()
-    local flags = o.outline and "OUTLINE" or ""
-    local step, n = o.size + o.gap, 0
-    local id, count, tex = hn.ammo()
-    local happy = hn.happiness()
-    for _, what in ipairs({ "ammo", "pet" }) do
-        local show, icon, text, coords, atlas = false, nil, nil, nil, nil
-        if what == "ammo" and o.ammo and id then
-            show, icon, text = true, tex or 132382, o.showCount and count or nil
-        elseif what == "pet" and o.pet and happy and UnitExists("pet") then
-            show = true
-            local look = hn.happyLook()
-            if look and look.atlas then
-                atlas = look.atlas
-            elseif look and look.tex then
-                icon, coords = look.tex, look.coords
-            else -- the old file, cut into three faces side by side
-                icon = hn.happyArt
-                coords = { (happy - 1) * 0.1875, happy * 0.1875, 0, 0.359375 }
-            end
-        end
-        if show then
-            n = n + 1
-            local e = hn.entry(n)
-            e:SetSize(o.size, o.size)
-            e:ClearAllPoints()
-            if o.grow == "down" then
-                e:SetPoint("TOPLEFT", hn.panel, "TOPLEFT", 0, -(n - 1) * step)
-            else
-                e:SetPoint("TOPLEFT", hn.panel, "TOPLEFT", (n - 1) * step, 0)
-            end
-            e.icon:SetTexture(icon)
-            ns.iconCorners(e.icon, e.mask, o.radius, coords)
-            if atlas then e.icon:SetAtlas(atlas) end -- an atlas brings its own coordinates
-            if not e.text:SetFont(o.font, o.fontSize, flags) then
-                e.text:SetFont(FONTS[1][2], o.fontSize, flags)
-            end
-            e.text:ClearAllPoints()
-            local at = o.countAt == "center" and "CENTER" or "BOTTOMRIGHT"
-            e.text:SetPoint(at, e, at, 0, 0)
-            e.text:SetText(text or "")
-            e.text:SetShown(text ~= nil)
-            if text and count <= o.low then
-                e.text:SetTextColor(unpack(o.lowColor))
-            else
-                e.text:SetTextColor(unpack(o.color))
-            end
-            e:Show()
-        end
-    end
-    for i = n + 1, #hn.entries do hn.entries[i]:Hide() end
-    hn.panel:SetSize(o.grow == "down" and o.size or math.max(n * step - o.gap, o.size),
-        o.grow == "down" and math.max(n * step - o.gap, o.size) or o.size)
 end
 
 local hnEv = CreateFrame("Frame")
@@ -4478,7 +4478,7 @@ end
 -- section = sidebar entry, sub = tab inside Nameplates, mode = which bar layout is being edited
 local cfg, selected, mode, section, sub = nil, "health", "regular", "combat", "bars"
 -- Classes the addon has settings of its own for: { section key, label, class token }
-ns.CLASS_SECTIONS = { { "hunter", "Hunter", "HUNTER" }, { "mage", "Mage", "MAGE" },
+ns.CLASS_SECTIONS = { { "mage", "Mage", "MAGE" },
     { "rogue", "Rogue", "ROGUE" }, { "shaman", "Shaman", "SHAMAN" },
     { "warlock", "Warlock", "WARLOCK" } }
 local refreshers = {}
@@ -4755,6 +4755,14 @@ useProfile = function(name)
     end
     store.chars[charKey] = name
     db = store.profiles[name]
+    if not db.regular.bars.power.ammoSet then -- the Hunter page's panel moves onto the bars
+        local H, am = db.hunter, db.regular.bars.power.ammo
+        am.show = (H.show and H.ammo) and true or false
+        am.font, am.size, am.outline, am.low = H.font, H.fontSize, H.outline, H.low
+        am.color, am.lowColor = { unpack(H.color) }, { unpack(H.lowColor) }
+        db.regular.bars.pethealth.happy.show = (H.show and H.pet) and true or false
+        db.regular.bars.power.ammoSet = true
+    end
     local AB = db.actionbars
     if not AB.seeded then -- one bar to start with: the first twelve slots, at the bottom
         AB.bars[1] = AB.bars[1] or merge({}, ns.AB_BAR)
@@ -5336,7 +5344,7 @@ end
 function ns.toggleDialog(d)
     local show = not d:IsShown()
     for _, o in ipairs({ ns.resDialog, ns.tagDialog, ns.auraDialog, ns.textDialog, ns.iconDialog,
-        ns.statusDialog, ns.fsrDialog }) do o:Hide() end
+        ns.statusDialog, ns.fsrDialog, ns.ammoDialog, ns.happyDialog }) do o:Hide() end
     d:SetShown(show)
 end
 
@@ -5496,8 +5504,6 @@ local function buildConfig()
     buffPage:SetAllPoints(barsPage)
     local magePage = CreateFrame("Frame", nil, content)
     magePage:SetAllPoints(barsPage)
-    local hunterPage = CreateFrame("Frame", nil, content)
-    hunterPage:SetAllPoints(barsPage)
     local lockPage = CreateFrame("Frame", nil, content)
     lockPage:SetAllPoints(barsPage)
     local roguePage = CreateFrame("Frame", nil, content)
@@ -5513,7 +5519,7 @@ local function buildConfig()
     bsPage:SetAllPoints(barsPage)
     bsPage.need = 100 + ns.ui.BS_H
     ns.pages = { combat = barsPage, nameplates = questPage, buffs = buffPage, mage = magePage,
-        hunter = hunterPage, warlock = lockPage, rogue = roguePage, shaman = shamanPage,
+        warlock = lockPage, rogue = roguePage, shaman = shamanPage,
         other = otherPage, profile = profilePage, colors = colorPage, actionbars = actionPage }
 
     local title = label(cfg, "Combat Display", "GameFontNormalLarge")
@@ -5533,7 +5539,6 @@ local function buildConfig()
             or section == "actionbars" and "Action bars"
             or section == "buffs" and "Buff check"
             or section == "mage" and "Mage: food and water"
-            or section == "hunter" and "Hunter: ammo and pet"
             or section == "warlock" and "Warlock: soul shards"
             or section == "rogue" and "Rogue: weapon poisons"
             or section == "shaman" and "Shaman: weapon imbues"
@@ -5545,7 +5550,6 @@ local function buildConfig()
         otherPage:SetShown(section == "other")
         buffPage:SetShown(section == "buffs")
         magePage:SetShown(section == "mage")
-        hunterPage:SetShown(section == "hunter")
         lockPage:SetShown(section == "warlock")
         roguePage:SetShown(section == "rogue")
         shamanPage:SetShown(section == "shaman")
@@ -5720,6 +5724,10 @@ local function buildConfig()
         function() return cur().costColor or { 0, 0, 0, 1 } end)
     local regenButton = button(barsPage, "Mana regen spinner", 186, only.x, only:row(0) - 2 * ROW - 4,
         function() ns.toggleDialog(ns.fsrDialog) end)
+    local ammoButton = button(barsPage, "Ammunition count", 186, only.x, only:row(0) - 2 * ROW - 4 - BUTTON,
+        function() ns.toggleDialog(ns.ammoDialog) end)
+    local happyButton = button(barsPage, "Happiness dot", 186, only.x, only:row(0) - DROP - 4,
+        function() ns.toggleDialog(ns.happyDialog) end)
     local castIcon = check(barsPage, "Show spell icon", only.x, only:row(ROW),
         function() return cur().icon end, function(v) cur().icon = v end)
     local castSide = button(barsPage, "", 186, only.x, only:row(BUTTON), function()
@@ -5765,6 +5773,11 @@ local function buildConfig()
         costCheck:SetShown(selected == "power")
         costColor:SetShown(selected == "power")
         regenButton:SetShown(selected == "power")
+        ammoButton:SetShown(selected == "power")
+        happyButton:SetShown(selected == "pethealth")
+        local here = section == "combat" or section == "nameplates"
+        if not (selected == "power" and here) then ns.ammoDialog:Hide() end
+        if not (selected == "pethealth" and here) then ns.happyDialog:Hide() end
         if not (selected == "power" and (section == "combat" or section == "nameplates")) then ns.fsrDialog:Hide() end
         for _, w in ipairs(swingChecks) do w:SetShown(selected == "swing") end
         for _, row in ipairs(totemRows) do
@@ -6150,73 +6163,6 @@ local function buildConfig()
     mtext:close()
 
     ----------------------------------------------------------------------------------
-    -- Hunter page: ammunition and the pet's mood
-    ----------------------------------------------------------------------------------
-    local H = function() return db.hunter end
-    local hset = group(hunterPage, COL[1], TOP, 202, "Ammo and pet")
-    check(hunterPage, "Show it", hset.x, hset:row(ROW), function() return H().show end,
-        function(v) H().show = v end)
-    check(hunterPage, "Ammunition", hset.x, hset:row(ROW), function() return H().ammo end,
-        function(v) H().ammo = v end)
-    local petTick = check(hunterPage, "Pet happiness", hset.x, hset:row(ROW),
-        function() return H().pet end, function(v) H().pet = v end)
-    local petNote = label(hunterPage, "", "GameFontDisableSmall")
-    petNote:SetPoint("TOPLEFT", hset.x + 24, hset:row(14))
-    onRefresh(function()
-        local has = GetPetHappiness ~= nil or UnitPetHappiness ~= nil or PetFrameHappiness ~= nil
-        petTick:SetEnabled(has)
-        petNote:SetText(has and "" or "|cffff8888no happiness in this client|r")
-    end)
-    local hlk = button(hunterPage, "", 186, hset.x, hset:row(BUTTON), function()
-        H().locked = not H().locked
-        changed()
-    end)
-    onRefresh(function() hlk:SetText(H().locked and "Locked (click to unlock)" or "Unlocked - drag it") end)
-    slider(hunterPage, "X (left / right)", hset.x, hset:row(SLIDER), -1200, 1200,
-        function() return H().x end, function(v) H().x = v end)
-    slider(hunterPage, "Y (down / up)", hset.x, hset:row(SLIDER), -800, 800,
-        function() return H().y end, function(v) H().y = v end)
-    local hNote = label(hunterPage, "The ammo in your ammo slot, with how many you carry, and the "
-        .. "face your pet is pulling -- if this client still has pet happiness at all. Hunters "
-        .. "only.", "GameFontDisableSmall")
-    hNote:SetPoint("TOPLEFT", hset.x, hset:row(40))
-    hNote:SetWidth(182)
-    hNote:SetJustifyH("LEFT")
-    hset:close()
-
-    local hlook = group(hunterPage, COL[2], TOP, 202, "Icons")
-    slider(hunterPage, "Icon size", hlook.x, hlook:row(SLIDER), 12, 80, function() return H().size end,
-        function(v) H().size = v end)
-    slider(hunterPage, "Gap", hlook.x, hlook:row(SLIDER), 0, 30, function() return H().gap end,
-        function(v) H().gap = v end)
-    dropdown(hunterPage, "Corner radius", hlook.x, hlook:row(DROP), { { "None (square)", 0 },
-        { "Slightly rounded", 12 }, { "Rounded", 25 }, { "Circle", 50 } },
-        function() return ns.ICON_MASKS[H().radius] and H().radius or 0 end,
-        function(v) H().radius = v end, textPreview)
-    dropdown(hunterPage, "Side by side or stacked", hlook.x, hlook:row(DROP),
-        { { "Side by side", "right" }, { "Stacked", "down" } },
-        function() return H().grow end, function(v) H().grow = v end, textPreview)
-    dropdown(hunterPage, "Count sits", hlook.x, hlook:row(DROP), { { "In the corner", "corner" },
-        { "In the middle", "center" } }, function() return H().countAt end,
-        function(v) H().countAt = v end, textPreview)
-    check(hunterPage, "Show the count", hlook.x, hlook:row(ROW), function() return H().showCount end,
-        function(v) H().showCount = v end)
-    hlook:close()
-
-    local htext = group(hunterPage, COL[3], TOP, 202, "The count")
-    dropdown(hunterPage, "Font", htext.x, htext:row(DROP), FONTS, function() return H().font end,
-        function(v) H().font = v end, fontPreview)
-    slider(hunterPage, "Font size", htext.x, htext:row(SLIDER), 6, 30, function() return H().fontSize end,
-        function(v) H().fontSize = v end)
-    check(hunterPage, "Outline", htext.x, htext:row(ROW), function() return H().outline end,
-        function(v) H().outline = v end)
-    swatch(hunterPage, "Color", htext.x, htext:row(SWATCH), function() return H().color end)
-    swatch(hunterPage, "Color when low", htext.x, htext:row(SWATCH), function() return H().lowColor end)
-    slider(hunterPage, "Low is under", htext.x, htext:row(SLIDER), 1, 2000,
-        function() return H().low end, function(v) H().low = v end)
-    htext:close()
-
-    ----------------------------------------------------------------------------------
     -- Warlock page: the soul shards in your bags
     ----------------------------------------------------------------------------------
     local W = function() return db.warlock end
@@ -6555,6 +6501,8 @@ local function buildConfig()
     swatch(colorPage, "Health", hcard.x, hcard:row(SWATCH), function() return P().health end)
     swatch(colorPage, "Experience", hcard.x, hcard:row(SWATCH), function() return P().experience end)
     swatch(colorPage, "Honor", hcard.x, hcard:row(SWATCH), function() return P().honor end)
+    swatches(hcard, { { "unhappy", "Pet: unhappy" }, { "content", "Pet: content" }, { "happy", "Pet: happy" } },
+        function() return P().happiness end)
     swatches(hcard, { { "hostile", "Hostile" }, { "neutral", "Neutral" }, { "friendly", "Friendly" } },
         function() return P().reaction end)
     hcard:close()
@@ -6841,6 +6789,45 @@ local function buildConfig()
         note:SetPoint("TOPLEFT", 16, lowest - 4)
         note:SetWidth(408)
         note:SetJustifyH("LEFT")
+    end
+
+    -- Hunter dialogs: the pet bar's happiness dot, the power bar's ammo count
+    local SPOTS9 = { { "Top left", "TOPLEFT" }, { "Top", "TOP" }, { "Top right", "TOPRIGHT" }, { "Left", "LEFT" },
+        { "Center", "CENTER" }, { "Right", "RIGHT" }, { "Bottom left", "BOTTOMLEFT" }, { "Bottom", "BOTTOM" },
+        { "Bottom right", "BOTTOMRIGHT" } }
+    for _, spec in ipairs({ { "happyDialog", "Happiness dot", "pethealth", "happy", 330 },
+        { "ammoDialog", "Ammunition count", "power", "ammo", 600 } }) do
+        local d = ns.ui.Window(nil, 230, spec[5], spec[2])
+        d:SetParent(cfg)
+        d:ClearAllPoints()
+        d:SetPoint("TOPLEFT", cfg, "TOPRIGHT", 12, 0)
+        d:Hide()
+        ns[spec[1]] = d
+        -- another bar picked: hidden, the widgets read the defaults
+        local O = function() return cur()[spec[4]] or DEFAULTS.regular.bars[spec[3]][spec[4]] end
+        ry = -48
+        check(d, "Show", 16, rrow(ROW), function() return O().show end, function(v) O().show = v end)
+        dropdown(d, "Point on the bar", 16, rrow(DROP), SPOTS9, function() return O().point end,
+            function(v) O().point = v end, textPreview)
+        slider(d, "X", 16, rrow(SLIDER), -200, 200, function() return O().x end, function(v) O().x = v end)
+        slider(d, "Y", 16, rrow(SLIDER), -100, 100, function() return O().y end, function(v) O().y = v end)
+        slider(d, spec[4] == "happy" and "Dot size" or "Size", 16, rrow(SLIDER), spec[4] == "happy" and 2 or 6, 32,
+            function() return O().size end, function(v) O().size = v end)
+        if spec[4] == "ammo" then
+            dropdown(d, "Font", 16, rrow(DROP), FONTS, function() return O().font end, function(v) O().font = v end,
+                fontPreview)
+            check(d, "Outline", 16, rrow(ROW), function() return O().outline end, function(v) O().outline = v end)
+            swatch(d, "Ammo color", 16, rrow(SWATCH), function() return O().color end)
+            swatch(d, "Ammo color when low", 16, rrow(SWATCH), function() return O().lowColor end)
+            slider(d, "Low is under", 16, rrow(SLIDER), 1, 2000, function() return O().low end,
+                function(v) O().low = v end)
+        end
+        local n = label(d, spec[4] == "happy" and "Hunters: red unhappy, orange content, green happy "
+            .. "(the colors are on the Colors page)." or "Hunters: the ammunition in your ammo slot.",
+            "GameFontDisableSmall")
+        n:SetPoint("TOPLEFT", 16, rrow(40))
+        n:SetWidth(198)
+        n:SetJustifyH("LEFT")
     end
 
     -- Mana regen spinner dialog (the setting itself lives with the other page's, db.other.fsr)

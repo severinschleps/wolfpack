@@ -1592,7 +1592,7 @@ assert(prof().nameplate.gap == 4 and prof().nameplate.x == -150 and prof().namep
 assert(prof().regular.gap == 30 and prof().regular.x == 0 and prof().regular.bars.health.width == 220, "regular untouched")
 -- every sidebar entry is really there, opens its page, and that page has settings on it
 for _, name in ipairs({ "Combat Display", "Nameplates", "Buff check", "Other",
-    "Hunter", "Mage", "Rogue", "Shaman", "Warlock" }) do
+    "Mage", "Rogue", "Shaman", "Warlock" }) do
     local b = byText(name)
     assert(b, "sidebar entry missing: " .. name)
     b._scripts.OnClick(b, "LeftButton")
@@ -2809,62 +2809,60 @@ prof().regular.bars.flight.show = false
 
 S.faction = "Horde"
 
--- Hunter: what is in the ammo slot, and the face the pet is pulling
+-- Hunter: the ammo count on the power bar, a happiness dot on the pet bar (the old panel is gone)
 S.unitClasses = nil -- the group test above left everyone else's class behind
 login("HUNTER", 2)
-local ho = prof().hunter
-ho.show, ho.locked, ho.ammo, ho.pet, ho.size, ho.gap = true, true, true, true, 30, 4
-ho.grow, ho.radius, ho.low, ho.showCount = "right", 25, 200, true
 S.ammoID, S.ammoCount, S.ammoIcon, S.happiness, S.petHP = 2512, 143, 4321, 3, 400
+fire("UNIT_PET", "player")
 ns.hnEv._scripts.OnEvent(ns.hnEv, "BAG_UPDATE")
 SlashCmdList.WOLFPACKADDON("pet") -- the probe walks every route without blowing up
 assert(not ns.errored, "the pet probe runs clean")
 SlashCmdList.WOLFPACKADDON("loot") -- and so does the one that asks about the encounter journal
 assert(not ns.errored, "the loot probe runs clean")
-local ammo, pet = ns.hn.entries[1], ns.hn.entries[2]
-assert(ns.hn.panel:IsShown() and ammo:IsShown() and pet:IsShown(), "both icons up for a hunter")
-assert(ammo.icon._tex == 4321 and ammo.text._text == 143, "the ammo, with how many you carry")
-assert(ammo.text._color[1] == 1 and ammo.text._color[2] == 0.4, "143 is under 200, so it reads low")
-assert(ammo.icon.iconMask and ammo.mask._tex:find("i25"), "and its corners are rounded")
-assert(pet.icon._tex:find("Happiness") and pet.icon._coords[1] == 2 * 0.1875, "a happy pet's face")
-S.happiness = 1
-ns.hnEv._scripts.OnEvent(ns.hnEv, "UNIT_HAPPINESS")
-assert(pet.icon._coords[1] == 0, "an unhappy one's")
-S.petHP = nil
-ns.hnEv._scripts.OnEvent(ns.hnEv, "UNIT_PET")
-assert(not pet:IsShown(), "no pet, no face")
-ho.ammo = false
-ns.hnEv._scripts.OnEvent(ns.hnEv, "BAG_UPDATE")
-assert(not ns.hn.entries[1]:IsShown(), "and the ammo can be switched off")
--- this build answers on C_PetInfo, and hands back a table on some days
-local keptHappy, keptInfo = GetPetHappiness, C_PetInfo
+S.am = prof().regular.bars.power.ammo
+assert(not ns.hn.panel:IsShown(), "no panel any more")
+S.at = fr.power.ammoText
+assert(S.at:IsShown() and S.at._text == 143 and S.at._point[1] == "RIGHT" and S.at._point[2] == fr.power,
+    "143 arrows, on the power bar's right")
+assert(S.at._color[1] == 1 and S.at._color[2] == 0.4, "under 200: the low color")
+S.am.point, S.am.x, S.am.size = "CENTER", 5, 14; ns.hnEv._scripts.OnEvent(ns.hnEv, "BAG_UPDATE")
+assert(S.at._point[1] == "CENTER" and S.at._point[4] == 5 and S.at._font[2] == 14, "its spot and size")
+S.dot = fr.pethealth.happyDot
+assert(S.dot and S.dot:IsShown() and S.dot.tex._vertex[2] == 0.85 and S.dot.tex._masks[S.dot.mask],
+    "a happy pet: a green round dot on its bar")
+S.happiness = 1; ns.hnEv._scripts.OnEvent(ns.hnEv, "UNIT_HAPPINESS")
+assert(S.dot.tex._vertex[1] == 0.9 and S.dot.tex._vertex[2] == 0.2, "unhappy: red")
+S.happiness = 2; ns.hnEv._scripts.OnEvent(ns.hnEv, "UNIT_HAPPINESS")
+assert(S.dot.tex._vertex[2] == 0.6, "content: orange")
+prof().regular.bars.pethealth.happy.x = -3; ns.hnEv._scripts.OnEvent(ns.hnEv, "UNIT_HAPPINESS")
+assert(S.dot._point[3] == "LEFT" and S.dot._point[4] == -3, "where you put it")
+-- other builds: C_PetInfo, sometimes a table; Blizzard's indicator as a last resort; or nothing
+S.keptHappy, S.keptInfo = GetPetHappiness, C_PetInfo
 GetPetHappiness, S.happyTable = nil, true
-S.petHP, ho.ammo = 400, true
 ns.hnEv._scripts.OnEvent(ns.hnEv, "UNIT_HAPPINESS")
-assert(ns.hn.entries[2]:IsShown(), "C_PetInfo stands in for the call that went away")
-S.happyTable = nil
--- and Blizzard's own indicator will say it outright when nothing else answers
-C_PetInfo = nil
+assert(S.dot:IsShown(), "C_PetInfo stands in for the call that went away")
+S.happyTable, C_PetInfo = nil, nil
 PetFrameHappiness = new()
 PetFrameHappiness.GetHappinessStats = function() return 3 end
-local face = new()
-face.GetObjectType = function() return "Texture" end
-face.GetAtlas = function() return "UI-PetHappiness-Content" end
-PetFrameHappiness._regions = { face }
 ns.hnEv._scripts.OnEvent(ns.hnEv, "UNIT_HAPPINESS")
-assert(ns.hn.entries[2]:IsShown(), "the indicator frame stands in as well")
-assert(pet.icon._atlas == "UI-PetHappiness-Content",
-    "and the face it is wearing is copied, not cut out of the old file by hand")
+assert(S.dot:IsShown() and S.dot.tex._vertex[2] == 0.85, "the indicator frame stands in as well")
 PetFrameHappiness = nil
-S.petHP, ho.ammo = 400, true -- with a pet out, so the face would be drawn if it could be
+S.wasOpen, ns.configOpen = ns.configOpen, false -- with the options open it would show, to place it
 ns.hnEv._scripts.OnEvent(ns.hnEv, "UNIT_HAPPINESS")
-assert(not (ns.hn.entries[2] and ns.hn.entries[2]:IsShown()), "no happiness here, no face")
-C_PetInfo = keptInfo
-GetPetHappiness = keptHappy
-S.ammoID, S.happiness = nil, nil
+assert(not S.dot:IsShown(), "no happiness here, no dot")
+ns.configOpen = S.wasOpen
+C_PetInfo, GetPetHappiness = S.keptInfo, S.keptHappy
+S.am.show = false; ns.hnEv._scripts.OnEvent(ns.hnEv, "BAG_UPDATE")
+assert(not S.at:IsShown(), "the ammo can be switched off")
+-- an older profile's Hunter page settings move over, once
+WolfpackAddonDB.profiles.OldHunter = { hunter = { show = true, ammo = false, pet = true, fontSize = 16, low = 50 } }
+ns.useProfile("OldHunter")
+assert(prof().regular.bars.power.ammo.show == false and prof().regular.bars.power.ammo.size == 16
+    and prof().regular.bars.power.ammo.low == 50 and prof().regular.bars.pethealth.happy.show, "moved over")
+S.ammoID, S.happiness, S.petHP = nil, nil, nil
 login("ROGUE", 3)
 ns.hnEv._scripts.OnEvent(ns.hnEv, "BAG_UPDATE")
-assert(not ns.hn.panel:IsShown(), "nothing at all for anyone else")
+assert(not fr.power.ammoText:IsShown(), "no ammo count for anyone else")
 
 -- Mage: the conjured food and water in the bags, best rank only, on its own panel
 S.unitClasses = nil -- the group test above left everyone else's class behind
