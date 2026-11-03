@@ -862,6 +862,10 @@ UnitHealth = S.realHP
 S.units.targettarget = nil; fire("UNIT_TARGET", "target")
 assert(not S.tf:IsShown() and ef._h == 18, "no target of target: enemy health takes it all back")
 S.units.targettarget = true
+assert(S.tf.tag_name:IsShown(), "its name, by default")
+S.TT.tagName = false; fire("UNIT_TARGET", "target")
+assert(not S.tf.tag_name:IsShown(), "name hidden")
+S.TT.tagName = true
 S.TT.anchor = "stack"; fire("UNIT_TARGET", "target")
 assert(S.tf:IsShown() and S.tf._point[2] == WolfpackAddonFrame, "in the stack like any other bar")
 S.TT.show, S.TT.anchor = false, "right"
@@ -1665,6 +1669,18 @@ byText("Colors")._scripts.OnClick(byText("Colors"), "LeftButton")
 assert(ns.pages.colors:IsShown() and ns.swatches["Mana"]:IsShown() and ns.swatches["Warrior"]
     and ns.swatches["Channeling"] and ns.swatches["Hostile"], "class, power, cast and standing colors")
 byText("Combat Display")._scripts.OnClick(byText("Combat Display"), "LeftButton")
+byText("Target of Target")._scripts.OnClick(byText("Target of Target"), "LeftButton")
+assert(byText("Level and name"):IsShown(), "target of target: level and name window")
+S.totNameCheck = nil
+for _, f in ipairs(created) do
+    if rawget(f, "Text") and f.Text._text == "Show name" and f._parent == ns.pages.combat then S.totNameCheck = f end
+end
+assert(S.totNameCheck and S.totNameCheck:IsShown(), "and Show name right there")
+S.totNameCheck._checked = false; S.totNameCheck._scripts.OnClick(S.totNameCheck)
+assert(prof().regular.bars.tothealth.tagName == false, "ticked off: name hidden")
+prof().regular.bars.tothealth.tagName = true
+byText("Health")._scripts.OnClick(byText("Health"), "LeftButton")
+assert(not S.totNameCheck:IsShown(), "only for target of target")
 local sb = byText("Status and PvP icons")
 byText("Health")._scripts.OnClick(byText("Health"), "LeftButton")
 sb._scripts.OnClick(sb, "LeftButton")

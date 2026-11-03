@@ -4935,6 +4935,9 @@ local function buildConfig()
     local sits = dropdown(barsPage, "Sits", only.x, only:row(0), function() return SITS[selected] or {} end,
         function() return cur().anchor end, function(v) cur().anchor = v end, textPreview)
     ns.sitsMenu = sits
+    -- target of target: its name at a click (the rest of it is in the Level and name window)
+    local totName = check(barsPage, "Show name", only.x, only:row(0) - ROW - 2 * BUTTON,
+        function() return cur().tagName end, function(v) cur().tagName = v end)
     local resCheck = check(barsPage, "Show its resource", only.x, only:row(0),
         function() return cur().resource end, function(v) cur().resource = v end)
     local resButton = button(barsPage, "Resource settings", 186, only.x, only:row(0) - ROW, function()
@@ -5022,6 +5025,7 @@ local function buildConfig()
         -- hung: below takes the host's width, beside it the host's height
         local hungOn = SITS[selected] and mode == "regular" and cur().anchor or "stack"
         sits:SetShown(SITS[selected] ~= nil and mode == "regular")
+        totName:SetShown(selected == "tothealth")
         widthSlider:SetShown(not fixed and hungOn ~= "below")
         heightSlider:SetShown(not fixed and (hungOn == "stack" or hungOn == "below"))
         healCheck:SetShown(selected == "health")
