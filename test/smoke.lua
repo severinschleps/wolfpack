@@ -1702,6 +1702,21 @@ ns.configOpen = S.wasOpen
     P.tagAttach = "left"
     ns.np.all()
     assert(f.tag_name._point[4] == 8, "the level on the left: the name moves right")
+    -- the PvP tag on the name counts too: level right (16) and a 20 px tag right of the name, 2 off
+    P.tagAttach = "right"
+    S.pvpKept, S.openKept = {}, ns.configOpen
+    for k, v in pairs(P.pvpIcon) do S.pvpKept[k] = v end
+    P.pvpIcon.show, P.pvpIcon.anchorTo, P.pvpIcon.point, P.pvpIcon.x, P.pvpIcon.y = true, "name", "RIGHT", 2, 0
+    ns.configOpen = true -- placing: the tag shows
+    ns.np.all()
+    assert(f.pvpIcon:IsShown() and f.tag_name._point[4] == -19, "level and PvP tag on the right: the row centered")
+    P.pvpIcon.point, P.pvpIcon.x = "LEFT", -2
+    ns.np.all()
+    assert(f.tag_name._point[4] == 3, "tag on the left, level on the right: (22 - 16) / 2")
+    P.pvpIcon.anchorTo = "bar"
+    ns.np.all()
+    assert(f.tag_name._point[4] == -8, "a tag on the bar is not part of the row")
+    P.pvpIcon, ns.configOpen = S.pvpKept, S.openKept
     P.nameAnchor, P.tagAttach = "LEFT", "right"
     ns.np.all()
     assert(f.tag_name._point[2] == f and f.tag_name._point[4] == P.nameX, "a name on the left keeps its spot")

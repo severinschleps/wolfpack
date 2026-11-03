@@ -1658,17 +1658,32 @@ function ns.layoutTag(f)
             round(t.bg, t.mask, bg.radius == "pill" and math.huge or bg.radius, h * 2, h)
         end
     end
-    -- the level left or right of a centered name: the two are one unit, centered together. The
-    -- name moves over by half of what the level adds (its gap, its box).
-    if side and side[4] == 0 and c.tagLevel and ns.justify(c.nameAnchor) == "CENTER" then
+    ns.centerTag(f)
+end
+
+-- A centered name and what hangs beside it (the level, the PvP tag on the name or on that
+-- level) are one row, centered as a whole: the name moves by half of what each side adds.
+function ns.centerTag(f)
+    local c, n = db[f.mode].bars[f.key], f.tag_name
+    if not (n and n:IsShown()) or ns.justify(c.nameAnchor) ~= "CENTER" then return end
+    local left, right = 0, 0
+    local side = ns.TAG_SIDES[c.tagAttach]
+    local beside = side and side[4] == 0 and c.tagLevel and f.tag_level:IsShown() and side[3] or nil
+    if beside then
         local lw = f.tag_level:GetStringWidth()
-        if readable(lw) then
-            local adds = c.tagX + lw + 2 * c.tagBg.pad
-            local n = f.tag_name
-            n:ClearAllPoints()
-            n:SetPoint(c.nameAnchor, f, c.nameAnchor, c.nameX - side[3] * adds / 2, c.nameY)
-        end
+        if not readable(lw) then return end
+        local adds = c.tagX + lw + 2 * c.tagBg.pad
+        if beside > 0 then right = right + adds else left = left + adds end
     end
+    local pv, b = c.pvpIcon, f.pvpIcon
+    if pv and b and b:IsShown() then
+        local dir = ns.justify(pv.point) == "RIGHT" and 1 or ns.justify(pv.point) == "LEFT" and -1 or 0
+        local on = pv.anchorTo == "name" or (pv.anchorTo == "level" and beside == dir)
+        if on and dir > 0 then right = right + b:GetWidth() + pv.x end
+        if on and dir < 0 then left = left + b:GetWidth() - pv.x end
+    end
+    n:ClearAllPoints()
+    n:SetPoint(c.nameAnchor, f, c.nameAnchor, c.nameX + (left - right) / 2, c.nameY)
 end
 
 ------------------------------------------------------------------------------------------
@@ -2072,6 +2087,7 @@ function ns.layoutBadges(f)
             end
         end
     end
+    if f.tag_name then ns.centerTag(f) end -- a PvP tag beside the name widens the row
 end
 
 ------------------------------------------------------------------------------------------
