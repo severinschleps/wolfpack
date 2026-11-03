@@ -166,7 +166,7 @@ local function layoutDefaults(show, x, y, gap, width, h1, h2, h3, h4, h5, h6, h7
     local l = {
         x = x, y = y, gap = gap, grow = "down", -- "up": the group's bottom edge stays put instead
         order = { "health", "enemyhealth", "tothealth", "power", "combo", "druidmana", "castbar", "targetcast", "pethealth",
-            "swing", "totems", "absorb", "flight", "experience", "ammo" },
+            "swing", "totems", "absorb", "flight", "experience", "ammo", "enchantmh", "enchantoh", "durability" },
         bars = {
             health = barDefaults(show, width, h1, 0.2, 0.8, 0.2, show),
             power = barDefaults(show, width, h2, 1, 0.85, 0.1, show),
@@ -182,6 +182,10 @@ local function layoutDefaults(show, x, y, gap, width, h1, h2, h3, h4, h5, h6, h7
             experience = barDefaults(false, width, h2, 0.58, 0, 0.55, true),
             -- hunters: the ammo in your bags; filled as far as your quiver / ammo pouch is
             ammo = barDefaults(show, 60, h2, 0.67, 0.83, 0.45, true),
+            -- out of combat: what is left of each weapon's poison / imbue, and your most worn item
+            enchantmh = barDefaults(false, width, h2, 0.35, 0.8, 0.45, true),
+            enchantoh = barDefaults(false, width, h2, 0.35, 0.7, 0.8, true),
+            durability = barDefaults(false, width, h2, 0.85, 0.7, 0.3, true),
             -- the color is picked from what is being cast, so its own is only a fallback
             targetcast = barDefaults(false, width, h5, 0.8, 0.3, 0.3, true),
             -- your target's health; its resource (mana, rage...) always sits right under it
@@ -287,6 +291,12 @@ local function layoutDefaults(show, x, y, gap, width, h1, h2, h3, h4, h5, h6, h7
     l.bars.druidmana.colorMode = "power"
     l.bars.castbar.icon, l.bars.castbar.iconSide = true, "left"
     l.bars.targetcast.icon, l.bars.targetcast.iconSide = true, "left"
+    -- the item's icon at one end: its corners (0, 12, 25, 50: as ns.ICON_MASKS) and zoom (% cut
+    -- from each side); flash: the bar flashes once it is empty
+    for _, key in ipairs({ "enchantmh", "enchantoh", "durability" }) do
+        local b = l.bars[key]
+        b.icon, b.iconSide, b.iconRadius, b.iconZoom, b.flash = true, "left", 0, 8, true
+    end
     -- what your target is casting. "Auto color": one color each for a cast you cannot stop, a
     -- heal, and everything else. autoSet: useProfile has moved an older profile, which always
     -- colored by kind, onto auto (once, so picking another mode sticks)
@@ -809,6 +819,10 @@ local BARS = {
             return UnitHealth(unit), UnitHealthMax(unit)
         end,
     },
+    -- only out of combat (and while placing the bars); see ns.wb
+    enchantmh = { label = "Main Hand Enchant", state = function() return ns.wb.shown("enchantmh"), 1 end },
+    enchantoh = { label = "Off Hand Enchant", state = function() return ns.wb.shown("enchantoh"), 1 end },
+    durability = { label = "Durability", state = function() return ns.wb.shown("durability"), 1 end },
     druidmana = {
         label = "Druid Mana",
         -- in caster form the power bar already is mana
@@ -1192,11 +1206,19 @@ local function layoutBar(f, n, width, over)
     width = width or c.width
     f.width = width
     local r, g, b, br, bg, bb, ba = barColors(f, c)
-    -- Cast bar spell icon: a square at one end, inside the bar's width. Both cast bars have one.
+    -- Cast bar spell icon: a square at one end, inside the bar's width. Both cast bars have one,
+    -- and the weapon enchant and durability bars, theirs with corners and zoom.
     local lead, iconSpace = 0, 0
-    if f.key == "castbar" or f.key == "targetcast" then
+    if f.key == "castbar" or f.key == "targetcast" or ns.wb.KEYS[f.key] then
         f.icon = f.icon or f:CreateTexture(nil, "ARTWORK")
-        f.icon:SetTexCoord(0.08, 0.92, 0.08, 0.92) -- trim the icon's built-in border
+        if ns.wb.KEYS[f.key] then
+            f.iconMask = f.iconMask or newMask(f)
+            f.iconMask:SetAllPoints(f.icon)
+            local z = (c.iconZoom or 8) / 100
+            ns.iconCorners(f.icon, f.iconMask, c.iconRadius, { z, 1 - z, z, 1 - z })
+        else
+            f.icon:SetTexCoord(0.08, 0.92, 0.08, 0.92) -- trim the icon's built-in border
+        end
         f.icon:SetSize(c.height, c.height)
         f.icon:ClearAllPoints()
         f.icon:SetPoint(c.iconSide == "right" and "RIGHT" or "LEFT", f)
@@ -1550,6 +1572,7 @@ function ns.fill(f)
     if f.key == "castbar" then return fillCast(f) end
     if f.key == "targetcast" then return ns.fillTargetCast(f) end
     if f.key == "flight" then return fillFlight(f) end
+    if ns.wb.KEYS[f.key] then return ns.wb.fill(f) end
     if f.key == "swing" then return fillSwing(f) end
     if f.key == "totems" then -- the bar drains itself from the duration object, in C
         local c = db[f.mode].bars[f.key]
@@ -6400,6 +6423,118 @@ for _, e in ipairs({ "UNIT_INVENTORY_CHANGED", "PLAYER_ENTERING_WORLD", "PLAYER_
 end
 
 ------------------------------------------------------------------------------------------
+-- Weapon enchant and durability bars on the Combat Display, out of combat only: what is left
+-- of each hand's poison or imbue (a rogue or shaman sees an empty bar for a bare weapon, anyone
+-- else only while something is on it), and the most worn item you have on. An empty bar flashes.
+-- No call says how long an enchant lasts when fresh, so the longest time left seen since it
+-- went on stands in for it.
+------------------------------------------------------------------------------------------
+ns.wb = { KEYS = { enchantmh = 1, enchantoh = 2, durability = true } }
+ns.wb.seen = {} -- [hand] = { max, last } in ms
+ns.wb.CAN = { ROGUE = true, SHAMAN = true }
+
+-- a hand's weapon: { icon, ms left (0: nothing on it) }, or nil (none; an off hand that is not a weapon)
+function ns.wb.hand(i)
+    local slot = i == 1 and 16 or 17
+    local okI, icon = pcall(GetInventoryItemTexture, "player", slot)
+    if not (okI and icon) then return nil end
+    if i == 2 then
+        local okC, classID = pcall(function()
+            local get = (C_Item and C_Item.GetItemInfoInstant) or GetItemInfoInstant
+            return select(6, get(GetInventoryItemID("player", 17)))
+        end)
+        if okC and classID and classID ~= 2 then return nil end -- 2: a weapon
+    end
+    local ok, hasMain, mainMs, _, _, hasOff, offMs = pcall(GetWeaponEnchantInfo)
+    local has, ms = hasOff, offMs
+    if i == 1 then has, ms = hasMain, mainMs end -- (not `and/or`: a bare main hand is false)
+    ms = (ok and has and type(ms) == "number" and ms > 0) and ms or 0
+    local st = ns.wb.seen[i] or {}
+    ns.wb.seen[i] = st
+    if ms == 0 then st.max = nil
+    elseif not st.max or ms > (st.last or 0) + 1000 then st.max = ms end -- (put on again)
+    st.last = ms
+    return { icon = icon, ms = ms, max = st.max or 1 }
+end
+
+-- the most worn item you have on: { cur, max, icon }, or nil when nothing wears out
+function ns.wb.worn()
+    local low
+    for slot = 1, 19 do
+        local ok, v, max = pcall(GetInventoryItemDurability, slot)
+        if ok and type(v) == "number" and type(max) == "number" and max > 0
+            and (not low or v / max < low.cur / low.max) then
+            low = { cur = v, max = max, slot = slot }
+        end
+    end
+    if low then
+        local ok, icon = pcall(GetInventoryItemTexture, "player", low.slot)
+        low.icon = ok and icon or nil
+    end
+    return low
+end
+
+function ns.wb.shown(key)
+    if ns.previewing() then return true end
+    if ns.inCombat then return false end
+    if key == "durability" then return ns.wb.worn() ~= nil end
+    local h = ns.wb.hand(ns.wb.KEYS[key])
+    return (h and (h.ms > 0 or ns.wb.CAN[class])) and true or false
+end
+
+function ns.wb.clock(ms)
+    local sec = math.floor(ms / 1000)
+    if sec >= 3600 then return ("%dh %dm"):format(math.floor(sec / 3600), math.floor(sec % 3600 / 60)) end
+    if sec >= 60 then return ("%dm"):format(math.ceil(sec / 60)) end
+    return sec .. "s"
+end
+
+function ns.wb.fill(f)
+    local v, max, text, icon
+    if f.key == "durability" then
+        local d = ns.wb.worn()
+        v, max, icon = d and d.cur or 1, d and d.max or 1, d and d.icon
+        text = d and (math.floor(100 * v / max + 0.5) .. "%") or BARS.durability.label
+    else
+        local h = ns.wb.hand(ns.wb.KEYS[f.key])
+        if h then
+            v, max, icon, text = h.ms, h.max, h.icon, h.ms > 0 and ns.wb.clock(h.ms) or "None"
+        else -- placing the bars with no weapon there: a full bar and its name
+            v, max, text = 1, 1, BARS[f.key].label
+        end
+    end
+    f.segs[1]:SetMinMaxValues(0, max)
+    f.segs[1]:SetValue(v)
+    f.text:SetText(text)
+    f.icon:SetTexture(icon or 134400) -- the question mark
+    f.wbEmpty = v <= 0
+    if not f.wbEmpty then f:SetAlpha(1) end
+end
+
+-- once a second: the timers and the durability; every frame: an empty bar's flash. A bar
+-- coming or going (an enchant put on, combat over) re-lays the stack.
+ns.wb.ticker = CreateFrame("Frame")
+ns.wb.ticker.since = 0
+ns.wb.ticker:SetScript("OnUpdate", function(self, elapsed)
+    if not db then return end
+    self.t = (self.t or 0) + elapsed
+    for key in pairs(ns.wb.KEYS) do
+        local f = frames[key]
+        if f:IsShown() and f.wbEmpty and db.regular.bars[key].flash then
+            f:SetAlpha(0.25 + 0.75 * math.abs(math.cos(self.t * 3)))
+        end
+    end
+    self.since = self.since + elapsed
+    if self.since < 1 then return end
+    self.since = 0
+    for key in pairs(ns.wb.KEYS) do
+        local f, c = frames[key], db.regular.bars[key]
+        if c.show and f:IsShown() ~= BARS[key].state() then return changed() end
+        if f:IsShown() then safe(ns.fill, f) end
+    end
+end)
+
+------------------------------------------------------------------------------------------
 -- Options window (/cpd)
 ------------------------------------------------------------------------------------------
 -- section = sidebar entry, sub = tab inside Nameplates, mode = which bar layout is being edited
@@ -7290,7 +7425,7 @@ end
 function ns.toggleDialog(d)
     local show = not d:IsShown()
     for _, o in ipairs({ ns.resDialog, ns.tagDialog, ns.auraDialog, ns.textDialog, ns.iconDialog,
-        ns.statusDialog, ns.fsrDialog, ns.happyDialog, ns.drinkDialog, ns.eatDialog }) do o:Hide() end
+        ns.statusDialog, ns.fsrDialog, ns.happyDialog, ns.drinkDialog, ns.eatDialog, ns.wbDialog }) do o:Hide() end
     d:SetShown(show)
 end
 
@@ -7744,6 +7879,9 @@ local function buildConfig()
         function() ns.toggleDialog(ns.eatDialog) end)
     local happyButton = button(barsPage, "Happiness dot", 186, only.x, only:row(0) - DROP - 4,
         function() ns.toggleDialog(ns.happyDialog) end)
+    -- the weapon enchant and durability bars: their icon and flash, in a window of their own
+    local wbButton = button(barsPage, "Icon and flash", 186, only.x, only:row(0),
+        function() ns.toggleDialog(ns.wbDialog) end)
     local castIcon = check(barsPage, "Show spell icon", only.x, only:row(ROW),
         function() return cur().icon end, function(v) cur().icon = v end)
     local castSide = button(barsPage, "", 186, only.x, only:row(BUTTON), function()
@@ -7801,6 +7939,8 @@ local function buildConfig()
         for _, row in ipairs(totemRows) do
             for _, w in ipairs(row) do w:SetShown(selected == "totems") end
         end
+        wbButton:SetShown(ns.wb.KEYS[selected] and mode == "regular" and true or false)
+        if not (ns.wb.KEYS[selected] and section == "combat") then ns.wbDialog:Hide() end
         castIcon:SetShown(selected == "castbar" or selected == "targetcast")
         castSide:SetShown((selected == "castbar" or selected == "targetcast")
             and cur().icon or false)
@@ -7819,6 +7959,11 @@ local function buildConfig()
                 .. "anything else. Whether it can "
                 .. "be stopped the game tells us outright; whether it heals is matched by name, "
                 .. "from the list of heals a mob actually casts.")
+        elseif ns.wb.KEYS[selected] then
+            onlyNote:SetText("\n\nOnly out of combat. " .. (selected == "durability"
+                and "Your most worn item: its icon, and how much of it is left."
+                or "The weapon's icon and how long its poison or imbue lasts. A rogue or shaman sees "
+                .. "an empty, flashing bar for a bare weapon; anyone else only while one is on."))
         elseif selected == "flight" then
             onlyNote:SetText("Shows only while a griffin has you. Nothing in the game will say how "
                 .. "long a route takes, so the first time you fly one it is timed and written "
@@ -9352,6 +9497,34 @@ local function buildConfig()
     nnote:SetPoint("TOPLEFT", 16, ry)
     nnote:SetWidth(408)
     nnote:SetJustifyH("LEFT")
+
+    -- Weapon enchant and durability bars: the icon's side, corners and zoom, and the empty flash
+    do
+        local d = ns.ui.Window(nil, 230, 340, "Icon and flash")
+        d:SetParent(cfg)
+        d:ClearAllPoints()
+        d:SetPoint("TOPLEFT", cfg, "TOPRIGHT", 12, 0)
+        d:Hide()
+        ns.wbDialog = d
+        -- another bar picked: hidden, the widgets read the defaults
+        local O = function() return ns.wb.KEYS[selected] and cur() or DEFAULTS.regular.bars.enchantmh end
+        ry = -48
+        check(d, "Show the icon", 16, rrow(ROW), function() return O().icon end, function(v) O().icon = v end)
+        ns.wbMenus = {
+            dropdown(d, "Icon side", 16, rrow(DROP), { { "Left", "left" }, { "Right", "right" } },
+                function() return O().iconSide end, function(v) O().iconSide = v end, textPreview),
+            dropdown(d, "Icon corners", 16, rrow(DROP), { { "None (square)", 0 }, { "Slightly rounded", 12 },
+                { "Rounded", 25 }, { "Circle", 50 } }, function() return O().iconRadius end,
+                function(v) O().iconRadius = v end, textPreview),
+        }
+        slider(d, "Zoom (% cut from each side)", 16, rrow(SLIDER), 0, 30, function() return O().iconZoom end,
+            function(v) O().iconZoom = v end)
+        check(d, "Flash when empty", 16, rrow(ROW), function() return O().flash end, function(v) O().flash = v end)
+        local n = label(d, "Empty: the enchant is gone, or the item is broken.", "GameFontDisableSmall")
+        n:SetPoint("TOPLEFT", 16, rrow(30))
+        n:SetWidth(198)
+        n:SetJustifyH("LEFT")
+    end
 
     for _, page in pairs(ns.pages) do ns.foldColumns(page, COL, TOP) end
     ns.configHeight = math.max(-(ns.sidebarBottom or 0) + 24, 640)

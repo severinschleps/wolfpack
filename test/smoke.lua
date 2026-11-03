@@ -2799,7 +2799,7 @@ assert(#bad == 32 and bp.evil == nil and bp.locked == true, "unknown key dropped
 assert(bp.other.hover.bar1 and bp.other.hover.nope == nil and bp.other.hover.bar2 == nil, "hover: known and true only")
 assert(bp.other.combatFont == "", "unknown combat font path refused")
 assert(bp.regular.gap == 2 and bp.regular.x == 0, "out-of-range numbers defaulted")
-assert(bp.regular.order[1] == "health" and bp.regular.order[2] == "castbar" and #bp.regular.order == 15, "order repaired")
+assert(bp.regular.order[1] == "health" and bp.regular.order[2] == "castbar" and #bp.regular.order == 18, "order repaired")
 local ns2 = bp.plates.bars.power.stops
 assert(#ns2 == 2 and ns2[1].pos == 10 and ns2[2].pos == 90 and ns2[1].color[1] == 1, "gradient points checked")
 local hb2 = bp.regular.bars.health
@@ -2903,7 +2903,7 @@ for _, m in ipairs({ "regular", "plates" }) do
     for _, k in ipairs(prof()[m].order) do seen[k] = true end
     assert(seen.health and seen.power and seen.combo and seen.druidmana and seen.castbar and seen.pethealth
         and seen.swing and seen.totems and seen.absorb and seen.flight and seen.targetcast
-        and seen.enemyhealth and #prof()[m].order == 15, "order intact")
+        and seen.enemyhealth and #prof()[m].order == 18, "order intact")
 end
 
 -- Totems: four element segments, each draining on its own; the bar is shaman-only and
@@ -3245,6 +3245,59 @@ S.mainMs, S.offMs = 30 * 60000, 30 * 60000
 ns.weEv._scripts.OnEvent(ns.weEv, "UNIT_INVENTORY_CHANGED")
 assert(not rp.entries[1]:IsShown(), "both fresh: nothing shown at all")
 S.weapons, ro.show = nil, false
+
+-- Weapon enchant and durability bars on the Combat Display: out of combat only, the time left
+-- on each hand, your most worn item; an empty bar flashes
+do
+    local R = prof().regular.bars
+    R.enchantmh.show, R.enchantoh.show, R.durability.show = true, true, true
+    S.weapons = { [16] = 501, [17] = 502, [5] = 505 }
+    S.mainEnchant, S.offEnchant, S.mainMs, S.offMs = true, false, 30 * 60000, 0
+    S.dur = { [5] = { 20, 100 }, [16] = { 90, 100 } }
+    GetInventoryItemDurability = function(slot) local d = S.dur[slot]; if d then return d[1], d[2] end end
+    C_Item.GetItemInfoInstant = function() return 1, nil, nil, nil, nil, 2 end -- a weapon
+    fire("UNIT_MAXPOWER")
+    local mh, oh, du = fr.enchantmh, fr.enchantoh, fr.durability
+    assert(mh:IsShown() and mh.segs[1]._value == 30 * 60000 and mh.segs[1]._max == 30 * 60000
+        and mh.text._text == "30m" and mh.icon._tex == 501, "main hand: thirty minutes, its weapon's icon")
+    assert(oh:IsShown() and oh.segs[1]._value == 0 and oh.text._text == "None" and oh.wbEmpty, "a rogue's bare off hand: empty")
+    assert(du:IsShown() and du.text._text == "20%" and du.icon._tex == 505, "durability: the most worn item")
+    S.mainMs = 15 * 60000
+    ns.wb.ticker._scripts.OnUpdate(ns.wb.ticker, 1)
+    assert(mh.segs[1]._value == 15 * 60000 and mh.segs[1]._max == 30 * 60000 and mh.text._text == "15m", "it drains")
+    ns.wb.ticker._scripts.OnUpdate(ns.wb.ticker, 0.3)
+    assert(oh._alpha < 1 and mh._alpha == 1, "the empty one flashes")
+    S.offEnchant, S.offMs = true, 5 * 60000 -- an imbue put on: a full bar on its own length
+    ns.wb.ticker._scripts.OnUpdate(ns.wb.ticker, 1)
+    assert(oh.segs[1]._max == 5 * 60000 and oh._alpha == 1 and not oh.wbEmpty, "put on: full, steady")
+    -- the icon: corners and zoom
+    R.enchantmh.iconZoom, R.enchantmh.iconRadius = 20, 50
+    fire("UNIT_MAXPOWER")
+    assert(mh.icon._coords[1] == 0.2 and mh.icon._coords[2] == 0.8 and mh.icon.iconMask, "zoomed in, round")
+    -- a fight: all three go
+    fire("PLAYER_REGEN_DISABLED")
+    assert(not mh:IsShown() and not oh:IsShown() and not du:IsShown(), "gone in combat")
+    fire("PLAYER_REGEN_ENABLED")
+    assert(mh:IsShown() and du:IsShown(), "back after")
+    -- not a rogue or shaman: only while something is on it; a shield is no weapon
+    login("WARRIOR", 1)
+    R = prof().regular.bars
+    R.enchantmh.show, R.enchantoh.show = true, true
+    S.mainEnchant = false
+    C_Item.GetItemInfoInstant = function() return 1, nil, nil, nil, nil, 4 end -- armor
+    fire("UNIT_MAXPOWER")
+    assert(not fr.enchantmh:IsShown() and not fr.enchantoh:IsShown(), "a warrior, nothing on: no bars")
+    S.mainEnchant = true
+    fire("UNIT_MAXPOWER")
+    assert(fr.enchantmh:IsShown() and not fr.enchantoh:IsShown(), "a sharpening stone on: its bar; the shield none")
+    C_Item.GetItemInfoInstant, S.weapons, S.dur, GetInventoryItemDurability = nil, nil, nil, nil
+    S.mainEnchant, S.offEnchant = false, false
+    R.enchantmh.show, R.enchantoh.show = false, false
+    login("ROGUE", 3)
+    R = prof().regular.bars
+    R.enchantmh.show, R.enchantoh.show, R.durability.show = false, false, false
+    fire("UNIT_MAXPOWER")
+end
 
 -- Warlock: the soul shards in the bags
 S.unitClasses = nil
