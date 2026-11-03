@@ -161,7 +161,7 @@ local function layoutDefaults(show, x, y, gap, width, h1, h2, h3, h4, h5, h6, h7
     local l = {
         x = x, y = y, gap = gap, grow = "down", -- "up": the group's bottom edge stays put instead
         order = { "health", "enemyhealth", "tothealth", "power", "combo", "druidmana", "castbar", "targetcast", "pethealth",
-            "swing", "totems", "absorb", "flight", "experience" },
+            "swing", "totems", "absorb", "flight", "experience", "ammo" },
         bars = {
             health = barDefaults(show, width, h1, 0.2, 0.8, 0.2, show),
             power = barDefaults(show, width, h2, 1, 0.85, 0.1, show),
@@ -175,6 +175,8 @@ local function layoutDefaults(show, x, y, gap, width, h1, h2, h3, h4, h5, h6, h7
             flight = barDefaults(false, width, h10 or h5, 0.4, 0.7, 1, true), -- text = time left
             -- your experience to the next level; hideInCombat: gone while you fight
             experience = barDefaults(false, width, h2, 0.58, 0, 0.55, true),
+            -- hunters: the ammo in your bags; filled as far as your quiver / ammo pouch is
+            ammo = barDefaults(show, 60, h2, 0.67, 0.83, 0.45, true),
             -- the color is picked from what is being cast, so its own is only a fallback
             targetcast = barDefaults(false, width, h5, 0.8, 0.3, 0.3, true),
             -- your target's health; its resource (mana, rage...) always sits right under it
@@ -237,9 +239,8 @@ local function layoutDefaults(show, x, y, gap, width, h1, h2, h3, h4, h5, h6, h7
     l.bars.pethealth.anchor = "stack"
     -- hunters: a dot on the pet bar in its happiness color, the ammo count on the power bar
     l.bars.pethealth.happy = { show = true, point = "LEFT", x = 6, y = 0, size = 8 }
-    l.bars.power.ammo = { show = true, point = "RIGHT", x = -4, y = 0, font = FONTS[1][2], size = 10, outline = true,
-        color = { 1, 1, 1, 1 }, lowColor = { 1, 0.4, 0.4, 1 }, low = 200 }
-    l.bars.power.ammoSet = false -- useProfile has moved the old Hunter page's settings over (once)
+    -- the ammo bar: beside the power bar ("left" / "right": the two share its width) or in the stack
+    l.bars.ammo.anchor, l.bars.ammo.colorMode, l.bars.ammo.hunterSet = "right", "class", false
     local tt = l.bars.tothealth
     tt.anchor, tt.width, tt.colorMode = "right", 90, "class"
     local function copy(v)
@@ -646,6 +647,17 @@ local BARS = {
         -- taken as a yes: the game only has something to hide when there is something there.
         state = function()
             return (ns.previewing() or ns.targetCasting == true) and true or false, 1
+        end,
+    },
+    ammo = {
+        label = "Ammunition",
+        state = function()
+            return (class == "HUNTER" and (hn.ammo() ~= nil or ns.previewing())) and true or false, 1
+        end,
+        value = function()
+            local id, count = hn.ammo()
+            if not id then return 1, 1 end -- placing it: a full bar
+            return count, hn.capacity(id, count)
         end,
     },
     experience = {
@@ -1930,6 +1942,12 @@ end
 function ns.totBelow() return ns.totPlaced() and db.regular.bars.tothealth.anchor == "below" end
 function ns.totShare() return db.regular.bars.tothealth.height + db.regular.gap end -- what it takes below
 
+-- the ammo bar beside the power bar (your Combat Display only)
+function ns.ammoBeside()
+    local a = db.regular.bars.ammo
+    return (a.show and a.anchor ~= "stack" and BARS.ammo.state()) and true or false
+end
+
 -- your pet, hung on your health
 function ns.petPlaced()
     local c = db.regular.bars.pethealth
@@ -2210,7 +2228,8 @@ local function stack(container, set, L, on, swings)
         if key == "enemyhealth" and c.beside and L == db.regular then shown = false end -- Refresh places it
         if key == "experience" and c.hideInCombat and ns.inCombat and not ns.previewing() then shown = false end
         -- hung on another bar (your Combat Display only): placed with that bar, or by Refresh
-        local hung = L == db.regular and (key == "tothealth" or key == "pethealth") and c.anchor ~= "stack"
+        local hung = L == db.regular and (key == "tothealth" or key == "pethealth" or key == "ammo")
+            and c.anchor ~= "stack"
         if key == "swing" then -- one row per ticked weapon, sharing this bar's settings
             for i, kind in ipairs(SWING_TYPES) do
                 local sf = swings[i]
@@ -2235,13 +2254,31 @@ local function stack(container, set, L, on, swings)
             -- target of target below enemy health: the two share enemy health's slot
             local over = key == "enemyhealth" and L == db.regular and ns.totBelow()
                 and { height = math.max(2, c.height - ns.totShare()) } or nil
-            layoutBar(f, n, f.split and (c.width - L.gap) / 2 or nil, over)
+            -- the ammo bar beside the power bar: the two share its width
+            local ammo = key == "power" and L == db.regular and ns.ammoBeside()
+            local aw = ammo and math.min(L.bars.ammo.width, c.width - L.gap - 1) or 0
+            local width = f.split and (c.width - L.gap) / 2 or (ammo and c.width - aw - L.gap) or nil
+            layoutBar(f, n, width, over)
             ns.fill(f)
             if h > 0 then h = h + L.gap end
             h = h + c.padTop
             f:ClearAllPoints()
             if f.split then
                 f:SetPoint("TOPLEFT", container, "TOP", c.x - c.width / 2, c.y - h)
+            elseif ammo then
+                local left = c.x - c.width / 2
+                local af = frames.ammo
+                af:Show()
+                layoutBar(af, 1, aw, { height = c.height })
+                af:ClearAllPoints()
+                if L.bars.ammo.anchor == "left" then
+                    af:SetPoint("TOPLEFT", container, "TOP", left, c.y - h)
+                    f:SetPoint("TOPLEFT", container, "TOP", left + aw + L.gap, c.y - h)
+                else
+                    f:SetPoint("TOPLEFT", container, "TOP", left, c.y - h)
+                    af:SetPoint("TOPLEFT", f, "TOPRIGHT", L.gap, 0)
+                end
+                ns.fill(af)
             else
                 f:SetPoint("TOP", container, "TOP", c.x, c.y - h)
             end
@@ -2250,7 +2287,6 @@ local function stack(container, set, L, on, swings)
             if ns.AURA_BARS[key] then ns.layoutAuras(f) end
             if ns.BADGES[key] then ns.layoutBadges(f) end
             if key == "pethealth" then ns.layoutHappy(f) end
-            if key == "power" then ns.layoutAmmo(f) end
             h = h + c.height
             if key == "health" and L == db.regular then h = h + ns.petUnder(f) end -- your pet below it
             h = h + c.padBottom
@@ -3511,6 +3547,9 @@ local function Refresh()
     end
     ns.placeToT()
     ns.placePet()
+    if not (ns.ammoBeside() and frames.power:IsShown()) and db.regular.bars.ammo.anchor ~= "stack" then
+        frames.ammo:Hide()
+    end
     local plate = targetPlate()
     plateAnchor:SetParent(plate or anchor)
     plateAnchor:SetShown(plate ~= nil)
@@ -3984,6 +4023,26 @@ function hn.ammo()
     return id, (okCount and type(count) == "number") and count or 0, okIcon and icon or nil
 end
 
+-- How much ammo your quivers and ammo pouches hold: their slots times a stack. Without one, the
+-- bar is simply full.
+function hn.capacity(id, count)
+    local okStack, stack = pcall(function()
+        return (C_Item and C_Item.GetItemMaxStackSizeByID and C_Item.GetItemMaxStackSizeByID(id))
+            or select(8, GetItemInfo(id))
+    end)
+    stack = (okStack and type(stack) == "number" and stack > 0) and stack or 200
+    local slots = 0
+    for bag = 1, 4 do
+        pcall(function()
+            local free, family = (C_Container and C_Container.GetContainerNumFreeSlots or GetContainerNumFreeSlots)(bag)
+            if type(family) == "number" and bit.band(family, 3) ~= 0 then -- 1: arrows, 2: bullets
+                slots = slots + (C_Container and C_Container.GetContainerNumSlots or GetContainerNumSlots)(bag)
+            end
+        end)
+    end
+    return slots > 0 and slots * stack or math.max(count, 1)
+end
+
 -- Happiness has moved around between builds, so every route is tried. This client answers on
 -- C_PetInfo.GetPetHappiness; older ones on the bare call, and Blizzard's own indicator frame
 -- can be asked directly as a last resort. A failed pcall hands back its error text, and some
@@ -4061,33 +4120,14 @@ function ns.layoutHappy(f)
     d:SetPoint("CENTER", f, o.point, o.x, o.y)
 end
 
-function ns.layoutAmmo(f)
-    local o = db[f.mode].bars.power.ammo
-    if not f.ammoText then
-        f.ammoHost = CreateFrame("Frame", nil, f)
-        f.ammoHost:SetAllPoints(f)
-        f.ammoText = f.ammoHost:CreateFontString(nil, "OVERLAY")
-    end
-    local t = f.ammoText
-    local id, count = hn.ammo()
-    if class ~= "HUNTER" or not id then count = ns.previewing() and class == "HUNTER" and 200 or nil end
-    t:SetShown((o.show and count) and true or false)
-    if not t:IsShown() then return end
-    f.ammoHost:SetFrameLevel(f:GetFrameLevel() + 8)
-    local flags = o.outline and "OUTLINE" or ""
-    if not t:SetFont(o.font, o.size, flags) then t:SetFont(FONTS[1][2], o.size, flags) end
-    t:SetTextColor(unpack(count < o.low and o.lowColor or o.color))
-    t:SetText(count)
-    t:ClearAllPoints()
-    t:SetPoint(o.point, f, o.point, o.x, o.y)
-end
-
 function hn.refresh()
     if not db then return end
     hn.panel:Hide()
+    -- ammo coming or going changes the layout; otherwise the bar just fills
+    if frames.ammo:IsShown() ~= (BARS.ammo.state() and db.regular.bars.ammo.show) then return changed() end
     for _, set in ipairs({ frames, plateFrames }) do
         if set.pethealth:IsShown() then safe(ns.layoutHappy, set.pethealth) end
-        if set.power:IsShown() then safe(ns.layoutAmmo, set.power) end
+        if set.ammo:IsShown() then safe(ns.fill, set.ammo) end
     end
 end
 
@@ -4755,13 +4795,12 @@ useProfile = function(name)
     end
     store.chars[charKey] = name
     db = store.profiles[name]
-    if not db.regular.bars.power.ammoSet then -- the Hunter page's panel moves onto the bars
-        local H, am = db.hunter, db.regular.bars.power.ammo
+    if not db.regular.bars.ammo.hunterSet then -- the Hunter page's panel moves onto the bars
+        local H, am = db.hunter, db.regular.bars.ammo
         am.show = (H.show and H.ammo) and true or false
-        am.font, am.size, am.outline, am.low = H.font, H.fontSize, H.outline, H.low
-        am.color, am.lowColor = { unpack(H.color) }, { unpack(H.lowColor) }
+        am.font, am.fontSize, am.outline = H.font, H.fontSize, H.outline
         db.regular.bars.pethealth.happy.show = (H.show and H.pet) and true or false
-        db.regular.bars.power.ammoSet = true
+        db.regular.bars.ammo.hunterSet = true
     end
     local AB = db.actionbars
     if not AB.seeded then -- one bar to start with: the first twelve slots, at the bottom
@@ -5344,7 +5383,7 @@ end
 function ns.toggleDialog(d)
     local show = not d:IsShown()
     for _, o in ipairs({ ns.resDialog, ns.tagDialog, ns.auraDialog, ns.textDialog, ns.iconDialog,
-        ns.statusDialog, ns.fsrDialog, ns.ammoDialog, ns.happyDialog }) do o:Hide() end
+        ns.statusDialog, ns.fsrDialog, ns.happyDialog }) do o:Hide() end
     d:SetShown(show)
 end
 
@@ -5653,6 +5692,7 @@ local function buildConfig()
         tothealth = { { "In the stack", "stack" }, { "Below enemy health", "below" }, { "Right of enemy health", "right" } },
         pethealth = { { "In the stack", "stack" }, { "Below your health", "below" }, { "Left of your health", "left" },
             { "Right of your health", "right" } },
+        ammo = { { "In the stack", "stack" }, { "Left of the power bar", "left" }, { "Right of the power bar", "right" } },
     }
     local sits = dropdown(barsPage, "Sits", only.x, only:row(0), function() return SITS[selected] or {} end,
         function() return cur().anchor end, function(v) cur().anchor = v end, textPreview)
@@ -5724,8 +5764,6 @@ local function buildConfig()
         function() return cur().costColor or { 0, 0, 0, 1 } end)
     local regenButton = button(barsPage, "Mana regen spinner", 186, only.x, only:row(0) - 2 * ROW - 4,
         function() ns.toggleDialog(ns.fsrDialog) end)
-    local ammoButton = button(barsPage, "Ammunition count", 186, only.x, only:row(0) - 2 * ROW - 4 - BUTTON,
-        function() ns.toggleDialog(ns.ammoDialog) end)
     local happyButton = button(barsPage, "Happiness dot", 186, only.x, only:row(0) - DROP - 4,
         function() ns.toggleDialog(ns.happyDialog) end)
     local castIcon = check(barsPage, "Show spell icon", only.x, only:row(ROW),
@@ -5773,10 +5811,8 @@ local function buildConfig()
         costCheck:SetShown(selected == "power")
         costColor:SetShown(selected == "power")
         regenButton:SetShown(selected == "power")
-        ammoButton:SetShown(selected == "power")
         happyButton:SetShown(selected == "pethealth")
         local here = section == "combat" or section == "nameplates"
-        if not (selected == "power" and here) then ns.ammoDialog:Hide() end
         if not (selected == "pethealth" and here) then ns.happyDialog:Hide() end
         if not (selected == "power" and (section == "combat" or section == "nameplates")) then ns.fsrDialog:Hide() end
         for _, w in ipairs(swingChecks) do w:SetShown(selected == "swing") end
@@ -5826,6 +5862,7 @@ local function buildConfig()
         druidmana = { "power", "class", "custom" }, pethealth = { "health", "class", "custom" },
         tothealth = { "class", "reaction", "health", "custom" },
         experience = { "experience", "class", "custom" },
+        ammo = { "class", "custom" },
         enemyhealth = { "class", "reaction", "health", "custom" }, castbar = { "cast", "class", "custom" },
         targetcast = { "auto", "cast", "class", "custom" } }
     local MODE_NAMES = { health = "Health color", power = "Power color", class = "Class color",
@@ -6795,8 +6832,7 @@ local function buildConfig()
     local SPOTS9 = { { "Top left", "TOPLEFT" }, { "Top", "TOP" }, { "Top right", "TOPRIGHT" }, { "Left", "LEFT" },
         { "Center", "CENTER" }, { "Right", "RIGHT" }, { "Bottom left", "BOTTOMLEFT" }, { "Bottom", "BOTTOM" },
         { "Bottom right", "BOTTOMRIGHT" } }
-    for _, spec in ipairs({ { "happyDialog", "Happiness dot", "pethealth", "happy", 330 },
-        { "ammoDialog", "Ammunition count", "power", "ammo", 600 } }) do
+    for _, spec in ipairs({ { "happyDialog", "Happiness dot", "pethealth", "happy", 330 } }) do
         local d = ns.ui.Window(nil, 230, spec[5], spec[2])
         d:SetParent(cfg)
         d:ClearAllPoints()

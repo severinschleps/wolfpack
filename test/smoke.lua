@@ -2222,7 +2222,7 @@ assert(#bad == 32 and bp.evil == nil and bp.locked == true, "unknown key dropped
 assert(bp.other.hover.bar1 and bp.other.hover.nope == nil and bp.other.hover.bar2 == nil, "hover: known and true only")
 assert(bp.other.combatFont == "", "unknown combat font path refused")
 assert(bp.regular.gap == 2 and bp.regular.x == 0, "out-of-range numbers defaulted")
-assert(bp.regular.order[1] == "health" and bp.regular.order[2] == "castbar" and #bp.regular.order == 14, "order repaired")
+assert(bp.regular.order[1] == "health" and bp.regular.order[2] == "castbar" and #bp.regular.order == 15, "order repaired")
 local ns2 = bp.nameplate.bars.power.stops
 assert(#ns2 == 2 and ns2[1].pos == 10 and ns2[2].pos == 90 and ns2[1].color[1] == 1, "gradient points checked")
 local hb2 = bp.regular.bars.health
@@ -2326,7 +2326,7 @@ for _, m in ipairs({ "regular", "nameplate" }) do
     for _, k in ipairs(prof()[m].order) do seen[k] = true end
     assert(seen.health and seen.power and seen.combo and seen.druidmana and seen.castbar and seen.pethealth
         and seen.swing and seen.totems and seen.absorb and seen.flight and seen.targetcast
-        and seen.enemyhealth and #prof()[m].order == 14, "order intact")
+        and seen.enemyhealth and #prof()[m].order == 15, "order intact")
 end
 
 -- Totems: four element segments, each draining on its own; the bar is shaman-only and
@@ -2819,14 +2819,29 @@ SlashCmdList.WOLFPACKADDON("pet") -- the probe walks every route without blowing
 assert(not ns.errored, "the pet probe runs clean")
 SlashCmdList.WOLFPACKADDON("loot") -- and so does the one that asks about the encounter journal
 assert(not ns.errored, "the loot probe runs clean")
-S.am = prof().regular.bars.power.ammo
+-- the ammo bar: beside the power bar, the two as wide as the power bar is set; its number is the
+-- ammo in your bags, its fill how full your quiver is
+S.AM, S.PW = prof().regular.bars.ammo, prof().regular.bars.power
+C_Container = C_Container or {}
+S.keptCC = { C_Container.GetContainerNumFreeSlots, C_Container.GetContainerNumSlots }
+C_Container.GetContainerNumFreeSlots = function(bag) return 0, bag == 2 and 1 or 0 end -- bag 2: a quiver
+C_Container.GetContainerNumSlots = function(bag) return 4 end
+C_Item = C_Item or {}
+C_Item.GetItemMaxStackSizeByID = function() return 200 end
+S.AM.show, S.AM.anchor, S.AM.width = true, "right", 60; fire("UNIT_MAXPOWER")
 assert(not ns.hn.panel:IsShown(), "no panel any more")
-S.at = fr.power.ammoText
-assert(S.at:IsShown() and S.at._text == 143 and S.at._point[1] == "RIGHT" and S.at._point[2] == fr.power,
-    "143 arrows, on the power bar's right")
-assert(S.at._color[1] == 1 and S.at._color[2] == 0.4, "under 200: the low color")
-S.am.point, S.am.x, S.am.size = "CENTER", 5, 14; ns.hnEv._scripts.OnEvent(ns.hnEv, "BAG_UPDATE")
-assert(S.at._point[1] == "CENTER" and S.at._point[4] == 5 and S.at._font[2] == 14, "its spot and size")
+S.af = fr.ammo
+assert(S.af:IsShown() and S.af._w == 60 and fr.power._w == S.PW.width - 60 - prof().regular.gap
+    and S.af._point[2] == fr.power and S.af._point[3] == "TOPRIGHT", "right of the power bar, sharing its width")
+assert(S.af.segs[1]._value == 143 and S.af.segs[1]._max == 800 and S.af.text._text == "143",
+    "143 arrows, of a quiver of 4 x 200")
+assert(S.af.segs[1]._sbc[1] == 0.67, "the hunter class color")
+S.AM.anchor = "left"; fire("UNIT_MAXPOWER")
+assert(S.af._point[2] == WolfpackAddonFrame and fr.power._point[4] == S.PW.x - S.PW.width / 2 + 60 + prof().regular.gap,
+    "or on its left")
+S.AM.anchor = "stack"; fire("UNIT_MAXPOWER")
+assert(fr.power._w == S.PW.width and S.af._point[1] == "TOP", "in the stack: a bar like any other")
+S.AM.anchor = "right"
 S.dot = fr.pethealth.happyDot
 assert(S.dot and S.dot:IsShown() and S.dot.tex._vertex[2] == 0.85 and S.dot.tex._masks[S.dot.mask],
     "a happy pet: a green round dot on its bar")
@@ -2852,17 +2867,18 @@ ns.hnEv._scripts.OnEvent(ns.hnEv, "UNIT_HAPPINESS")
 assert(not S.dot:IsShown(), "no happiness here, no dot")
 ns.configOpen = S.wasOpen
 C_PetInfo, GetPetHappiness = S.keptInfo, S.keptHappy
-S.am.show = false; ns.hnEv._scripts.OnEvent(ns.hnEv, "BAG_UPDATE")
-assert(not S.at:IsShown(), "the ammo can be switched off")
+S.AM.show = false; fire("UNIT_MAXPOWER")
+assert(not S.af:IsShown() and fr.power._w == S.PW.width, "the ammo bar off: the power bar takes its width back")
+C_Container.GetContainerNumFreeSlots, C_Container.GetContainerNumSlots = S.keptCC[1], S.keptCC[2]
 -- an older profile's Hunter page settings move over, once
 WolfpackAddonDB.profiles.OldHunter = { hunter = { show = true, ammo = false, pet = true, fontSize = 16, low = 50 } }
 ns.useProfile("OldHunter")
-assert(prof().regular.bars.power.ammo.show == false and prof().regular.bars.power.ammo.size == 16
-    and prof().regular.bars.power.ammo.low == 50 and prof().regular.bars.pethealth.happy.show, "moved over")
+assert(prof().regular.bars.ammo.show == false and prof().regular.bars.ammo.fontSize == 16
+    and prof().regular.bars.pethealth.happy.show, "moved over")
 S.ammoID, S.happiness, S.petHP = nil, nil, nil
 login("ROGUE", 3)
 ns.hnEv._scripts.OnEvent(ns.hnEv, "BAG_UPDATE")
-assert(not fr.power.ammoText:IsShown(), "no ammo count for anyone else")
+assert(not fr.ammo:IsShown(), "no ammo bar for anyone else")
 
 -- Mage: the conjured food and water in the bags, best rank only, on its own panel
 S.unitClasses = nil -- the group test above left everyone else's class behind
