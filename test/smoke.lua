@@ -3710,4 +3710,76 @@ prof().regular.hideActionBars = true; fire("UNIT_MAXPOWER")
 assert(MultiBarBottomLeft._parent ~= UIParent, "Blizzard's bars hidden")
 prof().regular.hideActionBars = false; fire("UNIT_MAXPOWER")
 assert(MultiBarBottomLeft._parent == UIParent, "and back")
+-- Unit frames: a block with one side fixed, frames in lines of `per`, players by role order then
+-- their pets; a stand-in group while the options are open; laid out out of combat only
+;(function()
+    local U, o = ns.uf, prof().unitframes
+    local keptOpen, keptUnits = ns.configOpen, S.units
+    CompactRaidFrameContainer = new()
+    CompactRaidFrameContainer._parent = UIParent
+    -- the options pages have been clicked through above: start from known settings
+    o.show, o.replace, o.fixed, o.grow, o.size, o.per, o.gap, o.cross, o.dummy = true, true, "width", "down", 400, 5, 4, 36, 10
+    o.pets, o.petHeight, o.power, o.roleIcon, o.marker, o.breakpoint = true, 14, true, true, true, 5
+    o.buffs.mode, o.buffs.max, o.buffs.cols, o.buffs.rows, o.buffs.size = "mine", 3, 3, 1, 14
+    o.buffs.small, o.buffs.large = { point = "TOPRIGHT", x = -2, y = -2 }, { point = "TOPRIGHT", x = -2, y = -2 }
+    o.roles, o.x, o.y, o.bars.tothealth.colorMode = { "TANK", "HEALER", "DAMAGER" }, -500, 200, "class"
+    ns.configOpen = true
+    U.sync()
+    local B = U.buttons
+    local function used() local n = 0; for _, b in ipairs(B) do if b.entry then n = n + 1 end end; return n end
+    assert(CompactRaidFrameContainer._parent == hider, "Blizzard's raid frames hidden")
+    -- ten stand-ins: two tanks, four healers, four damage dealers; a hunter's and a warlock's pet
+    assert(used() == 12 and B[1].entry.dummy == 1 and B[2].entry.dummy == 9 and B[3].entry.role == "HEALER"
+        and B[7].entry.role == "DAMAGER" and B[11].entry.pet and B[12].entry.pet, "tanks, healers, damage, pets")
+    -- fixed width 400, five a row, gap 4: frames 76.8 wide, rows 36 high going down
+    local p2, p6 = B[2]._point, B[6]._point
+    assert(B[1]._point[1] == "TOPLEFT" and math.abs(p2[4] - 80.8) < 1e-9 and p2[5] == 0 and p6[4] == 0
+        and p6[5] == -40 and math.abs(B[2]._w - 76.8) < 1e-9 and B[2]._h == 36, "rows of five")
+    assert(B[11]._point[5] == -80 and B[11]._h == 14 and B[11]._point[4] == 0, "pets in a line of their own, own height")
+    assert(B[11].health.segs[1]._sbc[1] == prof().colors.class.HUNTER[1], "a pet in its owner's class color")
+    assert(U.frame._point[1] == "TOPLEFT" and U.frame._w == 400 and U.frame._h == 94, "the block: as tall as it needs")
+    assert(B[1].role:IsShown() and B[1].marker:IsShown() and not B[2].marker:IsShown(), "role icon, a raid marker")
+    -- auras: up to three buffs in a row from the top right; ten members is over the breakpoint (5)
+    o.buffs.large.x = -6
+    U.sync()
+    local ic = B[1].icons.buffs
+    assert(#ic == 3 and ic[1]._point[1] == "TOPRIGHT" and ic[1]._point[4] == -6 and ic[2]._point[4] == -6 - 15,
+        "buffs: the large group's spot, growing left")
+    o.dummy = 4
+    U.sync()
+    assert(ic[1]._point[4] == -2 and not B[6]:IsShown(), "four: the small group's spot, the rest hidden")
+    o.buffs.mode = "hide"
+    U.sync()
+    assert(not ic[1]:IsShown(), "buffs hidden")
+    -- role order changed: damage first
+    o.roles = { "DAMAGER", "TANK", "HEALER" }
+    U.sync()
+    assert(B[1].entry.role == "DAMAGER", "role order")
+    -- fixed height 300, five a column, growing left: columns 36 wide
+    o.fixed, o.grow, o.size = "height", "left", 300
+    o.dummy = 6
+    U.sync()
+    assert(B[1]._point[1] == "TOPRIGHT" and B[6]._point[4] == -40 and math.abs(B[2]._point[5] + 60.8) < 1e-9
+        and B[2]._w == 36, "columns of five, growing left")
+    -- a real party: you and party1 (a healer); clicks target and open the menu, the game shows them
+    ns.configOpen, o.fixed, o.grow, o.size, o.dummy = false, "width", "down", 400, 10
+    o.roles = { "TANK", "HEALER", "DAMAGER" } -- you have no role: damage, after the healer
+    S.members, S.units = 2, { party1 = "HEALER" }; S.keptRaid, S.raid = S.raid, false
+    U.sync()
+    assert(B[1].unit == "party1" and B[2].unit == "player" and B[1]._watched and B[1]._attr.unit == "party1"
+        and B[1]._attr.type1 == "target" and B[1]._attr.type2 == "togglemenu" and not B[3]._watched, "the party, by role")
+    -- in combat nothing secure moves: once it ends, the new roster
+    S.combat, S.members, S.units = true, 0, {} -- left the group: solo
+    ns.uf.ev._scripts.OnEvent(ns.uf.ev, "GROUP_ROSTER_UPDATE")
+    assert(B[1].unit == "party1" and U.pending, "in combat: waits")
+    S.combat = false
+    ns.uf.ev._scripts.OnEvent(ns.uf.ev, "PLAYER_REGEN_ENABLED")
+    assert(not B[1]._watched and not U.pending, "after combat: solo, no frames")
+    o.show = false
+    U.sync()
+    assert(CompactRaidFrameContainer._parent == UIParent and not U.frame:IsShown(), "off: Blizzard's again")
+    ns.configOpen, S.units, S.members, CompactRaidFrameContainer, S.raid = keptOpen, keptUnits, nil, nil, S.keptRaid
+    o.roles, o.buffs.mode, o.buffs.large.x = { "TANK", "HEALER", "DAMAGER" }, "mine", -2
+end)()
+
 realPrint("smoke ok")

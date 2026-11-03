@@ -373,6 +373,26 @@ DEFAULTS.bags = { show = false, cols = 10, size = 36, gap = 4, sectionGap = 12, 
     countSize = 11, font = FONTS[1][2], bg = { 0.05, 0.05, 0.06, 0.6 }, x = -60, y = 110,
     keyring = true, side = true, custom = {} }
 
+-- Unit frames: your party or raid, a frame each, in a block with one side fixed. fixed "width":
+-- `size` px wide, `per` frames a row, rows growing "down" / "up"; fixed "height": `size` px high,
+-- `per` a column, columns growing "right" / "left". cross: the other side of a frame. x / y: the
+-- block's start corner from the screen center. roles: the order they come in. Pets come after
+-- everyone, `petHeight` high, in their owner's class color. Buffs and debuffs: which (mode), how
+-- many in what grid, and where on the frame: `small` up to `breakpoint` members, `large` above.
+-- bars: the health and power bars' look (Colors page settings apply as on any bar).
+function ns.ufAuraDefaults(mode, point, x, y)
+    return { mode = mode, max = 3, cols = 3, rows = 1, size = 14, radius = 0, hideTimer = true,
+        small = { point = point, x = x, y = y }, large = { point = point, x = x, y = y } }
+end
+DEFAULTS.unitframes = { show = false, replace = true, fixed = "width", size = 400, per = 5, grow = "down",
+    cross = 36, gap = 4, x = -500, y = 200, fontSize = 10, power = true, powerHeight = 4,
+    pets = true, petHeight = 14, roleIcon = true, marker = true, dummy = 10, breakpoint = 5,
+    roles = { "TANK", "HEALER", "DAMAGER" },
+    buffs = ns.ufAuraDefaults("mine", "TOPRIGHT", -2, -2), debuffs = ns.ufAuraDefaults("dispel", "BOTTOMLEFT", 2, 2),
+    bars = { tothealth = barDefaults(true, 80, 32, 0.2, 0.8, 0.2, false), power = barDefaults(true, 80, 4, 0.2, 0.4, 1, false) } }
+DEFAULTS.unitframes.bars.tothealth.colorMode = "class" -- "tothealth": a bar of another unit's health
+DEFAULTS.unitframes.bars.power.colorMode = "power"
+
 -- Rogue and shaman: what is on each weapon, and when it is nearly gone.
 -- (a local would put this file over Lua's limit of 200 of them, so it hangs off ns)
 function ns.weaponDefaults(y)
@@ -1525,8 +1545,9 @@ function ns.fill(f)
     -- an empty enemy resource (none at all, or nothing left) goes invisible, border and all, unless
     -- Hide when empty is off. A secret number can't be looked at, so the bar stays while the game
     -- keeps it secret.
-    if f.res then
-        local empty = db[f.mode].bars.enemyhealth.resHideEmpty
+    if f.res then -- (a unit frame's power bar reads like one too, with no enemy health of its own)
+        local eh = db[f.mode].bars.enemyhealth
+        local empty = eh and eh.resHideEmpty
             and ((readable(max) and max <= 0) or (readable(v) and v <= 0))
         f:SetAlpha(empty and 0 or 1)
     end
@@ -4871,6 +4892,323 @@ ns.bags.ev:SetScript("OnEvent", function(_, event)
     end)
 end)
 
+------------------------------------------------------------------------------------------
+-- Unit frames: your party or raid in a block of frames, one side of it fixed, the other as long
+-- as the group needs. Each frame is the game's secure unit button (left click targets, right
+-- click opens the menu) with a health bar, a power bar under it, the name, role and raid marker
+-- icons, buffs and debuffs. Which unit sits where, sizes and spots are set out of combat only;
+-- in combat the game's unit watch shows and hides them, and bars and auras keep filling.
+-- While the options are open, a stand-in group of `dummy` members shows instead.
+------------------------------------------------------------------------------------------
+ns.uf = { buttons = {}, byUnit = {} }
+ns.uf.ROLE_ICON = "Interface\\LFGFrame\\UI-LFG-ICON-PORTRAITROLES"
+ns.uf.ROLE_COORDS = { TANK = { 0, 19 / 64, 22 / 64, 41 / 64 }, HEALER = { 20 / 64, 39 / 64, 1 / 64, 20 / 64 },
+    DAMAGER = { 20 / 64, 39 / 64, 22 / 64, 41 / 64 } }
+ns.uf.DUMMY_CLASSES = { "WARRIOR", "PRIEST", "MAGE", "ROGUE", "DRUID", "PALADIN", "HUNTER", "WARLOCK", "SHAMAN" }
+ns.uf.BLIZZ = { "PartyFrame", "CompactPartyFrame", "CompactRaidFrameContainer", "CompactRaidFrameManager",
+    "PartyMemberFrame1", "PartyMemberFrame2", "PartyMemberFrame3", "PartyMemberFrame4" }
+function ns.uf.on() return db and db.unitframes.show and true or false end
+function ns.uf.dummy() return ns.uf.on() and ns.configOpen and true or false end
+
+function ns.uf.role(unit)
+    local ok, r = pcall(UnitGroupRolesAssigned, unit)
+    return ok and (r == "TANK" or r == "HEALER" or r == "DAMAGER") and r or "DAMAGER"
+end
+
+-- who gets a frame, in order: the group by role order (the game's order within a role), then
+-- their pets. Each entry: { unit, pet = owner's unit } (stand-ins: { dummy = i, role, class }).
+function ns.uf.roster()
+    local o, list = db.unitframes, {}
+    if ns.uf.dummy() then
+        local roles = { "TANK", "HEALER", "HEALER", "DAMAGER", "DAMAGER" }
+        for i = 1, o.dummy do
+            list[i] = { dummy = i, role = i <= 2 and roles[i] or roles[(i % 3) + 3] or "DAMAGER",
+                class = ns.uf.DUMMY_CLASSES[(i - 1) % #ns.uf.DUMMY_CLASSES + 1] }
+            if i % 8 == 1 then list[i].role = "TANK" elseif i % 5 == 2 then list[i].role = "HEALER" end
+        end
+    elseif IsInRaid() then
+        for i = 1, GetNumGroupMembers() or 0 do list[#list + 1] = { unit = "raid" .. i } end
+    elseif (GetNumGroupMembers() or 0) > 0 then
+        list[1] = { unit = "player" }
+        for i = 1, 4 do if UnitExists("party" .. i) then list[#list + 1] = { unit = "party" .. i } end end
+    end
+    local rank = {}
+    for i, r in ipairs(o.roles) do rank[r] = i end
+    for i, e in ipairs(list) do e.i, e.role = i, e.role or ns.uf.role(e.unit) end
+    table.sort(list, function(a, b)
+        local x, y = rank[a.role] or 9, rank[b.role] or 9
+        if x ~= y then return x < y end
+        return a.i < b.i
+    end)
+    if o.pets then
+        local n = #list
+        for i = 1, n do
+            local e, pet = list[i], nil
+            if e.dummy then
+                if e.class == "HUNTER" or e.class == "WARLOCK" then pet = { dummy = e.dummy, pet = e, class = e.class } end
+            else
+                local u = e.unit == "player" and "pet" or e.unit:gsub("^(%a+)(%d+)$", "%1pet%2")
+                if UnitExists(u) then pet = { unit = u, pet = e } end
+            end
+            list[#list + 1] = pet
+        end
+    end
+    return list
+end
+
+function ns.uf.button(i)
+    local b = ns.uf.buttons[i]
+    if b then return b end
+    b = CreateFrame("Button", "WolfpackUnitFrame" .. i, ns.uf.frame, "SecureUnitButtonTemplate")
+    b:RegisterForClicks("LeftButtonUp", "RightButtonUp")
+    b:SetAttribute("type1", "target")
+    b:SetAttribute("type2", "togglemenu")
+    b.health = newBar(b, "tothealth", "unitframes")
+    b.power = newBar(b, "power", "unitframes")
+    b.power.res = true -- read from b.unit, not yours
+    b.name = b:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    b.name:SetWordWrap(false) -- too long: cut short with dots
+    b.role = b:CreateTexture(nil, "OVERLAY")
+    b.role:SetTexture(ns.uf.ROLE_ICON)
+    b.marker = b:CreateTexture(nil, "OVERLAY")
+    b.marker:SetTexture("Interface\\TargetingFrame\\UI-RaidTargetingIcons")
+    b.icons = { buffs = {}, debuffs = {} }
+    b:Hide()
+    ns.uf.buttons[i] = b
+    return b
+end
+
+-- the frames' spots: lines of `per`, players first, pets in lines of their own after them
+function ns.uf.layout()
+    local o, U = db.unitframes, ns.uf
+    local list = U.roster()
+    local wide = o.fixed ~= "height"
+    local per = math.max(1, o.per)
+    local along = (o.size - (per - 1) * o.gap) / per -- a frame's size along the fixed side
+    local players = 0
+    for _, e in ipairs(list) do if not e.pet then players = players + 1 end end
+    U.count = players
+    local dirX = (o.grow == "left") and -1 or 1
+    local dirY = (o.grow == "up") and 1 or -1
+    local corner = wide and (o.grow == "up" and "BOTTOMLEFT" or "TOPLEFT") or (o.grow == "left" and "TOPRIGHT" or "TOPLEFT")
+    local f = U.frame
+    f:ClearAllPoints()
+    f:SetPoint(corner, UIParent, "CENTER", o.x, o.y)
+    wipe(U.byUnit)
+    local line, inLine, offset, lineSize, petsStarted = 0, 0, 0, 0, false
+    for i, e in ipairs(list) do
+        if e.pet and not petsStarted then -- pets start a line of their own
+            petsStarted = true
+            if inLine > 0 then offset, inLine = offset + lineSize + o.gap, 0 end
+        end
+        if inLine == per then offset, inLine = offset + lineSize + o.gap, 0 end
+        local b = U.button(i)
+        local h = e.pet and o.petHeight or o.cross
+        local w, ht
+        if wide then w, ht = along, h else w, ht = o.cross, e.pet and o.petHeight or along end
+        if inLine == 0 then lineSize = wide and ht or w end
+        -- along the line: frames of the same size, except pets in a column (their own height)
+        local pos = wide and inLine * (along + o.gap) or nil
+        if not wide then
+            pos = 0
+            for k = 1, inLine do pos = pos + ((list[i - k].pet and o.petHeight or along) + o.gap) end
+        end
+        b:ClearAllPoints()
+        if wide then b:SetPoint(corner, f, corner, pos, dirY * offset)
+        else b:SetPoint(corner, f, corner, dirX * offset, -pos) end
+        b:SetSize(w, ht)
+        b.entry, b.unit = e, e.unit
+        b.wpW, b.wpH = w, ht
+        b:SetAttribute("unit", e.unit)
+        if e.unit then
+            U.byUnit[e.unit] = b
+            -- your own raid frame: the game may tell your changes as "player" only
+            local okMe, me = pcall(function() return UnitIsUnit(e.unit, "player") and true or false end)
+            if okMe and me then U.byUnit.player = b end
+            RegisterUnitWatch(b)
+        else
+            UnregisterUnitWatch(b)
+            b:Show()
+        end
+        U.style(b)
+        inLine = inLine + 1
+    end
+    for i = #list + 1, #U.buttons do
+        local b = U.buttons[i]
+        UnregisterUnitWatch(b)
+        b:SetAttribute("unit", nil)
+        b.entry, b.unit = nil, nil
+        b:Hide()
+    end
+    f:SetSize(wide and o.size or math.max(1, offset + lineSize), wide and math.max(1, offset + lineSize) or o.size)
+end
+
+-- a frame's bars, name, icons and auras for its unit (or stand-in)
+function ns.uf.style(b)
+    local o, e = db.unitframes, b.entry
+    local pw = (o.power and not e.pet) and math.min(o.powerHeight, b.wpH - 2) or 0
+    b.health.unit, b.power.unit = b.unit or "none", b.unit or "none" -- stand-ins: nobody (full bars)
+    local over = { height = b.wpH - pw }
+    local cls = e.class or (e.pet and e.pet.unit and select(2, UnitClass(e.pet.unit)))
+    if e.dummy or e.pet then -- stand-ins and pets: their (owner's) class color, unless custom
+        local c = cls and db.colors.class[cls]
+        if c and o.bars.tothealth.colorMode == "class" then over.colorMode, over.color = "custom", c end
+    end
+    layoutBar(b.health, 1, b.wpW, over)
+    b.health:ClearAllPoints()
+    b.health:SetPoint("TOPLEFT", b, "TOPLEFT")
+    b.power:SetShown(pw > 0)
+    if pw > 0 then
+        layoutBar(b.power, 1, b.wpW, { height = pw })
+        b.power:ClearAllPoints()
+        b.power:SetPoint("TOPLEFT", b.health, "BOTTOMLEFT")
+    end
+    b.name:SetFont(FONTS[1][2], o.fontSize, "OUTLINE")
+    b.name:ClearAllPoints()
+    b.name:SetPoint("CENTER", b.health, "CENTER")
+    b.name:SetWidth(b.wpW - 4)
+    local isize = math.max(8, math.min(16, b.wpH - pw - 4))
+    b.role:SetSize(isize, isize)
+    b.role:ClearAllPoints()
+    b.role:SetPoint("TOPLEFT", b, "TOPLEFT", 2, -2)
+    b.marker:SetSize(isize, isize)
+    b.marker:ClearAllPoints()
+    b.marker:SetPoint("TOP", b, "TOP", 0, isize / 2)
+    ns.uf.update(b)
+end
+
+-- what changes with the unit: fill, name, role, marker, auras
+function ns.uf.update(b)
+    local o, e = db.unitframes, b.entry
+    if not e then return end
+    ns.fill(b.health)
+    if b.power:IsShown() then ns.fill(b.power) end
+    if e.dummy then
+        b.health.segs[1]:SetValue(0.35 + ((e.dummy * 37) % 65) / 100) -- a little hurt, each its own
+        b.name:SetText(e.pet and "Pet" or (e.class:sub(1, 1) .. e.class:sub(2):lower() .. " " .. e.dummy))
+    else
+        pcall(b.name.SetText, b.name, UnitName(b.unit) or "")
+    end
+    local coords = not e.pet and o.roleIcon and ns.uf.ROLE_COORDS[e.role]
+    b.role:SetShown(coords and true or false)
+    if coords then b.role:SetTexCoord(unpack(coords)) end
+    local ok, idx = pcall(GetRaidTargetIndex, b.unit)
+    if e.dummy then ok, idx = true, (e.dummy == 1 and not e.pet) and 8 or nil end
+    local mark = o.marker and ok and type(idx) == "number" and idx or nil
+    b.marker:SetShown(mark ~= nil)
+    if mark then
+        local col, row = (mark - 1) % 4, math.floor((mark - 1) / 4)
+        b.marker:SetTexCoord(col / 4, (col + 1) / 4, row / 4, (row + 1) / 4)
+    end
+    ns.uf.auras(b)
+end
+
+-- buffs and debuffs: which ones, then a grid of `cols` x `rows` from the spot's corner inward
+ns.uf.FILTERS = { buffs = { all = "HELPFUL", mine = "HELPFUL|PLAYER" },
+    debuffs = { all = "HARMFUL", dispel = "HARMFUL|RAID" } }
+function ns.uf.auras(b)
+    local o = db.unitframes
+    local big = (ns.uf.count or 0) > o.breakpoint
+    for _, k in ipairs({ "buffs", "debuffs" }) do
+        local a, icons = o[k], b.icons[k]
+        local filter = ns.uf.FILTERS[k][a.mode]
+        local max = math.min(a.max, a.cols * a.rows)
+        local list = {}
+        if filter and not b.entry.pet then
+            if b.entry.dummy then list = ns.dummyAuras(k, max)
+            else list = ns.auraList(b.unit, filter, max) or {} end
+        end
+        local spot = big and a.large or a.small
+        local gx = spot.point:find("RIGHT") and -1 or 1
+        local gy = spot.point:find("TOP") and -1 or 1
+        local file = ns.ICON_MASKS[a.radius]
+        for i = 1, math.max(#list, #icons) do
+            local ic = icons[i]
+            if not ic and i <= #list then
+                ic = CreateFrame("Frame", nil, b)
+                ic.tex = ic:CreateTexture(nil, "ARTWORK")
+                ic.tex:SetAllPoints()
+                ic.mask = ic:CreateMaskTexture()
+                ic.mask:SetAllPoints(ic.tex)
+                ic.cd = CreateFrame("Cooldown", nil, ic, "CooldownFrameTemplate")
+                ic.cd:SetAllPoints()
+                ic.cd:SetReverse(true)
+                ic.count = ic:CreateFontString(nil, "OVERLAY", "NumberFontNormalSmall")
+                ic.count:SetPoint("BOTTOMRIGHT", -1, 1)
+                icons[i] = ic
+            end
+            if ic then
+                ic:SetShown(i <= #list)
+                if i <= #list then
+                    local col, row = (i - 1) % a.cols, math.floor((i - 1) / a.cols)
+                    ic:SetSize(a.size, a.size)
+                    ic:SetFrameLevel(b:GetFrameLevel() + 8)
+                    ic:ClearAllPoints()
+                    ic:SetPoint(spot.point, b, spot.point, spot.x + gx * col * (a.size + 1), spot.y + gy * row * (a.size + 1))
+                    ns.iconCorners(ic.tex, ic.mask, a.radius, { 0.08, 0.92, 0.08, 0.92 })
+                    ic.cd:SetSwipeTexture(file and "Interface\\AddOns\\WolfpackAddon\\Media\\Icon\\" .. file .. ".tga"
+                        or "Interface\\Buttons\\WHITE8X8")
+                    ic.cd:SetSwipeColor(0, 0, 0, 0.7)
+                    ic.cd:SetHideCountdownNumbers(a.hideTimer and true or false)
+                    ns.drawAura(ic, b.unit, list[i])
+                end
+            end
+        end
+    end
+end
+
+-- Blizzard's party and raid frames parked under the hidden frame while ours replace them
+function ns.uf.blizz(hide)
+    for _, name in ipairs(ns.uf.BLIZZ) do
+        local fr = _G[name]
+        if fr then
+            if hide and not fr.wpUfHome then fr.wpUfHome = fr:GetParent(); fr:SetParent(hider)
+            elseif not hide and fr.wpUfHome then fr:SetParent(fr.wpUfHome); fr.wpUfHome = nil end
+        end
+    end
+end
+
+-- after a settings or group change: out of combat only (secure frames); in combat, once it ends
+function ns.uf.sync()
+    local U = ns.uf
+    if not U.frame and not U.on() then return end
+    if InCombatLockdown() then U.pending = true return end
+    U.pending = false
+    if not U.frame then
+        U.frame = CreateFrame("Frame", "WolfpackUnitFrames", UIParent)
+        U.frame:SetFrameStrata("LOW")
+    end
+    U.blizz(U.on() and db.unitframes.replace)
+    U.frame:SetShown(U.on())
+    if U.on() then U.layout() else
+        for _, b in ipairs(U.buttons) do UnregisterUnitWatch(b); b:Hide() end
+    end
+end
+
+ns.uf.ev = CreateFrame("Frame")
+for _, e in ipairs({ "GROUP_ROSTER_UPDATE", "PLAYER_ROLES_ASSIGNED", "UNIT_PET", "PLAYER_REGEN_ENABLED",
+    "PLAYER_ENTERING_WORLD", "UNIT_HEALTH", "UNIT_MAXHEALTH", "UNIT_POWER_FREQUENT", "UNIT_MAXPOWER",
+    "UNIT_DISPLAYPOWER", "UNIT_AURA", "UNIT_NAME_UPDATE", "RAID_TARGET_UPDATE" }) do
+    pcall(ns.uf.ev.RegisterEvent, ns.uf.ev, e)
+end
+ns.uf.ev:SetScript("OnEvent", function(_, event, unit)
+    local U = ns.uf
+    if not U.on() then return end
+    if event == "GROUP_ROSTER_UPDATE" or event == "PLAYER_ROLES_ASSIGNED" or event == "UNIT_PET"
+        or event == "PLAYER_ENTERING_WORLD" or (event == "PLAYER_REGEN_ENABLED" and U.pending) then
+        return safe(U.sync)
+    elseif event == "RAID_TARGET_UPDATE" then
+        for _, b in ipairs(U.buttons) do if b.entry and not b.entry.dummy then safe(U.update, b) end end
+        return
+    end
+    local b = U.byUnit[unit]
+    if not b then return end
+    if event == "UNIT_HEALTH" or event == "UNIT_MAXHEALTH" then safe(ns.fill, b.health)
+    elseif event == "UNIT_AURA" then safe(U.auras, b)
+    elseif event == "UNIT_NAME_UPDATE" then safe(U.update, b)
+    elseif b.power:IsShown() then safe(ns.fill, b.power) end
+end)
+
 bf = { rows = {} }
 ns.bf = bf
 
@@ -5830,6 +6168,7 @@ changed = function()
     safe(Refresh)
     safe(ns.np.all)
     safe(ns.bags.sync)
+    safe(ns.uf.sync)
     for _, fn in ipairs(refreshers) do fn() end
 end
 
@@ -5907,7 +6246,8 @@ local function slider(parent, text, x, y, min, max, get, set, step)
     s:SetValueStep(step)
     s:SetObeyStepOnDrag(true)
     s:EnableMouseWheel(true) -- wheel = +/-1 for exact values
-    label(s, text, "GameFontNormalSmall"):SetPoint("BOTTOMLEFT", s, "TOPLEFT", 0, 4)
+    s.label = label(s, text, "GameFontNormalSmall")
+    s.label:SetPoint("BOTTOMLEFT", s, "TOPLEFT", 0, 4)
     local syncing
     s:SetScript("OnValueChanged", function(_, v)
         v = math.floor(v / step + 0.5) * step
@@ -6814,7 +7154,7 @@ local function buildConfig()
     y = y - 12
     shelf("Interface")
     for _, e in ipairs({ { "combat", "Combat Display" }, { "actionbars", "Action bars" }, { "bags", "Bags" },
-        { "nameplates", "Nameplates" },
+        { "nameplates", "Nameplates" }, { "unitframes", "Unit frames" },
         { "buffs", "Buff check" }, { "other", "Other" }, { "barstack", "Bar Stack" } }) do
         entry(e[1], e[2], e[3])
     end
@@ -6864,8 +7204,9 @@ local function buildConfig()
     ns.pages = { combat = barsPage, nameplates = questPage, buffs = buffPage, mage = magePage,
         warlock = lockPage, rogue = roguePage, shaman = shamanPage,
         other = otherPage, profile = profilePage, colors = colorPage, actionbars = actionPage,
-        bags = CreateFrame("Frame", nil, content) }
+        bags = CreateFrame("Frame", nil, content), unitframes = CreateFrame("Frame", nil, content) }
     ns.pages.bags:SetAllPoints(barsPage)
+    ns.pages.unitframes:SetAllPoints(barsPage)
 
     local title = label(cfg, "Combat Display", "GameFontNormalLarge")
     title:SetPoint("TOPLEFT", 150, -72)
@@ -6886,6 +7227,7 @@ local function buildConfig()
             or section == "colors" and "Colors and borders"
             or section == "actionbars" and "Action bars"
             or section == "bags" and "Bags"
+            or section == "unitframes" and "Unit frames"
             or section == "buffs" and "Buff check"
             or section == "mage" and "Mage: food and water"
             or section == "warlock" and "Warlock: soul shards"
@@ -6908,6 +7250,7 @@ local function buildConfig()
         colorPage:SetShown(section == "colors")
         actionPage:SetShown(section == "actionbars")
         ns.pages.bags:SetShown(section == "bags")
+        ns.pages.unitframes:SetShown(section == "unitframes")
         local page = section == "barstack" and bsPage or ns.pages[section]
         if np and sub == "quest" then page = questPage end
         if np and sub == "target" then page = trailPage end
@@ -8010,6 +8353,124 @@ local function buildConfig()
         c3:close()
         -- the window stays open while this page is, to see what the settings do
         ns.bags.wantPreview = function() return cfg:IsShown() and section == "bags" end
+    end
+
+    ----------------------------------------------------------------------------------
+    -- Unit frames page: the block, the frames' look, role order, buffs and debuffs
+    ----------------------------------------------------------------------------------
+    do
+        local pg, U = ns.pages.unitframes, function() return db.unitframes end
+        local HB = function() return db.unitframes.bars.tothealth end
+        local function note(g, text, h)
+            local n = label(pg, text, "GameFontDisableSmall")
+            n:SetPoint("TOPLEFT", g.x, g:row(h))
+            n:SetWidth(178)
+            n:SetJustifyH("LEFT")
+        end
+        local function sliders(g, get, list)
+            for _, r in ipairs(list) do
+                slider(pg, r[2], g.x, g:row(SLIDER), r[3], r[4], function() return get()[r[1]] end,
+                    function(v) get()[r[1]] = v end, r[5])
+            end
+        end
+        local c1 = group(pg, COL[1], TOP, 202, "Unit frames")
+        check(pg, "Show", c1.x, c1:row(ROW), function() return U().show end, function(v) U().show = v end)
+        check(pg, "Hide Blizzard's party and raid", c1.x, c1:row(ROW), function() return U().replace end,
+            function(v) U().replace = v end)
+        dropdown(pg, "Fixed side", c1.x, c1:row(DROP), { { "Width: grows up or down", "width" },
+            { "Height: grows left or right", "height" } }, function() return U().fixed end, function(v)
+            U().fixed = v
+            U().grow = v == "width" and "down" or "right"
+        end, textPreview)
+        dropdown(pg, "Grows", c1.x, c1:row(DROP), function()
+            return U().fixed == "width" and { { "Down", "down" }, { "Up", "up" } } or { { "Right", "right" }, { "Left", "left" } }
+        end, function() return U().grow end, function(v) U().grow = v end, textPreview)
+        local sizeS = slider(pg, "Fixed width (px)", c1.x, c1:row(SLIDER), 40, 1600, function() return U().size end,
+            function(v) U().size = v end)
+        local perS = slider(pg, "Frames per row", c1.x, c1:row(SLIDER), 1, 40, function() return U().per end,
+            function(v) U().per = v end)
+        local crossS = slider(pg, "Frame height", c1.x, c1:row(SLIDER), 8, 200, function() return U().cross end,
+            function(v) U().cross = v end)
+        onRefresh(function() -- the labels follow the fixed side
+            local wide = U().fixed == "width"
+            sizeS.label:SetText(wide and "Fixed width (px)" or "Fixed height (px)")
+            perS.label:SetText(wide and "Frames per row" or "Frames per column")
+            crossS.label:SetText(wide and "Frame height" or "Frame width")
+        end)
+        sliders(c1, U, { { "gap", "Gap", 0, 20 }, { "x", "X (from the center)", -1500, 1500 },
+            { "y", "Y (from the center)", -1000, 1000 } })
+        note(c1, "Left click targets, right click opens the menu. While this window is open a "
+            .. "stand-in group shows.", 44)
+        sliders(c1, U, { { "dummy", "Stand-in group size", 1, 40 } })
+        c1:close()
+
+        local c2 = group(pg, COL[2], TOP, 202, "Frames")
+        dropdown(pg, "Color", c2.x, c2:row(DROP), { { "Class color", "class" }, { "Custom", "custom" } },
+            function() return HB().colorMode end, function(v) HB().colorMode = v end, textPreview)
+        swatch(pg, "Custom frame color", c2.x, c2:row(SWATCH), function() return HB().color end, {
+            get = function() return HB().colorMode end, set = function(v) HB().colorMode = v end,
+            effective = function() local c = HB().color; return c[1], c[2], c[3] end,
+        })
+        swatch(pg, "Frame background", c2.x, c2:row(SWATCH), function() return HB().bgColor end)
+        sliders(c2, U, { { "fontSize", "Name size", 6, 24 } })
+        check(pg, "Show resources", c2.x, c2:row(ROW), function() return U().power end, function(v) U().power = v end)
+        sliders(c2, U, { { "powerHeight", "Resource height", 1, 20 } })
+        check(pg, "Show pets", c2.x, c2:row(ROW), function() return U().pets end, function(v) U().pets = v end)
+        sliders(c2, U, { { "petHeight", "Pet frame height", 6, 100 } })
+        check(pg, "Role icon", c2.x, c2:row(ROW), function() return U().roleIcon end, function(v) U().roleIcon = v end)
+        check(pg, "Raid marker", c2.x, c2:row(ROW), function() return U().marker end, function(v) U().marker = v end)
+        note(c2, "Textures, borders, shadows and overlays come from Colors & borders. Pets wear their "
+            .. "owner's class color.", 44)
+        c2:close()
+
+        -- role order: a row each, moved up or down
+        local c3 = group(pg, COL[1], c1.cursor - 20, 202, "Role order")
+        local ROLE_NAMES = { TANK = "Tank", HEALER = "Healer", DAMAGER = "Damage" }
+        for i = 1, 3 do
+            local y = c3:row(BUTTON)
+            local name = label(pg, "", "GameFontHighlight")
+            name:SetPoint("TOPLEFT", c3.x, y - 6)
+            onRefresh(function() name:SetText(i .. ". " .. ROLE_NAMES[U().roles[i]]) end)
+            for k, d in ipairs({ { "Up", -1 }, { "Down", 1 } }) do
+                local b = button(pg, d[1], 50, c3.x + 76 + (k - 1) * 54, y, function()
+                    local r, j = U().roles, i + d[2]
+                    if r[j] then r[i], r[j] = r[j], r[i]; changed() end
+                end)
+                onRefresh(function() b:SetEnabled(U().roles[i + d[2]] ~= nil) end)
+            end
+        end
+        c3:close()
+
+        -- buffs and debuffs: which, how many, the grid, and their spot below / above the breakpoint
+        local bp = group(pg, COL[2], c2.cursor - 20, 202, "Buffs and debuffs")
+        sliders(bp, U, { { "breakpoint", "Small group: up to (members)", 1, 39 } })
+        note(bp, "Up to this many in the group, buffs and debuffs sit where \"small group\" says; "
+            .. "with more, where \"large group\" says.", 44)
+        bp:close()
+        local POINTS = { { "Top left", "TOPLEFT" }, { "Top", "TOP" }, { "Top right", "TOPRIGHT" }, { "Left", "LEFT" },
+            { "Center", "CENTER" }, { "Right", "RIGHT" }, { "Bottom left", "BOTTOMLEFT" }, { "Bottom", "BOTTOM" },
+            { "Bottom right", "BOTTOMRIGHT" } }
+        for i, k in ipairs({ { "buffs", "Buffs", { { "All", "all" }, { "Only mine", "mine" }, { "Hide", "hide" } } },
+            { "debuffs", "Debuffs", { { "All", "all" }, { "Only ones I can dispel", "dispel" }, { "Hide", "hide" } } } }) do
+            local A = function() return U()[k[1]] end
+            local g = group(pg, COL[i + 2], TOP, 202, k[2])
+            dropdown(pg, "Show", g.x, g:row(DROP), k[3], function() return A().mode end, function(v) A().mode = v end,
+                textPreview)
+            sliders(g, A, { { "max", "At most", 1, 40 }, { "cols", "Columns", 1, 10 }, { "rows", "Rows", 1, 10 },
+                { "size", "Icon size", 6, 40 } })
+            dropdown(pg, "Corner radius", g.x, g:row(DROP), { { "None (square)", 0 }, { "Slightly rounded", 12 },
+                { "Rounded", 25 }, { "Circle", 50 } }, function() return A().radius end,
+                function(v) A().radius = v end, textPreview)
+            check(pg, "Hide timer text", g.x, g:row(ROW), function() return A().hideTimer end,
+                function(v) A().hideTimer = v end)
+            for _, sz in ipairs({ { "small", "Small group" }, { "large", "Large group" } }) do
+                local S = function() return A()[sz[1]] end
+                dropdown(pg, sz[2] .. ": anchor", g.x, g:row(DROP), POINTS, function() return S().point end,
+                    function(v) S().point = v end, textPreview)
+                sliders(g, S, { { "x", sz[2] .. ": X", -100, 100 }, { "y", sz[2] .. ": Y", -100, 100 } })
+            end
+            g:close()
+        end
     end
 
     ----------------------------------------------------------------------------------
