@@ -568,6 +568,11 @@ local function merge(dst, src)
     end
     return dst
 end
+-- The plate of the enemy you target has a look of its own, the standard one to start with. The
+-- trail stays with the standard layout (db.plates.trail).
+DEFAULTS.platesTarget = merge({}, DEFAULTS.plates)
+DEFAULTS.platesTarget.trail = nil
+DEFAULTS.platesTarget.bars.enemyhealth.show = true -- show here: use this look on your target
 
 ------------------------------------------------------------------------------------------
 -- Data sources
@@ -4031,7 +4036,8 @@ end
 -- the cast bar: while the unit casts (or the bars are being placed), under the health bar, and
 -- under its power too when that hangs underneath
 function ns.np.layoutCast(f)
-    local c, cb, e = db.plates.bars.targetcast, f.castBar, db.plates.bars.enemyhealth
+    local L = db[f.mode]
+    local c, cb, e = L.bars.targetcast, f.castBar, L.bars.enemyhealth
     local on = (c.show and (f.castState.targetCasting == true or ns.previewing())) and true or false
     cb:SetShown(on)
     if not on then return end
@@ -4039,7 +4045,7 @@ function ns.np.layoutCast(f)
     ns.fillTargetCast(cb)
     cb:ClearAllPoints()
     local below = (e.resource and e.resPlace == "outside" and e.resPoint == "BOTTOM") and f.resFrame or f
-    cb:SetPoint("TOP", below, "BOTTOM", c.x, c.y - db.plates.gap)
+    cb:SetPoint("TOP", below, "BOTTOM", c.x, c.y - L.gap)
 end
 
 -- a plate that comes into view mid-cast: what it is casting now. A secret answer means yes.
@@ -4054,13 +4060,23 @@ function ns.np.castNow(f, unit)
     f.castState.targetCasting = f.castState.targetChannelling or busy(UnitCastingInfo)
 end
 
+-- which layout a plate wears: the targeted one on your target's plate (when that look is on)
+function ns.np.setMode(f, m)
+    f.mode, f.resFrame.mode, f.castBar.mode = m, m, m
+end
+function ns.np.targeted(plate)
+    if not db.platesTarget.bars.enemyhealth.show then return false end
+    local ok, tp = pcall(C_NamePlate.GetNamePlateForUnit, "target")
+    return ok and tp ~= nil and tp == plate
+end
+
 function ns.np.layout(f)
     f:Show()
     layoutBar(f, 1)
     ns.fill(f)
     f:ClearAllPoints()
     if f.plate then
-        f:SetPoint("CENTER", f.plate, "CENTER", db.plates.x, db.plates.y)
+        f:SetPoint("CENTER", f.plate, "CENTER", db[f.mode].x, db[f.mode].y)
     else -- the preview: left of the options window, where it is not covered
         f:SetPoint("RIGHT", ns.cfg or UIParent, "LEFT", -60, 0)
     end
@@ -4093,6 +4109,7 @@ function ns.np.add(unit)
     ns.np.bars[plate], f.plate = f, plate
     f.unit, f.resFrame.unit, f.castBar.unit = unit, unit, unit
     ns.np.castNow(f, unit)
+    ns.np.setMode(f, ns.np.targeted(plate) and "platesTarget" or "plates")
     ns.np.units[unit] = f
     ns.np.blizz(plate, true)
     ns.np.layout(f)
@@ -4116,6 +4133,7 @@ function ns.np.all()
     end
     local p = ns.np.previewBar()
     if ns.np.wantPreview and ns.np.wantPreview() then
+        ns.np.setMode(p, ns.np.previewMode or "plates") -- the tab being edited
         ns.np.layout(p)
         p.quest = p.quest or ns.questHolder(p)
         p.quest.ownBar = p
@@ -4193,7 +4211,7 @@ end
 function ns.np.trailDraw(t)
     local o, f = db.plates.trail, t.bar
     local out = o.offset - (f.edge or 0) / 2 -- the border's middle, plus the offset outward
-    local w, h = f.width + 2 * out, db.plates.bars.enemyhealth.height + 2 * out
+    local w, h = f.width + 2 * out, db[f.mode].bars.enemyhealth.height + 2 * out
     local path = ns.np.trailPath(w, h)
     local P = path.total
     local st = o.states[t.state]
@@ -4294,7 +4312,9 @@ function ns.np.trailSync()
         local okA, foe = pcall(function() return UnitCanAttack("player", "target") and true or false end)
         f = ok and plate and (not okA or foe) and ns.np.bars[plate] or nil
         if f and not f.unit then f = nil end
-        if ns.np.wantPreview and ns.np.wantPreview() then f = ns.np.previewBar() end
+        if ns.np.wantPreview and ns.np.wantPreview() and ns.np.previewMode == "platesTarget" then
+            f = ns.np.previewBar() -- the Targeted tab: on the preview
+        end
     end
     if not (f or ns.np.trailFrame) then return end
     local t = ns.np.trail()
@@ -4325,8 +4345,8 @@ ns.npEv:SetScript("OnEvent", function(_, event, unit)
         ns.np.seen[unit] = nil
         safe(ns.np.remove, unit)
         return safe(ns.np.trailSync)
-    elseif event == "PLAYER_TARGET_CHANGED" then
-        return safe(ns.np.trailSync)
+    elseif event == "PLAYER_TARGET_CHANGED" then -- the old and the new target swap looks
+        return safe(ns.np.all)
     end
     local f = ns.np.units[unit]
     if not f then return end
@@ -6360,12 +6380,17 @@ end
 
 local function L() return db[mode] end
 -- The nameplate has two bars of its own; the bar picked on Combat Display comes back after
+-- The Targeted tab lists the trail too (ns.npTrail: it is the one open, in place of a bar).
 ns.PLATE_BARS = { "enemyhealth", "targetcast" }
-ns.PLATE_LABELS = { enemyhealth = "Health", targetcast = "Cast bar" }
+ns.PLATE_BARS_T = { "enemyhealth", "targetcast", "trail" }
+ns.PLATE_LABELS = { enemyhealth = "Health", targetcast = "Cast bar", trail = "Trail" }
+local function plateMode() return mode == "plates" or mode == "platesTarget" end
+local function plateList() return mode == "platesTarget" and ns.PLATE_BARS_T or ns.PLATE_BARS end
 function ns.platesMode(on, other)
-    if on and mode ~= "plates" then ns.barPicked = selected end
-    if not on and mode == "plates" then selected = ns.barPicked or selected end
-    mode = on and "plates" or other
+    if on and not plateMode() then ns.barPicked = selected end
+    if not on and plateMode() then selected = ns.barPicked or selected end
+    mode = on and (sub == "targeted" and "platesTarget" or "plates") or other
+    ns.np.previewMode = on and mode or nil
     if on and not ns.PLATE_LABELS[selected] then selected = "enemyhealth" end
 end
 local function cur() return L().bars[selected] end
@@ -6629,8 +6654,13 @@ function ns.repairOrder(layout, default)
 end
 
 useProfile = function(name)
+    local had = store.profiles[name]
+    if had and type(had.plates) == "table" and had.platesTarget == nil then -- saved before the targeted look
+        had.platesTarget = merge({}, had.plates)
+        had.platesTarget.trail = nil
+    end
     store.profiles[name] = merge(store.profiles[name] or ns.freshProfile(name), DEFAULTS)
-    for _, which in ipairs({ "regular", "plates" }) do
+    for _, which in ipairs({ "regular", "plates", "platesTarget" }) do
         ns.repairOrder(store.profiles[name][which], DEFAULTS[which].order)
     end
     store.chars[charKey] = name
@@ -6650,7 +6680,7 @@ useProfile = function(name)
     for _, bar in ipairs(AB.bars) do merge(bar, ns.AB_BAR) end
     local P = db.colors
     if not P.bordersSet then -- a bar that already had a border or rounded corners keeps them as its own
-        for _, m in ipairs({ "regular", "plates" }) do
+        for _, m in ipairs({ "regular", "plates", "platesTarget" }) do
             for _, b in pairs(db[m].bars) do
                 if type(b) == "table" and ((b.borderSize or 0) ~= 0 or (b.radius or 0) ~= 0) then b.borderFrom = "own" end
             end
@@ -6658,7 +6688,7 @@ useProfile = function(name)
         P.bordersSet = true
     end
     if not P.texturesSet then -- a bar with a texture other than the first keeps it as its own
-        for _, m in ipairs({ "regular", "plates" }) do
+        for _, m in ipairs({ "regular", "plates", "platesTarget" }) do
             for _, b in pairs(db[m].bars) do
                 if type(b) == "table" and b.texture and b.texture ~= TEXTURES[1][2] then b.textureFrom = "own" end
             end
@@ -6674,7 +6704,7 @@ useProfile = function(name)
         for kind, key in pairs({ harm = "harmColor", heal = "healColor", locked = "lockedColor" }) do
             if type(tc[key]) == "table" then P.cast[kind] = { unpack(tc[key]) } end
         end
-        for _, m in ipairs({ "regular", "plates" }) do
+        for _, m in ipairs({ "regular", "plates", "platesTarget" }) do
             local bars = db[m].bars
             bars.power.powerColors = nil
             bars.targetcast.harmColor, bars.targetcast.healColor, bars.targetcast.lockedColor = nil, nil, nil
@@ -6694,7 +6724,7 @@ useProfile = function(name)
         end
         db.regular.combatIcon = nil
     end
-    for _, m in ipairs({ "regular", "plates" }) do
+    for _, m in ipairs({ "regular", "plates", "platesTarget" }) do
         for _, key in ipairs({ "health", "power", "enemyhealth", "experience" }) do
             local b = db[m].bars[key]
             if not b.textsSet then -- the one text it had becomes "current", as it looked
@@ -6871,6 +6901,8 @@ local function sanitize(src, template)
             for _, key in ipairs(def) do
                 if not seen[key] then out.order[#out.order + 1] = key end
             end
+        elseif k == "platesTarget" and v == nil then -- from before the targeted look: the standard one
+            out[k] = sanitize(src.plates, def)
         elseif type(def) == "table" then
             out[k] = sanitize(v, def)
         elseif type(v) == "number" then
@@ -7367,6 +7399,7 @@ local function buildConfig()
     questPage:SetAllPoints(barsPage)
     local trailPage = CreateFrame("Frame", nil, content)
     trailPage:SetAllPoints(barsPage)
+    ns.trailPage = trailPage
     local otherPage = CreateFrame("Frame", nil, content)
     otherPage:SetAllPoints(barsPage)
     local buffPage = CreateFrame("Frame", nil, content)
@@ -7397,9 +7430,10 @@ local function buildConfig()
     local title = label(cfg, "Combat Display", "GameFontNormalLarge")
     title:SetPoint("TOPLEFT", 150, -72)
     local tabs = {}
-    for i, t in ipairs({ { "plates", "Nameplate" }, { "quest", "Quest mobs" }, { "target", "Target" } }) do
+    for i, t in ipairs({ { "plates", "Standard" }, { "targeted", "Targeted" }, { "quest", "Quest mobs" } }) do
         tabs[i] = button(cfg, t[2], 110, 150 + (i - 1) * 114, -66, function()
             sub = t[1]
+            ns.platesMode(true)
             changed()
         end)
         onRefresh(function() if sub == t[1] then tabs[i]:LockHighlight() else tabs[i]:UnlockHighlight() end end)
@@ -7436,9 +7470,10 @@ local function buildConfig()
             or section == "barstack" and "Bar Stack"
             or "Combat Display")
         for _, t in ipairs(tabs) do t:SetShown(np) end
-        barsPage:SetShown(section == "combat" or (np and sub == "plates"))
+        local trail = np and sub == "targeted" and ns.npTrail
+        barsPage:SetShown(section == "combat" or (np and (sub == "plates" or sub == "targeted") and not trail))
         questPage:SetShown(np and sub == "quest")
-        trailPage:SetShown(np and sub == "target")
+        trailPage:SetShown(trail and true or false)
         otherPage:SetShown(section == "other")
         buffPage:SetShown(section == "buffs")
         magePage:SetShown(section == "mage")
@@ -7454,7 +7489,7 @@ local function buildConfig()
         local page = section == "barstack" and bsPage or ns.pages[section]
         if uf and ns.ufTab ~= "general" then page = ns.pages["uf" .. ns.ufTab] end
         if np and sub == "quest" then page = questPage end
-        if np and sub == "target" then page = trailPage end
+        if trail then page = trailPage end
         if page and page.need then content:SetHeight(math.max(1, page.need - 90 + 16)) end
         if section ~= ns.shownSection then -- a new page starts at its top
             ns.shownSection = section
@@ -7477,7 +7512,13 @@ local function buildConfig()
     for i = 1, #db.regular.order do
         local y = bars:row(ROW)
         local sel = button(barsPage, "", 100, bars.x, y, function()
-            selected = mode == "plates" and ns.PLATE_BARS[i] or L().order[i]
+            local k = plateMode() and plateList()[i]
+            if k then
+                ns.npTrail = k == "trail"
+                if not ns.npTrail then selected = k end
+            elseif not plateMode() then
+                selected = L().order[i]
+            end
             changed()
         end, true)
         local up = button(barsPage, "Up", 34, bars.x + 104, y, function() move(i, -1) end)
@@ -7487,25 +7528,31 @@ local function buildConfig()
         sel:SetHeight(22)
         onRefresh(function()
             -- Plates: one bar, enemy health, on every nameplate
-            local one = mode == "plates" -- the nameplate's two bars: health, then its cast bar
-            sel:SetShown(not one or ns.PLATE_BARS[i] ~= nil)
+            local one = plateMode() -- the nameplate's two bars: health, then its cast bar
+            sel:SetShown(not one or plateList()[i] ~= nil)
             up:SetShown(not one)
             down:SetShown(not one)
-            local key = one and (ns.PLATE_BARS[i] or "enemyhealth") or L().order[i]
+            local key = one and (plateList()[i] or "enemyhealth") or L().order[i]
             sel:SetText(one and ns.PLATE_LABELS[key] or BARS[key].label)
-            if key == selected then sel:LockHighlight() else sel:UnlockHighlight() end
+            local trailOpen = one and ns.npTrail
+            if (key == "trail") == (trailOpen and true or false) and (trailOpen or key == selected) then
+                sel:LockHighlight()
+            else
+                sel:UnlockHighlight()
+            end
         end)
     end
     local gapSlider = slider(barsPage, "Gap between bars", bars.x, bars:row(SLIDER), 0, 30,
         function() return L().gap end, function(v) L().gap = v end)
-    onRefresh(function() bars.title:SetText(mode == "plates" and "Nameplate" or "Bars, top to bottom") end)
+    onRefresh(function() bars.title:SetText(mode == "platesTarget" and "Your target's nameplate"
+        or mode == "plates" and "Nameplate" or "Bars, top to bottom") end)
     bars:close()
 
     local grp = group(barsPage, COL[1], bars.cursor - 20, 202, "Group position")
     local groupNote = label(barsPage, "", "GameFontDisableSmall")
     groupNote:SetPoint("TOPLEFT", grp.x, grp:row(16))
     onRefresh(function()
-        groupNote:SetText(mode == "plates" and "the bar's center, from the nameplate's"
+        groupNote:SetText(plateMode() and "the bar's center, from the nameplate's"
             or (L().grow == "up" and "bottom-center" or "top-center")
             .. (mode == "regular" and ", from the screen center" or ", from under the nameplate"))
     end)
@@ -7516,7 +7563,7 @@ local function buildConfig()
     end)
     onRefresh(function()
         grow:SetText("Grows: " .. (L().grow == "up" and "Upwards" or "Downwards"))
-        grow:SetShown(mode ~= "plates")
+        grow:SetShown(not plateMode())
     end)
     local function xr() return mode == "regular" and math.floor(UIParent:GetWidth() / 2) or 200 end
     local function yr() return mode == "regular" and math.floor(UIParent:GetHeight() / 2) or 200 end
@@ -7535,7 +7582,7 @@ local function buildConfig()
 
     -- Column 2: the selected bar's size and spacing
     local function selFrame()
-        if mode == "plates" then
+        if plateMode() then
             local p = ns.np.previewBar()
             return selected == "targetcast" and p.castBar or p
         end
@@ -7552,7 +7599,9 @@ local function buildConfig()
     local showCheck = check(barsPage, "Show", size.x, size:row(ROW), function() return cur().show end,
         function(v) cur().show = v end)
     onRefresh(function()
-        showCheck.Text:SetText(mode == "plates" and selected == "enemyhealth" and "Replace Blizzard's nameplates" or "Show")
+        showCheck.Text:SetText(selected ~= "enemyhealth" and "Show"
+            or mode == "plates" and "Replace Blizzard's nameplates"
+            or mode == "platesTarget" and "Use this look on your target" or "Show")
     end)
     ns.np.wantPreview = function() return cfg:IsShown() and section == "nameplates" end
     local widthSlider = slider(barsPage, "Width", size.x, size:row(SLIDER), 10, 600,
@@ -7852,10 +7901,21 @@ local function buildConfig()
     txt:close()
 
     -- Quest mobs page
-    -- Nameplates, Target tab: the trail running round your target's plate
+    -- Nameplates, Targeted tab, Trail: the stroke running round your target's plate
     do
         local T = function() return db.plates.trail end
-        local g = group(trailPage, COL[1], TOP, 202, "Target trail")
+        local nav = group(trailPage, COL[1], TOP, 202, "Your target's nameplate")
+        for _, key in ipairs(ns.PLATE_BARS_T) do
+            local b = button(trailPage, ns.PLATE_LABELS[key], 100, nav.x, nav:row(ROW), function()
+                ns.npTrail = key == "trail"
+                if not ns.npTrail then selected = key end
+                changed()
+            end, true)
+            b:SetHeight(22)
+            if key == "trail" then b:LockHighlight() end
+        end
+        nav:close()
+        local g = group(trailPage, COL[1], nav.cursor - 20, 202, "Target trail")
         check(trailPage, "Show on your target's plate", g.x, g:row(ROW), function() return T().show end,
             function(v) T().show = v end)
         for _, r in ipairs({ { "length", "Length", 2, 200, 1 }, { "thickness", "Thickness", 1, 12, 1 },
@@ -9844,7 +9904,7 @@ ev:SetScript("OnEvent", function(_, event, unit, arg2, arg3)
         -- every profile, not just the one in use: a bar added since it was saved belongs on all
         -- of them, and switching to one later should not be the first time it appears
         for _, prof in pairs(store.profiles) do
-            for _, which in ipairs({ "regular", "plates" }) do
+            for _, which in ipairs({ "regular", "plates", "platesTarget" }) do
                 ns.repairOrder(prof[which], DEFAULTS[which].order)
             end
         end

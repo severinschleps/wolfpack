@@ -1870,6 +1870,18 @@ ns.configOpen = S.wasOpen
     -- fading from tail to head, joined at the corners, a round dot on each end
     local T = prof().plates.trail
     S.keptPlate, S.plate = S.plate, plate
+    -- your target's plate wears the targeted look, and the standard one again once you look away
+    local PT = prof().platesTarget.bars.enemyhealth
+    assert(PT.show and not prof().platesTarget.trail, "a targeted look of its own, the trail not in it")
+    PT.width, prof().platesTarget.x = 150, 7
+    npFire("PLAYER_TARGET_CHANGED")
+    assert(f.mode == "platesTarget" and f.width == 150 and f._point[4] == 7 and f.castBar.mode == "platesTarget",
+        "targeted: its own size and spot")
+    S.plate = nil; npFire("PLAYER_TARGET_CHANGED")
+    assert(f.mode == "plates" and f._point[4] == prof().plates.x, "not targeted: the standard look")
+    PT.show, S.plate = false, plate; npFire("PLAYER_TARGET_CHANGED")
+    assert(f.mode == "plates", "the targeted look can be turned off")
+    PT.show = true
     T.show = true
     npFire("PLAYER_TARGET_CHANGED")
     local tr = ns.np.trailFrame
@@ -1983,6 +1995,20 @@ boxes[5]._text = "100"; boxes[5]._scripts.OnEnterPressed(boxes[5])
 assert(prof().plates.bars.targetcast.width == 100 and prof().plates.bars.enemyhealth.width == 130, "its cast bar")
 assert(ns.np.preview.castBar:IsShown() and ns.np.preview.castBar.width == 100, "previewed under it")
 assert(prof().regular.gap == 30 and prof().regular.x == 0 and prof().regular.bars.health.width == 220, "regular untouched")
+-- Targeted: the same editor on your target's plate's own look, with the trail listed there too
+local function click(t) byText(t)._scripts.OnClick(byText(t), "LeftButton") end
+click("Targeted")
+byText("Health")._scripts.OnClick(byText("Health"), "LeftButton")
+assert(boxes[5]._text == tostring(prof().platesTarget.bars.enemyhealth.width), "the targeted look's values")
+boxes[5]._text = "160"; boxes[5]._scripts.OnEnterPressed(boxes[5])
+assert(prof().platesTarget.bars.enemyhealth.width == 160 and prof().plates.bars.enemyhealth.width == 130,
+    "edits the targeted look only")
+assert(ns.np.preview.mode == "platesTarget" and ns.np.preview.width == 160, "the preview wears it")
+click("Trail")
+assert(ns.trailPage:IsShown() and not ns.pages.combat:IsShown(), "the trail opens in place of a bar")
+click("Standard")
+assert(ns.pages.combat:IsShown() and not ns.trailPage:IsShown() and ns.np.preview.mode == "plates"
+    and boxes[5]._text == "130", "back on the standard look")
 byText("Combat Display")._scripts.OnClick(byText("Combat Display"), "LeftButton")
 assert(not ns.np.preview:IsShown() and boxes[5]._text == "220", "back on Combat Display's health bar")
 -- every sidebar entry is really there, opens its page, and that page has settings on it
