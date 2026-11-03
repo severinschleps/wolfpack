@@ -67,6 +67,7 @@ function M:GetStatusBarTexture() self._sbt = self._sbt or new(); return self._sb
 function M:AddMaskTexture(m) self._masks = self._masks or {}; self._masks[m] = true end
 function M:RemoveMaskTexture(m) if self._masks then self._masks[m] = nil end end
 function M:GetParent() return self._parent end
+function M:SetClipsChildren(v) self._clips = v end
 function M:GetName() return self._name end
 function M:GetCenter() return 100, 100 end
 function M:GetTop() return 150 end
@@ -1040,6 +1041,12 @@ UnitIsPVP = function() return false end; fire("UNIT_FACTION", "player")
 assert(not fr.health.pvpIcon:IsShown(), "not flagged")
 UnitIsPVP = nil
 
+-- incoming heals are cut at the bar's edge by a frame of their own: the bar itself never clips,
+-- or every icon, buff and text hung outside it would be cut off too (seen in game)
+prof().regular.bars.health.heal = true; fire("UNIT_MAXPOWER")
+assert(fr.health.over and fr.health.over:GetParent()._clips and not fr.health._clips,
+    "the heal overlay's own frame clips, the bar doesn't")
+prof().regular.bars.health.heal = false; fire("UNIT_MAXPOWER")
 -- buffs and debuffs on your own health bar, the same options as enemy health; all your debuffs
 S.auras, S.debuffs = { { icon = 501 }, { icon = 502 } }, { { icon = 601 } }
 fire("UNIT_AURA", "player")

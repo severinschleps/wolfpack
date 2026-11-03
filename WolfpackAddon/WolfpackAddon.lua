@@ -936,15 +936,19 @@ local function layoutBar(f, n, width, over)
     end
     -- Prediction overlay: incoming heals grow right from the health fill, a cast's cost grows
     -- left from the power fill. Both hang off the fill texture, so no value is ever read to
-    -- place them, and the bar clips whatever runs past its edge.
+    -- place them, and a frame over the bar clips whatever runs past its edge. Only that frame
+    -- clips: the bar itself must not, or every icon, buff and text hung outside it is cut off.
     local over = (f.key == "health" and c.heal) or (f.key == "power" and c.cost)
     if over and n == 1 then
         local seg = f.segs[1]
         if not f.over then
-            f.over = CreateFrame("StatusBar", nil, f)
-            f:SetClipsChildren(true)
+            local clip = CreateFrame("Frame", nil, f)
+            clip:SetAllPoints(f)
+            clip:SetClipsChildren(true)
+            f.over = CreateFrame("StatusBar", nil, clip)
         end
         local o, col = f.over, f.key == "health" and c.healColor or c.costColor
+        o:GetParent():SetFrameLevel(seg:GetFrameLevel() + 1)
         o:SetFrameLevel(seg:GetFrameLevel() + 1)
         o:SetStatusBarTexture(c.texture)
         o:SetStatusBarColor(col[1], col[2], col[3], col[4])
