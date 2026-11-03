@@ -1366,6 +1366,21 @@ hc.borderSize, hc.borderMode = 0, "custom"
     P.borderSize = 0
     fire("UNIT_MAXPOWER")
     assert(not hs.edgeShine:IsShown(), "no border, no border overlay")
+    -- the empty part: the bar's background color, or a texture of its own in one of three tints
+    assert(hs.bg._color[4] == hc.bgColor[4] and hs.bg._vertex[1] == 1, "empty part: the background color")
+    local E, stripes2 = P.empty, "Interface\\AddOns\\WolfpackAddon\\Media\\Bar\\Stripes"
+    E.show, E.texture = true, stripes2
+    fire("UNIT_MAXPOWER")
+    assert(hs.bg._tex == stripes2 and hs.bg._vertex[4] == hc.bgColor[4], "own texture, tinted the background color")
+    E.mode = "custom"
+    fire("UNIT_MAXPOWER")
+    assert(hs.bg._vertex[1] == 0.1 and hs.bg._vertex[4] == 1, "or a color of its own")
+    E.mode, E.darken = "bar", 50
+    fire("UNIT_MAXPOWER")
+    assert(math.abs(hs.bg._vertex[2] - hs.rgb[2] / 2) < 1e-9 and hs.bg._vertex[4] == 1, "or the bar's, darker")
+    E.show, E.mode, E.darken = false, "bg", 70
+    fire("UNIT_MAXPOWER")
+    assert(hs.bg._vertex[1] == 1 and hs.bg._color[4] == hc.bgColor[4], "off: the background color again")
     -- inner shadow: strips fading in from the edges, the offset thickening the far side; over
     -- the fill or between border and bar. Drop shadow: behind the border, offset
     P.borderSize = 2

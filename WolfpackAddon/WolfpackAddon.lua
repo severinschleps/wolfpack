@@ -499,6 +499,9 @@ do
         fromMode = "custom", toMode = "custom" }
     -- every bar's shadows. Inner: fading in from the edges, over the fill ("bar") or between the
     -- border and the bar ("border"). Drop: behind the border. size: how far they fade; x / y: offset (y up)
+    -- every bar's empty part on a texture of its own: tinted each bar's background color ("bg"),
+    -- a color of its own ("custom"), or the bar's color, darker by `darken` % ("bar")
+    p.empty = { show = false, texture = TEXTURES[1][2], mode = "bg", color = { 0.1, 0.1, 0.1, 1 }, darken = 70 }
     p.innerShadow = { show = false, on = "bar", color = { 0, 0, 0, 0.6 }, size = 4, x = 0, y = -2 }
     -- spread: grows (or, negative, shrinks) the drop shadows' shape before it fades. The bar's
     -- drop shadow is the fill's, between border and bar; the border's is behind the border
@@ -972,6 +975,25 @@ function ns.shine(tex, o, allowed, rgb)
     end
 end
 
+-- A segment's empty part: the bar's background color, or (the palette's empty texture on) a
+-- texture of its own, tinted the bar's background color, a color of its own, or the bar's color
+-- darkened. Opaque, it hides the border behind the bar.
+function ns.emptyFill(s, c)
+    local e = db.colors.empty
+    if not e.show then
+        s.bg:SetVertexColor(1, 1, 1, 1)
+        s.bg:SetColorTexture(unpack(c.bgColor))
+        return
+    end
+    s.bg:SetTexture(e.texture)
+    local col = e.mode == "custom" and e.color or c.bgColor
+    if e.mode == "bar" and s.rgb then
+        local k = 1 - e.darken / 100
+        col = { s.rgb[1] * k, s.rgb[2] * k, s.rgb[3] * k, e.color[4] }
+    end
+    s.bg:SetVertexColor(unpack(col))
+end
+
 -- The palette's inner shadow on a bar segment: four strips fading in from the edges, masked to its
 -- corners. Over the fill, or over the border and under the bar. An offset thickens the edges it
 -- moves away from (y up: a negative y darkens the top).
@@ -1090,6 +1112,7 @@ function ns.wearColor(f, c)
     local s = f.segs[1]
     s:SetStatusBarColor(r, g, b, c.color[4] or 1)
     s.rgb = { r, g, b }
+    ns.emptyFill(s, c)
     if s.shine then -- the overlays' "same as bar" ends follow the cast
         ns.shine(s.shine, db.colors.barShine, nil, s.rgb)
         ns.shine(s.edgeShine, db.colors.borderShine, s.border:IsShown(), s.rgb)
@@ -1161,7 +1184,6 @@ local function layoutBar(f, n, width, over)
             s:SetSize(iw, ih)
             s:SetPoint("LEFT", f, "LEFT", lead + (i - 1) * (w + PIP_GAP) + t, 0)
             s:SetMinMaxValues(i - 1, i) -- pip range; single bars get their real max in ns.fill()
-            s.bg:SetColorTexture(unpack(c.bgColor))
             local sr, sg, sb = br, bg, bb
             s.rgb = { r, g, b } -- what "same as bar" overlay colors take
             if f.key == "totems" then -- each segment wears its element's color, border included
@@ -1172,6 +1194,7 @@ local function layoutBar(f, n, width, over)
             else
                 paint(s, c, r, g, b, w, c.height)
             end
+            ns.emptyFill(s, c)
             s.border:SetShown(t > 0)
             s.border:SetPoint("TOPLEFT", s, "TOPLEFT", -t, t)
             s.border:SetPoint("BOTTOMRIGHT", s, "BOTTOMRIGHT", t, -t)
@@ -7805,7 +7828,25 @@ local function buildConfig()
     overlay(bars, "barShine", "Bar")
     note(bars, "Laid over the bar's own color or gradient. Opacity is in each color.", 30)
     bars:close()
-    local inner = group(colorPage, COL[1], bars.cursor - 20, 202, "Bars: inner shadow")
+    local empty = group(colorPage, COL[1], bars.cursor - 20, 202, "Bars: empty part")
+    local E = function() return P().empty end
+    check(colorPage, "Own empty texture", empty.x, empty:row(ROW), function() return E().show end,
+        function(v) E().show = v end)
+    dropdown(colorPage, "Empty texture", empty.x, empty:row(DROP), TEXTURES,
+        function() return E().texture end, function(v) E().texture = v end, texturePreview)
+    dropdown(colorPage, "Empty color", empty.x, empty:row(DROP), { { "Each bar's background", "bg" },
+        { "Custom", "custom" }, { "Same as bar, darker", "bar" } }, function() return E().mode end,
+        function(v) E().mode = v end, textPreview)
+    swatch(colorPage, "Custom empty color", empty.x, empty:row(SWATCH), function() return E().color end, {
+        get = function() return E().mode end, set = function(v) E().mode = v end,
+        effective = function() local c = E().color; return c[1], c[2], c[3] end,
+    })
+    slider(colorPage, "Darker by (same as bar), %", empty.x, empty:row(SLIDER), 0, 100,
+        function() return E().darken end, function(v) E().darken = v end)
+    note(empty, "Instead of the border showing through the bar's background. \"Same as bar\" takes "
+        .. "the custom color's opacity.", 44)
+    empty:close()
+    local inner = group(colorPage, COL[1], empty.cursor - 20, 202, "Bars: inner shadow")
     shadow(inner, "innerShadow", "Shadow")
     note(inner, "Fades in from the edges. Opacity is in the color.", 30)
     inner:close()
