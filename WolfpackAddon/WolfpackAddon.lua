@@ -7457,8 +7457,15 @@ local function buildConfig()
     local ROW, SLIDER, DROP, SWATCH, BUTTON = 24, 46, 50, 26, 28
 
     -- Header: the profile in use (account-wide, holds every page); a click opens its page
-    local inUse = button(cfg, "", 240, 150, -14, function() section, mode = "profile", "regular"; changed() end, true)
-    onRefresh(function() inUse:SetText("Profile: |cffffffff" .. tostring(store.chars[charKey]) .. "|r") end)
+    local inUse = button(cfg, "", 340, 150, -14, function() section, mode = "profile", "regular"; changed() end, true)
+    -- the profile in use, and whose child or parent it is
+    onRefresh(function()
+        local name = store.chars[charKey]
+        local p, kids = ns.inh.parentOf(name), ns.inh.children(name)
+        inUse:SetText("Profile: |cffffffff" .. tostring(name) .. "|r"
+            .. (p and (" |cff888888(child of|r " .. p .. "|cff888888)|r")
+            or #kids > 0 and (" |cff888888(parent of|r " .. table.concat(kids, ", ") .. "|cff888888)|r") or ""))
+    end)
 
     -- Profiles page: everything about profiles, each job in its own card
     local profilePage = CreateFrame("Frame", nil, content)

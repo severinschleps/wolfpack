@@ -2234,6 +2234,7 @@ assert(d.b == ns.inh.NIL and ns.inh.apply({ a = 1, b = 2 }, d).b == nil, "a remo
 -- the family shows: on the Profile card, and in the list each child under its parent
 ns.cfg:Show(); byText("Profiles")._scripts.OnClick(byText("Profiles"), "LeftButton")
 assert(regionWithText(S.pp, "Child of |cffffd100Mom|r"), "the child says whose it is")
+assert(inUse._text == "Profile: |cffffffffKid|r |cff888888(child of|r Mom|cff888888)|r", "the header says so too")
 do
     dds[1]:GenerateMenu()
     local order = {}
