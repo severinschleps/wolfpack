@@ -3768,7 +3768,7 @@ assert(MultiBarBottomLeft._parent == UIParent, "and back")
     CompactRaidFrameContainer._parent = UIParent
     -- the options pages have been clicked through above: start from known settings
     o.show, o.replace, U.preview = true, true, 10
-    o.pets, o.petHeight, o.power, o.roleIcon, o.marker = true, 14, true, true, true
+    o.pets, o.petHeight, o.power, o.roleIcon, o.marker, o.rangeFirst = true, 14, true, true, true, true
     for _, g in ipairs({ o.g5, o.g10 }) do -- a party and a raid of ten, set alike
         g.fixed, g.grow, g.size, g.per, g.gap, g.frameHeight, g.frameWidth = "width", "down", 400, 5, 4, 40, 90
         g.x, g.y = -500, 200
@@ -3898,6 +3898,16 @@ assert(MultiBarBottomLeft._parent == UIParent, "and back")
     U.sync()
     assert(B[1]._point[1] == "TOPRIGHT" and near(B[6]._point[4], -94) and near(B[2]._point[5], -60.8)
         and B[2]._w == 90 and near(B[2]._h, 56.8), "columns of five, growing left")
+    -- the first frame's corner, picked: from the bottom right, columns going left, frames going up
+    o.g10.start = "BOTTOMRIGHT"
+    U.sync()
+    assert(B[1]._point[1] == "BOTTOMRIGHT" and U.frame._point[1] == "BOTTOMRIGHT" and near(B[6]._point[4], -94)
+        and near(B[2]._point[5], 60.8), "from the bottom right")
+    o.g10.fixed, o.g10.start = "width", "TOPRIGHT" -- rows going down, frames going left
+    o.g10.size = 400
+    U.sync()
+    assert(B[1]._point[1] == "TOPRIGHT" and near(B[2]._point[4], -80.8) and near(B[6]._point[5], -44), "rows from the right")
+    o.g10.fixed, o.g10.start, o.g10.size = "height", "", 300
     -- a real party: you and party1 (a healer); clicks target and open the menu, the game shows them
     ns.configOpen, U.preview = false, nil
     o.roles = { "TANK", "HEALER", "DAMAGER" } -- you have no role: damage, after the healer
@@ -3905,6 +3915,25 @@ assert(MultiBarBottomLeft._parent == UIParent, "and back")
     U.sync()
     assert(B[1].unit == "party1" and B[2].unit == "player" and B[1]._watched and B[1]._attr.unit == "party1"
         and B[1]._attr.type1 == "target" and B[1]._attr.type2 == "togglemenu" and not B[3]._watched, "the party, by role")
+    -- in your healing range first: the healer out of range drops behind you, back once in range;
+    -- out of combat it is noticed by itself, in combat the order holds
+    S.keptInRange = UnitInRange
+    UnitInRange = function(u) return u ~= "party1", true end
+    U.frame._scripts.OnUpdate(U.frame, 1)
+    assert(B[1].unit == "player" and B[2].unit == "party1", "out of range: after you")
+    UnitInRange = function() return true, true end
+    S.combat = true
+    U.frame._scripts.OnUpdate(U.frame, 1)
+    assert(B[1].unit == "player", "in combat: held")
+    S.combat = false
+    U.frame._scripts.OnUpdate(U.frame, 1)
+    assert(B[1].unit == "party1", "in range again: by role")
+    o.rangeFirst = false
+    UnitInRange = function(u) return u ~= "party1", true end
+    U.sync()
+    assert(B[1].unit == "party1", "range sort off: by role only")
+    o.rangeFirst, UnitInRange = true, S.keptInRange
+    U.sync()
     ns.configOpen = true -- the options on another page: still the real group
     U.sync()
     assert(B[1].unit == "party1" and not B[1].entry.dummy, "stand-ins only on the Unit frames page")

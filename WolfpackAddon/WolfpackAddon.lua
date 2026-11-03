@@ -388,14 +388,16 @@ function ns.ufAuraDefaults(mode, point, x, y, edge)
         point = point, x = x, y = y }
 end
 function ns.ufGroupDefaults(size, per, frameHeight)
-    return { fixed = "width", size = size, per = per, grow = "down", frameHeight = frameHeight, frameWidth = 100,
+    -- start: the corner the first frame sits in (ns.uf.CORNER_NAMES); "" = from grow, as set before
+    return { fixed = "width", size = size, per = per, grow = "down", start = "", frameHeight = frameHeight, frameWidth = 100,
         gap = 4, x = -500, y = 200,
         buffs = ns.ufAuraDefaults("mine", "TOPRIGHT", -2, -2, { 0, 0, 0, 1 }),
         debuffs = ns.ufAuraDefaults("dispel", "BOTTOMLEFT", 2, 2, { 0.8, 0.1, 0.1, 1 }) }
 end
 DEFAULTS.unitframes = { show = false, replace = true, fontSize = 10, power = true, powerHeight = 4,
     pets = true, petHeight = 14, roleIcon = true, marker = true,
-    roles = { "TANK", "HEALER", "DAMAGER" },
+    -- rangeFirst: players in your healing range before the rest, then by role order
+    roles = { "TANK", "HEALER", "DAMAGER" }, rangeFirst = true,
     g5 = ns.ufGroupDefaults(400, 5, 36), g10 = ns.ufGroupDefaults(400, 5, 36),
     g20 = ns.ufGroupDefaults(400, 5, 30), g40 = ns.ufGroupDefaults(640, 8, 26),
     -- the resource bar: "below" or "above" the health bar (which gives up the room), or "inside"
@@ -4983,12 +4985,34 @@ function ns.uf.group(n)
     return db.unitframes.g40
 end
 
+-- in your healing range (the game's own check, about 40 yards); you are, and so is anyone the
+-- game won't answer for (not grouped, or a secret answer)
+function ns.uf.near(unit)
+    local okMe, me = pcall(function() return UnitIsUnit(unit, "player") and true or false end)
+    if okMe and me then return true end
+    local ok, v = pcall(function()
+        local r, checked = UnitInRange(unit)
+        return (not checked) or (r and true or false)
+    end)
+    return not ok or v
+end
+
+-- the corner the first frame sits in; lines run away from it along the fixed side
+ns.uf.CORNER_NAMES = { { "Top left", "TOPLEFT" }, { "Top right", "TOPRIGHT" }, { "Bottom left", "BOTTOMLEFT" },
+    { "Bottom right", "BOTTOMRIGHT" } }
+function ns.uf.start(g)
+    for _, c in ipairs(ns.uf.CORNER_NAMES) do if g.start == c[2] then return g.start end end
+    if g.fixed ~= "height" then return g.grow == "up" and "BOTTOMLEFT" or "TOPLEFT" end
+    return g.grow == "left" and "TOPRIGHT" or "TOPLEFT"
+end
+
 function ns.uf.role(unit)
     local ok, r = pcall(UnitGroupRolesAssigned, unit)
     return ok and (r == "TANK" or r == "HEALER" or r == "DAMAGER") and r or "DAMAGER"
 end
 
--- who gets a frame, in order: the group by role order (the game's order within a role), then
+-- who gets a frame, in order: those in healing range first (rangeFirst), then by role order (the
+-- game's order within a role), then
 -- their pets. Each entry: { unit, pet = owner's unit } (stand-ins: { dummy = i, role, class }).
 function ns.uf.roster()
     local o, list = db.unitframes, {}
@@ -5007,8 +5031,11 @@ function ns.uf.roster()
     end
     local rank = {}
     for i, r in ipairs(o.roles) do rank[r] = i end
-    for i, e in ipairs(list) do e.i, e.role = i, e.role or ns.uf.role(e.unit) end
+    for i, e in ipairs(list) do
+        e.i, e.role, e.near = i, e.role or ns.uf.role(e.unit), e.dummy and true or ns.uf.near(e.unit)
+    end
     table.sort(list, function(a, b)
+        if o.rangeFirst and a.near ~= b.near then return a.near end
         local x, y = rank[a.role] or 9, rank[b.role] or 9
         if x ~= y then return x < y end
         return a.i < b.i
@@ -5101,9 +5128,9 @@ function ns.uf.layout()
     local wide = g.fixed ~= "height"
     local per = math.max(1, g.per)
     local along = (g.size - (per - 1) * g.gap) / per -- a frame's size along the fixed side
-    local dirX = (g.grow == "left") and -1 or 1
-    local dirY = (g.grow == "up") and 1 or -1
-    local corner = wide and (g.grow == "up" and "BOTTOMLEFT" or "TOPLEFT") or (g.grow == "left" and "TOPRIGHT" or "TOPLEFT")
+    local corner = U.start(g)
+    local dirX = corner:find("RIGHT") and -1 or 1
+    local dirY = corner:find("BOTTOM") and 1 or -1
     local f = U.frame
     f:ClearAllPoints()
     f:SetPoint(corner, UIParent, "CENTER", g.x, g.y)
@@ -5127,8 +5154,8 @@ function ns.uf.layout()
             for k = 1, inLine do pos = pos + ((list[i - k].pet and o.petHeight or along) + g.gap) end
         end
         b:ClearAllPoints()
-        if wide then b:SetPoint(corner, f, corner, pos, dirY * offset)
-        else b:SetPoint(corner, f, corner, dirX * offset, -pos) end
+        if wide then b:SetPoint(corner, f, corner, dirX * pos, dirY * offset)
+        else b:SetPoint(corner, f, corner, dirX * offset, dirY * pos) end
         b:SetSize(w, ht)
         b.entry, b.unit = e, e.unit
         b.wpW, b.wpH = w, ht
@@ -5381,11 +5408,26 @@ function ns.uf.sync()
         U.frame:SetFrameStrata("LOW")
         U.frame:SetMovable(true)
         U.frame:SetClampedToScreen(true)
+        U.frame:SetScript("OnUpdate", U.poll)
     end
     U.blizz(U.on() and db.unitframes.replace)
     U.frame:SetShown(U.on())
     if U.on() then U.layout() else
         for _, b in ipairs(U.buttons) do UnregisterUnitWatch(b); b:Hide() end
+    end
+end
+
+-- twice a second, out of combat: someone came into healing range or left it, so sort again. In
+-- combat the game lets no addon move these frames; the order holds until it ends.
+function ns.uf.poll(_, dt)
+    local U = ns.uf
+    U.clock = (U.clock or 0) + dt
+    if U.clock < 0.5 then return end
+    U.clock = 0
+    if not db.unitframes.rangeFirst or InCombatLockdown() then return end
+    for _, b in ipairs(U.buttons) do
+        local e = b.entry
+        if e and e.unit and not e.pet and e.near ~= U.near(e.unit) then return safe(U.sync) end
     end
 end
 
@@ -8661,7 +8703,10 @@ local function buildConfig()
         c2:close()
 
         -- role order: a row each, moved up or down
-        local c3 = group(pg, COL[1], c1.cursor - 20, 202, "Role order")
+        local c3 = group(pg, COL[1], c1.cursor - 20, 202, "Sort order")
+        check(pg, "In my healing range first", c3.x, c3:row(ROW), function() return U().rangeFirst end,
+            function(v) U().rangeFirst = v end)
+        note(c3, "Sorted again out of combat only: in combat the game lets no addon move them. Then by role:", 44)
         local ROLE_NAMES = { TANK = "Tank", HEALER = "Healer", DAMAGER = "Damage" }
         for i = 1, 3 do
             local y = c3:row(BUTTON)
@@ -8725,9 +8770,8 @@ local function buildConfig()
                 G().fixed = v
                 G().grow = v == "width" and "down" or "right"
             end, textPreview)
-            dropdown(gp, "Grows", c.x, c:row(DROP), function()
-                return G().fixed == "width" and { { "Down", "down" }, { "Up", "up" } } or { { "Right", "right" }, { "Left", "left" } }
-            end, function() return G().grow end, function(v) G().grow = v end, textPreview)
+            dropdown(gp, "First frame in the", c.x, c:row(DROP), ns.uf.CORNER_NAMES, function() return ns.uf.start(G()) end,
+                function(v) G().start = v end, textPreview)
             local sizeS = slider(gp, "Fixed width (px)", c.x, c:row(SLIDER), 40, 1600, function() return G().size end,
                 function(v) G().size = v end)
             local perS = slider(gp, "Frames per row", c.x, c:row(SLIDER), 1, 40, function() return G().per end,
