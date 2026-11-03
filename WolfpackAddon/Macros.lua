@@ -190,6 +190,63 @@ function M.pickup(key, i)
     if idx then PickupMacro(idx) end
 end
 
+-- what an action bar shows for a macro: its own icon, or, on the question mark, what it would
+-- cast right now (target, modifiers, form). In the game's slots the game answers; for a tab that
+-- isn't (another class's), its text is read: #showtooltip, /cast, /use, with their [conditions].
+local function spellIcon(x)
+    if C_Spell and C_Spell.GetSpellTexture then return C_Spell.GetSpellTexture(x) end
+    return GetSpellTexture and GetSpellTexture(x)
+end
+local function itemIcon(x)
+    if C_Item and C_Item.GetItemIconByID then return C_Item.GetItemIconByID(x) end
+    return GetItemIcon and GetItemIcon(x)
+end
+local function pick(args) -- "[mod:shift] A; B" -> what applies now
+    if not SecureCmdOptionParse then return (args:gsub("%[.-%]", ""):match("^%s*([^;]*)")) end
+    return (SecureCmdOptionParse(args))
+end
+function M.read(body)
+    for line in (body or ""):gmatch("[^\n]+") do
+        local cmd, args = line:match("^%s*[#/](%a+)%s*(.*)$")
+        cmd = cmd and cmd:lower()
+        if cmd == "showtooltip" or cmd == "show" or cmd == "cast" or cmd == "use" or cmd == "castsequence"
+            or cmd == "castrandom" or cmd == "userandom" then
+            local ok, what = pcall(pick, args)
+            what = ok and what and strtrim(what) or ""
+            if cmd == "castsequence" then
+                local now = QueryCastSequence and what ~= "" and select(2, pcall(QueryCastSequence, what))
+                what = type(now) == "string" and now or what:gsub("^reset=%S+%s*", "")
+            end
+            what = (what:match("^([^,]+)") or ""):gsub("^!", "")
+            what = strtrim(what)
+            if what ~= "" and not what:match("^%d+$") then -- a bag slot ("/use 13") has no icon to read
+                local icon = select(2, pcall(spellIcon, what)) or select(2, pcall(itemIcon, what))
+                if icon then return icon end
+            elseif what:match("^%d+$") and GetInventoryItemTexture then
+                local icon = GetInventoryItemTexture("player", tonumber(what))
+                if icon then return icon end
+            end
+            if cmd ~= "showtooltip" and cmd ~= "show" and what ~= "" then return end -- that line decides
+        end
+    end
+end
+function M.shown(key, m, have) -- have: M.section of the tab, when asked for many at once
+    if m.icon ~= M.QUESTION then return m.icon end
+    if key == "general" or key == M.myClass() then
+        local i = (have or M.section(key ~= "general"))[m.name]
+        if i then
+            local sp = GetMacroSpell and GetMacroSpell(i)
+            local icon = sp and select(2, pcall(spellIcon, sp))
+            if not icon and GetMacroItem then
+                local item = GetMacroItem(i)
+                icon = item and select(2, pcall(itemIcon, item))
+            end
+            if icon then return icon end
+        end
+    end
+    return M.read(m.body) or M.QUESTION
+end
+
 -- the game's macro icons: spells, then items
 function M.icons()
     if M.iconList then return M.iconList end
@@ -223,6 +280,7 @@ end
 local function build(page)
     local f = { tabs = {}, cells = {}, iconCells = {} }
     M.page, M.f = page, f
+    page:HookScript("OnUpdate", M.tick)
     -- tabs: General, then a class each; yours says so
     local tabs = { { "general", "General" } }
     for _, c in ipairs(M.classes()) do tabs[#tabs + 1] = c end
@@ -331,7 +389,7 @@ function M.refresh(keep)
         ((P.tab == M.myClass() and "Your class" or "Class") .. ": every character of it"))
     f.count:SetText(#list .. " / " .. M.max(P.tab))
     -- the grid, then a + while there is room
-    local y = f.gridTop - 36
+    local y, have = f.gridTop - 36, M.section(P.tab ~= "general")
     local n = #list + (#list < M.max(P.tab) and 1 or 0)
     for i, c in ipairs(f.cells) do
         if i <= n then
@@ -339,7 +397,7 @@ function M.refresh(keep)
             c.i, c.add = m and i or nil, not m
             c:ClearAllPoints()
             c:SetPoint("TOPLEFT", page, "TOPLEFT", X + ((i - 1) % PER_ROW) * CELL, y - math.floor((i - 1) / PER_ROW) * (CELL + 12))
-            c.icon:SetTexture(m and m.icon or "Interface\\PaperDollInfoFrame\\Character-Plus")
+            c.icon:SetTexture(m and M.shown(P.tab, m, have) or "Interface\\PaperDollInfoFrame\\Character-Plus")
             c.name:SetText(m and m.name or "")
             c.sel:SetShown(m ~= nil and i == P.pick and not P.picking)
             c:Show()
@@ -366,7 +424,7 @@ function M.refresh(keep)
         f.edTitle:SetText("Edit")
         f.iconBtn:ClearAllPoints()
         f.iconBtn:SetPoint("TOPLEFT", page, "TOPLEFT", X, y - 22)
-        f.iconBtn.tex:SetTexture(P.icon or M.QUESTION)
+        f.iconBtn.tex:SetTexture(M.shown(P.tab, { name = m.name, icon = P.icon or M.QUESTION, body = m.body }))
         f.name:ClearAllPoints()
         f.name:SetPoint("LEFT", f.iconBtn, "RIGHT", 10, 0)
         if not keep then f.name:SetText(m.name); f.body:SetText(m.body) end
@@ -424,4 +482,21 @@ function M.ShowConfig(page)
     if not M.db() then return end
     if not M.f then build(page) end
     M.refresh()
+end
+
+-- the icons follow what the macros would cast, as on a bar: target, modifier keys, form, bags
+function M.paint()
+    local f = M.f
+    if not (f and M.page:IsVisible()) then return end
+    local list, have = M.tab(P.tab), M.section(P.tab ~= "general")
+    for i, c in ipairs(f.cells) do
+        if c:IsShown() and list[i] then c.icon:SetTexture(M.shown(P.tab, list[i], have)) end
+    end
+end
+-- ponytail: a 0.25 s repaint while the page is open, instead of a list of events per client
+function M.tick(self, dt)
+    M.wait = (M.wait or 0) - dt
+    if M.wait > 0 then return end
+    M.wait = 0.25
+    M.paint()
 end

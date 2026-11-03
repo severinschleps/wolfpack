@@ -4165,6 +4165,25 @@ do
     assert(#c.tabs.general == 1 and #c.tabs.general[1].name == 16 and c.tabs.general[1].icon == mac.QUESTION
         and c.tabs.general[1].body == "" and c.tabs[7] == nil, "an imported library, cleaned")
     assert(c.deleted.general.Gone and c.deleted.general.Bad == nil, "only true tombstones")
+    -- the question mark shows what the macro would cast now, as on a bar
+    S.spellTextures = { Kick = 501, ["Sinister Strike"] = 502 }
+    local q = { name = "Q", icon = mac.QUESTION, body = "#showtooltip\n/cast [mod:shift] Kick; Sinister Strike" }
+    assert(mac.shown("MAGE", q) == 501, "no option parser: the first choice")
+    assert(mac.read("/castsequence reset=3 Sinister Strike, Kick") == 502 and mac.read("/say hi") == nil,
+        "a sequence: its first step; no spell: nothing")
+    QueryCastSequence = function() return "Kick" end
+    assert(mac.read("/castsequence reset=3 Sinister Strike, Kick") == 501, "a sequence: the step it is on")
+    QueryCastSequence = nil
+    SecureCmdOptionParse = function() return S.shift and "Kick" or "Sinister Strike" end
+    assert(mac.shown("MAGE", q) == 502, "its conditions, read: no shift")
+    S.shift = true
+    assert(mac.shown("MAGE", q) == 501, "shift held: the other spell")
+    assert(mac.shown("MAGE", { name = "C", icon = 7, body = "/cast Kick" }) == 7, "an icon picked stays")
+    -- in the game's slots, the game says what it casts
+    game.char = { { name = "Q", icon = 1, body = "" } }
+    GetMacroSpell = function(i) return i == 121 and 42 or nil end
+    assert(mac.shown("ROGUE", { name = "Q", icon = mac.QUESTION, body = "" }) == 142, "asked of the game")
+    SecureCmdOptionParse, GetMacroSpell, S.shift, S.spellTextures = nil, nil, nil, nil
 end
 
 realPrint("smoke ok")
