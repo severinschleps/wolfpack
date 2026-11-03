@@ -187,7 +187,8 @@ local function layoutDefaults(show, x, y, gap, width, h1, h2, h3, h4, h5, h6, h7
         false, 0, "bar", { 0, 0, 0, 1 }, 0
     -- level and name, inset in the bar; the level always wears the game's difficulty color
     eh.tagLevel, eh.tagName, eh.tagFont, eh.tagSize, eh.tagOutline = true, false, FONTS[1][2], 10, true
-    eh.tagAnchor, eh.tagX, eh.tagY, eh.tagNameColor = "LEFT", 4, 0, { 1, 1, 1, 1 }
+    eh.tagAnchor, eh.tagX, eh.tagY, eh.tagNameColor = "LEFT", 4, 0, { 1, 1, 1, 1 } -- tag*: the level's spot
+    eh.nameAnchor, eh.nameX, eh.nameY = "LEFT", 28, 0
     l.bars.power.colorMode = "power"
     -- "Power type color": one color per power, Blizzard's own to start with; any other power
     -- (runic power, astral power...) keeps Blizzard's
@@ -1133,37 +1134,43 @@ function ns.levelColor(level)
 end
 
 function ns.layoutTag(f)
-    local c, t = db[f.mode].bars.enemyhealth, f.tag
-    if not t then
-        t = f.segs[1]:CreateFontString(nil, "OVERLAY")
-        t:SetWordWrap(false)
-        f.tag = t
-    end
-    t:SetShown((c.tagLevel or c.tagName) and true or false)
-    if not t:IsShown() then return end
-    local flags = c.tagOutline and "OUTLINE" or ""
-    if not t:SetFont(c.tagFont, c.tagSize, flags) then t:SetFont(FONTS[1][2], c.tagSize, flags) end
-    t:ClearAllPoints()
-    t:SetPoint(c.tagAnchor, f, c.tagAnchor, c.tagX, c.tagY)
-    t:SetWidth(math.max(1, f.width - 2 * math.abs(c.tagX))) -- a long name ends in "..."
-    t:SetJustifyH(c.tagAnchor)
-    t:SetTextColor(unpack(c.tagNameColor))
+    local c = db[f.mode].bars.enemyhealth
     local unit = UnitExists(f.unit) and f.unit
-    local lvl = ""
-    if c.tagLevel then
-        local level = unit and (UnitEffectiveLevel or UnitLevel)(unit) or UnitLevel("player")
-        if readable(level) then
-            local r, g, b = 1, 0.1, 0.1
-            if level > 0 then r, g, b = ns.levelColor(level) end
-            local kind = unit and UnitClassification and UnitClassification(unit)
-            lvl = ("|cff%02x%02x%02x%s%s|r"):format(math.floor(r * 255), math.floor(g * 255),
-                math.floor(b * 255), level > 0 and level or "??", (kind == "elite" or kind == "rareelite") and "+" or "")
+    local flags = c.tagOutline and "OUTLINE" or ""
+    -- the level and the name: one font string each, each in its own spot
+    for _, which in ipairs({ "level", "name" }) do
+        local key, lvl = "tag_" .. which, which == "level"
+        local t = f[key]
+        if not t then
+            t = f.segs[1]:CreateFontString(nil, "OVERLAY")
+            t:SetWordWrap(false)
+            f[key] = t
         end
-    end
-    local name = c.tagName and (unit and UnitName(unit) or "Target") or ""
-    -- a name the game keeps secret still draws, with or without the level in front
-    if not pcall(function() t:SetText(c.tagName and lvl ~= "" and lvl .. " " .. name or lvl .. name) end) then
-        pcall(t.SetText, t, name)
+        t:SetShown((lvl and c.tagLevel or not lvl and c.tagName) and true or false)
+        if t:IsShown() then
+            if not t:SetFont(c.tagFont, c.tagSize, flags) then t:SetFont(FONTS[1][2], c.tagSize, flags) end
+            local point, x, y = c.tagAnchor, c.tagX, c.tagY
+            if not lvl then point, x, y = c.nameAnchor, c.nameX, c.nameY end
+            t:ClearAllPoints()
+            t:SetPoint(point, f, point, x, y)
+            t:SetJustifyH(point)
+            t:SetWidth(math.max(1, f.width - 2 * math.abs(x))) -- a long name ends in "..."
+            if lvl then
+                local level = unit and (UnitEffectiveLevel or UnitLevel)(unit) or UnitLevel("player")
+                local kind = unit and UnitClassification and UnitClassification(unit)
+                if readable(level) then
+                    local r, g, b = 1, 0.1, 0.1
+                    if level > 0 then r, g, b = ns.levelColor(level) end
+                    t:SetTextColor(r, g, b, 1)
+                    t:SetText(level <= 0 and "??" or level .. ((kind == "elite" or kind == "rareelite") and "+" or ""))
+                else
+                    t:SetText("")
+                end
+            else
+                t:SetTextColor(unpack(c.tagNameColor))
+                pcall(t.SetText, t, unit and UnitName(unit) or "Target") -- a secret name still draws
+            end
+        end
     end
 end
 
@@ -5004,7 +5011,7 @@ local function buildConfig()
         function() return cur().resRadius end, function(v) cur().resRadius = v end, textPreview)
 
     -- Level and name dialog: same place, for the same bar
-    local td = ns.ui.Window(nil, 230, 470, "Level and name")
+    local td = ns.ui.Window(nil, 230, 612, "Level and name")
     td:SetParent(cfg)
     td:ClearAllPoints()
     td:SetPoint("TOPLEFT", cfg, "TOPRIGHT", 12, 0)
@@ -5023,10 +5030,15 @@ local function buildConfig()
     slider(td, "Size", 16, rrow(SLIDER), 6, 32, function() return cur().tagSize end, function(v) cur().tagSize = v end)
     check(td, "Outline", 16, rrow(ROW), function() return cur().tagOutline end, function(v) cur().tagOutline = v end)
     swatch(td, "Name color", 16, rrow(SWATCH), function() return cur().tagNameColor or { 1, 1, 1, 1 } end)
-    dropdown(td, "Position", 16, rrow(DROP), { { "Left", "LEFT" }, { "Center", "CENTER" }, { "Right", "RIGHT" } },
-        function() return cur().tagAnchor end, function(v) cur().tagAnchor = v end, textPreview)
-    slider(td, "X", 16, rrow(SLIDER), -100, 100, function() return cur().tagX end, function(v) cur().tagX = v end)
-    slider(td, "Y", 16, rrow(SLIDER), -50, 50, function() return cur().tagY end, function(v) cur().tagY = v end)
+    local SIDES = { { "Left", "LEFT" }, { "Center", "CENTER" }, { "Right", "RIGHT" } }
+    for _, w in ipairs({ { "Level", "tag" }, { "Name", "name" } }) do
+        dropdown(td, w[1] .. " position", 16, rrow(DROP), SIDES, function() return cur()[w[2] .. "Anchor"] end,
+            function(v) cur()[w[2] .. "Anchor"] = v end, textPreview)
+        slider(td, w[1] .. " X", 16, rrow(SLIDER), -100, 100, function() return cur()[w[2] .. "X"] end,
+            function(v) cur()[w[2] .. "X"] = v end)
+        slider(td, w[1] .. " Y", 16, rrow(SLIDER), -50, 50, function() return cur()[w[2] .. "Y"] end,
+            function(v) cur()[w[2] .. "Y"] = v end)
+    end
 
     for _, page in pairs(ns.pages) do ns.foldColumns(page, COL, TOP) end
     ns.configHeight = math.max(-(ns.sidebarBottom or 0) + 24, 640)

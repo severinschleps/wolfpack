@@ -563,18 +563,23 @@ GetQuestDifficultyColor = function(l) return l >= 65 and { r = 1, g = 0.1, b = 0
 UnitLevel = function(u) return u == "target" and S.tLevel or 60 end
 UnitClassification = function() return S.tKind or "normal" end
 S.tLevel = 70; fire("PLAYER_TARGET_CHANGED")
-assert(ef.tag:IsShown() and ef.tag._text == "|cffff1919" .. "70|r" and ef.tag._point[1] == "LEFT"
-    and ef.tag._point[2] == ef and ef.tag._point[4] == 4, "level on by default, red, inset left")
+local tl, tn = ef.tag_level, ef.tag_name
+assert(tl:IsShown() and tl._text == "70" and tl._color[1] == 1 and tl._color[2] == 0.1 and tl._point[1] == "LEFT"
+    and tl._point[2] == ef and tl._point[4] == 4 and not tn:IsShown(), "level on by default, red, inset left")
 S.tLevel, S.tKind = 50, "elite"; eh.tagName = true; fire("PLAYER_TARGET_CHANGED")
-assert(ef.tag._text == "|cff7f7f7f50+|r " .. S.name, "grey elite, then the name")
+assert(tl._text == "50+" and tl._color[1] == 0.5 and tn._text == S.name, "grey elite, and the name")
+eh.nameAnchor, eh.nameX, eh.nameY, eh.tagAnchor, eh.tagY = "RIGHT", -6, 2, "CENTER", -3
+fire("PLAYER_TARGET_CHANGED")
+assert(tn._point[1] == "RIGHT" and tn._point[4] == -6 and tn._point[5] == 2 and tl._point[1] == "CENTER"
+    and tl._point[5] == -3, "each in its own spot")
 S.tLevel = -1; fire("PLAYER_TARGET_CHANGED")
-assert(ef.tag._text:find("??", 1, true), "a skull reads ??")
+assert(tl._text == "??", "a skull reads ??")
 UnitName = function(u) return u == "target" and SECRET or realName(u) end
 fire("PLAYER_TARGET_CHANGED")
-assert(ef.tag._text == SECRET, "a secret name still draws")
+assert(tn._text == SECRET and tl._text == "??", "a secret name still draws, the level too")
 UnitName = realName
 eh.tagLevel, eh.tagName = false, false; fire("PLAYER_TARGET_CHANGED")
-assert(not ef.tag:IsShown(), "both off: nothing")
+assert(not tl:IsShown() and not tn:IsShown(), "both off: nothing")
 eh.tagLevel, S.tLevel, S.tKind = true, nil, nil
 UnitLevel, GetQuestDifficultyColor, UnitClassification = realLevel, nil, nil
 eh.resWidth, eh.resHeight, eh.resX, eh.resY = 50, 8, -20, 5
