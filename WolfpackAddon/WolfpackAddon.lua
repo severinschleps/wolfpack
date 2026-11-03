@@ -2395,12 +2395,23 @@ fsr.frame:SetDrawBling(false)
 -- The swipe is masked to a ring texture, so it sweeps as a ring instead of a pie slice.
 fsr.frame:SetSwipeTexture("Interface\\AddOns\\WolfpackAddon\\Media\\Ring")
 fsr.frame:Hide()
--- while mana refills: a fifth of the ring, turning (Media/Arc20: Ring.tga cut to 72 degrees)
-fsr.arc = fsr.frame:CreateTexture(nil, "OVERLAY")
+-- While mana refills: a fifth of the ring, turning (Media/Arc20: Ring.tga cut to 72 degrees). A
+-- frame of its own: the game hides a cooldown frame by itself once its sweep is done, which took
+-- an arc drawn on it along (seen in game). It looks again twice a second whether mana is full.
+fsr.spin = CreateFrame("Frame", nil, anchor)
+fsr.spin:Hide()
+fsr.arc = fsr.spin:CreateTexture(nil, "OVERLAY")
 fsr.arc:SetTexture("Interface\\AddOns\\WolfpackAddon\\Media\\Arc20")
 fsr.arc:SetAllPoints()
-fsr.arc:Hide()
-function fsr.turn() fsr.arc:SetRotation(-(GetTime() * 4) % (2 * math.pi)) end -- clockwise, ~1.5 s a turn
+function fsr.turn(self, elapsed)
+    fsr.arc:SetRotation(-(GetTime() * 4) % (2 * math.pi)) -- clockwise, ~1.5 s a turn
+    self.wait = (self.wait or 0) - (elapsed or 0)
+    if self.wait <= 0 then
+        self.wait = 0.5
+        if not fsr:regenerating() then pcall(fsr.sync, fsr) end
+    end
+end
+fsr.spin:SetScript("OnUpdate", fsr.turn)
 ns.fsr = fsr
 
 -- Spell costs are static data, but a pcall keeps a missing API (or a secret cost) from erroring:
@@ -2428,6 +2439,11 @@ function fsr:sync()
     self.frame:SetSize(o.size, o.size)
     self.frame:SetSwipeColor(o.color[1], o.color[2], o.color[3], o.color[4])
     self.frame:SetReverse(o.fill and true or false) -- fill up, or drain away
+    self.spin:SetParent(host)
+    self.spin:SetFrameLevel(host:GetFrameLevel() + 20)
+    self.spin:ClearAllPoints()
+    self.spin:SetPoint("CENTER", host, "CENTER", o.x, o.y)
+    self.spin:SetSize(o.size, o.size)
     local regen = false
     if self:on() and ns.previewing() then
         self.frame:SetCooldown(GetTime(), 3600) -- a sweep too slow to see: a full ring, to place it
@@ -2437,16 +2453,12 @@ function fsr:sync()
         self.frame:Show() -- the window: its sweep is already running
     elseif self:on() and o.regen and self:regenerating() then
         regen = true
-        if not self.regenOn then pcall(self.frame.Clear, self.frame) end -- no sweep: the arc instead
         self.arc:SetVertexColor(unpack(o.regenColor))
-        self.frame:Show()
+        self.frame:Hide() -- no sweep: the turning arc instead
     else
         self.frame:Hide()
     end
-    if regen ~= (self.regenOn or false) then -- regenerating: the arc turns
-        self.arc:SetShown(regen)
-        self.frame:SetScript("OnUpdate", regen and fsr.turn or nil)
-    end
+    self.spin:SetShown(regen)
     self.regenOn = regen
 end
 
@@ -2464,12 +2476,11 @@ function fsr:start()
     local seconds = inCombat and 5 or 7
     self.endTime = GetTime() + seconds
     self.regenOn = nil -- the window's sweep replaces the turning arc
-    self.frame:SetScript("OnUpdate", nil)
-    self.arc:Hide()
+    self.spin:Hide()
     self:sync()
     self.frame:SetCooldown(GetTime(), seconds)
     self.frame:Show()
-    C_Timer.After(seconds, function() pcall(self.sync, self) end) -- safe() isn't defined yet
+    C_Timer.After(seconds + 0.05, function() pcall(self.sync, self) end) -- just past it; safe() isn't defined yet
 end
 
 -- The window opens when the mana is paid: at cast start, or on success for an instant. A cast

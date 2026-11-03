@@ -2373,15 +2373,22 @@ S.time = 3012; ns.fsr:sync()
 assert(not spin:IsShown(), "window over: regen is back (a secret mana number: can't tell it refills)")
 -- regenerating: once the window is over and mana isn't full, a full ring breathes in its own color
 S.secret = false; fire("UNIT_POWER_FREQUENT", "player")
-assert(spin:IsShown() and ns.fsr.arc:IsShown() and ns.fsr.arc._tex:find("Arc20") and spin._scripts.OnUpdate,
-    "mana 3 of 100: regenerating, a fifth of the ring turning")
+-- on a frame of its own: the game hides a finished cooldown frame by itself (seen in game)
+S.sp = ns.fsr.spin
+assert(S.sp:IsShown() and not spin:IsShown() and ns.fsr.arc._tex:find("Arc20") and S.sp._parent == ns.frames.power
+    and S.sp._w == 30, "mana 3 of 100: regenerating, a fifth of the ring turning, where the spinner sits")
 assert(ns.fsr.arc._vertex and ns.fsr.arc._vertex[2] == 1, "in the regenerating color")
-spin._scripts.OnUpdate(spin)
+S.sp._scripts.OnUpdate(S.sp, 0.1)
+S.realUP = UnitPower
+UnitPower = function() return 100 end -- full, and no event about it
+S.sp._scripts.OnUpdate(S.sp, 1)
+assert(not S.sp:IsShown(), "it looks by itself: full, gone")
+UnitPower = S.realUP; ns.fsr:sync()
 fire("UNIT_SPELLCAST_SUCCEEDED", "player", "cast8", 133)
-assert(spin._cd[2] == 7 and spin._swipe[1] == 1 and not spin._scripts.OnUpdate and not ns.fsr.arc:IsShown(),
+assert(spin:IsShown() and spin._cd[2] == 7 and spin._swipe[1] == 1 and not S.sp:IsShown(),
     "spending mana: the window's sweep again")
 S.time = 3030; FS.regen = false; ns.fsr:sync()
-assert(not spin:IsShown(), "regen ring off")
+assert(not spin:IsShown() and not ns.fsr.spin:IsShown(), "regen ring off")
 FS.regen, S.secret = true, true
 fire("UNIT_SPELLCAST_START", "player", "cast3", 1953)
 assert(not spin:IsShown(), "a free spell doesn't break regen")
