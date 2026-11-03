@@ -4992,13 +4992,10 @@ function ns.bags.sync()
     open = open or (on and B.wantPreview and B.wantPreview()) or false
     B.frame:SetShown(open)
     if open then B.layout() end
-    -- the bag bar rides on the window while it is open; closed, it goes back to its own spot
-    local carry = (on and open) or false
-    local barKeys = carry and keyBag ~= nil
-    if carry ~= (B.barOn or false) or B.barPending or barKeys ~= (B.barKeys or false) then
-        B.barOn, B.barKeys = carry, barKeys
-        B.bar(carry)
-        safe(ns.micro.sync) -- a micro menu on the bag bar stays where the bar lives
+    local barKeys = on and keyBag ~= nil
+    if on ~= (B.barOn or false) or B.barPending or barKeys ~= (B.barKeys or false) then
+        B.barOn, B.barKeys = on, barKeys
+        B.bar(on)
     end
     B.frame.keys:SetShown(keys)
     if keys then B.layoutKeys() end
@@ -5219,15 +5216,6 @@ function ns.micro.sync()
     f:ClearAllPoints()
     local s = U.SIDES[o.side] or U.SIDES.left
     local bar = o.anchor == "bagbar" and U.bagBar(o.side)
-    if bar and bar.wpHome then -- the bag bar is up on the open bag window: where it lives instead
-        U.ghost = U.ghost or CreateFrame("Frame")
-        U.ghost:SetParent(bar.wpHome.parent)
-        U.ghost:SetScale(bar:GetScale())
-        U.ghost:SetSize(bar:GetWidth(), bar:GetHeight())
-        U.ghost:ClearAllPoints()
-        for _, pt in ipairs(bar.wpHome) do U.ghost:SetPoint(unpack(pt)) end
-        bar = U.ghost
-    end
     if bar then
         f:SetPoint(s[1], bar, s[2], o.x, o.y)
     else
