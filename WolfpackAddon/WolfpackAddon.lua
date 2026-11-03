@@ -374,7 +374,8 @@ ns.AB_POOL = 120
 ns.AB_BAR = { first = 1, rows = 1, cols = 12, size = 36, gap = 4, radius = 0, zoom = 8, borderSize = 1,
     borderColor = { 0, 0, 0, 1 }, grow = "rightdown", point = "BOTTOM", x = 0, y = 60,
     keyFont = FONTS[1][2], keySize = 11, macroFont = FONTS[1][2], macroSize = 10, macroText = true,
-    hideEmpty = false } -- hideEmpty: a slot with nothing in it shows no button (they show while dragging)
+    hideEmpty = false, -- hideEmpty: a slot with nothing in it shows no button (they show while dragging)
+    mouseover = false } -- mouseover: the bar fades in only under the mouse (its keys work either way)
 DEFAULTS.actionbars = { bars = {}, binds = {}, seeded = false }
 -- Stance and pet bars: Blizzard's own buttons, moved into a bar of yours. anchorTo: "screen", "bar:N"
 -- (one of your bars) or the other of the two; side: where on it ("above", "below", "left", "right").
@@ -2463,6 +2464,20 @@ function ns.abLook(b, bar, slot, blizz)
     ns.abHotkey(b)
 end
 
+-- A mouseover bar: faded out, in under the cursor, while dragging something to it, in keybind mode
+-- and with the options open. Only its alpha changes, which the game allows in combat too; the
+-- buttons stay clickable and their keys work while it is faded.
+function ns.abFade(self, elapsed)
+    local want = (self:IsMouseOver() or ns.ab.dragging or ns.ab.binding or ns.previewing()) and 1 or 0
+    local a = self:GetAlpha()
+    if a ~= want then self:SetAlpha(a + (want - a) * math.min(1, (elapsed or 1) * 10)) end
+    if math.abs(self:GetAlpha() - want) < 0.02 then self:SetAlpha(want) end
+end
+function ns.abFadeSet(f, on)
+    f:SetScript("OnUpdate", on and ns.abFade or nil)
+    if not on then f:SetAlpha(1) end
+end
+
 -- each next button goes this way (x), each next row that way (y)
 ns.AB_GROW = { rightdown = { 1, -1 }, rightup = { 1, 1 }, leftdown = { -1, -1 }, leftup = { -1, 1 } }
 function ns.syncActionBars()
@@ -2478,6 +2493,7 @@ function ns.syncActionBars()
         f:SetSize(math.max(1, math.min(n, bar.cols) * step - bar.gap), math.max(1, math.ceil(n / bar.cols) * step - bar.gap))
         f:ClearAllPoints()
         f:SetPoint(bar.point, UIParent, bar.point, bar.x, bar.y)
+        ns.abFadeSet(f, bar.mouseover)
         ab.buttons[i] = ab.buttons[i] or {}
         local list = ab.buttons[i]
         for j = 1, math.max(n, #list) do
@@ -2558,6 +2574,7 @@ function ns.syncSpecialBars()
             else
                 f:Show()
             end
+            ns.abFadeSet(f, o.mouseover)
             local n, step = math.min(o.rows * o.cols, 10), o.size + o.gap
             local g = ns.AB_GROW[o.grow] or ns.AB_GROW.rightdown
             local corner = (g[2] < 0 and "TOP" or "BOTTOM") .. (g[1] > 0 and "LEFT" or "RIGHT")
@@ -6517,6 +6534,8 @@ local function buildConfig()
         function(v) AB().keySize = v end)
     check(actionPage, "Hide empty buttons", abt.x, abt:row(ROW), function() return AB().hideEmpty end,
         function(v) AB().hideEmpty = v end)
+    check(actionPage, "Show only on mouseover", abt.x, abt:row(ROW), function() return AB().mouseover end,
+        function(v) AB().mouseover = v end)
     check(actionPage, "Show macro names", abt.x, abt:row(ROW), function() return AB().macroText end,
         function(v) AB().macroText = v end)
     dropdown(actionPage, "Macro name font", abt.x, abt:row(DROP), FONTS, function() return AB().macroFont end,

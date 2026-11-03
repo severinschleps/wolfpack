@@ -3024,6 +3024,18 @@ assert(not S.ab[5]:IsShown(), "cursor empty: hidden again")
 S.hasAction[2] = nil
 S.A.bars[1].hideEmpty = false; fire("UNIT_MAXPOWER")
 assert(S.ab[2]:IsShown() and S.ab[2]._attr.showgrid == 1, "shown again")
+-- mouseover: faded out, in under the cursor; the buttons stay (only the alpha changes)
+S.f1 = ns.ab.frames[1]
+S.A.bars[1].mouseover = true; ns.configOpen = false; fire("UNIT_MAXPOWER")
+S.mouseOver = false; S.f1._scripts.OnUpdate(S.f1, 1)
+assert(S.f1._alpha == 0 and S.ab[1]:IsShown(), "away from it: faded out, still there")
+S.mouseOver = true; S.f1._scripts.OnUpdate(S.f1, 1)
+assert(S.f1._alpha == 1, "under the cursor: in")
+S.mouseOver = false; ns.ab.dragging = true; S.f1._scripts.OnUpdate(S.f1, 1)
+assert(S.f1._alpha == 1, "dragging a spell to it: in")
+ns.ab.dragging = false
+S.A.bars[1].mouseover = false; fire("UNIT_MAXPOWER")
+assert(not S.f1._scripts.OnUpdate and S.f1._alpha == 1, "off: always shown")
 S.A.bars[1].radius, S.A.bars[1].zoom, S.A.bars[1].borderSize = 25, 15, 2; fire("UNIT_MAXPOWER")
 assert(S.ab[1].wpIcon._coords[1] == 0.15 and S.ab[1].wpIcon._masks[S.ab[1].wpMask] and S.ab[1].wpEdge:IsShown()
     and S.ab[1].wpIcon._points[1][4] == 2, "zoomed, rounded, a 2 px border")
