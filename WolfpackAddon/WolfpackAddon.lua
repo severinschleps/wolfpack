@@ -221,19 +221,14 @@ local function layoutDefaults(show, x, y, gap, width, h1, h2, h3, h4, h5, h6, h7
         size = 20 }
     l.bars.health.pvpIcon = { show = true, style = "faction", point = "TOPLEFT", x = 0, y = 0, size = 20 }
     l.bars.power.colorMode = "power"
-    -- "Power type color": one color per power, Blizzard's own to start with; any other power
-    -- (runic power, astral power...) keeps Blizzard's
-    l.bars.power.powerColors = { RAGE = { 1, 0, 0, 1 }, ENERGY = { 1, 1, 0, 1 }, MANA = { 0, 0, 1, 1 },
-        FOCUS = { 1, 0.5, 0.25, 1 } }
+    l.bars.health.colorMode, l.bars.enemyhealth.colorMode, l.bars.castbar.colorMode = "health", "reaction", "cast"
+    l.bars.druidmana.colorMode = "power"
     l.bars.castbar.icon, l.bars.castbar.iconSide = true, "left"
     l.bars.targetcast.icon, l.bars.targetcast.iconSide = true, "left"
     -- what your target is casting. "Auto color": one color each for a cast you cannot stop, a
     -- heal, and everything else. autoSet: useProfile has moved an older profile, which always
     -- colored by kind, onto auto (once, so picking another mode sticks)
     l.bars.targetcast.colorMode, l.bars.targetcast.autoSet = "auto", false
-    l.bars.targetcast.lockedColor = { 0.6, 0.6, 0.65, 1 }
-    l.bars.targetcast.healColor = { 0.2, 0.9, 0.3, 1 }
-    l.bars.targetcast.harmColor = { 0.9, 0.3, 0.2, 1 }
     l.bars.swing.main, l.bars.swing.off, l.bars.swing.ranged = true, false, false
     l.bars.health.heal, l.bars.health.healColor = false, { 0.4, 1, 0.5, 0.45 } -- incoming heals
     l.bars.power.cost, l.bars.power.costColor = false, { 1, 1, 1, 0.35 } -- what the cast will take
@@ -333,6 +328,43 @@ DEFAULTS.regular.targetMenu = true       -- right-click on the enemy health bar 
 DEFAULTS.regular.playerTarget = false    -- left-click on the bars targets yourself
 DEFAULTS.regular.playerMouseover = false -- hovering the bars makes you @mouseover
 DEFAULTS.regular.highlight = { show = false, color = { 1, 1, 1, 0.25 } } -- overlay while hovered
+
+------------------------------------------------------------------------------------------
+-- Colors: one palette for the whole profile. A bar picks which of these it wears (or a color of
+-- its own); anything new that needs a class, power, health or cast color takes it from here.
+-- borderShade: how a "same as bar" border differs from the bar, -100 (black) to 100 (white).
+------------------------------------------------------------------------------------------
+ns.CLASS_ORDER = { { "WARRIOR", "Warrior" }, { "PALADIN", "Paladin" }, { "HUNTER", "Hunter" }, { "ROGUE", "Rogue" },
+    { "PRIEST", "Priest" }, { "DEATHKNIGHT", "Death Knight" }, { "SHAMAN", "Shaman" }, { "MAGE", "Mage" },
+    { "WARLOCK", "Warlock" }, { "MONK", "Monk" }, { "DRUID", "Druid" }, { "DEMONHUNTER", "Demon Hunter" },
+    { "EVOKER", "Evoker" } }
+ns.POWER_ORDER = { { "MANA", "Mana" }, { "RAGE", "Rage" }, { "ENERGY", "Energy" }, { "FOCUS", "Focus" },
+    { "RUNIC_POWER", "Runic power" }, { "LUNAR_POWER", "Astral power" }, { "MAELSTROM", "Maelstrom" },
+    { "INSANITY", "Insanity" }, { "FURY", "Fury" }, { "PAIN", "Pain" } }
+do
+    local CLASS = { WARRIOR = { 0.78, 0.61, 0.43 }, PALADIN = { 0.96, 0.55, 0.73 }, HUNTER = { 0.67, 0.83, 0.45 },
+        ROGUE = { 1, 0.96, 0.41 }, PRIEST = { 1, 1, 1 }, DEATHKNIGHT = { 0.77, 0.12, 0.23 },
+        SHAMAN = { 0, 0.44, 0.87 }, MAGE = { 0.25, 0.78, 0.92 }, WARLOCK = { 0.53, 0.53, 0.93 },
+        MONK = { 0, 1, 0.6 }, DRUID = { 1, 0.49, 0.04 }, DEMONHUNTER = { 0.64, 0.19, 0.79 },
+        EVOKER = { 0.2, 0.58, 0.5 } }
+    local POWER = { MANA = { 0, 0, 1 }, RAGE = { 1, 0, 0 }, ENERGY = { 1, 1, 0 }, FOCUS = { 1, 0.5, 0.25 },
+        RUNIC_POWER = { 0, 0.82, 1 }, LUNAR_POWER = { 0.3, 0.52, 0.9 }, MAELSTROM = { 0, 0.5, 1 },
+        INSANITY = { 0.4, 0, 0.8 }, FURY = { 0.79, 0.26, 0.99 }, PAIN = { 1, 0.61, 0 } }
+    local p = { class = {}, power = {} }
+    for token, c in pairs(CLASS) do -- the game's own, where it says
+        local ok, cc = pcall(function() return C_ClassColor and C_ClassColor.GetClassColor(token) or RAID_CLASS_COLORS[token] end)
+        p.class[token] = ok and cc and { cc.r, cc.g, cc.b, 1 } or { c[1], c[2], c[3], 1 }
+    end
+    for token, c in pairs(POWER) do p.power[token] = { c[1], c[2], c[3], 1 } end
+    p.health = { 0.2, 0.8, 0.2, 1 }
+    p.reaction = { hostile = { 0.85, 0.2, 0.2, 1 }, neutral = { 0.95, 0.8, 0.2, 1 }, friendly = { 0.2, 0.8, 0.2, 1 } }
+    -- your cast bar: casting / channeling; your target's: what kind of cast (auto color)
+    p.cast = { cast = { 1, 0.7, 0, 1 }, channel = { 0.3, 0.7, 1, 1 }, harm = { 0.9, 0.3, 0.2, 1 },
+        heal = { 0.2, 0.9, 0.3, 1 }, locked = { 0.6, 0.6, 0.65, 1 } }
+    p.borderShade = 25
+    p.moved = false -- useProfile has moved the per-bar power and cast colors in here (once)
+    DEFAULTS.colors = p
+end
 
 local function merge(dst, src)
     for k, v in pairs(src) do
@@ -732,49 +764,87 @@ end
 
 local hovered -- cursor over the Combat Display group (highlight option)
 
--- Class color of a unit; nil for NPCs other than you (they have classes too, which would look random).
+-- Class color of a unit, from the palette; nil for NPCs other than you (they have classes too,
+-- which would look random).
 local function classRGB(unit)
     if unit ~= "player" and not UnitIsPlayer(unit) then return end
     local _, token = UnitClass(unit)
-    local cc = token and (C_ClassColor and C_ClassColor.GetClassColor(token) or RAID_CLASS_COLORS[token])
-    if cc then return cc.r, cc.g, cc.b end
+    local c = token and db.colors.class[token]
+    if c then return c[1], c[2], c[3] end
 end
 
--- "Same as bar color" borders: a quarter of the way to white.
-function ns.lighter(r, g, b)
-    local LIFT = 0.25
-    return r + (1 - r) * LIFT, g + (1 - g) * LIFT, b + (1 - b) * LIFT
+-- A power's color from the palette (the game's own for one it has no swatch for).
+function ns.powerRGB(token)
+    local c, pc = db.colors.power[token], PowerBarColor and PowerBarColor[token]
+    if c then return c[1], c[2], c[3] end
+    if pc then return pc.r, pc.g, pc.b end
+end
+
+-- How the unit stands to you: hostile, neutral or friendly, from the palette; nil if unknown.
+function ns.reactionRGB(unit)
+    local ok, r = pcall(UnitReaction, unit, "player")
+    if not (ok and readable(r) and type(r) == "number") then return end
+    local c = db.colors.reaction[r <= 3 and "hostile" or r == 4 and "neutral" or "friendly"]
+    return c[1], c[2], c[3]
+end
+
+-- A "same as bar" border: the bar's color, lighter or darker by the palette's border shade.
+function ns.shade(r, g, b)
+    local s = (db.colors.borderShade or 0) / 100
+    if s >= 0 then return r + (1 - r) * s, g + (1 - g) * s, b + (1 - b) * s end
+    return r * (1 + s), g * (1 + s), b * (1 + s)
+end
+
+-- The palette color a bar wears in its mode, or nil (then its own color). f.castKind / f.channel:
+-- what the cast bars are showing right now.
+function ns.modeRGB(f, c)
+    local m, unit = c.colorMode, f.unit or "player"
+    if m == "health" then
+        local h = db.colors.health
+        return h[1], h[2], h[3]
+    elseif m == "power" then
+        local token = f.key == "druidmana" and "MANA" or select(2, UnitPowerType(unit))
+        return ns.powerRGB(token)
+    elseif m == "class" then
+        local r, g, b = classRGB(unit)
+        if r or f.key ~= "enemyhealth" then return r, g, b end
+        return ns.reactionRGB(unit) -- an NPC has no class color of its own: how it stands to you
+    elseif m == "reaction" then
+        return ns.reactionRGB(unit)
+    elseif m == "auto" or m == "cast" then
+        local kind = m == "auto" and (f.castKind or "harm") or (f.channel and "channel" or "cast")
+        local k = db.colors.cast[kind]
+        return k[1], k[2], k[3]
+    end
 end
 
 -- A bar's fill and border colors after the color modes. Alpha always comes from the swatch.
 local function barColors(f, c)
     local r, g, b = unpack(c.color)
-    if f.key == "targetcast" and c.colorMode == "auto" then
-        local pick = c[(f.castKind or "harm") .. "Color"]
-        if pick then r, g, b = pick[1], pick[2], pick[3] end
-    end
-    if c.colorMode == "power" and (f.key == "power" or f.res) then
-        local token = select(2, UnitPowerType(f.unit or "player"))
-        local colors = c.powerColors or db[f.mode].bars.power.powerColors -- the resource uses yours
-        local own, pc = colors and colors[token], PowerBarColor and PowerBarColor[token]
-        if own then r, g, b = own[1], own[2], own[3] elseif pc then r, g, b = pc.r, pc.g, pc.b end
-    elseif c.colorMode == "class" then
-        local cr, cg, cb = classRGB(f.unit or "player")
-        if cr then r, g, b = cr, cg, cb end
-    end
+    local mr, mg, mb = ns.modeRGB(f, c)
+    if mr then r, g, b = mr, mg, mb end
     local br, bg, bb, ba = unpack(c.borderColor)
-    if c.borderMode == "bar" then -- the bar's color, a little lighter, so the edge reads
+    if c.borderMode ~= "custom" then -- the bar's color, shaded, so the edge reads
         local first = c.gradient and sortedStops(c)[1] -- a gradient: where the fill starts
         if first then
-            br, bg, bb = ns.lighter(first.color[1], first.color[2], first.color[3])
+            br, bg, bb = ns.shade(first.color[1], first.color[2], first.color[3])
         else
-            br, bg, bb = ns.lighter(r, g, b)
+            br, bg, bb = ns.shade(r, g, b)
         end
-    elseif c.borderMode == "class" then
-        local cr, cg, cb = classRGB(f.unit or "player")
-        if cr then br, bg, bb = cr, cg, cb end
     end
     return r, g, b, br, bg, bb, ba
+end
+
+-- A cast bar's color changes with the cast, after layout: recolor the fill and its border.
+function ns.wearColor(f, c)
+    local r, g, b = ns.modeRGB(f, c)
+    if not r or c.gradient then return end
+    local s = f.segs[1]
+    s:SetStatusBarColor(r, g, b, c.color[4] or 1)
+    if c.borderMode ~= "custom" then
+        local br, bg, bb = ns.shade(r, g, b)
+        s.border:SetColorTexture(br, bg, bb, c.borderColor[4])
+    end
 end
 
 -- over: settings that replace the bar's own for this layout (enemy health's height while it sits
@@ -834,7 +904,7 @@ local function layoutBar(f, n, width, over)
             if f.key == "totems" then -- each segment wears its element's color, border included
                 local col = c.slotColors[c.slots[i]]
                 paint(s, c, col[1], col[2], col[3], w, c.height)
-                if c.borderMode == "bar" and not c.gradient then sr, sg, sb = ns.lighter(col[1], col[2], col[3]) end
+                if c.borderMode ~= "custom" and not c.gradient then sr, sg, sb = ns.shade(col[1], col[2], col[3]) end
             else
                 paint(s, c, r, g, b, w, c.height)
             end
@@ -911,6 +981,8 @@ local function fillCast(f)
     if duration then f.segs[1]:SetTimerDuration(duration, 0, direction) end
     f.text:SetText(name)
     f.icon:SetTexture(icon)
+    f.channel = direction == TIMER_REMAINING
+    ns.wearColor(f, db[f.mode].bars.castbar)
 end
 
 -- What your target is casting, as far as anything will say. Whether it can be stopped the game
@@ -976,14 +1048,9 @@ function ns.fillTargetCast(f)
 
     -- the color is only known once the cast is read, which is after the bar was laid out
     local function wear(kind)
-        f.castKind = kind
+        f.castKind, f.channel = kind, channel
         local c = db[f.mode] and db[f.mode].bars.targetcast
-        local pick = c and c.colorMode == "auto" and c[kind .. "Color"] -- otherwise layout colored it
-        if pick then f.segs[1]:SetStatusBarColor(pick[1], pick[2], pick[3], pick[4] or 1) end
-        if pick and c.borderMode == "bar" and not c.gradient then
-            local br, bg, bb = ns.lighter(pick[1], pick[2], pick[3])
-            f.segs[1].border:SetColorTexture(br, bg, bb, c.borderColor[4])
-        end
+        if c then ns.wearColor(f, c) end
     end
 
     if ns.targetCasting ~= true then -- previewing, or nothing being cast
@@ -3785,6 +3852,27 @@ useProfile = function(name)
     end
     store.chars[charKey] = name
     db = store.profiles[name]
+    local P = db.colors
+    if not P.moved then -- colors that lived on single bars move into the palette
+        local pc = db.regular.bars.power.powerColors
+        for token, c in pairs(type(pc) == "table" and pc or {}) do
+            if P.power[token] and type(c) == "table" then P.power[token] = { unpack(c) } end
+        end
+        local tc = db.regular.bars.targetcast
+        for kind, key in pairs({ harm = "harmColor", heal = "healColor", locked = "lockedColor" }) do
+            if type(tc[key]) == "table" then P.cast[kind] = { unpack(tc[key]) } end
+        end
+        for _, m in ipairs({ "regular", "nameplate" }) do
+            local bars = db[m].bars
+            bars.power.powerColors = nil
+            bars.targetcast.harmColor, bars.targetcast.healColor, bars.targetcast.lockedColor = nil, nil, nil
+            for _, b in pairs(bars) do -- a class-colored border is now "same as bar" or your own
+                if b.borderMode == "class" then b.borderMode = "bar" end
+                if b.resBorderMode == "class" then b.resBorderMode = "bar" end
+            end
+        end
+        P.moved = true
+    end
     local ci = db.regular.combatIcon
     if type(ci) == "table" then -- the old in-combat icon becomes your health bar's status icon
         local st = db.regular.bars.health.statusIcon
@@ -4428,6 +4516,7 @@ local function buildConfig()
     end
 
     entry("profile", "Profiles")
+    entry("colors", "Colors")
     y = y - 12
     shelf("Interface")
     for _, e in ipairs({ { "combat", "Combat Display" }, { "nameplates", "Nameplates", "nameplate" },
@@ -4469,13 +4558,15 @@ local function buildConfig()
     roguePage:SetAllPoints(barsPage)
     local shamanPage = CreateFrame("Frame", nil, content)
     shamanPage:SetAllPoints(barsPage)
+    local colorPage = CreateFrame("Frame", nil, content)
+    colorPage:SetAllPoints(barsPage)
     -- Bar Stack builds its own editor (BarStack/Config.lua) into this page, under the title
     local bsPage = CreateFrame("Frame", nil, content)
     bsPage:SetAllPoints(barsPage)
     bsPage.need = 100 + ns.ui.BS_H
     ns.pages = { combat = barsPage, nameplates = questPage, buffs = buffPage, mage = magePage,
         hunter = hunterPage, warlock = lockPage, rogue = roguePage, shaman = shamanPage,
-        other = otherPage, profile = profilePage }
+        other = otherPage, profile = profilePage, colors = colorPage }
 
     local title = label(cfg, "Combat Display", "GameFontNormalLarge")
     title:SetPoint("TOPLEFT", 150, -72)
@@ -4490,6 +4581,7 @@ local function buildConfig()
         title:SetShown(not np)
         title:SetText(section == "other" and "Other"
             or section == "profile" and "Profiles"
+            or section == "colors" and "Colors"
             or section == "buffs" and "Buff check"
             or section == "mage" and "Mage: food and water"
             or section == "hunter" and "Hunter: ammo and pet"
@@ -4510,6 +4602,7 @@ local function buildConfig()
         shamanPage:SetShown(section == "shaman")
         bsPage:SetShown(section == "barstack")
         profilePage:SetShown(section == "profile")
+        colorPage:SetShown(section == "colors")
         local page = section == "barstack" and bsPage or ns.pages[section]
         if np and sub == "quest" then page = questPage end
         if page and page.need then content:SetHeight(math.max(1, page.need - 90 + 16)) end
@@ -4654,28 +4747,12 @@ local function buildConfig()
         function() return cur().cost end, function(v) cur().cost = v end)
     local costColor = swatch(barsPage, "Cost color", only.x, only:row(0) - ROW,
         function() return cur().costColor or { 0, 0, 0, 1 } end)
-    -- the power bar's color per power, under its cost options, while it wears its power's color
-    local POWERS = { { "RAGE", "Rage" }, { "ENERGY", "Energy" }, { "MANA", "Mana" }, { "FOCUS", "Focus" } }
-    local powerSwatches = {}
-    for i, p in ipairs(POWERS) do
-        powerSwatches[i] = swatch(barsPage, p[2], only.x, only:row(0) - (i + 1) * ROW, function()
-            return cur().powerColors and cur().powerColors[p[1]] or { 0, 0, 0, 1 } -- another bar is selected
-        end)
-    end
     local castIcon = check(barsPage, "Show spell icon", only.x, only:row(ROW),
         function() return cur().icon end, function(v) cur().icon = v end)
     local castSide = button(barsPage, "", 186, only.x, only:row(BUTTON), function()
         cur().iconSide = cur().iconSide == "right" and "left" or "right"
         changed()
     end)
-    -- one color per kind of cast, for your target's bar
-    local castKinds = {}
-    for i, k in ipairs({ { "harmColor", "Damage" }, { "healColor", "Healing" },
-        { "lockedColor", "Cannot be stopped" } }) do
-        castKinds[i] = swatch(barsPage, k[2], only.x, only:row(SWATCH), function()
-            return cur()[k[1]] or { 1, 1, 1, 1 }
-        end)
-    end
     local onlyNote = label(barsPage, "", "GameFontDisableSmall")
     onlyNote:SetPoint("TOPLEFT", only.x, only:row(16))
     onRefresh(function()
@@ -4701,13 +4778,11 @@ local function buildConfig()
         healColor:SetShown(selected == "health")
         costCheck:SetShown(selected == "power")
         costColor:SetShown(selected == "power")
-        for _, w in ipairs(powerSwatches) do w:SetShown(selected == "power" and cur().colorMode == "power") end
         for _, w in ipairs(swingChecks) do w:SetShown(selected == "swing") end
         for _, row in ipairs(totemRows) do
             for _, w in ipairs(row) do w:SetShown(selected == "totems") end
         end
         castIcon:SetShown(selected == "castbar" or selected == "targetcast")
-        for _, w in ipairs(castKinds) do w:SetShown(selected == "targetcast" and cur().colorMode == "auto") end
         castSide:SetShown((selected == "castbar" or selected == "targetcast")
             and cur().icon or false)
         castSide:SetText("Icon side: " .. (cur().iconSide == "right" and "Right" or "Left"))
@@ -4720,9 +4795,9 @@ local function buildConfig()
         elseif selected == "enemyhealth" then
             onlyNote:SetText("") -- the resource sliders stand where this note would
         elseif selected == "targetcast" then
-            onlyNote:SetText("What your target is casting. With Auto color (under Colors) it takes "
-                .. "the color of the kind: grey for one the game says you cannot stop, green for a "
-                .. "heal, red for anything else. Whether it can "
+            onlyNote:SetText("What your target is casting. With Bar color \"By kind of cast\" it takes "
+                .. "the color of the kind, from the Colors page: one you cannot stop, a heal, or "
+                .. "anything else. Whether it can "
                 .. "be stopped the game tells us outright; whether it heals is matched by name, "
                 .. "from the list of heals a mob actually casts.")
         elseif selected == "flight" then
@@ -4741,10 +4816,20 @@ local function buildConfig()
     local look = group(barsPage, COL[3], TOP, 202, "Colors")
     dropdown(barsPage, "Texture", look.x, look:row(DROP), TEXTURES, function() return cur().texture end,
         function(v) cur().texture = v end, texturePreview)
+    -- which palette color the bar wears (the Colors page sets them), or its own
+    local MODES = { health = { "health", "class", "custom" }, power = { "power", "class", "custom" },
+        druidmana = { "power", "class", "custom" }, pethealth = { "health", "class", "custom" },
+        enemyhealth = { "class", "reaction", "health", "custom" }, castbar = { "cast", "class", "custom" },
+        targetcast = { "auto", "cast", "class", "custom" } }
+    local MODE_NAMES = { health = "Health color", power = "Power color", class = "Class color",
+        reaction = "Hostile / neutral / friendly", cast = "Casting / channeling", custom = "Custom",
+        auto = "By kind of cast" }
     dropdown(barsPage, "Bar color", look.x, look:row(DROP), function()
-        local list = { { "Custom", "custom" }, { "Class color", "class" } }
-        if selected == "power" then list[3] = { "Power type color", "power" } end
-        if selected == "targetcast" then list[3] = { "Auto color (by kind of cast)", "auto" } end
+        local list = {}
+        for _, m in ipairs(MODES[selected] or { "class", "custom" }) do
+            list[#list + 1] = { (m == "class" and selected == "enemyhealth") and "Class color (NPCs: hostile...)"
+                or MODE_NAMES[m], m }
+        end
         return list
     end, function() return cur().colorMode end, function(v) cur().colorMode = v end, textPreview)
     swatch(barsPage, "Custom color", look.x, look:row(SWATCH), function() return cur().color end, {
@@ -4757,8 +4842,8 @@ local function buildConfig()
     local bord = group(barsPage, COL[3], look.cursor - 20, 202, "Border")
     slider(barsPage, "Thickness", bord.x, bord:row(SLIDER), 0, 10,
         function() return cur().borderSize end, function(v) cur().borderSize = v end)
-    dropdown(barsPage, "Color", bord.x, bord:row(DROP), { { "Custom", "custom" }, { "Class color", "class" },
-        { "Same as bar color", "bar" } }, function() return cur().borderMode end, function(v) cur().borderMode = v end,
+    dropdown(barsPage, "Color", bord.x, bord:row(DROP), { { "Same as bar (shaded)", "bar" }, { "Custom", "custom" } },
+        function() return cur().borderMode end, function(v) cur().borderMode = v end,
         textPreview)
     swatch(barsPage, "Custom border color", bord.x, bord:row(SWATCH), function() return cur().borderColor end, {
         get = function() return cur().borderMode end, set = function(v) cur().borderMode = v end,
@@ -5344,6 +5429,38 @@ local function buildConfig()
     -- Four columns of cards are built; the window holds two. Columns 3 and 4 move under 1 and 2:
     -- anything placed on the page itself right of column 2 shifts left and down, and whatever
     -- hangs off those moves with it.
+    ----------------------------------------------------------------------------------
+    -- Colors page: the palette every bar picks from
+    ----------------------------------------------------------------------------------
+    local P = function() return db.colors end
+    local function swatches(g, list, get)
+        for _, e in ipairs(list) do swatch(colorPage, e[2], g.x, g:row(SWATCH), function() return get()[e[1]] end) end
+    end
+    local hcard = group(colorPage, COL[1], TOP, 202, "Health and standing")
+    swatch(colorPage, "Health", hcard.x, hcard:row(SWATCH), function() return P().health end)
+    swatches(hcard, { { "hostile", "Hostile" }, { "neutral", "Neutral" }, { "friendly", "Friendly" } },
+        function() return P().reaction end)
+    hcard:close()
+    local ccard = group(colorPage, COL[1], hcard.cursor - 20, 202, "Cast bars")
+    swatches(ccard, { { "cast", "Casting" }, { "channel", "Channeling" }, { "harm", "Enemy: damage" },
+        { "heal", "Enemy: healing" }, { "locked", "Enemy: can't be stopped" } }, function() return P().cast end)
+    ccard:close()
+    local bcard = group(colorPage, COL[1], ccard.cursor - 20, 202, "Borders")
+    slider(colorPage, "\"Same as bar\" shade", bcard.x, bcard:row(SLIDER), -100, 100,
+        function() return P().borderShade end, function(v) P().borderShade = v end)
+    local bnote = label(colorPage, "How a border that follows its bar differs from it: up to 100 "
+        .. "lighter (white), down to -100 darker (black), 0 the same.", "GameFontDisableSmall")
+    bnote:SetPoint("TOPLEFT", bcard.x, bcard:row(44))
+    bnote:SetWidth(182)
+    bnote:SetJustifyH("LEFT")
+    bcard:close()
+    local pcard = group(colorPage, COL[2], TOP, 202, "Power")
+    swatches(pcard, ns.POWER_ORDER, function() return P().power end)
+    pcard:close()
+    local klass = group(colorPage, COL[2], pcard.cursor - 20, 202, "Classes")
+    swatches(klass, ns.CLASS_ORDER, function() return P().class end)
+    klass:close()
+
     -- Enemy resource dialog: beside the window, for the enemy health bar picked on the bars page
     local rd = ns.ui.Window(nil, 230, 476, "Enemy resource")
     rd:SetParent(cfg)
@@ -5361,8 +5478,8 @@ local function buildConfig()
         slider(rd, r[2], 16, rrow(SLIDER), r[3], r[4],
             function() return cur()[r[1]] or 0 end, function(v) cur()[r[1]] = v end)
     end
-    dropdown(rd, "Border color", 16, rrow(DROP), { { "Custom", "custom" }, { "Class color", "class" },
-        { "Same as bar color", "bar" } }, function() return cur().resBorderMode end,
+    dropdown(rd, "Border color", 16, rrow(DROP), { { "Same as bar (shaded)", "bar" }, { "Custom", "custom" } },
+        function() return cur().resBorderMode end,
         function(v) cur().resBorderMode = v end, textPreview)
     swatch(rd, "Custom resource border", 16, rrow(SWATCH), function() return cur().resBorderColor or { 0, 0, 0, 1 } end, {
         get = function() return cur().resBorderMode end, set = function(v) cur().resBorderMode = v end,

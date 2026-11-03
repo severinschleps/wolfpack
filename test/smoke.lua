@@ -787,6 +787,16 @@ assert(ef.segs[1]._sbc[1] == 0.8 and fr.health.segs[1]._sbc[1] == 1, "NPC target
 S.targetIsPlayer = true; fire("PLAYER_TARGET_CHANGED")
 assert(ef.segs[1]._sbc[1] == 0.25, "player target: their class color")
 S.targetIsPlayer, prof().regular.bars.health.colorMode, eh.colorMode = nil, "custom", "custom"
+-- standing toward you: reaction mode, and class mode's choice for an NPC
+UnitReaction = function() return S.reaction end
+S.reaction, eh.colorMode = 2, "reaction"; fire("PLAYER_TARGET_CHANGED")
+assert(ef.segs[1]._sbc[1] == 0.85 and ef.segs[1]._sbc[2] == 0.2, "hostile: the palette's hostile")
+S.reaction = 4; fire("PLAYER_TARGET_CHANGED")
+assert(ef.segs[1]._sbc[2] == 0.8 and ef.segs[1]._sbc[1] == 0.95, "neutral")
+eh.colorMode = "class"; S.reaction = 5; fire("PLAYER_TARGET_CHANGED")
+assert(ef.segs[1]._sbc[1] == 0.2 and ef.segs[1]._sbc[2] == 0.8, "class mode, an NPC: friendly by standing")
+UnitReaction, S.reaction, eh.colorMode = nil, nil, "custom"
+fire("PLAYER_TARGET_CHANGED")
 S.targetHP = 250; fire("UNIT_HEALTH", "target")
 assert(ef.segs[1]._value == 250 and fr.health.segs[1]._value == SECRET, "target updates, player keeps its own")
 rf.segs[1]._value = nil; fire("UNIT_POWER_FREQUENT", "target")
@@ -864,6 +874,12 @@ assert(cb.text._text == "Fireball" and cb.text:IsShown() and cb.icon._tex == 136
 assert(cs._w == 204 and cs._point[4] == 16 and cb.icon._point[1] == "LEFT", "icon left: bar starts after 14 + 2")
 S.cast = nil; S.channel = "Drain Life"; fire("UNIT_SPELLCAST_CHANNEL_START", "player")
 assert(cs._timer == "channelDuration" and cs._dir == 1 and cb.text._text == "Drain Life", "channel drains")
+-- "Casting / channeling": the palette's channel color while channeling, its cast color while casting
+prof().regular.bars.castbar.colorMode = "cast"; fire("UNIT_SPELLCAST_CHANNEL_START", "player")
+assert(cs._sbc[1] == 0.3 and cs._sbc[3] == 1, "channeling: the channel color")
+S.channel, S.cast = nil, "Fireball"; fire("UNIT_SPELLCAST_START", "player")
+assert(cs._sbc[1] == 1 and cs._sbc[2] == 0.7, "casting: the cast color")
+S.cast, S.channel = nil, "Drain Life"; fire("UNIT_SPELLCAST_CHANNEL_START", "player")
 prof().regular.bars.castbar.iconSide = "right"; fire("UNIT_MAXPOWER")
 assert(cs._w == 204 and cs._point[4] == 0 and cb.icon._point[1] == "RIGHT", "icon right")
 prof().regular.bars.castbar.icon = false; fire("UNIT_MAXPOWER")
@@ -1024,18 +1040,30 @@ local hs = fr.health.segs[1]
 hc.colorMode, hc.borderSize, hc.borderMode = "class", 1, "bar"; fire("UNIT_MAXPOWER")
 assert(hs._sbc[1] == 1 and hs._sbc[3] == 0.41 and math.abs(hs.border._color[3] - 0.5575) < 1e-6
     and hs.border._color[1] == 1, "class bar, border = the bar's color, a quarter of the way to white")
-hc.colorMode, hc.borderMode = "custom", "class"; fire("UNIT_MAXPOWER")
-assert(hs._sbc[1] == 0.2 and hs.border._color[3] == 0.41 and hs.border._color[4] == 1, "custom bar, class border")
+-- the palette: the border shade, class, power and health colors live there, the bars pick
+local PAL = prof().colors
+PAL.borderShade = -50; fire("UNIT_MAXPOWER")
+assert(math.abs(hs.border._color[1] - 0.5) < 1e-6 and math.abs(hs.border._color[3] - 0.205) < 1e-6,
+    "shade -50: the class color halfway to black")
+PAL.borderShade = 25
+PAL.class.ROGUE = { 0.1, 0.2, 0.3, 1 }; fire("UNIT_MAXPOWER")
+assert(hs._sbc[1] == 0.1 and hs._sbc[3] == 0.3, "class color as set on the Colors page")
+PAL.class.ROGUE = { 1, 0.96, 0.41, 1 }
+hc.colorMode = "health"; PAL.health = { 0.3, 0.6, 0.9, 1 }; fire("UNIT_MAXPOWER")
+assert(hs._sbc[1] == 0.3 and hs._sbc[3] == 0.9, "health color from the palette")
+PAL.health = { 0.2, 0.8, 0.2, 1 }
+hc.colorMode, hc.borderMode = "custom", "custom"; fire("UNIT_MAXPOWER")
+assert(hs._sbc[1] == 0.2 and hs.border._color[1] == 0, "custom bar, custom border")
 hc.borderSize, hc.borderMode = 0, "custom"
--- a color of your own per power: rage, energy, mana and focus each take theirs
-local pcol = prof().regular.bars.power.powerColors
-assert(pcol.RAGE and pcol.ENERGY and pcol.MANA and pcol.FOCUS, "four power colors, Blizzard's to start with")
-pcol.ENERGY = { 0.1, 0.8, 0.9, 1 }; fire("UNIT_MAXPOWER")
-assert(fr.power.segs[1]._sbc[1] == 0.1 and fr.power.segs[1]._sbc[3] == 0.9, "energy wears its own color")
+-- a color per power: rage, energy, mana, focus and more, all on the Colors page
+assert(PAL.power.RAGE and PAL.power.ENERGY and PAL.power.MANA and PAL.power.FOCUS and PAL.power.RUNIC_POWER,
+    "power colors in the palette")
+PAL.power.ENERGY = { 0.1, 0.8, 0.9, 1 }; fire("UNIT_MAXPOWER")
+assert(fr.power.segs[1]._sbc[1] == 0.1 and fr.power.segs[1]._sbc[3] == 0.9, "energy wears the palette's")
 prof().regular.bars.power.colorMode = "custom"; fire("UNIT_MAXPOWER")
 assert(fr.power.segs[1]._sbc[1] ~= 0.1, "only while the bar wears its power's color")
 prof().regular.bars.power.colorMode = "power"
-pcol.ENERGY = { 1, 1, 0, 1 }; fire("UNIT_MAXPOWER")
+PAL.power.ENERGY = { 1, 1, 0, 1 }; fire("UNIT_MAXPOWER")
 
 -- Player frame: hide by reparenting (out of combat only), restore to the original parent
 local R0 = prof().regular
@@ -1321,6 +1349,18 @@ hc.texts.current.size = 9; ns.useProfile("OldText")
 assert(hc.texts.current.size == 9, "only once")
 ns.useProfile("Scratch")
 WolfpackAddonDB.profiles.OldText = nil
+-- colors that lived on single bars move into the palette, once; class borders follow the bar
+WolfpackAddonDB.profiles.OldColors = { regular = { bars = {
+    power = { powerColors = { ENERGY = { 0.5, 0.5, 0.5, 1 } } },
+    targetcast = { harmColor = { 0.7, 0, 0, 1 }, healColor = { 0, 0.7, 0, 1 } },
+    health = { borderMode = "class" } } } }
+ns.useProfile("OldColors")
+assert(prof().colors.power.ENERGY[1] == 0.5 and prof().colors.cast.harm[1] == 0.7
+    and prof().colors.cast.heal[2] == 0.7 and prof().colors.moved, "moved into the palette")
+assert(prof().regular.bars.power.powerColors == nil and prof().regular.bars.targetcast.harmColor == nil
+    and prof().regular.bars.health.borderMode == "bar", "gone from the bars; a class border follows the bar")
+ns.useProfile("Scratch")
+WolfpackAddonDB.profiles.OldColors = nil
 -- Copy from: another profile's settings (and Bar Stack's) land on the current one, name kept
 local here = WolfpackAddonDB.chars[S.name .. " - Realm"]
 WolfpackAddonDB.profiles.Source = { regular = { bars = { health = { width = 321 } } } }
@@ -1485,6 +1525,11 @@ pb2._scripts.OnClick(pb2, "LeftButton")
 assert(ns.iconDialog:IsShown(), "PvP and drinking icons: a window of its own")
 byText("Health")._scripts.OnClick(byText("Health"), "LeftButton")
 assert(not pb2:IsShown() and not ns.iconDialog:IsShown(), "closed with the bar")
+-- the Colors page: the palette, in the sidebar
+byText("Colors")._scripts.OnClick(byText("Colors"), "LeftButton")
+assert(ns.pages.colors:IsShown() and ns.swatches["Mana"]:IsShown() and ns.swatches["Warrior"]
+    and ns.swatches["Channeling"] and ns.swatches["Hostile"], "class, power, cast and standing colors")
+byText("Combat Display")._scripts.OnClick(byText("Combat Display"), "LeftButton")
 local sb = byText("Status and PvP icons")
 byText("Health")._scripts.OnClick(byText("Health"), "LeftButton")
 sb._scripts.OnClick(sb, "LeftButton")
@@ -1966,6 +2011,7 @@ for _, f in ipairs(created) do
         if sc.OnDragStop then sc.OnDragStop(f) end -- picking a macro up has nothing to stop
     end
 end
+prof().colors.borderShade = 25 -- poked to 42 above, like every slider
 for _, m in ipairs({ "regular", "nameplate" }) do
     local seen = {}
     for _, k in ipairs(prof()[m].order) do seen[k] = true end
