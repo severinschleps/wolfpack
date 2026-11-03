@@ -702,6 +702,15 @@ eh.drinking.color = { 1, 0, 1, 1 }; fire("UNIT_AURA", "target")
 assert(tn2._color[1] == 1 and tn2._color[2] == 0, "in the color you pick")
 S.auras = { { name = SECRET, icon = 1 } }; fire("UNIT_AURA", "target")
 assert(not tn2:IsShown() and not tn2.box._scripts.OnUpdate and tn2.box._alpha == 1, "a secret name can't be told: back")
+-- eating the same way, in its own color; both at once say so
+S.auras = { { name = "Food", icon = 1 } }; fire("UNIT_AURA", "target")
+assert(tn2:IsShown() and tn2._text == "Eating!" and tn2._color[1] == 1 and tn2._color[2] == 0.8
+    and tn2.box._scripts.OnUpdate, "eating: says so, flashing, in its color")
+S.auras = { { name = "Food & Drink", icon = 1 } }; fire("UNIT_AURA", "target")
+assert(tn2._text == "Eating & drinking!", "both")
+eh.eating.show = false; S.auras = { { name = "Food", icon = 1 } }; fire("UNIT_AURA", "target")
+assert(not tn2:IsShown(), "eating turned off")
+eh.eating.show = true
 eh.drinking.show = false; S.auras = { { name = "Drink", icon = 1 } }; fire("UNIT_AURA", "target")
 assert(not tn2:IsShown(), "turned off")
 eh.drinking = { show = true, color = { 0.35, 0.75, 1, 1 } }

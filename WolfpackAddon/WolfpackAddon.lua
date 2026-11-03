@@ -231,6 +231,7 @@ local function layoutDefaults(show, x, y, gap, width, h1, h2, h3, h4, h5, h6, h7
         text = "PvP", textColor = { 1, 0.25, 0.25, 1 } }
     -- drinking: the name reads "Drinking!" instead, flashing, in this color
     eh.drinking = { show = true, color = { 0.35, 0.75, 1, 1 } }
+    eh.eating = { show = true, color = { 1, 0.8, 0.3, 1 } } -- ... and "Eating!" while it eats
     -- target of target: anchor "stack" (like any bar), "below" enemy health (the two then share
     -- enemy health's height: your health's while beside it) or "right" of it (its height, own
     -- width). It has enemy health's level and name, the name shown.
@@ -256,7 +257,7 @@ local function layoutDefaults(show, x, y, gap, width, h1, h2, h3, h4, h5, h6, h7
         return t
     end
     for _, k in ipairs({ "tagLevel", "tagName", "tagFont", "tagSize", "tagOutline", "tagAnchor", "tagX", "tagY",
-        "tagNameColor", "nameAnchor", "nameX", "nameY", "tagAttach", "tagBg", "nameBg", "drinking" }) do
+        "tagNameColor", "nameAnchor", "nameX", "nameY", "tagAttach", "tagBg", "nameBg", "drinking", "eating" }) do
         tt[k] = copy(eh[k])
     end
     tt.tagLevel, tt.tagName, tt.nameX = false, true, 4
@@ -1493,7 +1494,9 @@ function ns.layoutTag(f)
     -- right of one on the right): the level takes the name's spot and the name moves over.
     -- drinking: the name's place says so, flashing, even with the name itself turned off
     local drinking = (c.drinking.show and unit and ns.drinking(unit)) and true or false
-    local nameOn = c.tagName or drinking
+    local eating = (c.eating.show and unit and ns.eating(unit)) and true or false
+    local meal = drinking or eating -- the name's place says so, flashing
+    local nameOn = c.tagName or meal
     local side = nameOn and ns.TAG_SIDES[c.tagAttach]
     local leads = side and c.tagLevel and ((c.tagAttach == "left" and c.nameAnchor == "LEFT")
         or (c.tagAttach == "right" and c.nameAnchor == "RIGHT"))
@@ -1503,7 +1506,7 @@ function ns.layoutTag(f)
         local on = (lvl and c.tagLevel or not lvl and nameOn) and true or false
         t:SetShown(on)
         t.box:SetShown(on)
-        local flash = on and not lvl and drinking
+        local flash = on and not lvl and meal
         t.box:SetScript("OnUpdate", flash and function(self) self:SetAlpha(0.55 + 0.45 * math.cos(GetTime() * 6)) end or nil)
         if not flash then t.box:SetAlpha(1) end
         if on then
@@ -1535,9 +1538,9 @@ function ns.layoutTag(f)
                     t:SetText("")
                 end
             else
-                if drinking then
-                    t:SetTextColor(unpack(c.drinking.color))
-                    t:SetText("Drinking!")
+                if meal then
+                    t:SetTextColor(unpack((drinking and c.drinking or c.eating).color))
+                    t:SetText(drinking and eating and "Eating & drinking!" or drinking and "Drinking!" or "Eating!")
                 else
                     t:SetTextColor(unpack(c.tagNameColor))
                     pcall(t.SetText, t, unit and UnitName(unit) or "Target") -- a secret name still draws
@@ -6659,7 +6662,7 @@ local function buildConfig()
         function() return cur().resRadius end, function(v) cur().resRadius = v end, textPreview)
 
     -- Level and name dialog: same place, for the same bar. The font on top, then a column each.
-    local td = ns.ui.Window(nil, 440, 690, "Level and name")
+    local td = ns.ui.Window(nil, 440, 740, "Level and name")
     td:SetParent(cfg)
     td:ClearAllPoints()
     td:SetPoint("TOPLEFT", cfg, "TOPRIGHT", 12, 0)
@@ -6693,6 +6696,10 @@ local function buildConfig()
             check(td, "\"Drinking!\" instead, flashing", x, rrow(ROW), function() return D().show end,
                 function(v) D().show = v end)
             swatch(td, "Drinking color", x, rrow(SWATCH), function() return D().color end)
+            local E = function() return cur().eating or DEFAULTS.regular.bars.enemyhealth.eating end
+            check(td, "\"Eating!\" instead, flashing", x, rrow(ROW), function() return E().show end,
+                function(v) E().show = v end)
+            swatch(td, "Eating color", x, rrow(SWATCH), function() return E().color end)
         end
         if p == "tag" then
             dropdown(td, "Sits", x, rrow(DROP), { { "Free, on the bar", "free" }, { "Left of the name", "left" },
