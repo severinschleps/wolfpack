@@ -591,8 +591,18 @@ local CLASS_POWER = {
     MONK = PT.Chi, MAGE = PT.ArcaneCharges, EVOKER = PT.Essence,
 }
 
+-- A druid out of cat form: the combo points still on the target, or nil (none, or secret)
+function ns.comboLeft()
+    if not (class == "DRUID" and UnitPowerType("player") ~= PT.Energy) then return end
+    local ok, n
+    if GetComboPoints then ok, n = pcall(GetComboPoints, "player", "target")
+    else ok, n = pcall(UnitPower, "player", PT.ComboPoints) end
+    if ok and readable(n) and type(n) == "number" and n > 0 then return n end
+end
+
 local function classPower()
-    if class == "DRUID" and UnitPowerType("player") ~= PT.Energy then return nil end -- cat form only
+    -- druids: in cat form, or while the target still has points from it
+    if class == "DRUID" and UnitPowerType("player") ~= PT.Energy and not ns.comboLeft() then return nil end
     return CLASS_POWER[class]
 end
 
@@ -720,7 +730,7 @@ local BARS = {
             if isSecret(max) then max = t == PT.ComboPoints and 5 or 0 end
             return max > 0, max
         end,
-        value = function() return UnitPower("player", classPower()) end,
+        value = function() return ns.comboLeft() or UnitPower("player", classPower()) end,
     },
     pethealth = {
         label = "Pet Health",
@@ -9959,6 +9969,8 @@ ev:SetScript("OnEvent", function(_, event, unit, arg2, arg3)
             end
         else
             fillShown("power", "combo", "druidmana")
+            -- a druid out of cat form: the combo bar comes and goes with the points left
+            if arg2 == "COMBO_POINTS" and class == "DRUID" and UnitPowerType("player") ~= PT.Energy then safe(Refresh) end
             if fsr:on() and (fsr.endTime or 0) <= GetTime() then safe(fsr.sync, fsr) end -- refilling, full yet?
         end
 

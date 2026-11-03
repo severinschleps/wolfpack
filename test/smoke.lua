@@ -593,6 +593,13 @@ S.ptype = 3; fire("UPDATE_SHAPESHIFT_FORM")
 assert(fr.combo:IsShown() and fr.druidmana:IsShown(), "druid cat")
 S.ptype = 1; fire("UPDATE_SHAPESHIFT_FORM")
 assert(not fr.combo:IsShown() and fr.druidmana:IsShown(), "druid bear")
+-- out of cat form, the combo points still on the target show, and go with them
+GetComboPoints = function(_, unit) return unit == "target" and S.combo or 0 end
+S.combo = 3; fire("PLAYER_TARGET_CHANGED")
+assert(fr.combo:IsShown() and fr.combo.segs[1]._value == 3, "bear: the target's 3 points show")
+S.combo = 0; fire("UNIT_POWER_FREQUENT", "player", "COMBO_POINTS")
+assert(not fr.combo:IsShown(), "points gone: hidden again")
+GetComboPoints = nil
 
 -- Other classes: resource shows only when its max is readable and > 0
 login("PALADIN", 0)
