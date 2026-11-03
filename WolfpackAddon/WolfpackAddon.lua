@@ -6331,8 +6331,8 @@ function we.hands()
     for i, slot in ipairs({ 16, 17 }) do -- main hand, off hand
         local gotIcon, icon = pcall(GetInventoryItemTexture, "player", slot)
         if gotIcon and icon then
-            local has = i == 1 and hasMain or hasOff
-            local ms = i == 1 and mainMs or offMs
+            local has, ms = hasOff, offMs
+            if i == 1 then has, ms = hasMain, mainMs end -- (not `and/or`: a bare main hand is false)
             out[#out + 1] = { icon = icon, has = has and true or false,
                 minutes = (type(ms) == "number" and ms > 0) and (ms / 60000) or nil }
         end

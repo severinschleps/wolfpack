@@ -3221,6 +3221,11 @@ local rp = ns.we.panels.rogue
 assert(rp.frame:IsShown() and rp.entries[1]:IsShown() and rp.entries[2]:IsShown(), "both hands bare")
 assert(rp.entries[1].icon._tex == 501 and rp.entries[2].icon._tex == 502, "each weapon's own icon")
 assert(rp.lit[1] and rp.lit[2], "and both flash")
+S.offEnchant, S.offMs = true, 20 * 60000 -- the off hand done first: the main hand still bare
+ns.weEv._scripts.OnEvent(ns.weEv, "UNIT_INVENTORY_CHANGED")
+assert(rp.entries[1]:IsShown() and rp.entries[1].icon._tex == 501 and not rp.entries[2]:IsShown(),
+    "a bare main hand is not taken for the off hand's poison")
+S.offEnchant = false
 S.mainEnchant, S.mainMs = true, 20 * 60000 -- twenty minutes on the main hand
 ns.weEv._scripts.OnEvent(ns.weEv, "UNIT_INVENTORY_CHANGED")
 assert(rp.entries[1].icon._tex == 502 and not rp.entries[2]:IsShown(), "only the bare one is left")
