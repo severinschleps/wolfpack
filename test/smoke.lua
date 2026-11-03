@@ -645,7 +645,7 @@ S.combat = false; fire("UNIT_AURA", "target")
 assert(not bi[1]:IsShown() and bb._w == 1, "no buffs, no icons, a box of 1 px (never none: see below)")
 -- the game draws nothing hung on a frame of no size, so debuffs never hang on empty buffs: they
 -- take the buffs' own anchor on the bar until buffs show up again
-assert(di[1]:IsShown() and db_._point[1] == "BOTTOMLEFT" and db_._point[2] == ef and db_._point[3] == "TOPLEFT"
+assert(di[1]:IsShown() and db_._point[1] == "TOPRIGHT" and db_._point[2] == ef and db_._point[3] == "TOPLEFT"
     and db_._point[4] == eh.buffs.x and db_._point[5] == eh.buffs.y, "debuffs take the buffs' anchor")
 eh.buffs.show = false; S.auras = { { icon = 111 } }; fire("UNIT_AURA", "target")
 assert(db_._point[2] == ef and db_._point[3] == "TOPLEFT", "buffs turned off counts as empty")
@@ -654,9 +654,27 @@ assert(db_._point[2] == bb and db_._point[5] == -4, "buffs back: debuffs hang on
 S.auras = {}
 eh.debuffs.show = false; fire("UNIT_AURA", "target")
 assert(not di[1]:IsShown(), "debuffs off")
-eh.buffs = { show = true, anchorTo = "bar", spot = "above_right", x = 0, y = 2, size = 20, radius = 0,
+-- grow up or down: a line is a column (rows icons tall); new columns go along the bar's edge
+-- when growing straight away from it, else away from the bar
+S.auras = { { icon = 1 }, { icon = 2 }, { icon = 3 } }
+eh.debuffs.show = false
+eh.buffs = { show = true, anchorTo = "bar", spot = "topright", grow = "up", x = 0, y = 0, size = 20, radius = 0,
+    cols = 2, rows = 2, max = 4, hideTimer = false }
+fire("UNIT_AURA", "target")
+assert(bb._point[1] == "BOTTOMRIGHT" and bb._point[3] == "TOPRIGHT", "starts at the bar's top right corner")
+assert(bi[2]._point[1] == "BOTTOMRIGHT" and bi[2]._point[4] == 0 and bi[2]._point[5] == 22, "the next one goes up")
+assert(bi[3]._point[4] == -22 and bi[3]._point[5] == 0, "a new column: inward, to the left")
+assert(bb._w == 42 and bb._h == 42, "two columns of two")
+eh.buffs.spot, eh.buffs.grow = "righttop", "down"; fire("UNIT_AURA", "target")
+assert(bb._point[1] == "TOPLEFT" and bb._point[3] == "TOPRIGHT" and bi[2]._point[5] == -22
+    and bi[3]._point[4] == 22 and bi[3]._point[5] == 0, "right side, down, new columns away to the right")
+-- the old one-in-all choice converts by itself
+eh.buffs.spot, eh.buffs.grow = "below_left", nil; fire("UNIT_AURA", "target")
+assert(eh.buffs.spot == "bottomright" and eh.buffs.grow == "left" and bb._point[1] == "TOPRIGHT"
+    and bb._point[3] == "BOTTOMRIGHT", "below_left: the bottom right corner, growing left")
+eh.buffs = { show = true, anchorTo = "bar", spot = "topleft", grow = "right", x = 0, y = 2, size = 20, radius = 0,
     cols = 8, rows = 1, max = 8, hideTimer = false }
-eh.debuffs = { show = true, anchorTo = "other", spot = "above_right", x = 0, y = 0, size = 24, radius = 0,
+eh.debuffs = { show = true, anchorTo = "other", spot = "topleft", grow = "right", x = 0, y = 0, size = 24, radius = 0,
     cols = 8, rows = 2, max = 16, hideTimer = false }
 S.auras, S.debuffs = nil, nil
 eh.resWidth, eh.resHeight, eh.resX, eh.resY = 50, 8, -20, 5

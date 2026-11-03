@@ -195,9 +195,9 @@ local function layoutDefaults(show, x, y, gap, width, h1, h2, h3, h4, h5, h6, h7
     eh.nameBg = { show = false, color = { 0, 0, 0, 0.6 }, pad = 2, radius = 0 }
     -- buffs and debuffs: each group sits in a spot of the bar or of the other group (anchorTo
     -- "bar" / "other", auraGroupGap apart), with its own nudge, icon size, corner radius and grid
-    eh.buffs = { show = true, anchorTo = "bar", spot = "above_right", x = 0, y = 2, size = 20, radius = 0,
+    eh.buffs = { show = true, anchorTo = "bar", spot = "topleft", grow = "right", x = 0, y = 2, size = 20, radius = 0,
         cols = 8, rows = 1, max = 8, hideTimer = false }
-    eh.debuffs = { show = true, anchorTo = "other", spot = "above_right", x = 0, y = 0, size = 24, radius = 0,
+    eh.debuffs = { show = true, anchorTo = "other", spot = "topleft", grow = "right", x = 0, y = 0, size = 24, radius = 0,
         cols = 8, rows = 2, max = 16, hideTimer = false }
     eh.auraGap, eh.auraGroupGap = 2, 4
     l.bars.power.colorMode = "power"
@@ -1218,13 +1218,32 @@ end
 -- on an enemy only your own debuffs (on a friend, and on clients before Dragonflight, all of
 -- them). Nothing is compared: what the game hands over goes straight to the icon, secret or not.
 ------------------------------------------------------------------------------------------
--- where a group sits: its corner, the corner of what it hangs on, which way columns and rows
--- grow, and the side it is on ("v": above / below, "h": left / right; the group gap goes there)
+-- Where a group starts: a corner of what it hangs on, and which way is away from it (x, y).
+-- grow: the way each next icon goes. A new line goes away from what it hangs on -- or, when the
+-- icons already grow away, along its edge, inward.
 ns.AURA_SPOTS = {
-    above_right = { "BOTTOMLEFT", "TOPLEFT", 1, 1, "v" }, above_left = { "BOTTOMRIGHT", "TOPRIGHT", -1, 1, "v" },
-    below_right = { "TOPLEFT", "BOTTOMLEFT", 1, -1, "v" }, below_left = { "TOPRIGHT", "BOTTOMRIGHT", -1, -1, "v" },
-    right = { "TOPLEFT", "TOPRIGHT", 1, -1, "h" }, left = { "TOPRIGHT", "TOPLEFT", -1, -1, "h" },
+    topleft = { "TOPLEFT", 0, 1 }, topright = { "TOPRIGHT", 0, 1 },
+    bottomleft = { "BOTTOMLEFT", 0, -1 }, bottomright = { "BOTTOMRIGHT", 0, -1 },
+    righttop = { "TOPRIGHT", 1, 0 }, lefttop = { "TOPLEFT", -1, 0 },
 }
+ns.AURA_GROW = { right = { 1, 0 }, left = { -1, 0 }, up = { 0, 1 }, down = { 0, -1 } }
+-- the old one-in-all choices, as a start corner and a direction
+ns.AURA_OLD_SPOTS = { above_right = { "topleft", "right" }, above_left = { "topright", "left" },
+    below_right = { "bottomleft", "right" }, below_left = { "bottomright", "left" },
+    right = { "righttop", "right" }, left = { "lefttop", "left" } }
+
+-- The group's own corner (where its first icon sits), its grow and new-line directions, its spot
+function ns.auraDirs(o)
+    local old = ns.AURA_OLD_SPOTS[o.spot]
+    if old then o.spot, o.grow = old[1], old[2] end
+    local sp, g = ns.AURA_SPOTS[o.spot] or ns.AURA_SPOTS.topleft, ns.AURA_GROW[o.grow] or ns.AURA_GROW.right
+    local w = { sp[2], sp[3] }
+    if g[1] * sp[2] + g[2] * sp[3] ~= 0 then -- growing straight away (or back): new lines go along
+        w = sp[3] ~= 0 and { sp[1]:find("LEFT") and 1 or -1, 0 } or { 0, -1 }
+    end
+    local hx, vy = g[1] ~= 0 and g[1] or w[1], g[2] ~= 0 and g[2] or w[2]
+    return (vy > 0 and "BOTTOM" or "TOP") .. (hx > 0 and "LEFT" or "RIGHT"), g, w, sp
+end
 
 function ns.debuffFilter(unit)
     if select(4, GetBuildInfo()) < 100000 then return "HARMFUL" end
@@ -1283,7 +1302,10 @@ function ns.layoutAuras(f)
     f.auraBoxes = f.auraBoxes or { buffs = CreateFrame("Frame", nil, f), debuffs = CreateFrame("Frame", nil, f) }
     for _, k in ipairs({ "buffs", "debuffs" }) do
         local o, icons, box = c[k], f.auraIcons[k], f.auraBoxes[k]
-        local spot, step = ns.AURA_SPOTS[o.spot] or ns.AURA_SPOTS.above_right, o.size + c.auraGap
+        local corner, g, w = ns.auraDirs(o)
+        local step = o.size + c.auraGap
+        local across = g[1] ~= 0 -- growing sideways: a line is a row; up or down: a column
+        local per = across and o.cols or o.rows
         local max = math.min(o.max, o.cols * o.rows)
         local list = {}
         if o.show and unit then
@@ -1312,11 +1334,11 @@ function ns.layoutAuras(f)
                 if b then
                     b:SetShown(i <= n)
                     if i <= n then
-                        local col, row = (i - 1) % o.cols, math.floor((i - 1) / o.cols)
+                        local a, l = (i - 1) % per, math.floor((i - 1) / per) -- place in its line, which line
                         b:SetSize(o.size, o.size)
                         b:SetFrameLevel(f:GetFrameLevel() + 6)
                         b:ClearAllPoints()
-                        b:SetPoint(spot[1], box, spot[1], spot[3] * col * step, spot[4] * row * step)
+                        b:SetPoint(corner, box, corner, (g[1] * a + w[1] * l) * step, (g[2] * a + w[2] * l) * step)
                         ns.iconCorners(b.tex, b.mask, o.radius)
                         -- the swipe takes the icon's shape too
                         b.cd:SetSwipeTexture(file and "Interface\\AddOns\\WolfpackAddon\\Media\\Icon\\"
@@ -1327,26 +1349,24 @@ function ns.layoutAuras(f)
                     end
                 end
             end
-            box:SetSize(n > 0 and math.min(n, o.cols) * step - c.auraGap or 1,
-                n > 0 and math.ceil(n / o.cols) * step - c.auraGap or 1)
+            local along, lines = math.min(n, per) * step - c.auraGap, math.ceil(n / per) * step - c.auraGap
+            box:SetSize(n > 0 and (across and along or lines) or 1, n > 0 and (across and lines or along) or 1)
             box.n = n
         end
     end
     for _, k in ipairs({ "buffs", "debuffs" }) do -- now that both know how many they hold
         local o, box = c[k], f.auraBoxes[k]
         local other = k == "buffs" and "debuffs" or "buffs"
-        local spot = ns.AURA_SPOTS[o.spot] or ns.AURA_SPOTS.above_right
+        local corner, _, _, sp = ns.auraDirs(o)
         local toOther = o.anchorTo == "other" and not (k == "buffs" and c.debuffs.anchorTo == "other")
         local into = f.auraBoxes[other]
         box:ClearAllPoints()
         if toOther and (into.n or 0) == 0 then -- the empty group's anchor (it always hangs on the bar)
-            local os = ns.AURA_SPOTS[c[other].spot] or ns.AURA_SPOTS.above_right
-            box:SetPoint(os[1], f, os[2], c[other].x, c[other].y)
+            local _, _, _, osp = ns.auraDirs(c[other])
+            box:SetPoint(corner, f, osp[1], c[other].x, c[other].y)
         else
-            local x, y = o.x, o.y
-            if toOther and spot[5] == "h" then x = x + spot[3] * c.auraGroupGap end
-            if toOther and spot[5] == "v" then y = y + spot[4] * c.auraGroupGap end
-            box:SetPoint(spot[1], toOther and into or f, spot[2], x, y)
+            local gap = toOther and c.auraGroupGap or 0 -- away from the group it hangs on
+            box:SetPoint(corner, toOther and into or f, sp[1], o.x + sp[2] * gap, o.y + sp[3] * gap)
         end
     end
 end
@@ -5253,15 +5273,15 @@ local function buildConfig()
     end
 
     -- Buffs and debuffs dialog: a column each, the gaps they share underneath
-    local ad = ns.ui.Window(nil, 440, 704, "Buffs and debuffs")
+    local ad = ns.ui.Window(nil, 440, 754, "Buffs and debuffs")
     ad:SetParent(cfg)
     ad:ClearAllPoints()
     ad:SetPoint("TOPLEFT", cfg, "TOPRIGHT", 12, 0)
     ad:Hide()
     ns.auraDialog = ad
-    local SPOTS = { { "Above, growing right", "above_right" }, { "Above, growing left", "above_left" },
-        { "Below, growing right", "below_right" }, { "Below, growing left", "below_left" },
-        { "To the right", "right" }, { "To the left", "left" } }
+    local SPOTS = { { "Top, left corner", "topleft" }, { "Top, right corner", "topright" },
+        { "Bottom, left corner", "bottomleft" }, { "Bottom, right corner", "bottomright" },
+        { "Right side, at the top", "righttop" }, { "Left side, at the top", "lefttop" } }
     for i, k in ipairs({ { "buffs", "Buffs" }, { "debuffs", "Debuffs" } }) do
         local x = 16 + (i - 1) * 214
         -- another bar picked: the dialog is hidden, its widgets read enemy health's defaults
@@ -5276,8 +5296,10 @@ local function buildConfig()
         end
         check(ad, "Hide timer text", x, rrow(ROW), function() return A().hideTimer end,
             function(v) A().hideTimer = v end)
-        dropdown(ad, "Where", x, rrow(DROP), SPOTS, function() return A().spot end,
+        dropdown(ad, "Starts at", x, rrow(DROP), SPOTS, function() return A().spot end,
             function(v) A().spot = v end, textPreview)
+        dropdown(ad, "Grows", x, rrow(DROP), { { "Right", "right" }, { "Left", "left" }, { "Up", "up" },
+            { "Down", "down" } }, function() return A().grow end, function(v) A().grow = v end, textPreview)
         dropdown(ad, "Corner radius", x, rrow(DROP), { { "None (square)", 0 }, { "Slightly rounded", 12 },
             { "Rounded", 25 }, { "Circle", 50 } }, function() return ns.ICON_MASKS[A().radius] and A().radius or 0 end,
             function(v) A().radius = v end, textPreview)
@@ -5293,7 +5315,8 @@ local function buildConfig()
     slider(ad, "Gap between the groups", 230, shared, 0, 40, function() return cur().auraGroupGap or 0 end,
         function(v) cur().auraGroupGap = v end)
     local anote = label(ad, "What Blizzard's target frame shows: all buffs, and on an enemy your own "
-        .. "debuffs. A group anchored to the other sits the group gap away from it.", "GameFontDisableSmall")
+        .. "debuffs. New rows (or columns) go away from what the group hangs on; a group anchored to the "
+        .. "other sits the group gap away from it.", "GameFontDisableSmall")
     anote:SetPoint("TOPLEFT", 16, shared - SLIDER - 4)
     anote:SetWidth(408)
     anote:SetJustifyH("LEFT")
