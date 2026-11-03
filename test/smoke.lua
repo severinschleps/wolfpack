@@ -78,6 +78,7 @@ function M:GetName() return self._name end
 function M:GetCenter() return 100, 100 end
 function M:GetTop() return 150 end
 function M:GetBottom() return 60 end
+function M:GetRight() return 140 end
 function M:GetFrameLevel() return self._level or 1 end
 function M:SetFrameLevel(v) self._level = v end
 function M:GetFrameStrata() return self._strata or "MEDIUM" end
@@ -2085,6 +2086,59 @@ assert(BagsBar._point[2] == ContainerFrame1 and BagsBar._point[3] == "BOTTOMLEFT
 ContainerFrame1._shown = false; ContainerFrame1._scripts.OnHide()
 oth.bagsOnOpen = false; fire("UNIT_MAXPOWER")
 assert(BagsBar._parent == UIParent and BagsBar._point[2] == "MicroButtonAndBagsBar", "restored")
+
+-- Bags: our window replaces Blizzard's, open while theirs is (parked out of sight); quest items
+-- group apart under the bags, a quiver gets its own group, and the bag bar rides on top
+;(function()
+    tContains = tContains or function(t, v) for _, x in ipairs(t) do if x == v then return true end end return false end
+    ITEM_QUALITY_COLORS = { [2] = { r = 0.1, g = 1, b = 0 }, [4] = { r = 0.64, g = 0.2, b = 0.93 } }
+    GetItemInfoInstant = function(id) return id, nil, nil, nil, nil, id == 77 and 12 or 0 end
+    local B, o, kept, keptBags = ns.bags, prof().bags, { C_Container.GetContainerNumSlots,
+        C_Container.GetContainerNumFreeSlots }, S.bags
+    C_Container.GetContainerNumSlots = function(bag) return ({ [0] = 4, [1] = 2 })[bag] or 0 end
+    C_Container.GetContainerNumFreeSlots = function(bag) return 0, bag == 1 and 1 or 0 end -- bag 1: a quiver
+    S.bags = { [0] = { { itemID = 1, iconFileID = 11, quality = 0, stackCount = 1 },
+        { itemID = 77, iconFileID = 12, quality = 1, stackCount = 1 },
+        { itemID = 3, iconFileID = 13, quality = 4, stackCount = 1 } },
+        [1] = { { itemID = 5, iconFileID = 15, quality = 1, stackCount = 200 } } }
+    ContainerFrame1.GetID = function() return 0 end
+    local bank = new()
+    bank.GetID, bank._shown, bank._parent = function() return 6 end, true, UIParent
+    ContainerFrame2 = bank
+    ContainerFrame1._shown, ContainerFrame1._parent = true, UIParent
+    B.sync()
+    assert(ContainerFrame1._parent == UIParent and not (B.frame and B.frame:IsShown()), "off: Blizzard's bags as they are")
+    o.show = true
+    B.sync()
+    local f = B.frame
+    assert(f:IsShown() and ContainerFrame1._parent == hider, "on: ours open, Blizzard's parked")
+    assert(bank._parent == UIParent, "a bank bag's window stays Blizzard's")
+    local junk, quest, epic, empty = unpack(B.holders[0].buttons)
+    local ammo = B.holders[1].buttons[1]
+    assert(junk._point[2] == f and junk._point[5] == -8 and epic._point[4] == 48 and empty._point[4] == 88,
+        "main group: the bags in order, quest item left out")
+    assert(quest._point[5] == -70 and quest._point[4] == 8 and f.tags.quest:IsShown(), "quest items apart, labeled")
+    assert(ammo._point[5] == -132 and f.tags.ammo:IsShown() and not f.tags.soul:IsShown(), "the quiver in a group of its own")
+    assert(epic.wpEdge._color[1] == 0.64 and junk.wpEdge._color[1] == 0 and quest.wpEdge._color[2] == 0.82,
+        "borders: quality colors, quest items gold")
+    assert(junk.wpJunk:IsShown() and not epic.wpJunk:IsShown(), "junk marked")
+    o.sort = true
+    B.layout()
+    assert(epic._point[4] == 8 and junk._point[4] == 48 and empty._point[4] == 88, "kept sorted: best first, empty last")
+    o.quality, o.junk = false, false
+    B.layout()
+    assert(epic.wpEdge._color[1] == 0 and not junk.wpJunk:IsShown(), "both can be turned off")
+    assert(BagsBar._parent == f and BagsBar._point[1] == "BOTTOMRIGHT" and BagsBar._point[3] == "TOPRIGHT", "bag bar on top")
+    ContainerFrame1._shown = false
+    ContainerFrame1._scripts.OnHide()
+    assert(not f:IsShown() and ContainerFrame1._parent == UIParent, "closed with Blizzard's, theirs given back")
+    o.show = false
+    B.sync()
+    assert(BagsBar._parent == UIParent and BagsBar._point[2] == "MicroButtonAndBagsBar", "off: the bag bar goes home")
+    o.sort, o.quality, o.junk = false, true, true
+    C_Container.GetContainerNumSlots, C_Container.GetContainerNumFreeSlots = kept[1], kept[2]
+    S.bags, ContainerFrame2, bank._shown = keptBags, nil, false
+end)()
 
 -- Color pickers start from the color in use: class / same-as-bar borders, class bars; picking
 -- a color makes it custom, opacity alone doesn't, cancel restores both
