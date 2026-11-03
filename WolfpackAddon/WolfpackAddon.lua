@@ -6771,6 +6771,36 @@ function ns.inh.loops(name, parent)
     end
     return false
 end
+-- the profiles based on `name`, by name
+function ns.inh.children(name)
+    local out = {}
+    for child, p in pairs(store.parents or {}) do
+        if p == name and store.profiles[child] then out[#out + 1] = child end
+    end
+    table.sort(out)
+    return out
+end
+-- a list of names in family order: every parent followed by its children, each with its depth
+function ns.inh.tree(names)
+    local out, seen = {}, {}
+    local function add(name, depth)
+        if seen[name] or depth > 9 then return end
+        seen[name] = true
+        out[#out + 1] = { name, depth }
+        for _, child in ipairs(ns.inh.children(name)) do add(child, depth + 1) end
+    end
+    for _, name in ipairs(names) do
+        if not ns.inh.parentOf(name) then add(name, 0) end
+    end
+    for _, name in ipairs(names) do add(name, 0) end -- anything left (a loop): at the top
+    return out
+end
+-- how a profile reads in a list: a child indented under its parent, saying whose it is
+function ns.inh.label(name, depth)
+    local p = ns.inh.parentOf(name)
+    if not p or depth == 0 then return name end
+    return ("    "):rep(depth) .. name .. " |cff888888(child of " .. p .. ")|r"
+end
 -- how many settings a child has of its own
 function ns.inh.count(name)
     local p = ns.inh.parentOf(name)
@@ -6911,6 +6941,7 @@ local function createProfile(name)
     name = freeName(name)
     store.profiles[name] = merge({}, db)
     useProfile(name)
+    return name
 end
 
 -- Characters on the deleted profile fall back to Alpha (recreated if needed). Profiles that
@@ -7179,10 +7210,13 @@ StaticPopupDialogs.WOLFPACKADDON_COPY = {
 }
 
 StaticPopupDialogs.WOLFPACKADDON_RESET = {
-    text = "Reset profile \"%s\"?\nEvery page but Bar Stack starts over (one that follows another: its own changes go).",
+    text = "Reset \"%s\"?\nIts settings on every page but Bar Stack go back to where they started.",
     button1 = YES, button2 = NO,
-    OnAccept = function()
+    -- data "defaults": the plain defaults, and no longer based on anything; else a child goes back
+    -- to its parent in full
+    OnAccept = function(_, data)
         local name = store.chars[charKey]
+        if data == "defaults" and ns.inh.parentOf(name) then ns.inh.link(name, nil) end
         if ns.inh.parentOf(name) then -- a child: back to just following its parent
             store.overrides[name] = {}
             ns.inh.rebuild(name)
@@ -7439,9 +7473,10 @@ local function buildConfig()
         dd:SetPoint("TOPLEFT", g.x, g:row(32))
         dd:SetSize(178, 26)
         dd:SetupMenu(function(_, root)
-            for _, name in ipairs(profileNames()) do
+            for _, e in ipairs(ns.inh.tree(profileNames())) do
+                local name = e[1]
                 if not (others and name == store.chars[charKey]) then
-                    root:CreateRadio(name, function() return not others and name == store.chars[charKey] end,
+                    root:CreateRadio(ns.inh.label(name, e[2]), function() return not others and name == store.chars[charKey] end,
                         function() pick(name) end)
                 end
             end
@@ -7455,51 +7490,83 @@ local function buildConfig()
         return b
     end
 
-    -- column 1: which profile this character uses, or a new one; column 2: what changes it
+    -- Column 1: the profile this character uses, a new one, sharing. Column 2: what the profile in
+    -- use is based on, and managing it. A linked profile (ns.inh) takes everything from another
+    -- but what is changed in it.
+    local function me() return store.chars[charKey] end
     local use = group(profilePage, COL[1], TOP, 202, "Profile")
     profileMenu(use, useProfile)
-    note(use, "Holds every page but Bar Stack. Any character can use it.", 34)
-    local at = use:row(32)
+    local family = label(profilePage, "", "GameFontHighlightSmall")
+    family:SetPoint("TOPLEFT", use.x, use:row(30))
+    family:SetWidth(178)
+    family:SetJustifyH("LEFT")
+    onRefresh(function()
+        if not (store and charKey) then return end
+        local p, kids = ns.inh.parentOf(me()), ns.inh.children(me())
+        local lines = {}
+        if p then lines[#lines + 1] = "Child of |cffffd100" .. p .. "|r" end
+        if #kids > 0 then lines[#lines + 1] = "Parent of |cffffd100" .. table.concat(kids, ", ") .. "|r" end
+        family:SetText(#lines > 0 and table.concat(lines, "\n") or "Not linked to another profile")
+    end)
+    note(use, "This character uses it. It holds every page except Bar Stack, and other characters "
+        .. "can use it too.", 44)
+    use:close()
+
+    local new = group(profilePage, COL[1], use.cursor - 20, 202, "New profile")
+    local at = new:row(32)
     local nameBox = ns.ui.Input(profilePage, 122)
-    nameBox:SetPoint("TOPLEFT", use.x, at)
+    nameBox:SetPoint("TOPLEFT", new.x, at)
     nameBox:SetMaxLetters(32)
-    local hint = label(nameBox, "New profile", "GameFontDisableSmall")
+    local hint = label(nameBox, "Name", "GameFontDisableSmall")
     hint:SetPoint("LEFT", 8, 0)
     nameBox:HookScript("OnTextChanged", function(self) hint:SetShown(self:GetText() == "") end)
+    ns.linkNew = false -- the new one stays linked to the one it is made from
     local function create()
-        createProfile(nameBox:GetText())
+        local from = me()
+        local made = createProfile(nameBox:GetText())
+        if made and ns.linkNew then ns.inh.link(made, from); changed() end
         nameBox:SetText("")
         nameBox:ClearFocus()
     end
     nameBox:SetScript("OnEnterPressed", create)
     nameBox:SetScript("OnEscapePressed", function() nameBox:ClearFocus() end)
-    button(profilePage, "Create", 52, use.x + 126, at, create)
-    note(use, "Starts as a copy of this one.", 22)
-    use:close()
+    button(profilePage, "Create", 52, new.x + 126, at, create)
+    local linkCheck = check(profilePage, "", new.x, new:row(ROW), function() return ns.linkNew end,
+        function(v) ns.linkNew = v and true or false end)
+    local newNote = label(profilePage, "", "GameFontDisableSmall")
+    newNote:SetPoint("TOPLEFT", new.x, new:row(44))
+    newNote:SetWidth(178)
+    newNote:SetJustifyH("LEFT")
+    onRefresh(function()
+        if not (store and charKey) then return end
+        linkCheck.Text:SetText("Based on " .. (me() or "this one"))
+        newNote:SetText(ns.linkNew and ("A copy of " .. me() .. " that keeps getting its updates. "
+            .. "Only what you change in the copy stays different.")
+            or ("A copy of " .. me() .. ". After that the two are separate."))
+    end)
+    new:close()
 
-    local share = group(profilePage, COL[1], use.cursor - 20, 202, "Share or back up")
+    local share = group(profilePage, COL[1], new.cursor - 20, 202, "Share or back up")
     at = share:row(BUTTON)
     button(profilePage, "Export", 87, share.x, at, function() openIO("export") end)
     button(profilePage, "Import", 87, share.x + 91, at, function() openIO("import") end)
     note(share, "One text string holds the profile. Keep a copy: the beta can forget addon settings.", 34)
     share:close()
 
-    local edit = group(profilePage, COL[2], TOP, 202, "Change this profile")
-    -- follow another profile (like a child theme): only what is changed here stays this one's own
+    -- column 2: what the profile in use takes its settings from
+    local based = group(profilePage, COL[2], TOP, 202, "Based on")
     do
-        label(profilePage, "Follows", "GameFontNormalSmall"):SetPoint("TOPLEFT", edit.x, edit:row(16))
         local dd = ns.ui.Dropdown(CreateFrame("DropdownButton", nil, profilePage, "WowStyle1DropdownTemplate"))
-        dd:SetPoint("TOPLEFT", edit.x, edit:row(32))
+        dd:SetPoint("TOPLEFT", based.x, based:row(32))
         dd:SetSize(178, 26)
         dd:SetupMenu(function(_, root)
-            local me = store.chars[charKey]
-            root:CreateRadio("Nothing: stands alone", function() return not ns.inh.parentOf(me) end,
-                function() ns.inh.link(me, nil); changed() end)
+            root:CreateRadio("Nothing", function() return not ns.inh.parentOf(me()) end,
+                function() ns.inh.link(me(), nil); changed() end)
             for _, name in ipairs(profileNames()) do
-                if name ~= me and not ns.inh.loops(me, name) then
-                    root:CreateRadio(name, function() return ns.inh.parentOf(me) == name end, function()
+                if name ~= me() and not ns.inh.loops(me(), name) then
+                    root:CreateRadio(name, function() return ns.inh.parentOf(me()) == name end, function()
                         store.profiles[name] = store.profiles[name] or merge(ns.freshProfile(name), DEFAULTS)
-                        ns.inh.link(me, name)
+                        ns.inh.link(me(), name)
                         changed()
                     end)
                 end
@@ -7508,31 +7575,37 @@ local function buildConfig()
         onRefresh(function() dd:GenerateMenu() end)
         ns.parentMenu = dd
         local n = label(profilePage, "", "GameFontDisableSmall")
-        n:SetPoint("TOPLEFT", edit.x, edit:row(58))
+        n:SetPoint("TOPLEFT", based.x, based:row(58))
         n:SetWidth(178)
         n:SetJustifyH("LEFT")
+        ns.undoButton = button(profilePage, "Undo changes made here", 178, based.x, based:row(BUTTON), function()
+            StaticPopup_Show("WOLFPACKADDON_RESET", me())
+        end)
         onRefresh(function()
-            if section ~= "profile" then return end
-            local me = store.chars[charKey]
-            local p = ns.inh.parentOf(me)
-            n:SetText(p and ("Takes everything from %s but its own %d change%s. Later changes to %s reach it too.")
-                :format(p, ns.inh.count(me), ns.inh.count(me) == 1 and "" or "s", p)
-                or "Stands alone. Pick a profile to follow it and keep only what you change here.")
+            if section ~= "profile" or not (store and charKey) then return end
+            local p = ns.inh.parentOf(me())
+            local k = p and ns.inh.count(me()) or 0
+            n:SetText(p and ("Uses %s's settings, and its updates. %s"):format(p,
+                k == 0 and "Nothing is changed here yet." or (k .. (k == 1 and " setting is" or " settings are")
+                .. " changed here and stay this profile's own."))
+                or "Nothing: this profile has all its settings to itself. Pick another profile to use its "
+                .. "settings and get its updates.")
+            ns.undoButton:SetShown(p ~= nil)
+            ns.undoButton:SetEnabled(k > 0)
         end)
     end
+    based:close()
+
+    local edit = group(profilePage, COL[2], based.cursor - 20, 202, "Manage")
     ns.copyFromMenu = profileMenu(edit, function(name)
-        StaticPopup_Show("WOLFPACKADDON_COPY", name, store.chars[charKey], name)
+        StaticPopup_Show("WOLFPACKADDON_COPY", name, me(), name)
     end, true)
-    ns.copyFromMenu:SetDefaultText("Copy from...")
+    ns.copyFromMenu:SetDefaultText("Copy settings from...")
     ns.resetButton = danger(button(profilePage, "Reset to defaults", 178, edit.x, edit:row(BUTTON), function()
-        StaticPopup_Show("WOLFPACKADDON_RESET", store.chars[charKey])
+        StaticPopup_Show("WOLFPACKADDON_RESET", me(), nil, "defaults")
     end))
-    onRefresh(function() -- a child resets to its parent
-        local p = store and charKey and ns.inh.parentOf(store.chars[charKey])
-        ns.resetButton:SetText(p and ("Reset to " .. p) or "Reset to defaults")
-    end)
     danger(button(profilePage, "Delete profile", 178, edit.x, edit:row(BUTTON), function()
-        local name = store.chars[charKey]
+        local name = me()
         StaticPopup_Show("WOLFPACKADDON_DELETE", name, nil, name)
     end))
     note(edit, "Each one asks first.", 22)

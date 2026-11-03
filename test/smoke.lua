@@ -2085,8 +2085,8 @@ assert(ns.pages.combat.need > 1000 and ns.content._h == ns.pages.combat.need - 9
 -- Profiles has its own page; the header names the profile in use and opens that page
 assert(byText("Export") and byText("Import") and byText("Reset to defaults") and byText("Create"), "profile page")
 S.pp = byText("Create")._parent
-assert(ns.boxesOn[S.pp] == 3 and regionWithText(S.pp, "Change this profile") and not regionWithText(S.pp, "Start over"),
-    "three cards: profile, change this profile, share")
+assert(ns.boxesOn[S.pp] == 5 and regionWithText(S.pp, "New profile") and regionWithText(S.pp, "Based on")
+    and regionWithText(S.pp, "Manage"), "five cards: profile, new profile, share, based on, manage")
 local inUse
 for _, f in ipairs(created) do
     if type(f._text) == "string" and f._text:find("^Profile: ") then inUse = f end
@@ -2231,8 +2231,18 @@ assert(store.overrides.Kid.regular.bars.health.width == 111, "written down befor
 -- a setting the child removed stays removed
 local d = ns.inh.diff({ a = 1 }, { a = 1, b = 2 })
 assert(d.b == ns.inh.NIL and ns.inh.apply({ a = 1, b = 2 }, d).b == nil, "a removal is kept")
-assert(ns.resetButton._text == "Reset to Mom", "reset goes back to the parent")
-StaticPopupDialogs.WOLFPACKADDON_RESET.OnAccept()
+-- the family shows: on the Profile card, and in the list each child under its parent
+ns.cfg:Show(); byText("Profiles")._scripts.OnClick(byText("Profiles"), "LeftButton")
+assert(regionWithText(S.pp, "Child of |cffffd100Mom|r"), "the child says whose it is")
+do
+    dds[1]:GenerateMenu()
+    local order = {}
+    for _, it in ipairs(dds[1]._items) do order[#order + 1] = it.text end
+    local joined = table.concat(order, "|")
+    assert(joined:find("Mom|    Kid |cff888888%(child of Mom%)|r", 1, false), "Kid listed under Mom: " .. joined)
+end
+assert(ns.undoButton:IsShown(), "a child can undo its own changes")
+ns.undoButton._scripts.OnClick(ns.undoButton)
 assert(prof().regular.bars.health.height == 50 and ns.inh.count("Kid") == 0, "reset: Mom's in full again")
 prof().regular.bars.health.height = 44
 -- the parent deleted: the child keeps what it had and stands alone
