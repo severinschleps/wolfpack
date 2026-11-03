@@ -1163,6 +1163,24 @@ prof().regular.bars.health.heal = true; fire("UNIT_MAXPOWER")
 assert(fr.health.over and fr.health.over:GetParent()._clips and not fr.health._clips,
     "the heal overlay's own frame clips, the bar doesn't")
 prof().regular.bars.health.heal = false; fire("UNIT_MAXPOWER")
+-- while you drink: your text on the power bar, where you put it
+S.wasOpen2, ns.configOpen = ns.configOpen, false
+S.DT = prof().regular.bars.power.drinkText
+fire("UNIT_AURA", "player")
+assert(not (fr.power.drinkText and fr.power.drinkText:IsShown()), "not drinking: nothing")
+S.auras = { { name = "Drink", icon = 1 } }; fire("UNIT_AURA", "player")
+assert(fr.power.drinkText:IsShown() and fr.power.drinkText._text == "Drinking" and fr.power.drinkText._point[1] == "LEFT"
+    and fr.power.drinkText._point[2] == fr.power, "drinking: says so on the power bar")
+assert(fr.power.drinkHost._scripts.OnUpdate, "flashing")
+fr.power.drinkHost._scripts.OnUpdate(fr.power.drinkHost)
+S.DT.text, S.DT.point, S.DT.x = "Glug", "CENTER", 7; fire("UNIT_AURA", "player")
+assert(fr.power.drinkText._text == "Glug" and fr.power.drinkText._point[1] == "CENTER"
+    and fr.power.drinkText._point[4] == 7, "your words, your spot")
+S.DT.text, S.DT.point, S.DT.x, S.auras = "Drinking", "LEFT", 4, nil; fire("UNIT_AURA", "player")
+assert(not fr.power.drinkText:IsShown() and not fr.power.drinkHost._scripts.OnUpdate
+    and fr.power.drinkHost._alpha == 1, "done drinking: gone, no flashing")
+ns.configOpen = S.wasOpen2
+
 -- buffs and debuffs on your own health bar, the same options as enemy health; all your debuffs
 S.auras, S.debuffs = { { icon = 501 }, { icon = 502 } }, { { icon = 601 } }
 fire("UNIT_AURA", "player")

@@ -239,6 +239,9 @@ local function layoutDefaults(show, x, y, gap, width, h1, h2, h3, h4, h5, h6, h7
     l.bars.pethealth.anchor = "stack"
     -- hunters: a dot on the pet bar in its happiness color, the ammo count on the power bar
     l.bars.pethealth.happy = { show = true, point = "LEFT", x = 6, y = 0, size = 8 }
+    -- while you drink: a text of your own on the power bar (the bar's font)
+    l.bars.power.drinkText = { show = true, text = "Drinking", point = "LEFT", x = 4, y = 0, size = 10,
+        color = { 0.35, 0.75, 1, 1 } }
     -- the ammo bar: beside the power bar ("left" / "right": the two share its width) or in the stack
     l.bars.ammo.anchor, l.bars.ammo.colorMode, l.bars.ammo.hunterSet = "right", "class", false
     local tt = l.bars.tothealth
@@ -2287,6 +2290,7 @@ local function stack(container, set, L, on, swings)
             if ns.AURA_BARS[key] then ns.layoutAuras(f) end
             if ns.BADGES[key] then ns.layoutBadges(f) end
             if key == "pethealth" then ns.layoutHappy(f) end
+            if key == "power" then ns.layoutDrinkText(f) end
             h = h + c.height
             if key == "health" and L == db.regular then h = h + ns.petUnder(f) end -- your pet below it
             h = h + c.padBottom
@@ -4120,6 +4124,29 @@ function ns.layoutHappy(f)
     d:SetPoint("CENTER", f, o.point, o.x, o.y)
 end
 
+-- The power bar's drinking text: while you have a Drink buff (and while placing the bars).
+function ns.layoutDrinkText(f)
+    local o = db[f.mode].bars.power.drinkText
+    if not f.drinkText then
+        f.drinkHost = CreateFrame("Frame", nil, f)
+        f.drinkHost:SetAllPoints(f)
+        f.drinkText = f.drinkHost:CreateFontString(nil, "OVERLAY")
+    end
+    local t = f.drinkText
+    t:SetShown((o.show and (ns.drinking("player") or ns.previewing())) and true or false)
+    -- it flashes for as long as it shows
+    f.drinkHost:SetScript("OnUpdate", t:IsShown() and function(h) h:SetAlpha(0.55 + 0.45 * math.cos(GetTime() * 6)) end or nil)
+    if not t:IsShown() then f.drinkHost:SetAlpha(1) return end
+    local c = db[f.mode].bars.power
+    f.drinkHost:SetFrameLevel(f:GetFrameLevel() + 8)
+    local flags = c.outline and "OUTLINE" or ""
+    if not t:SetFont(c.font, o.size, flags) then t:SetFont(FONTS[1][2], o.size, flags) end
+    t:SetTextColor(unpack(o.color))
+    t:SetText(o.text)
+    t:ClearAllPoints()
+    t:SetPoint(o.point, f, o.point, o.x, o.y)
+end
+
 function hn.refresh()
     if not db then return end
     hn.panel:Hide()
@@ -5383,7 +5410,7 @@ end
 function ns.toggleDialog(d)
     local show = not d:IsShown()
     for _, o in ipairs({ ns.resDialog, ns.tagDialog, ns.auraDialog, ns.textDialog, ns.iconDialog,
-        ns.statusDialog, ns.fsrDialog, ns.happyDialog }) do o:Hide() end
+        ns.statusDialog, ns.fsrDialog, ns.happyDialog, ns.drinkDialog }) do o:Hide() end
     d:SetShown(show)
 end
 
@@ -5764,6 +5791,8 @@ local function buildConfig()
         function() return cur().costColor or { 0, 0, 0, 1 } end)
     local regenButton = button(barsPage, "Mana regen spinner", 186, only.x, only:row(0) - 2 * ROW - 4,
         function() ns.toggleDialog(ns.fsrDialog) end)
+    local drinkButton = button(barsPage, "Drinking text", 186, only.x, only:row(0) - 2 * ROW - 4 - BUTTON,
+        function() ns.toggleDialog(ns.drinkDialog) end)
     local happyButton = button(barsPage, "Happiness dot", 186, only.x, only:row(0) - DROP - 4,
         function() ns.toggleDialog(ns.happyDialog) end)
     local castIcon = check(barsPage, "Show spell icon", only.x, only:row(ROW),
@@ -5812,6 +5841,8 @@ local function buildConfig()
         costColor:SetShown(selected == "power")
         regenButton:SetShown(selected == "power")
         happyButton:SetShown(selected == "pethealth")
+        drinkButton:SetShown(selected == "power")
+        if not (selected == "power" and (section == "combat" or section == "nameplates")) then ns.drinkDialog:Hide() end
         local here = section == "combat" or section == "nameplates"
         if not (selected == "pethealth" and here) then ns.happyDialog:Hide() end
         if not (selected == "power" and (section == "combat" or section == "nameplates")) then ns.fsrDialog:Hide() end
@@ -6866,6 +6897,38 @@ local function buildConfig()
         n:SetJustifyH("LEFT")
     end
 
+    -- Drinking text dialog, for the power bar
+    do
+        local d = ns.ui.Window(nil, 230, 470, "Drinking text")
+        d:SetParent(cfg)
+        d:ClearAllPoints()
+        d:SetPoint("TOPLEFT", cfg, "TOPRIGHT", 12, 0)
+        d:Hide()
+        ns.drinkDialog = d
+        local O = function() return cur().drinkText or DEFAULTS.regular.bars.power.drinkText end
+        ry = -48
+        check(d, "Show while drinking", 16, rrow(ROW), function() return O().show end, function(v) O().show = v end)
+        label(d, "Text", "GameFontNormalSmall"):SetPoint("TOPLEFT", 16, rrow(16))
+        local tb = ns.ui.Input(d, 198)
+        tb:SetPoint("TOPLEFT", 16, rrow(30))
+        tb:SetMaxLetters(24)
+        local function keep() O().text = tb:GetText(); tb:ClearFocus(); changed() end
+        tb:SetScript("OnEnterPressed", keep)
+        tb:HookScript("OnEditFocusLost", keep)
+        tb:SetScript("OnEscapePressed", function() tb:SetText(O().text or ""); tb:ClearFocus() end)
+        onRefresh(function() if not tb:HasFocus() then tb:SetText(O().text or "") end end)
+        dropdown(d, "Point on the bar", 16, rrow(DROP), SPOTS9, function() return O().point end,
+            function(v) O().point = v end, textPreview)
+        slider(d, "X", 16, rrow(SLIDER), -200, 200, function() return O().x end, function(v) O().x = v end)
+        slider(d, "Y", 16, rrow(SLIDER), -100, 100, function() return O().y end, function(v) O().y = v end)
+        slider(d, "Size", 16, rrow(SLIDER), 6, 32, function() return O().size end, function(v) O().size = v end)
+        swatch(d, "Drinking text color", 16, rrow(SWATCH), function() return O().color end)
+        local n = label(d, "Shows while you have a Drink buff. The font is the power bar's.", "GameFontDisableSmall")
+        n:SetPoint("TOPLEFT", 16, rrow(30))
+        n:SetWidth(198)
+        n:SetJustifyH("LEFT")
+    end
+
     -- Mana regen spinner dialog (the setting itself lives with the other page's, db.other.fsr)
     local fd = ns.ui.Window(nil, 230, 560, "Mana regen spinner")
     fd:SetParent(cfg)
@@ -7586,6 +7649,7 @@ ev:SetScript("OnEvent", function(_, event, unit, arg2, arg3)
             end
             if set.health:IsShown() and unit ~= "target" then
                 if event == "UNIT_AURA" then safe(ns.layoutAuras, set.health) end
+                if event == "UNIT_AURA" and set.power:IsShown() then safe(ns.layoutDrinkText, set.power) end
                 safe(ns.layoutBadges, set.health)
             end
         end
