@@ -557,6 +557,26 @@ assert(ef._h == 18 and rf._h == 4 and rf._w == 198 and fr.power._point[5] == -20
     "4 tall, 90% of 220 wide, and the slot is just the health bar")
 assert(rf.segs[1]._sbc[1] == 1 and rf.segs[1]._sbc[2] == 1 and rf.segs[1]._sbc[3] == 0,
     "the resource wears its power's color (energy, your yellow)")
+-- level and name, inset at its left: the level in the game's difficulty color
+local realLevel, realName = UnitLevel, UnitName
+GetQuestDifficultyColor = function(l) return l >= 65 and { r = 1, g = 0.1, b = 0.1 } or { r = 0.5, g = 0.5, b = 0.5 } end
+UnitLevel = function(u) return u == "target" and S.tLevel or 60 end
+UnitClassification = function() return S.tKind or "normal" end
+S.tLevel = 70; fire("PLAYER_TARGET_CHANGED")
+assert(ef.tag:IsShown() and ef.tag._text == "|cffff1919" .. "70|r" and ef.tag._point[1] == "LEFT"
+    and ef.tag._point[2] == ef and ef.tag._point[4] == 4, "level on by default, red, inset left")
+S.tLevel, S.tKind = 50, "elite"; eh.tagName = true; fire("PLAYER_TARGET_CHANGED")
+assert(ef.tag._text == "|cff7f7f7f50+|r " .. S.name, "grey elite, then the name")
+S.tLevel = -1; fire("PLAYER_TARGET_CHANGED")
+assert(ef.tag._text:find("??", 1, true), "a skull reads ??")
+UnitName = function(u) return u == "target" and SECRET or realName(u) end
+fire("PLAYER_TARGET_CHANGED")
+assert(ef.tag._text == SECRET, "a secret name still draws")
+UnitName = realName
+eh.tagLevel, eh.tagName = false, false; fire("PLAYER_TARGET_CHANGED")
+assert(not ef.tag:IsShown(), "both off: nothing")
+eh.tagLevel, S.tLevel, S.tKind = true, nil, nil
+UnitLevel, GetQuestDifficultyColor, UnitClassification = realLevel, nil, nil
 eh.resWidth, eh.resHeight, eh.resX, eh.resY = 50, 8, -20, 5
 fire("PLAYER_TARGET_CHANGED")
 assert(rf._w == 110 and rf._h == 8 and rf._point[4] == -20 and rf._point[5] == 5, "sliders size and place it")
@@ -1270,7 +1290,13 @@ assert(rb:IsShown() and not ns.resDialog:IsShown(), "a button for it, closed")
 rb._scripts.OnClick(rb, "LeftButton")
 assert(ns.resDialog:IsShown() and ns.resDialog._point[2] == ns.cfg, "opens beside the window")
 byText("Health")._scripts.OnClick(byText("Health"), "LeftButton")
+local tb = byText("Level and name")
+byText("Enemy Health")._scripts.OnClick(byText("Enemy Health"), "LeftButton")
+tb._scripts.OnClick(tb, "LeftButton")
+assert(ns.tagDialog:IsShown() and not ns.resDialog:IsShown(), "level and name: its own window, one at a time")
+byText("Health")._scripts.OnClick(byText("Health"), "LeftButton")
 assert(not rb:IsShown() and not ns.resDialog:IsShown(), "another bar picked: closed")
+assert(not tb:IsShown() and not ns.tagDialog:IsShown(), "and that one too")
 byText("Combat Display")._scripts.OnClick(byText("Combat Display"), "LeftButton")
 
 -- Auto-accept: off by default; Shift skips; item/area-trigger quests left to Blizzard

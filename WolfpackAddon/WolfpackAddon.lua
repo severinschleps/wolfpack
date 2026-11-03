@@ -185,6 +185,9 @@ local function layoutDefaults(show, x, y, gap, width, h1, h2, h3, h4, h5, h6, h7
     -- its own text switch and border; the rest of its look (texture, font...) is enemy health's
     eh.resHideText, eh.resBorderSize, eh.resBorderMode, eh.resBorderColor, eh.resRadius =
         false, 0, "bar", { 0, 0, 0, 1 }, 0
+    -- level and name, inset in the bar; the level always wears the game's difficulty color
+    eh.tagLevel, eh.tagName, eh.tagFont, eh.tagSize, eh.tagOutline = true, false, FONTS[1][2], 10, true
+    eh.tagAnchor, eh.tagX, eh.tagY, eh.tagNameColor = "LEFT", 4, 0, { 1, 1, 1, 1 }
     l.bars.power.colorMode = "power"
     -- "Power type color": one color per power, Blizzard's own to start with; any other power
     -- (runic power, astral power...) keeps Blizzard's
@@ -1120,6 +1123,50 @@ function ns.layoutRes(f)
     r:SetPoint("BOTTOM", f, "BOTTOM", c.resX, c.resY)
 end
 
+-- Level and name, inset in enemy health. The level takes the color the game gives it (grey: no
+-- experience, red: far above you), "+" for an elite, "??" for a skull. Without a target (placing
+-- the bars) it shows your own level and "Target".
+function ns.levelColor(level)
+    local ok, c = pcall(GetCreatureDifficultyColor or GetQuestDifficultyColor, level)
+    if ok and type(c) == "table" then return c.r, c.g, c.b end
+    return 1, 1, 1
+end
+
+function ns.layoutTag(f)
+    local c, t = db[f.mode].bars.enemyhealth, f.tag
+    if not t then
+        t = f.segs[1]:CreateFontString(nil, "OVERLAY")
+        t:SetWordWrap(false)
+        f.tag = t
+    end
+    t:SetShown((c.tagLevel or c.tagName) and true or false)
+    if not t:IsShown() then return end
+    local flags = c.tagOutline and "OUTLINE" or ""
+    if not t:SetFont(c.tagFont, c.tagSize, flags) then t:SetFont(FONTS[1][2], c.tagSize, flags) end
+    t:ClearAllPoints()
+    t:SetPoint(c.tagAnchor, f, c.tagAnchor, c.tagX, c.tagY)
+    t:SetWidth(math.max(1, f.width - 2 * math.abs(c.tagX))) -- a long name ends in "..."
+    t:SetJustifyH(c.tagAnchor)
+    t:SetTextColor(unpack(c.tagNameColor))
+    local unit = UnitExists(f.unit) and f.unit
+    local lvl = ""
+    if c.tagLevel then
+        local level = unit and (UnitEffectiveLevel or UnitLevel)(unit) or UnitLevel("player")
+        if readable(level) then
+            local r, g, b = 1, 0.1, 0.1
+            if level > 0 then r, g, b = ns.levelColor(level) end
+            local kind = unit and UnitClassification and UnitClassification(unit)
+            lvl = ("|cff%02x%02x%02x%s%s|r"):format(math.floor(r * 255), math.floor(g * 255),
+                math.floor(b * 255), level > 0 and level or "??", (kind == "elite" or kind == "rareelite") and "+" or "")
+        end
+    end
+    local name = c.tagName and (unit and UnitName(unit) or "Target") or ""
+    -- a name the game keeps secret still draws, with or without the level in front
+    if not pcall(function() t:SetText(c.tagName and lvl ~= "" and lvl .. " " .. name or lvl .. name) end) then
+        pcall(t.SetText, t, name)
+    end
+end
+
 local function targetPlate()
     local ok, p = pcall(C_NamePlate.GetNamePlateForUnit, "target")
     if ok and p and not (p.IsForbidden and p:IsForbidden()) then return p end
@@ -1372,7 +1419,7 @@ local function stack(container, set, L, on, swings)
             else
                 f:SetPoint("TOP", container, "TOP", c.x, c.y - h)
             end
-            if f.resFrame then ns.layoutRes(f) end
+            if f.resFrame then ns.layoutRes(f); ns.layoutTag(f) end
             h = h + c.height + c.padBottom
             w = math.max(w, c.width)
         end
@@ -2128,6 +2175,7 @@ local function Refresh()
         ef:ClearAllPoints()
         ef:SetPoint("TOPLEFT", health, "TOPRIGHT", db.regular.gap, 0)
         ns.layoutRes(ef)
+        ns.layoutTag(ef)
     end
     local plate = targetPlate()
     plateAnchor:SetParent(plate or anchor)
@@ -4181,7 +4229,12 @@ local function buildConfig()
     local resCheck = check(barsPage, "Show its resource", only.x, only:row(0),
         function() return cur().resource end, function(v) cur().resource = v end)
     local resButton = button(barsPage, "Resource settings", 186, only.x, only:row(0) - ROW, function()
+        ns.tagDialog:Hide()
         ns.resDialog:SetShown(not ns.resDialog:IsShown())
+    end)
+    local tagButton = button(barsPage, "Level and name", 186, only.x, only:row(0) - ROW - BUTTON, function()
+        ns.resDialog:Hide()
+        ns.tagDialog:SetShown(not ns.tagDialog:IsShown())
     end)
     local swingChecks = {}
     for i, kind in ipairs(SWING_TYPES) do
@@ -4250,6 +4303,9 @@ local function buildConfig()
         local resOn = selected == "enemyhealth" and cur().resource or false
         resButton:SetShown(resOn)
         if not (resOn and (section == "combat" or section == "nameplates")) then ns.resDialog:Hide() end
+        local ehOn = selected == "enemyhealth" and (section == "combat" or section == "nameplates")
+        tagButton:SetShown(selected == "enemyhealth")
+        if not ehOn then ns.tagDialog:Hide() end
         -- beside your health it takes half your health bar's width and all of its height
         local fixed = selected == "enemyhealth" and mode == "regular" and cur().beside or false
         widthSlider:SetShown(not fixed)
@@ -4946,6 +5002,31 @@ local function buildConfig()
     dropdown(rd, "Border radius", 16, rrow(DROP), { { "None", 0 }, { "2 px", 2 }, { "4 px", 4 },
         { "8 px", 8 }, { "16 px", 16 }, { "Pill (50% of height)", "pill" } },
         function() return cur().resRadius end, function(v) cur().resRadius = v end, textPreview)
+
+    -- Level and name dialog: same place, for the same bar
+    local td = ns.ui.Window(nil, 230, 470, "Level and name")
+    td:SetParent(cfg)
+    td:ClearAllPoints()
+    td:SetPoint("TOPLEFT", cfg, "TOPRIGHT", 12, 0)
+    td:Hide()
+    ns.tagDialog = td
+    ry = -48
+    check(td, "Show level", 16, rrow(ROW), function() return cur().tagLevel end, function(v) cur().tagLevel = v end)
+    check(td, "Show name", 16, rrow(ROW), function() return cur().tagName end, function(v) cur().tagName = v end)
+    local tnote = label(td, "The level takes the game's color: grey gives no experience, red is far "
+        .. "above you. \"+\" marks an elite.", "GameFontDisableSmall")
+    tnote:SetPoint("TOPLEFT", 16, rrow(40))
+    tnote:SetWidth(198)
+    tnote:SetJustifyH("LEFT")
+    dropdown(td, "Font", 16, rrow(DROP), FONTS, function() return cur().tagFont end,
+        function(v) cur().tagFont = v end, fontPreview)
+    slider(td, "Size", 16, rrow(SLIDER), 6, 32, function() return cur().tagSize end, function(v) cur().tagSize = v end)
+    check(td, "Outline", 16, rrow(ROW), function() return cur().tagOutline end, function(v) cur().tagOutline = v end)
+    swatch(td, "Name color", 16, rrow(SWATCH), function() return cur().tagNameColor or { 1, 1, 1, 1 } end)
+    dropdown(td, "Position", 16, rrow(DROP), { { "Left", "LEFT" }, { "Center", "CENTER" }, { "Right", "RIGHT" } },
+        function() return cur().tagAnchor end, function(v) cur().tagAnchor = v end, textPreview)
+    slider(td, "X", 16, rrow(SLIDER), -100, 100, function() return cur().tagX end, function(v) cur().tagX = v end)
+    slider(td, "Y", 16, rrow(SLIDER), -50, 50, function() return cur().tagY end, function(v) cur().tagY = v end)
 
     for _, page in pairs(ns.pages) do ns.foldColumns(page, COL, TOP) end
     ns.configHeight = math.max(-(ns.sidebarBottom or 0) + 24, 640)
