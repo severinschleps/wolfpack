@@ -3295,6 +3295,16 @@ S.A = prof().actionbars
 assert(#S.A.bars == 1 and S.A.bars[1].first == 1 and S.A.bars[1].cols == 12, "one bar to start: slots 1-12")
 fire("UNIT_MAXPOWER")
 S.ab = ns.ab.buttons[1]
+-- the game's dark slot background behind the icon: shown, or hidden on request; a client that
+-- has only some of these textures still gets them all switched
+S.slotArt = new("Texture")
+rawset(S.ab[1], "SlotArt", S.slotArt)
+S.A.bars[1].slotBg = false
+ns.abLook(S.ab[1], S.A.bars[1], 1)
+assert(S.slotArt._alpha == 0, "slot background hidden (no SlotBackground on this button)")
+S.A.bars[1].slotBg = true
+ns.abLook(S.ab[1], S.A.bars[1], 1)
+assert(S.slotArt._alpha == 1, "and shown again")
 -- the template's red Auto Shot flash sits over the icon, not the hidden frame art, rounded with it
 S.fl = new("Texture")
 S.fl.SetAllPoints = function(self, to) self._all = to end

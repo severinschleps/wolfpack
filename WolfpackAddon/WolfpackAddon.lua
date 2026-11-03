@@ -420,7 +420,8 @@ ns.AB_BAR = { first = 1, rows = 1, cols = 12, size = 36, gap = 4, radius = 0, zo
     borderColor = { 0, 0, 0, 1 }, grow = "rightdown", point = "BOTTOM", x = 0, y = 60,
     keyFont = FONTS[1][2], keySize = 11, macroFont = FONTS[1][2], macroSize = 10, macroText = true,
     hideEmpty = false, -- hideEmpty: a slot with nothing in it shows no button (they show while dragging)
-    mouseover = false } -- mouseover: the bar fades in only under the mouse (its keys work either way)
+    mouseover = false, -- mouseover: the bar fades in only under the mouse (its keys work either way)
+    slotBg = true } -- slotBg: the game's dark square behind the icon (seen in the corners of a rounded one)
 DEFAULTS.actionbars = { bars = {}, binds = {}, seeded = false }
 -- Stance and pet bars: Blizzard's own buttons, moved into a bar of yours. anchorTo: "screen", "bar:N"
 -- (one of your bars) or the other of the two; side: where on it ("above", "below", "left", "right").
@@ -2664,6 +2665,12 @@ function ns.abLook(b, bar, slot, blizz)
     b.wpIcon:SetPoint("BOTTOMRIGHT", b, "BOTTOMRIGHT", -t, t)
     ns.iconCorners(b.wpIcon, b.wpMask, bar.radius, { z, 1 - z, z, 1 - z })
     ns.iconCorners(b.wpEdge, b.wpEdgeMask, bar.radius, { 0, 1, 0, 1 })
+    -- the slot's own dark background: shown, or gone so only our border and the icon are left
+    local name = b:GetName() or ""
+    for _, art in ipairs({ rawget(b, "SlotBackground") or false, rawget(b, "SlotArt") or false,
+        _G[name .. "FloatingBG"] or false }) do -- each client has some of them
+        if art then art:SetAlpha(bar.slotBg == false and 0 or 1) end
+    end
     -- the red auto-attack / Auto Shot flash: the template fits it to its frame art, which is
     -- hidden here, so it goes over the icon instead, rounded like it (its own atlas coords kept)
     local fl = rawget(b, "Flash") or _G[(b:GetName() or "") .. "Flash"]
@@ -7258,6 +7265,8 @@ local function buildConfig()
     slider(actionPage, "Border width", abk.x, abk:row(SLIDER), 0, 6, function() return AB().borderSize end,
         function(v) AB().borderSize = v end)
     swatch(actionPage, "Action border color", abk.x, abk:row(SWATCH), function() return AB().borderColor end)
+    check(actionPage, "Show slot background", abk.x, abk:row(ROW), function() return AB().slotBg ~= false end,
+        function(v) AB().slotBg = v end)
     abk:close()
 
     local abt = group(actionPage, COL[2], abk.cursor - 20, 202, "Text")
