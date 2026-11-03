@@ -1583,6 +1583,16 @@ fire("NAME_PLATE_UNIT_REMOVED", "nameplate1")
 assert(not h.kill:IsShown() and not ns.plateUnits.nameplate1, "removed plate cleared")
 fire("NAME_PLATE_UNIT_ADDED", "nameplate1")
 assert(ns.plateUnits.nameplate1 == h, "recycled plate reuses its holder")
+-- settings open: every row shows both icons, counts too, to place them by; closed, the real ones
+S.related.nameplate1 = false
+fire("QUEST_LOG_UPDATE")
+assert(not h.kill:IsShown(), "nothing needed from this mob")
+S.wasOpen = ns.configOpen
+ns.configOpen = true; fire("UNIT_MAXPOWER")
+assert(h.kill:IsShown() and h.loot:IsShown(), "settings open: dummy icons")
+ns.configOpen = false; fire("UNIT_MAXPOWER")
+assert(not h.kill:IsShown() and not h.loot:IsShown(), "closed: the real ones again")
+ns.configOpen = S.wasOpen
 
 -- Plates: a bar of ours on every nameplate, Blizzard's own plate made invisible
 ;(function()
@@ -1886,6 +1896,8 @@ assert(prof().regular.bars.health.font:match("Anton%-Regular%.ttf$") and fontDD.
 -- Quest page: icon style, size and position per icon
 byText("Nameplates")._scripts.OnClick(byText("Nameplates"), "LeftButton")
 byText("Quest mobs")._scripts.OnClick(byText("Quest mobs"), "LeftButton")
+assert(ns.np.preview:IsShown() and ns.np.preview.quest.kill:IsShown() and ns.np.preview.quest.loot:IsShown(),
+    "the Quest mobs tab: a preview plate with dummy icons beside the window")
 dds[7]:GenerateMenu(); dds[8]:GenerateMenu()
 assert(#dds[7]._items == 4 and #dds[8]._items == 4, "icon choices")
 for _, it in ipairs(dds[7]._items) do assert(type(it.init(menuButton())) == "number", "icon preview") end

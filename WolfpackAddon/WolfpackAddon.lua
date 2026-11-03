@@ -2202,6 +2202,9 @@ local function styleQuest(h)
     end
     h.box:SetSize(math.max(w, 1), math.max(ht, 1))
     h.box:ClearAllPoints()
+    -- settings open: every row shows both icons (and counts), to place them by
+    local want, left = h.want, h.left
+    if ns.configOpen then want, left = ns.QUEST_DUMMY.want, ns.QUEST_DUMMY.left end
     -- on our own nameplate the row hangs on its bar; on Blizzard's, on the whole plate
     local ours = ns.np and ns.np.bars[h.plate]
     local spot = ns.QUEST_SPOTS[q.anchor] or ns.QUEST_SPOTS.inside
@@ -2209,14 +2212,14 @@ local function styleQuest(h)
     local x = 0
     for _, kind in ipairs(QUEST_ORDER) do
         local c, t = q[kind], h[kind]
-        local on = (h.want[kind] and c.show) and true or false
+        local on = (want[kind] and c.show) and true or false
         t:SetTexture(c.icon)
-        t:SetDesaturated(h.want[kind] == "party") -- groupmates need it, you don't: grayscale
+        t:SetDesaturated(want[kind] == "party") -- groupmates need it, you don't: grayscale
         t:SetSize(c.size, c.size)
         t:ClearAllPoints()
         t:SetPoint("TOPLEFT", h.box, "TOPLEFT", x, 0)
         t:SetShown(on)
-        local badge, count = h.badge[kind], h.left[kind]
+        local badge, count = h.badge[kind], left[kind]
         local showCount = (on and c.count and count and count > 0) and true or false
         badge.text:SetShown(showCount)
         badge.bg:SetShown(showCount)
@@ -2244,10 +2247,22 @@ local function plateAdded(unit)
     if not ok or not plate or plate:IsForbidden() then return end
     local h = questHolders[plate]
     if not h then
-        h = CreateFrame("Frame", nil, plate)
+        h = ns.questHolder(plate)
         h.plate = plate
+        questHolders[plate] = h
+    end
+    h.want.kill, h.want.loot = nil, nil
+    h.left.kill, h.left.loot = nil, nil
+    plateUnits[unit] = h
+    evalQuest(unit)
+end
+
+-- the icon row's frame, over the whole of `parent` (a nameplate, or the preview plate)
+function ns.questHolder(parent)
+    local h = CreateFrame("Frame", nil, parent)
+    do
         h:SetAllPoints()
-        h:SetFrameLevel(plate:GetFrameLevel() + 10)
+        h:SetFrameLevel(parent:GetFrameLevel() + 10)
         h.box = CreateFrame("Frame", nil, h)
         h.kill, h.loot, h.want, h.left = h.box:CreateTexture(nil, "OVERLAY"), h.box:CreateTexture(nil, "OVERLAY"), {}, {}
         h.badge = {}
@@ -2260,13 +2275,11 @@ local function plateAdded(unit)
             bg:SetPoint("CENTER", text)
             h.badge[kind] = { bg = bg, text = text }
         end
-        questHolders[plate] = h
     end
-    h.want.kill, h.want.loot = nil, nil
-    h.left.kill, h.left.loot = nil, nil
-    plateUnits[unit] = h
-    evalQuest(unit)
+    return h
 end
+-- what every row shows while the settings are open
+ns.QUEST_DUMMY = { want = { kill = "mine", loot = "mine" }, left = { kill = 3, loot = 2 } }
 
 local function plateRemoved(unit)
     local h = plateUnits[unit]
@@ -3746,7 +3759,13 @@ function ns.np.all()
         if ns.np.on() then ns.np.add(unit) else ns.np.remove(unit) end
     end
     local p = ns.np.previewBar()
-    if ns.np.wantPreview and ns.np.wantPreview() then ns.np.layout(p) else p:Hide() end
+    if ns.np.wantPreview and ns.np.wantPreview() then
+        ns.np.layout(p)
+        p.quest = p.quest or ns.questHolder(p)
+        styleQuest(p.quest)
+    else
+        p:Hide()
+    end
 end
 function ns.np.previewBar()
     if not ns.np.preview then
@@ -6244,7 +6263,7 @@ local function buildConfig()
     local showCheck = check(barsPage, "Show", size.x, size:row(ROW), function() return cur().show end,
         function(v) cur().show = v end)
     onRefresh(function() showCheck.Text:SetText(mode == "plates" and "Replace Blizzard's nameplates" or "Show") end)
-    ns.np.wantPreview = function() return cfg:IsShown() and section == "nameplates" and sub == "plates" end
+    ns.np.wantPreview = function() return cfg:IsShown() and section == "nameplates" and sub ~= "bars" end
     local widthSlider = slider(barsPage, "Width", size.x, size:row(SLIDER), 10, 600,
         function() return cur().width end, function(v) cur().width = v end)
     local heightSlider = slider(barsPage, "Height", size.x, size:row(SLIDER), 2, 100,
