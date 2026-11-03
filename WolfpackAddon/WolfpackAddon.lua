@@ -314,7 +314,9 @@ end
 -- behind it (bg color, radius, padding).
 function ns.questIcon(icon, to, spot, x)
     return { show = true, icon = icon, size = 20, count = false, anchorTo = to, spot = spot, x = x, y = 0,
-        font = FONTS[1][2], fontSize = 10, textColor = { 1, 1, 1, 1 }, bg = { 0, 0, 0, 0.8 }, radius = 0, pad = 2 }
+        font = FONTS[1][2], fontSize = 10, textColor = { 1, 1, 1, 1 }, bg = { 0, 0, 0, 0.8 }, radius = 0, pad = 2,
+        -- the count's plate: where it sits on its icon (a QUEST_SPOTS key), nudged by countX / countY
+        countSpot = "abovecenter", countX = 0, countY = 1 }
 end
 local DEFAULTS = {
     locked = true,
@@ -2311,10 +2313,12 @@ local function styleQuest(h)
             local text = badge.text
             if not text:SetFont(c.font, c.fontSize, "OUTLINE") then text:SetFont(FONTS[1][2], c.fontSize, "OUTLINE") end
             text:SetTextColor(unpack(c.textColor))
-            text:ClearAllPoints()
-            text:SetPoint("BOTTOM", t, "TOP", 0, c.pad + 1) -- its plate clear of the icon
             text:SetText(count)
+            -- the plate fits the number: wider for "12" than for "3", taller for a bigger font
             local w, ht = text:GetStringWidth() + 2 * c.pad, text:GetStringHeight() + 2 * c.pad
+            local cs = ns.QUEST_SPOTS[c.countSpot] or ns.QUEST_SPOTS.abovecenter
+            badge.bg:ClearAllPoints()
+            badge.bg:SetPoint(cs[2], t, cs[3], c.countX, c.countY)
             badge.bg:SetSize(w, ht)
             badge.bg:SetColorTexture(unpack(c.bg))
             round(badge.bg, badge.mask, c.radius == "pill" and math.huge or c.radius, w, ht)
@@ -2360,7 +2364,7 @@ function ns.questHolder(parent)
             local bg = h:CreateTexture(nil, "OVERLAY", nil, 1)
             local text = h:CreateFontString(nil, "OVERLAY", nil, 2)
             local mask = h:CreateMaskTexture()
-            bg:SetPoint("CENTER", text)
+            text:SetPoint("CENTER", bg) -- the plate is placed; the number sits in its middle
             mask:SetAllPoints(bg)
             h.badge[kind] = { bg = bg, text = text, mask = mask }
         end
@@ -6737,6 +6741,13 @@ local function buildConfig()
             function(v) q().font = v end, fontPreview)
         slider(questPage, "Font size", n.x, n:row(SLIDER), 6, 32, function() return q().fontSize end,
             function(v) q().fontSize = v end)
+        ns.countSpotMenus = ns.countSpotMenus or {}
+        ns.countSpotMenus[i] = dropdown(questPage, "Sits on the icon", n.x, n:row(DROP), QUEST_SPOT_LIST,
+            function() return q().countSpot end, function(v) q().countSpot = v end, textPreview)
+        slider(questPage, "Number X", n.x, n:row(SLIDER), -50, 50, function() return q().countX end,
+            function(v) q().countX = v end)
+        slider(questPage, "Number Y", n.x, n:row(SLIDER), -50, 50, function() return q().countY end,
+            function(v) q().countY = v end)
         swatch(questPage, "Number color", n.x, n:row(SWATCH), function() return q().textColor end)
         swatch(questPage, "Background", n.x, n:row(SWATCH), function() return q().bg end)
         dropdown(questPage, "Background radius", n.x, n:row(DROP), RADII,

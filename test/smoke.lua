@@ -1535,13 +1535,27 @@ Q.kill.count, Q.loot.count = true, true
 fire("QUEST_LOG_UPDATE")
 assert(h.badge.kill.text:IsShown() and h.badge.kill.text._text == 7, "7 kills left")
 assert(h.badge.loot.text._text == 4 and h.badge.loot.bg._color[1] == 0, "4 items left, black plate")
-assert(h.badge.kill.text._point[1] == "BOTTOM" and h.badge.kill.text._point[2] == h.kill, "centered above the icon")
+assert(h.badge.kill.bg._point[1] == "BOTTOM" and h.badge.kill.bg._point[2] == h.kill and h.badge.kill.bg._point[3] == "TOP"
+    and h.badge.kill.text._point[2] == h.badge.kill.bg, "the plate centered above the icon, the number in it")
 assert(h.badge.kill.bg._w == 12 and h.badge.kill.bg._h == 14, "plate hugs the number, 2 px padding")
 Q.kill.fontSize, Q.kill.textColor, Q.kill.bg, Q.kill.radius, Q.kill.pad = 14, { 1, 0.8, 0, 1 }, { 0.2, 0, 0, 0.5 }, 4, 3
 fire("QUEST_LOG_UPDATE")
 local kb = h.badge.kill
 assert(kb.text._font[2] == 14 and kb.text._color[2] == 0.8 and kb.bg._color[1] == 0.2 and kb.bg._w == 14
-    and kb.bg._masks[kb.mask] and kb.mask.r == 4 and kb.text._point[5] == 4, "number font, color, plate color, radius, padding")
+    and kb.bg._masks[kb.mask] and kb.mask.r == 4 and kb.bg._h == 16, "number font, color, plate color, radius, padding")
+-- the number sits where its spot says, nudged; the plate grows with it
+Q.kill.countSpot, Q.kill.countX, Q.kill.countY = "inside", -1, 2
+kb.text.GetStringWidth = function(self) return #tostring(self._text) * 6 end
+fire("QUEST_LOG_UPDATE")
+assert(kb.bg._point[1] == "TOPRIGHT" and kb.bg._point[2] == h.kill and kb.bg._point[4] == -1 and kb.bg._point[5] == 2,
+    "inside the icon's top right, 1 left and 2 up")
+assert(kb.bg._w == 6 + 6, "one digit: its width plus padding")
+S.keptLeft, ns.QUEST_DUMMY.left.kill, S.wasOpenQ = ns.QUEST_DUMMY.left.kill, 12, ns.configOpen
+ns.configOpen = true; fire("QUEST_LOG_UPDATE")
+assert(kb.text._text == 12 and kb.bg._w == 12 + 6, "two digits: a wider plate")
+ns.QUEST_DUMMY.left.kill, ns.configOpen = S.keptLeft, S.wasOpenQ
+kb.text.GetStringWidth = nil
+Q.kill.countSpot, Q.kill.countX, Q.kill.countY = "abovecenter", 0, 1
 Q.kill.fontSize, Q.kill.textColor, Q.kill.bg, Q.kill.radius, Q.kill.pad = 10, { 1, 1, 1, 1 }, { 0, 0, 0, 0.8 }, 0, 2
 -- Anniversary and Classic Era: no C_QuestLog list, the old global calls instead
 S.newLog = C_QuestLog
@@ -1905,7 +1919,7 @@ nameBox._text = "PvP"; nameBox._scripts.OnEnterPressed(nameBox)
 assert(store.profiles["PvP 2"] and prof() == store.profiles["PvP 2"], "same name again: PvP 2")
 store.profiles["PvP 2"], store.chars[S.name .. " - Realm"] = nil, "PvP"
 local dds = {} -- profile, texture, bar color, border color, radius, font, kill icon, loot icon, combat icon, attach
-for _, f in ipairs(created) do if f._gen and f ~= ns.copyFromMenu and f ~= ns.sharedBorderTexMenu and f ~= ns.ownBorderTexMenu and f ~= ns.shineMenus[1] and f ~= ns.shineMenus[2] and f ~= ns.resPlaceMenu and f ~= ns.resPointMenu and f ~= ns.sitsMenu and f ~= ns.xpMenu and f ~= ns.borderFromMenu and f ~= ns.sharedRadiusMenu and f ~= ns.textureFromMenu and f ~= ns.sharedTextureMenu and not (f._parent == ns.pages.actionbars) then dds[#dds + 1] = f end end
+for _, f in ipairs(created) do if f._gen and f ~= ns.copyFromMenu and f ~= ns.countSpotMenus[1] and f ~= ns.countSpotMenus[2] and f ~= ns.sharedBorderTexMenu and f ~= ns.ownBorderTexMenu and f ~= ns.shineMenus[1] and f ~= ns.shineMenus[2] and f ~= ns.resPlaceMenu and f ~= ns.resPointMenu and f ~= ns.sitsMenu and f ~= ns.xpMenu and f ~= ns.borderFromMenu and f ~= ns.sharedRadiusMenu and f ~= ns.textureFromMenu and f ~= ns.sharedTextureMenu and not (f._parent == ns.pages.actionbars) then dds[#dds + 1] = f end end
 local dd = dds[1]
 dd:GenerateMenu()
 local names = {}
@@ -2017,7 +2031,7 @@ prof().other.hideGryphons = true; fire("UNIT_MAXPOWER")
 assert(caps.LeftEndCap.Texture._alpha == 0 and caps.RightEndCap.Texture._alpha == 0, "hidden")
 prof().other.hideGryphons = false; fire("UNIT_MAXPOWER")
 assert(caps.LeftEndCap.Texture._alpha == 1, "shown again")
-local opBox = boxes[24] -- highlight opacity (%), after the party/raid one
+local opBox = boxes[28] -- highlight opacity (%), after the party/raid one
 opBox._text = "60"; opBox._scripts.OnEnterPressed(opBox)
 assert(math.abs(prof().regular.highlight.color[4] - 0.6) < 1e-9 and opBox._text == "60", "opacity typed")
 -- Enemy health's resource settings open in a window beside the options, only for that bar
