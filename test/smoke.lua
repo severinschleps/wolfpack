@@ -3008,6 +3008,17 @@ assert(S.ab[7]._point[1] == "BOTTOMRIGHT" and S.ab[7]._point[4] == 0 and S.ab[7]
 S.hasAction, S.A.bars[1].hideEmpty = { [1] = true, [3] = true }, true; fire("UNIT_MAXPOWER")
 assert(S.ab[1]:IsShown() and not S.ab[2]:IsShown() and S.ab[3]:IsShown() and S.ab[2]._attr.showgrid == 0,
     "empty ones hidden, the rest keep their place")
+-- picking up a spell shows every hidden slot to drop it on; dropping it there keeps that one
+fire("ACTIONBAR_SHOWGRID")
+assert(S.ab[2]:IsShown() and S.ab[5]:IsShown(), "dragging: the empty slots show")
+S.hasAction[2] = true; fire("ACTIONBAR_HIDEGRID")
+assert(S.ab[2]:IsShown() and not S.ab[5]:IsShown(), "dropped on slot 2: it stays, the rest hide again")
+GetCursorInfo = function() return S.cursor end
+S.cursor = "item"; fire("CURSOR_CHANGED")
+assert(S.ab[5]:IsShown(), "an item on the cursor counts too")
+S.cursor = nil; fire("CURSOR_CHANGED")
+assert(not S.ab[5]:IsShown(), "cursor empty: hidden again")
+S.hasAction[2] = nil
 S.A.bars[1].hideEmpty = false; fire("UNIT_MAXPOWER")
 assert(S.ab[2]:IsShown() and S.ab[2]._attr.showgrid == 1, "shown again")
 S.A.bars[1].radius, S.A.bars[1].zoom, S.A.bars[1].borderSize = 25, 15, 2; fire("UNIT_MAXPOWER")

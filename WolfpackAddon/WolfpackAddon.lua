@@ -2492,7 +2492,8 @@ function ns.syncActionBars()
                 local grid = bar.hideEmpty and 0 or 1
                 b:SetAttribute("showgrid", grid)
                 b.showgrid = grid
-                b:SetShown(j <= n and (not bar.hideEmpty or HasAction(slot)) and true or false)
+                -- something on the cursor (a spell, an item): every slot shows, to drop it on
+                b:SetShown(j <= n and (not bar.hideEmpty or ns.ab.dragging or HasAction(slot)) and true or false)
                 if j <= n then
                     b:SetAttribute("action", slot)
                     b.wpSlot = slot
@@ -7518,7 +7519,8 @@ ev:SetScript("OnEvent", function(_, event, unit, arg2, arg3)
         for _, e in ipairs({ "PLAYER_ENTERING_WORLD", "UPDATE_SHAPESHIFT_FORM", "PLAYER_TARGET_CHANGED",
             "NAME_PLATE_UNIT_ADDED", "NAME_PLATE_UNIT_REMOVED", "QUEST_LOG_UPDATE", "PLAYER_REGEN_ENABLED",
             "QUEST_DETAIL", "QUEST_ACCEPT_CONFIRM", "QUEST_PROGRESS", "QUEST_COMPLETE", "GOSSIP_SHOW", "QUEST_GREETING",
-            "PLAYER_REGEN_DISABLED", "PLAYER_UPDATE_RESTING", "PLAYER_XP_UPDATE", "PLAYER_LEVEL_UP", "UPDATE_FACTION", "HONOR_XP_UPDATE", "PLAYER_SWING", "PLAYER_TOTEM_UPDATE", "MERCHANT_SHOW", "MERCHANT_CLOSED",
+            "PLAYER_REGEN_DISABLED", "PLAYER_UPDATE_RESTING", "PLAYER_XP_UPDATE", "PLAYER_LEVEL_UP", "UPDATE_FACTION", "HONOR_XP_UPDATE", "ACTIONBAR_SHOWGRID",
+            "ACTIONBAR_HIDEGRID", "CURSOR_CHANGED", "PLAYER_SWING", "PLAYER_TOTEM_UPDATE", "MERCHANT_SHOW", "MERCHANT_CLOSED",
             "GOSSIP_CLOSED" }) do
             listen(e)
         end
@@ -7544,6 +7546,14 @@ ev:SetScript("OnEvent", function(_, event, unit, arg2, arg3)
                 if event == "UNIT_AURA" then safe(ns.layoutAuras, set.health) end
                 safe(ns.layoutBadges, set.health)
             end
+        end
+    elseif event == "ACTIONBAR_SHOWGRID" or event == "ACTIONBAR_HIDEGRID" or event == "CURSOR_CHANGED" then
+        -- dragging something that can go on an action button: hidden empty slots show for it
+        local ok, what = pcall(GetCursorInfo)
+        local drag = event == "ACTIONBAR_SHOWGRID" or (event == "CURSOR_CHANGED" and ok and what ~= nil)
+        if drag ~= (ns.ab.dragging or false) then
+            ns.ab.dragging = drag
+            safe(Refresh)
         end
     elseif event == "PLAYER_XP_UPDATE" or event == "HONOR_XP_UPDATE" then
         fillShown("experience")
