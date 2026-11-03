@@ -2221,7 +2221,9 @@ function ns.syncClickers()
             ns.clickers[key] = c
         end
         if c then
-            c:SetAttribute("type1", mine and R.playerTarget and "target" or nil)
+            -- left click targets: you (if asked), your pet, your target's target
+            local targets = HUNG_ON[key] or (mine and R.playerTarget)
+            c:SetAttribute("type1", targets and "target" or nil)
             c:SetAttribute("type2", (not mine or R.playerMenu) and "togglemenu" or nil)
             local host = HUNG_ON[key] and b.anchor ~= "stack" and ns.clickers[HUNG_ON[key]]
             local point, _, _, x, y = (key == "enemyhealth" and beside and frames.health or f):GetPoint(1)
@@ -5305,9 +5307,9 @@ local function buildConfig()
         function() return db.regular.playerMenu end, function(v) db.regular.playerMenu = v end)
     check(otherPage, "Enemy health: right-click menu", mouse.x, mouse:row(ROW),
         function() return db.regular.targetMenu end, function(v) db.regular.targetMenu = v end)
-    check(otherPage, "Pet: right-click menu", mouse.x, mouse:row(ROW),
+    check(otherPage, "Pet: click target, right menu", mouse.x, mouse:row(ROW),
         function() return db.regular.petMenu end, function(v) db.regular.petMenu = v end)
-    check(otherPage, "Target of target: right-click menu", mouse.x, mouse:row(ROW),
+    check(otherPage, "Target of target: same", mouse.x, mouse:row(ROW),
         function() return db.regular.totMenu end, function(v) db.regular.totMenu = v end)
     check(otherPage, "Mouseover macros", mouse.x, mouse:row(ROW),
         function() return db.regular.playerMouseover end, function(v) db.regular.playerMouseover = v end)

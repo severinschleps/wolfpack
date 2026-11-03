@@ -1318,6 +1318,7 @@ S.PB.show, S.PB.anchor, S.petHP = true, "left", 100; fire("UNIT_PET", "player")
 S.cpet = WolfpackAddonClickerPet
 assert(S.cpet and S.cpet._attr.unit == "pet" and S.cpet._attr.type2 == "togglemenu" and S.cpet._watched,
     "pet: a menu, while there is a pet")
+assert(S.cpet._attr.type1 == "target", "left click targets your pet")
 assert(S.cpet._point[1] == "TOPRIGHT" and S.cpet._point[2] == WolfpackAddonClicker and S.cpet._point[3] == "TOPLEFT"
     and S.cpet._point[4] == -R0.gap and S.cpet._w == S.PB.width and S.cpet._h == WolfpackAddonClicker._h,
     "left of your health's button, its height")
@@ -1329,7 +1330,7 @@ assert(not S.cpet._watched, "pet menu off")
 R0.petMenu, S.PB.show, S.PB.anchor, S.petHP = true, false, "stack", nil
 R0.bars.enemyhealth.show, S.TT.show, S.TT.anchor = true, true, "right"; fire("UNIT_MAXPOWER")
 S.ctot = WolfpackAddonClickerToT
-assert(S.ctot and S.ctot._attr.unit == "targettarget" and S.ctot._watched and S.ctot._point[2] == WolfpackAddonClickerTarget
+assert(S.ctot and S.ctot._attr.unit == "targettarget" and S.ctot._attr.type1 == "target" and S.ctot._watched and S.ctot._point[2] == WolfpackAddonClickerTarget
     and S.ctot._point[3] == "TOPRIGHT" and S.ctot._point[4] == R0.gap, "target of target: right of enemy health's button")
 S.TT.anchor = "below"; fire("UNIT_MAXPOWER")
 assert(S.ctot._point[1] == "BOTTOMLEFT" and S.ctot._point[3] == "BOTTOMLEFT" and S.ctot._h == S.TT.height
