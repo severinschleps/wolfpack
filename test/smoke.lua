@@ -118,7 +118,7 @@ function M:GenerateMenu() -- records the dropdown's radio items
 end
 function M:GetEffectiveScale() return 1 end
 function M:IsForbidden() return false end
-function M:RegisterEvent() evFrame = self end
+function M:RegisterEvent(e) evFrame = self; self._ev = self._ev or {}; if e then self._ev[e] = true end end
 function M:RegisterUnitEvent() evFrame = self end
 
 Enum = { TooltipDataLineType = { QuestObjective = 8, QuestTitle = 17, QuestPlayer = 18 }, PowerType = { Mana = 0, Rage = 1, Energy = 3, ComboPoints = 4, SoulShards = 7, HolyPower = 9,
@@ -3011,8 +3011,11 @@ assert(S.ab[1]:IsShown() and not S.ab[2]:IsShown() and S.ab[3]:IsShown() and S.a
 -- picking up a spell shows every hidden slot to drop it on; dropping it there keeps that one
 fire("ACTIONBAR_SHOWGRID")
 assert(S.ab[2]:IsShown() and S.ab[5]:IsShown(), "dragging: the empty slots show")
-S.hasAction[2] = true; fire("ACTIONBAR_HIDEGRID")
-assert(S.ab[2]:IsShown() and not S.ab[5]:IsShown(), "dropped on slot 2: it stays, the rest hide again")
+fire("ACTIONBAR_HIDEGRID") -- the drag ends first: the slot is still empty then (as in game)
+assert(not S.ab[2]:IsShown(), "drag over, nothing landed yet")
+assert(evFrame._ev.ACTIONBAR_SLOT_CHANGED, "listening for a slot's contents changing")
+S.hasAction[2] = true; fire("ACTIONBAR_SLOT_CHANGED", 2)
+assert(S.ab[2]:IsShown() and not S.ab[5]:IsShown(), "the spell lands on slot 2: it shows, the rest stay hidden")
 GetCursorInfo = function() return S.cursor end
 S.cursor = "item"; fire("CURSOR_CHANGED")
 assert(S.ab[5]:IsShown(), "an item on the cursor counts too")

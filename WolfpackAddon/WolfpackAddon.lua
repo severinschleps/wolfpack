@@ -7520,7 +7520,7 @@ ev:SetScript("OnEvent", function(_, event, unit, arg2, arg3)
             "NAME_PLATE_UNIT_ADDED", "NAME_PLATE_UNIT_REMOVED", "QUEST_LOG_UPDATE", "PLAYER_REGEN_ENABLED",
             "QUEST_DETAIL", "QUEST_ACCEPT_CONFIRM", "QUEST_PROGRESS", "QUEST_COMPLETE", "GOSSIP_SHOW", "QUEST_GREETING",
             "PLAYER_REGEN_DISABLED", "PLAYER_UPDATE_RESTING", "PLAYER_XP_UPDATE", "PLAYER_LEVEL_UP", "UPDATE_FACTION", "HONOR_XP_UPDATE", "ACTIONBAR_SHOWGRID",
-            "ACTIONBAR_HIDEGRID", "CURSOR_CHANGED", "PLAYER_SWING", "PLAYER_TOTEM_UPDATE", "MERCHANT_SHOW", "MERCHANT_CLOSED",
+            "ACTIONBAR_HIDEGRID", "CURSOR_CHANGED", "ACTIONBAR_SLOT_CHANGED", "PLAYER_SWING", "PLAYER_TOTEM_UPDATE", "MERCHANT_SHOW", "MERCHANT_CLOSED",
             "GOSSIP_CLOSED" }) do
             listen(e)
         end
@@ -7546,6 +7546,16 @@ ev:SetScript("OnEvent", function(_, event, unit, arg2, arg3)
                 if event == "UNIT_AURA" then safe(ns.layoutAuras, set.health) end
                 safe(ns.layoutBadges, set.health)
             end
+        end
+    elseif event == "ACTIONBAR_SLOT_CHANGED" then
+        -- a spell dropped on a slot lands after the drag has ended: look at empty slots again
+        -- then. Many come at once (login, a talent swap): one look for all of them.
+        if not ns.ab.slotPending then
+            ns.ab.slotPending = true
+            C_Timer.After(0.05, function()
+                ns.ab.slotPending = false
+                safe(ns.syncActionBars)
+            end)
         end
     elseif event == "ACTIONBAR_SHOWGRID" or event == "ACTIONBAR_HIDEGRID" or event == "CURSOR_CHANGED" then
         -- dragging something that can go on an action button: hidden empty slots show for it
