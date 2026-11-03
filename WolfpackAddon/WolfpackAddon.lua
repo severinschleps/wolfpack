@@ -242,6 +242,9 @@ local function layoutDefaults(show, x, y, gap, width, h1, h2, h3, h4, h5, h6, h7
     -- while you drink: a text of your own on the power bar (the bar's font)
     l.bars.power.drinkText = { show = true, text = "Drinking", point = "LEFT", x = 4, y = 0, size = 10,
         color = { 0.35, 0.75, 1, 1 } }
+    -- ... and while you eat, the same on your health bar
+    l.bars.health.eatText = { show = true, text = "Eating", point = "LEFT", x = 4, y = 0, size = 10,
+        color = { 1, 0.8, 0.3, 1 } }
     -- the ammo bar: beside the power bar ("left" / "right": the two share its width) or in the stack
     l.bars.ammo.anchor, l.bars.ammo.colorMode, l.bars.ammo.hunterSet = "right", "class", false
     local tt = l.bars.tothealth
@@ -1822,14 +1825,21 @@ end
 
 -- Whether it is drinking: a buff called Drink, Food & Drink or Refreshment (or the game's own
 -- name for Drink in this language). A name the game keeps secret can't be told: not drinking.
-function ns.drinking(unit)
-    local names = { drink = true, ["food & drink"] = true, refreshment = true }
-    local ok, own = pcall(function() return C_Spell and C_Spell.GetSpellName(430) or GetSpellInfo(430) end)
-    if ok and type(own) == "string" then names[own:lower()] = true end
+function ns.hasBuffNamed(unit, names, spellID)
+    names = setmetatable({}, { __index = names })
+    local ok, own = pcall(function() return C_Spell and C_Spell.GetSpellName(spellID) or GetSpellInfo(spellID) end)
+    if ok and type(own) == "string" then rawset(names, own:lower(), true) end
     for _, a in ipairs(ns.auraList(unit, "HELPFUL", 40) or {}) do
         if readable(a.name) and type(a.name) == "string" and names[a.name:lower()] then return true end
     end
     return false
+end
+function ns.drinking(unit)
+    return ns.hasBuffNamed(unit, { drink = true, ["food & drink"] = true, refreshment = true }, 430)
+end
+-- Eating: a buff called Food, Food & Drink or Refreshment (or the game's own name for Food).
+function ns.eating(unit)
+    return ns.hasBuffNamed(unit, { food = true, ["food & drink"] = true, refreshment = true }, 433)
 end
 
 -- A text one letter per font string, side by side, so each can fade on its own: a wave of
@@ -2290,7 +2300,7 @@ local function stack(container, set, L, on, swings)
             if ns.AURA_BARS[key] then ns.layoutAuras(f) end
             if ns.BADGES[key] then ns.layoutBadges(f) end
             if key == "pethealth" then ns.layoutHappy(f) end
-            if key == "power" then ns.layoutDrinkText(f) end
+            if ns.MEAL_TEXTS[key] then ns.layoutMealText(f) end
             h = h + c.height
             if key == "health" and L == db.regular then h = h + ns.petUnder(f) end -- your pet below it
             h = h + c.padBottom
@@ -4124,21 +4134,23 @@ function ns.layoutHappy(f)
     d:SetPoint("CENTER", f, o.point, o.x, o.y)
 end
 
--- The power bar's drinking text: while you have a Drink buff (and while placing the bars).
-function ns.layoutDrinkText(f)
-    local o = db[f.mode].bars.power.drinkText
-    if not f.drinkText then
-        f.drinkHost = CreateFrame("Frame", nil, f)
-        f.drinkHost:SetAllPoints(f)
-        f.drinkText = f.drinkHost:CreateFontString(nil, "OVERLAY")
+-- A flashing text while you drink (power bar) or eat (health bar), and while placing the bars.
+ns.MEAL_TEXTS = { power = { "drinkText", "drinkHost", "drinking" }, health = { "eatText", "eatHost", "eating" } }
+function ns.layoutMealText(f)
+    local m = ns.MEAL_TEXTS[f.key]
+    local c = db[f.mode].bars[f.key]
+    local o = c[m[1]]
+    if not f[m[1]] then
+        f[m[2]] = CreateFrame("Frame", nil, f)
+        f[m[2]]:SetAllPoints(f)
+        f[m[1]] = f[m[2]]:CreateFontString(nil, "OVERLAY")
     end
-    local t = f.drinkText
-    t:SetShown((o.show and (ns.drinking("player") or ns.previewing())) and true or false)
+    local t, host = f[m[1]], f[m[2]]
+    t:SetShown((o.show and (ns[m[3]]("player") or ns.previewing())) and true or false)
     -- it flashes for as long as it shows
-    f.drinkHost:SetScript("OnUpdate", t:IsShown() and function(h) h:SetAlpha(0.55 + 0.45 * math.cos(GetTime() * 6)) end or nil)
-    if not t:IsShown() then f.drinkHost:SetAlpha(1) return end
-    local c = db[f.mode].bars.power
-    f.drinkHost:SetFrameLevel(f:GetFrameLevel() + 8)
+    host:SetScript("OnUpdate", t:IsShown() and function(h) h:SetAlpha(0.55 + 0.45 * math.cos(GetTime() * 6)) end or nil)
+    if not t:IsShown() then host:SetAlpha(1) return end
+    host:SetFrameLevel(f:GetFrameLevel() + 8)
     local flags = c.outline and "OUTLINE" or ""
     if not t:SetFont(c.font, o.size, flags) then t:SetFont(FONTS[1][2], o.size, flags) end
     t:SetTextColor(unpack(o.color))
@@ -5410,7 +5422,7 @@ end
 function ns.toggleDialog(d)
     local show = not d:IsShown()
     for _, o in ipairs({ ns.resDialog, ns.tagDialog, ns.auraDialog, ns.textDialog, ns.iconDialog,
-        ns.statusDialog, ns.fsrDialog, ns.happyDialog, ns.drinkDialog }) do o:Hide() end
+        ns.statusDialog, ns.fsrDialog, ns.happyDialog, ns.drinkDialog, ns.eatDialog }) do o:Hide() end
     d:SetShown(show)
 end
 
@@ -5793,6 +5805,8 @@ local function buildConfig()
         function() ns.toggleDialog(ns.fsrDialog) end)
     local drinkButton = button(barsPage, "Drinking text", 186, only.x, only:row(0) - 2 * ROW - 4 - BUTTON,
         function() ns.toggleDialog(ns.drinkDialog) end)
+    local eatButton = button(barsPage, "Eating text", 186, only.x, only:row(0) - ROW - 3 * BUTTON,
+        function() ns.toggleDialog(ns.eatDialog) end)
     local happyButton = button(barsPage, "Happiness dot", 186, only.x, only:row(0) - DROP - 4,
         function() ns.toggleDialog(ns.happyDialog) end)
     local castIcon = check(barsPage, "Show spell icon", only.x, only:row(ROW),
@@ -5842,7 +5856,9 @@ local function buildConfig()
         regenButton:SetShown(selected == "power")
         happyButton:SetShown(selected == "pethealth")
         drinkButton:SetShown(selected == "power")
+        eatButton:SetShown(selected == "health")
         if not (selected == "power" and (section == "combat" or section == "nameplates")) then ns.drinkDialog:Hide() end
+        if not (selected == "health" and (section == "combat" or section == "nameplates")) then ns.eatDialog:Hide() end
         local here = section == "combat" or section == "nameplates"
         if not (selected == "pethealth" and here) then ns.happyDialog:Hide() end
         if not (selected == "power" and (section == "combat" or section == "nameplates")) then ns.fsrDialog:Hide() end
@@ -6897,17 +6913,18 @@ local function buildConfig()
         n:SetJustifyH("LEFT")
     end
 
-    -- Drinking text dialog, for the power bar
-    do
-        local d = ns.ui.Window(nil, 230, 470, "Drinking text")
+    -- Drinking text (power bar) and eating text (health bar) dialogs
+    for _, spec in ipairs({ { "drinkDialog", "Drinking text", "power", "drinkText", "drinking", "Drink" },
+        { "eatDialog", "Eating text", "health", "eatText", "eating", "Food" } }) do
+        local d = ns.ui.Window(nil, 230, 470, spec[2])
         d:SetParent(cfg)
         d:ClearAllPoints()
         d:SetPoint("TOPLEFT", cfg, "TOPRIGHT", 12, 0)
         d:Hide()
-        ns.drinkDialog = d
-        local O = function() return cur().drinkText or DEFAULTS.regular.bars.power.drinkText end
+        ns[spec[1]] = d
+        local O = function() return cur()[spec[4]] or DEFAULTS.regular.bars[spec[3]][spec[4]] end
         ry = -48
-        check(d, "Show while drinking", 16, rrow(ROW), function() return O().show end, function(v) O().show = v end)
+        check(d, "Show while " .. spec[5], 16, rrow(ROW), function() return O().show end, function(v) O().show = v end)
         label(d, "Text", "GameFontNormalSmall"):SetPoint("TOPLEFT", 16, rrow(16))
         local tb = ns.ui.Input(d, 198)
         tb:SetPoint("TOPLEFT", 16, rrow(30))
@@ -6922,8 +6939,9 @@ local function buildConfig()
         slider(d, "X", 16, rrow(SLIDER), -200, 200, function() return O().x end, function(v) O().x = v end)
         slider(d, "Y", 16, rrow(SLIDER), -100, 100, function() return O().y end, function(v) O().y = v end)
         slider(d, "Size", 16, rrow(SLIDER), 6, 32, function() return O().size end, function(v) O().size = v end)
-        swatch(d, "Drinking text color", 16, rrow(SWATCH), function() return O().color end)
-        local n = label(d, "Shows while you have a Drink buff. The font is the power bar's.", "GameFontDisableSmall")
+        swatch(d, spec[2] .. " color", 16, rrow(SWATCH), function() return O().color end)
+        local n = label(d, ("Flashes while you have a %s buff. The font is the bar's."):format(spec[6]),
+            "GameFontDisableSmall")
         n:SetPoint("TOPLEFT", 16, rrow(30))
         n:SetWidth(198)
         n:SetJustifyH("LEFT")
@@ -7649,7 +7667,8 @@ ev:SetScript("OnEvent", function(_, event, unit, arg2, arg3)
             end
             if set.health:IsShown() and unit ~= "target" then
                 if event == "UNIT_AURA" then safe(ns.layoutAuras, set.health) end
-                if event == "UNIT_AURA" and set.power:IsShown() then safe(ns.layoutDrinkText, set.power) end
+                if event == "UNIT_AURA" and set.power:IsShown() then safe(ns.layoutMealText, set.power) end
+                if event == "UNIT_AURA" then safe(ns.layoutMealText, set.health) end
                 safe(ns.layoutBadges, set.health)
             end
         end

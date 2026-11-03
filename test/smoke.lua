@@ -1179,6 +1179,14 @@ assert(fr.power.drinkText._text == "Glug" and fr.power.drinkText._point[1] == "C
 S.DT.text, S.DT.point, S.DT.x, S.auras = "Drinking", "LEFT", 4, nil; fire("UNIT_AURA", "player")
 assert(not fr.power.drinkText:IsShown() and not fr.power.drinkHost._scripts.OnUpdate
     and fr.power.drinkHost._alpha == 1, "done drinking: gone, no flashing")
+-- and eating: the same on your health bar
+S.auras = { { name = "Food", icon = 1 } }; fire("UNIT_AURA", "player")
+assert(fr.health.eatText:IsShown() and fr.health.eatText._text == "Eating" and fr.health.eatHost._scripts.OnUpdate
+    and not fr.power.drinkText:IsShown(), "eating: flashing on your health bar, not drinking")
+S.auras = { { name = "Food & Drink", icon = 1 } }; fire("UNIT_AURA", "player")
+assert(fr.health.eatText:IsShown() and fr.power.drinkText:IsShown(), "food and drink: both")
+S.auras = nil; fire("UNIT_AURA", "player")
+assert(not fr.health.eatText:IsShown() and fr.health.eatHost._alpha == 1, "done eating")
 ns.configOpen = S.wasOpen2
 
 -- buffs and debuffs on your own health bar, the same options as enemy health; all your debuffs
