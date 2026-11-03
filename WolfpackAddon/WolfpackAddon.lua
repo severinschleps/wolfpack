@@ -398,6 +398,11 @@ DEFAULTS.unitframes = { show = false, replace = true, fontSize = 10, power = tru
     roles = { "TANK", "HEALER", "DAMAGER" },
     g5 = ns.ufGroupDefaults(400, 5, 36), g10 = ns.ufGroupDefaults(400, 5, 36),
     g20 = ns.ufGroupDefaults(400, 5, 30), g40 = ns.ufGroupDefaults(640, 8, 26),
+    -- the resource bar: "below" or "above" the health bar (which gives up the room), or "inside"
+    -- over it at `point`, `inset` px in from the frame's sides; then moved by x / y. ownBorder: its
+    -- own border width and color instead of the bars' shared ones
+    res = { place = "below", point = "BOTTOM", inset = 2, x = 0, y = 0, ownBorder = false, borderSize = 1,
+        borderColor = { 0, 0, 0, 1 } },
     -- the cursor over a frame: a color over it and a border round it, in the frame's shape
     hover = { show = true, color = { 1, 1, 1, 0.12 }, borderColor = { 1, 1, 1, 0.8 }, borderSize = 1 },
     bars = { tothealth = barDefaults(true, 80, 32, 0.2, 0.8, 0.2, false), power = barDefaults(true, 80, 4, 0.2, 0.4, 1, false) } }
@@ -4913,6 +4918,7 @@ end)
 ------------------------------------------------------------------------------------------
 ns.uf = { buttons = {}, byUnit = {} }
 ns.uf.ROLE_ICON = "Interface\\LFGFrame\\UI-LFG-ICON-PORTRAITROLES"
+ns.uf.MEDIA = "Interface\\AddOns\\" .. ADDON .. "\\Media\\"
 ns.uf.ROLE_COORDS = { TANK = { 0, 19 / 64, 22 / 64, 41 / 64 }, HEALER = { 20 / 64, 39 / 64, 1 / 64, 20 / 64 },
     DAMAGER = { 20 / 64, 39 / 64, 22 / 64, 41 / 64 } }
 ns.uf.DUMMY_CLASSES = { "WARRIOR", "PRIEST", "MAGE", "ROGUE", "DRUID", "PALADIN", "HUNTER", "WARLOCK", "SHAMAN" }
@@ -4994,10 +5000,16 @@ function ns.uf.button(i)
     b.hover = CreateFrame("Frame", nil, b)
     b.hover:SetAllPoints()
     b.hover.fill = b.hover:CreateTexture(nil, "ARTWORK")
-    b.hover.mask, b.hover.fillMask = newMask(b.hover), newMask(b.hover)
-    b.hover.mask:SetAllPoints(b.hover)
-    b.hover.edges = {}
-    for k = 1, 4 do b.hover.edges[k] = b.hover:CreateTexture(nil, "ARTWORK", nil, 1) end
+    b.hover.fillMask = newMask(b.hover)
+    b.hover.edges, b.hover.corners = {}, {}
+    for k = 1, 4 do
+        b.hover.edges[k] = b.hover:CreateTexture(nil, "ARTWORK", nil, 1)
+        local c = b.hover:CreateTexture(nil, "ARTWORK", nil, 1)
+        c.disc, c.hole = newMask(b.hover), newMask(b.hover)
+        c.disc:SetTexture(ns.uf.MEDIA .. "Dot", "CLAMPTOBLACKADDITIVE", "CLAMPTOBLACKADDITIVE")
+        c:AddMaskTexture(c.disc)
+        b.hover.corners[k] = c
+    end
     b.hover:Hide()
     b:HookScript("OnEnter", function(self) self.hover:SetShown(db.unitframes.hover.show and true or false) end)
     b:HookScript("OnLeave", function(self) self.hover:Hide() end)
@@ -5097,9 +5109,12 @@ end
 -- a frame's bars, name, icons and auras for its unit (or stand-in)
 function ns.uf.style(b)
     local o, e = db.unitframes, b.entry
+    local R = o.res
     local pw = (o.power and not e.pet) and math.min(o.powerHeight, b.wpH - 2) or 0
+    local inside = R.place == "inside"
+    local hh = inside and b.wpH or b.wpH - pw -- the health bar: the frame, less a stacked resource bar
     b.health.unit, b.power.unit = b.unit or "none", b.unit or "none" -- stand-ins: nobody (full bars)
-    local over = { height = b.wpH - pw }
+    local over = { height = hh }
     local cls = e.class or (e.pet and e.pet.unit and select(2, UnitClass(e.pet.unit)))
     if e.dummy or e.pet then -- stand-ins and pets: their (owner's) class color, unless custom
         local c = cls and db.colors.class[cls]
@@ -5107,18 +5122,31 @@ function ns.uf.style(b)
     end
     layoutBar(b.health, 1, b.wpW, over)
     b.health:ClearAllPoints()
-    b.health:SetPoint("TOPLEFT", b, "TOPLEFT")
+    b.health:SetPoint("TOPLEFT", b, "TOPLEFT", 0, R.place == "above" and -pw or 0)
     b.power:SetShown(pw > 0)
     if pw > 0 then
-        layoutBar(b.power, 1, b.wpW, { height = pw })
+        local po = { height = pw }
+        if R.ownBorder then
+            po.borderSize, po.borderColor, po.borderMode = R.borderSize, R.borderColor, "custom"
+        end
+        layoutBar(b.power, 1, inside and math.max(b.wpW - 2 * R.inset, 1) or b.wpW, po)
         b.power:ClearAllPoints()
-        b.power:SetPoint("TOPLEFT", b.health, "BOTTOMLEFT")
+        b.power:SetFrameLevel(b.health:GetFrameLevel() + 3) -- inside: over the health bar
+        if inside then -- in from the sides it touches
+            local dx = R.point:find("LEFT") and R.inset or R.point:find("RIGHT") and -R.inset or 0
+            local dy = R.point:find("TOP") and -R.inset or R.point:find("BOTTOM") and R.inset or 0
+            b.power:SetPoint(R.point, b, R.point, dx + R.x, dy + R.y)
+        elseif R.place == "above" then
+            b.power:SetPoint("TOPLEFT", b, "TOPLEFT", R.x, R.y)
+        else
+            b.power:SetPoint("TOPLEFT", b.health, "BOTTOMLEFT", R.x, R.y)
+        end
     end
     b.name:SetFont(FONTS[1][2], o.fontSize, "OUTLINE")
     b.name:ClearAllPoints()
     b.name:SetPoint("CENTER", b.health, "CENTER")
     b.name:SetWidth(b.wpW - 4)
-    local isize = math.max(8, math.min(16, b.wpH - pw - 4))
+    local isize = math.max(8, math.min(16, hh - 4))
     b.role:SetSize(isize, isize)
     b.role:ClearAllPoints()
     b.role:SetPoint("TOPLEFT", b, "TOPLEFT", 2, -2)
@@ -5129,36 +5157,64 @@ function ns.uf.style(b)
     ns.uf.update(b)
 end
 
--- The hover look in the frame's shape: the corner radius its bars wear (shared or their own),
--- the fill inset by the border, the border four edges under the same rounded outline.
+-- The hover look in the frame's shape: the corner radius its bars wear (shared or their own).
+-- The fill sits inside the border, its corners r - t; the border is four straight edges between
+-- the corners, and each corner a quarter ring: an r x r square cut to a disc of radius r round
+-- the frame's inner corner point, with a hole of r - t in it (Hole8 for small holes, Hole2 else:
+-- the mask must still cover the square).
+ns.uf.CORNERS = { { "TOPLEFT", "BOTTOMRIGHT" }, { "TOPRIGHT", "BOTTOMLEFT" }, { "BOTTOMLEFT", "TOPRIGHT" },
+    { "BOTTOMRIGHT", "TOPLEFT" } }
 function ns.uf.styleHover(b)
     local o, hv = db.unitframes.hover, b.hover
     local c = db.unitframes.bars.tothealth
     local radius = (c.borderFrom ~= "own" and db.colors.radius) or c.radius
     radius = radius == "pill" and math.huge or radius
     local w, h, t = b.wpW, b.wpH, math.min(o.borderSize, b.wpH / 2)
+    local r = math.floor(math.min(radius, w / 2, h / 2, 50))
     hv:SetFrameLevel(b:GetFrameLevel() + 7)
     hv.fill:ClearAllPoints()
     hv.fill:SetPoint("TOPLEFT", t, -t)
     hv.fill:SetPoint("BOTTOMRIGHT", -t, t)
     hv.fill:SetColorTexture(unpack(o.color))
     hv.fillMask:SetAllPoints(hv.fill)
-    round(hv.fill, hv.fillMask, math.max(radius - t, 0), w - 2 * t, h - 2 * t)
+    round(hv.fill, hv.fillMask, math.max(r - t, 0), w - 2 * t, h - 2 * t)
     for k, e in ipairs(hv.edges) do
         e:SetColorTexture(unpack(o.borderColor))
         e:SetShown(t > 0)
         e:ClearAllPoints()
         local side = ({ "TOP", "BOTTOM", "LEFT", "RIGHT" })[k]
         if k <= 2 then
-            e:SetPoint(side .. "LEFT")
-            e:SetPoint(side .. "RIGHT")
+            e:SetPoint(side .. "LEFT", r, 0)
+            e:SetPoint(side .. "RIGHT", -r, 0)
             e:SetHeight(t)
         else
-            e:SetPoint("TOP" .. side, 0, -t)
-            e:SetPoint("BOTTOM" .. side, 0, t)
+            e:SetPoint("TOP" .. side, 0, -r)
+            e:SetPoint("BOTTOM" .. side, 0, r)
             e:SetWidth(t)
         end
-        round(e, hv.mask, radius, w, h)
+    end
+    local hole = r - t
+    local K = (hole > 0 and r / hole > 2) and 8 or 2
+    for k, q in ipairs(hv.corners) do
+        local at, inner = ns.uf.CORNERS[k][1], ns.uf.CORNERS[k][2]
+        q:SetShown(t > 0 and r > 0)
+        q:SetColorTexture(unpack(o.borderColor))
+        q:ClearAllPoints()
+        q:SetPoint(at)
+        q:SetSize(r, r)
+        q.disc:ClearAllPoints()
+        q.disc:SetPoint("CENTER", q, inner)
+        q.disc:SetSize(2 * r, 2 * r)
+        if hole > 0 then
+            q.hole:SetTexture(ns.uf.MEDIA .. "Hole" .. K, "CLAMPTOBLACKADDITIVE", "CLAMPTOBLACKADDITIVE")
+            q.hole:ClearAllPoints()
+            q.hole:SetPoint("CENTER", q, inner)
+            q.hole:SetSize(2 * K * hole, 2 * K * hole)
+        end
+        if (hole > 0) ~= (q.holeOn or false) then -- t >= r: a full quarter disc, nothing cut out
+            if hole > 0 then q:AddMaskTexture(q.hole) else q:RemoveMaskTexture(q.hole) end
+            q.holeOn = hole > 0
+        end
     end
 end
 
@@ -8506,8 +8562,6 @@ local function buildConfig()
         })
         swatch(pg, "Frame background", c2.x, c2:row(SWATCH), function() return HB().bgColor end)
         sliders(c2, U, { { "fontSize", "Name size", 6, 24 } })
-        check(pg, "Show resources", c2.x, c2:row(ROW), function() return U().power end, function(v) U().power = v end)
-        sliders(c2, U, { { "powerHeight", "Resource height", 1, 20 } })
         check(pg, "Show pets", c2.x, c2:row(ROW), function() return U().pets end, function(v) U().pets = v end)
         sliders(c2, U, { { "petHeight", "Pet frame height", 6, 100 } })
         check(pg, "Role icon", c2.x, c2:row(ROW), function() return U().roleIcon end, function(v) U().roleIcon = v end)
@@ -8544,10 +8598,28 @@ local function buildConfig()
         note(hv, "In the frame's shape and corners. Opacity is in each color.", 30)
         hv:close()
 
-        -- a page per group size: its block, its buffs and debuffs
         local POINTS = { { "Top left", "TOPLEFT" }, { "Top", "TOP" }, { "Top right", "TOPRIGHT" }, { "Left", "LEFT" },
             { "Center", "CENTER" }, { "Right", "RIGHT" }, { "Bottom left", "BOTTOMLEFT" }, { "Bottom", "BOTTOM" },
             { "Bottom right", "BOTTOMRIGHT" } }
+        -- the resource bar: where it sits, and its border
+        local rs = group(pg, COL[2], c2.cursor - 20, 202, "Resources")
+        local R = function() return U().res end
+        check(pg, "Show resources", rs.x, rs:row(ROW), function() return U().power end, function(v) U().power = v end)
+        sliders(rs, U, { { "powerHeight", "Resource height", 1, 20 } })
+        dropdown(pg, "Placement", rs.x, rs:row(DROP), { { "Below the health bar", "below" },
+            { "Above the health bar", "above" }, { "Inside the frame", "inside" } }, function() return R().place end,
+            function(v) R().place = v end, textPreview)
+        dropdown(pg, "Anchor (inside)", rs.x, rs:row(DROP), POINTS, function() return R().point end,
+            function(v) R().point = v end, textPreview)
+        sliders(rs, R, { { "inset", "Inset (inside)", 0, 20 }, { "x", "X offset", -50, 50 }, { "y", "Y offset", -50, 50 } })
+        check(pg, "Own border", rs.x, rs:row(ROW), function() return R().ownBorder end, function(v) R().ownBorder = v end)
+        sliders(rs, R, { { "borderSize", "Border width", 0, 6 } })
+        swatch(pg, "Resource border color", rs.x, rs:row(SWATCH), function() return R().borderColor end)
+        note(rs, "Inside: over the health bar, the inset in from the frame's sides. Without an own "
+            .. "border it wears the bars' shared one.", 44)
+        rs:close()
+
+        -- a page per group size: its block, its buffs and debuffs
         for n, size in ipairs(ns.uf.SIZES) do
             local gp = CreateFrame("Frame", nil, pg:GetParent())
             gp:SetAllPoints(pg)

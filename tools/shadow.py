@@ -23,3 +23,14 @@ for y in range(t):
         px += bytes((255, 255, 255, round(255 * a)))
 with open(f"{out}/../Dot.tga", "wb") as f:
     f.write(struct.pack("<BBBHHBHHHHBB", 0, 0, 2, 0, 0, 0, 0, 0, t, t, 32, 40) + px)
+
+# Media/Hole2.tga, Hole8.tga: white, with a clear disc in the middle 1/2 or 1/8 of the width
+# across, its edge smoothed over a pixel. Masks cutting the hollow out of round border corners.
+for k in (2, 8):
+    t, px = 128, bytearray()
+    for y in range(t):
+        for x in range(t):
+            a = max(0.0, min(1.0, math.hypot(x + 0.5 - t / 2, y + 0.5 - t / 2) - t / k / 2))
+            px += bytes((255, 255, 255, round(255 * a)))
+    with open(f"{out}/../Hole{k}.tga", "wb") as f:
+        f.write(struct.pack("<BBBHHBHHHHBB", 0, 0, 2, 0, 0, 0, 0, 0, t, t, 32, 40) + px)

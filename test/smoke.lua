@@ -3772,6 +3772,30 @@ assert(MultiBarBottomLeft._parent == UIParent, "and back")
     o.hover.show = false
     B[1]._scripts.OnEnter(B[1])
     assert(not hv:IsShown(), "turned off")
+    -- with round corners the border follows them: straight edges between, quarter rings at the
+    -- corners (a disc of r, a hole of r - t); thick enough, the hole closes
+    local keptRadius = prof().colors.radius
+    prof().colors.radius = 6
+    U.sync()
+    local q = hv.corners[1]
+    assert(q:IsShown() and q._w == 6 and q.disc._w == 12 and q.hole._w == 16 and q._masks[q.hole]
+        and hv.edges[1]._points[1][2] == 6 and hv.fill._points[1][2] == 2, "round border: rings at the corners")
+    o.hover.borderSize = 6
+    U.sync()
+    assert(q:IsShown() and not q._masks[q.hole], "as thick as the corner: no hole")
+    prof().colors.radius, o.hover.borderSize = keptRadius, 2
+    U.sync()
+    assert(not q:IsShown() and hv.edges[1]._points[1][2] == 0, "square: plain edges")
+    -- the resource bar: below the health bar, or inside the frame at its anchor, inset
+    o.powerHeight, o.res.place = 4, "below"
+    U.sync()
+    assert(B[1].health._h == 36 and B[1].power._point[1] == "TOPLEFT" and B[1].power._point[2] == B[1].health,
+        "resources below")
+    o.res.place, o.res.point, o.res.inset, o.res.y = "inside", "BOTTOM", 2, 1
+    U.sync()
+    assert(B[1].health._h == 40 and B[1].power._point[1] == "BOTTOM" and B[1].power._point[5] == 3
+        and near(B[1].power._w, 76.8 - 4), "resources inside: anchored, inset")
+    o.res.place, o.res.y = "below", 0
     o.hover.show, o.g10.buffs.border = true, 1
     o.dummy = 4
     U.sync()
