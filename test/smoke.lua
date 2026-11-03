@@ -640,6 +640,32 @@ eh.tagLevel, eh.tagName = false, false; fire("PLAYER_TARGET_CHANGED")
 assert(not tl:IsShown() and not tn:IsShown(), "both off: nothing")
 eh.tagLevel, S.tLevel, S.tKind = true, nil, nil
 UnitLevel, GetQuestDifficultyColor, UnitClassification = realLevel, nil, nil
+-- PvP flag and drinking icons on the bar
+UnitIsPVP = function() return S.tPvP end
+UnitIsPVPFreeForAll = function() return S.tFFA end
+S.tPvP = true; fire("UNIT_FACTION", "target")
+local pv, dr = ef.pvpIcon, ef.drinkIcon
+assert(pv:IsShown() and pv.tex._tex == "Interface\\TargetingFrame\\UI-PVP-Horde" and pv._point[1] == "CENTER"
+    and pv._point[2] == ef and pv._point[3] == "TOPLEFT" and pv._w == 20, "flagged: its faction's emblem at top left")
+eh.pvpIcon.style, eh.pvpIcon.point, eh.pvpIcon.x, eh.pvpIcon.size = "banner", "RIGHT", 5, 30
+fire("UNIT_FACTION", "target")
+assert(pv.tex._tex:find("INV_BannerPVP_01") and pv._point[3] == "RIGHT" and pv._point[4] == 5 and pv._w == 30,
+    "another look, anchor, nudge and size")
+S.tFFA = true; eh.pvpIcon.style = "faction"; fire("UNIT_FACTION", "target")
+assert(pv.tex._tex:find("UI%-PVP%-FFA"), "free-for-all has its own")
+S.tPvP, S.tFFA = false, false; fire("UNIT_FACTION", "target")
+assert(not pv:IsShown(), "not flagged: gone")
+UnitIsPVP = function() return SECRET end; fire("UNIT_FACTION", "target")
+assert(not pv:IsShown(), "a secret answer: not shown, no error")
+assert(not dr:IsShown(), "not drinking")
+S.auras = { { name = "Drink", icon = 1 } }; fire("UNIT_AURA", "target")
+assert(dr:IsShown() and dr.tex._tex:find("INV_Drink_07") and dr._point[3] == "RIGHT" and dr._point[4] == 12,
+    "drinking: the drink icon, right of the bar")
+S.auras = { { name = SECRET, icon = 1 } }; fire("UNIT_AURA", "target")
+assert(not dr:IsShown(), "a secret name can't be told")
+eh.pvpIcon = { show = true, style = "faction", point = "TOPLEFT", x = 0, y = 0, size = 20 }
+S.auras, UnitIsPVP, UnitIsPVPFreeForAll = nil, nil, nil
+fire("UNIT_AURA", "target")
 -- buffs and debuffs: each group in a box; buffs hang above the bar, debuffs above the buffs
 S.auras = { { icon = 111, duration = 10, expirationTime = 20 }, { icon = 112, applications = 3 } }
 S.debuffs = { { icon = 221 } }
@@ -1439,6 +1465,12 @@ assert(ns.tagDialog:IsShown() and not ns.resDialog:IsShown(), "level and name: i
 byText("Health")._scripts.OnClick(byText("Health"), "LeftButton")
 assert(not rb:IsShown() and not ns.resDialog:IsShown(), "another bar picked: closed")
 assert(not tb:IsShown() and not ns.tagDialog:IsShown(), "and that one too")
+local pb2 = byText("PvP and drinking icons")
+byText("Enemy Health")._scripts.OnClick(byText("Enemy Health"), "LeftButton")
+pb2._scripts.OnClick(pb2, "LeftButton")
+assert(ns.iconDialog:IsShown(), "PvP and drinking icons: a window of its own")
+byText("Health")._scripts.OnClick(byText("Health"), "LeftButton")
+assert(not pb2:IsShown() and not ns.iconDialog:IsShown(), "closed with the bar")
 -- Health, power and enemy health: a Numbers window instead of the one size and color
 local nb = byText("Numbers")
 byText("Health")._scripts.OnClick(byText("Health"), "LeftButton")

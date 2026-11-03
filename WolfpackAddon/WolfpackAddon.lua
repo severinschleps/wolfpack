@@ -211,6 +211,10 @@ local function layoutDefaults(show, x, y, gap, width, h1, h2, h3, h4, h5, h6, h7
     eh.debuffs = { show = true, anchorTo = "other", spot = "topleft", grow = "right", x = 0, y = 0, size = 24, radius = 0,
         cols = 8, rows = 2, max = 16, hideTimer = false }
     eh.auraGap, eh.auraGroupGap = 2, 4
+    -- small icons on the bar: PvP flag (in one of a few looks) and drinking; centered on a
+    -- point of the bar, nudged by x/y
+    eh.pvpIcon = { show = true, style = "faction", point = "TOPLEFT", x = 0, y = 0, size = 20 }
+    eh.drinkIcon = { show = true, point = "RIGHT", x = 12, y = 0, size = 18 }
     l.bars.power.colorMode = "power"
     -- "Power type color": one color per power, Blizzard's own to start with; any other power
     -- (runic power, astral power...) keeps Blizzard's
@@ -1341,7 +1345,8 @@ function ns.auraList(unit, filter, max)
             a = d
         elseif UnitAura then -- older clients: plain values
             local name, icon, count, _, duration, expires = UnitAura(unit, i, filter)
-            a = name and { icon = icon, applications = count, duration = duration, expirationTime = expires }
+            a = name and { name = name, icon = icon, applications = count, duration = duration,
+                expirationTime = expires }
         end
         if type(a) ~= "table" then break end
         out[#out + 1] = a
@@ -1445,6 +1450,76 @@ function ns.layoutAuras(f)
         else
             local gap = toOther and c.auraGroupGap or 0 -- away from the group it hangs on
             box:SetPoint(corner, toOther and into or f, sp[1], o.x + sp[2] * gap, o.y + sp[3] * gap)
+        end
+    end
+end
+
+------------------------------------------------------------------------------------------
+-- PvP flag and drinking, as icons on the enemy health bar
+------------------------------------------------------------------------------------------
+-- looks for the PvP icon: a file (or one per faction, FFA for free-for-all) and its crop
+ns.PVP_STYLES = {
+    faction = { file = "Interface\\TargetingFrame\\UI-PVP-%s", coords = { 0, 0.62, 0, 0.62 } },
+    banner = { Alliance = "Interface\\Icons\\INV_BannerPVP_02", Horde = "Interface\\Icons\\INV_BannerPVP_01",
+        FFA = "Interface\\Icons\\INV_BannerPVP_01", coords = { 0.08, 0.92, 0.08, 0.92 } },
+    swords = { file = "Interface\\WorldStateFrame\\CombatSwords", coords = { 0, 0.5, 0, 0.5 } },
+    skull = { file = "Interface\\TargetingFrame\\UI-TargetingFrame-Skull", coords = { 0, 1, 0, 1 } },
+}
+ns.DRINK_ICON = "Interface\\Icons\\INV_Drink_07"
+
+-- "Alliance", "Horde" or "FFA" while the unit is flagged, else nil
+function ns.pvpFlag(unit)
+    local ok, ffa = pcall(UnitIsPVPFreeForAll, unit)
+    if ok and readable(ffa) and ffa then return "FFA" end
+    local ok2, on = pcall(UnitIsPVP, unit)
+    if not (ok2 and readable(on) and on) then return end
+    local faction = UnitFactionGroup(unit)
+    return (faction == "Alliance" or faction == "Horde") and faction or "FFA"
+end
+
+-- Whether it is drinking: a buff called Drink, Food & Drink or Refreshment (or the game's own
+-- name for Drink in this language). A name the game keeps secret can't be told: not drinking.
+function ns.drinking(unit)
+    local names = { drink = true, ["food & drink"] = true, refreshment = true }
+    local ok, own = pcall(function() return C_Spell and C_Spell.GetSpellName(430) or GetSpellInfo(430) end)
+    if ok and type(own) == "string" then names[own:lower()] = true end
+    for _, a in ipairs(ns.auraList(unit, "HELPFUL", 40) or {}) do
+        if readable(a.name) and type(a.name) == "string" and names[a.name:lower()] then return true end
+    end
+    return false
+end
+
+function ns.layoutBadges(f)
+    local c = db[f.mode].bars.enemyhealth
+    local unit = UnitExists(f.unit) and f.unit
+    local preview = not unit and ns.previewing()
+    for _, k in ipairs({ "pvpIcon", "drinkIcon" }) do
+        local o, b = c[k], f[k]
+        if not b then
+            b = CreateFrame("Frame", nil, f)
+            b.tex = b:CreateTexture(nil, "OVERLAY")
+            b.tex:SetAllPoints()
+            f[k] = b
+        end
+        local file, coords
+        if o.show and k == "pvpIcon" then
+            local flag = unit and ns.pvpFlag(unit) or (preview and (UnitFactionGroup("player") or "FFA"))
+            local st = ns.PVP_STYLES[o.style] or ns.PVP_STYLES.faction
+            if flag then
+                file = st[flag] or (st.file and st.file:format(flag)) or st.Horde
+                coords = st.coords
+            end
+        elseif o.show and (preview or (unit and ns.drinking(unit))) then
+            file, coords = ns.DRINK_ICON, { 0.08, 0.92, 0.08, 0.92 }
+        end
+        b:SetShown(file ~= nil)
+        if file then
+            b.tex:SetTexture(file)
+            b.tex:SetTexCoord(unpack(coords))
+            b:SetSize(o.size, o.size)
+            b:SetFrameLevel(f:GetFrameLevel() + 8)
+            b:ClearAllPoints()
+            b:SetPoint("CENTER", f, o.point, o.x, o.y)
         end
     end
 end
@@ -1701,7 +1776,7 @@ local function stack(container, set, L, on, swings)
             else
                 f:SetPoint("TOP", container, "TOP", c.x, c.y - h)
             end
-            if f.resFrame then ns.layoutRes(f); ns.layoutTag(f); ns.layoutAuras(f) end
+            if f.resFrame then ns.layoutRes(f); ns.layoutTag(f); ns.layoutAuras(f); ns.layoutBadges(f) end
             h = h + c.height + c.padBottom
             w = math.max(w, c.width)
         end
@@ -2459,6 +2534,7 @@ local function Refresh()
         ns.layoutRes(ef)
         ns.layoutTag(ef)
         ns.layoutAuras(ef)
+        ns.layoutBadges(ef)
     end
     local plate = targetPlate()
     plateAnchor:SetParent(plate or anchor)
@@ -4228,7 +4304,7 @@ end
 -- the windows beside the options: one at a time; clicking its button again closes it
 function ns.toggleDialog(d)
     local show = not d:IsShown()
-    for _, o in ipairs({ ns.resDialog, ns.tagDialog, ns.auraDialog, ns.textDialog }) do o:Hide() end
+    for _, o in ipairs({ ns.resDialog, ns.tagDialog, ns.auraDialog, ns.textDialog, ns.iconDialog }) do o:Hide() end
     d:SetShown(show)
 end
 
@@ -4534,6 +4610,8 @@ local function buildConfig()
     local tagButton = button(barsPage, "Level and name", 186, only.x, only:row(0) - ROW - BUTTON, function()
         ns.toggleDialog(ns.tagDialog)
     end)
+    local iconButton = button(barsPage, "PvP and drinking icons", 186, only.x, only:row(0) - ROW - 3 * BUTTON,
+        function() ns.toggleDialog(ns.iconDialog) end)
     local auraButton = button(barsPage, "Buffs and debuffs", 186, only.x, only:row(0) - ROW - 2 * BUTTON, function()
         ns.toggleDialog(ns.auraDialog)
     end)
@@ -4607,7 +4685,8 @@ local function buildConfig()
         local ehOn = selected == "enemyhealth" and (section == "combat" or section == "nameplates")
         tagButton:SetShown(selected == "enemyhealth")
         auraButton:SetShown(selected == "enemyhealth")
-        if not ehOn then ns.tagDialog:Hide(); ns.auraDialog:Hide() end
+        iconButton:SetShown(selected == "enemyhealth")
+        if not ehOn then ns.tagDialog:Hide(); ns.auraDialog:Hide(); ns.iconDialog:Hide() end
         -- beside your health it takes half your health bar's width and all of its height
         local fixed = selected == "enemyhealth" and mode == "regular" and cur().beside or false
         widthSlider:SetShown(not fixed)
@@ -5414,6 +5493,43 @@ local function buildConfig()
     anote:SetWidth(408)
     anote:SetJustifyH("LEFT")
 
+    -- PvP and drinking icons dialog: a column each
+    local idl = ns.ui.Window(nil, 440, 420, "PvP and drinking icons")
+    idl:SetParent(cfg)
+    idl:ClearAllPoints()
+    idl:SetPoint("TOPLEFT", cfg, "TOPRIGHT", 12, 0)
+    idl:Hide()
+    ns.iconDialog = idl
+    local POINTS = { { "Top left", "TOPLEFT" }, { "Top", "TOP" }, { "Top right", "TOPRIGHT" }, { "Left", "LEFT" },
+        { "Center", "CENTER" }, { "Right", "RIGHT" }, { "Bottom left", "BOTTOMLEFT" }, { "Bottom", "BOTTOM" },
+        { "Bottom right", "BOTTOMRIGHT" } }
+    local lowest = 0
+    for i, k in ipairs({ { "pvpIcon", "PvP flag" }, { "drinkIcon", "Drinking" } }) do
+        local x = 16 + (i - 1) * 214
+        -- another bar picked: the dialog is hidden, its widgets read enemy health's defaults
+        local I = function() return cur()[k[1]] or DEFAULTS.regular.bars.enemyhealth[k[1]] end
+        ry = -48
+        label(idl, k[2], "GameFontNormal"):SetPoint("TOPLEFT", x, rrow(22))
+        check(idl, "Show", x, rrow(ROW), function() return I().show end, function(v) I().show = v end)
+        if i == 1 then
+            dropdown(idl, "Icon", x, rrow(DROP), { { "Faction emblem", "faction" }, { "Faction banner", "banner" },
+                { "Crossed swords", "swords" }, { "Skull", "skull" } }, function() return I().style end,
+                function(v) I().style = v end, textPreview)
+        end
+        dropdown(idl, "Anchor (on the bar)", x, rrow(DROP), POINTS, function() return I().point end,
+            function(v) I().point = v end, textPreview)
+        slider(idl, "X", x, rrow(SLIDER), -200, 200, function() return I().x end, function(v) I().x = v end)
+        slider(idl, "Y", x, rrow(SLIDER), -100, 100, function() return I().y end, function(v) I().y = v end)
+        slider(idl, "Size", x, rrow(SLIDER), 8, 64, function() return I().size end, function(v) I().size = v end)
+        lowest = math.min(lowest, ry)
+    end
+    local inote = label(idl, "PvP: shows while your target is flagged, in its faction's look (free-for-all "
+        .. "has its own). Drinking: while it has a Drink buff; one the game keeps secret in a fight can't be "
+        .. "told.", "GameFontDisableSmall")
+    inote:SetPoint("TOPLEFT", 16, lowest - 4)
+    inote:SetWidth(408)
+    inote:SetJustifyH("LEFT")
+
     -- Numbers dialog: percent, current and current / max for the bar picked, a row each
     local nd = ns.ui.Window(nil, 440, 520, "Numbers")
     nd:SetParent(cfg)
@@ -6053,7 +6169,8 @@ ev:SetScript("OnEvent", function(_, event, unit, arg2, arg3)
             listen(e, "player", "target") -- target: the enemy resource bar
         end
         listen("UNIT_QUEST_LOG_CHANGED", "player")
-        listen("UNIT_AURA", "target") -- the enemy health bar's buffs and debuffs
+        listen("UNIT_AURA", "target") -- the enemy health bar's buffs and debuffs, and drinking
+        listen("UNIT_FACTION", "target") -- its PvP flag
         for _, e in ipairs({ "PLAYER_ENTERING_WORLD", "UPDATE_SHAPESHIFT_FORM", "PLAYER_TARGET_CHANGED",
             "NAME_PLATE_UNIT_ADDED", "NAME_PLATE_UNIT_REMOVED", "QUEST_LOG_UPDATE", "PLAYER_REGEN_ENABLED",
             "QUEST_DETAIL", "QUEST_ACCEPT_CONFIRM", "QUEST_PROGRESS", "QUEST_COMPLETE", "GOSSIP_SHOW", "QUEST_GREETING",
@@ -6069,9 +6186,12 @@ ev:SetScript("OnEvent", function(_, event, unit, arg2, arg3)
         end
         useProfile(store.profiles[mine or ""] and mine or classProfile)
         placeMini()
-    elseif event == "UNIT_AURA" then
+    elseif event == "UNIT_AURA" or event == "UNIT_FACTION" then
         for _, set in ipairs({ frames, plateFrames }) do
-            if set.enemyhealth:IsShown() then safe(ns.layoutAuras, set.enemyhealth) end
+            if set.enemyhealth:IsShown() then
+                if event == "UNIT_AURA" then safe(ns.layoutAuras, set.enemyhealth) end
+                safe(ns.layoutBadges, set.enemyhealth)
+            end
         end
     elseif event == "UNIT_HEAL_PREDICTION" then
         fillShown("health")
