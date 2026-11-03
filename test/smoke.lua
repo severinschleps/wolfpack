@@ -965,6 +965,14 @@ S.reaction, eh.colorMode = 2, "reaction"; fire("PLAYER_TARGET_CHANGED")
 assert(ef.segs[1]._sbc[1] == 0.85 and ef.segs[1]._sbc[2] == 0.2, "hostile: the palette's hostile")
 S.reaction = 4; fire("PLAYER_TARGET_CHANGED")
 assert(ef.segs[1]._sbc[2] == 0.8 and ef.segs[1]._sbc[1] == 0.95, "neutral")
+-- a player you can attack: their class color while they can fight back, neutral while not
+S.reaction, S.targetIsPlayer = 2, true
+UnitCanAttack = function(a) return a == "player" or S.fightsBack end
+S.fightsBack = true; fire("PLAYER_TARGET_CHANGED")
+assert(ef.segs[1]._sbc[1] == 0.25, "an enemy player: their class color")
+S.fightsBack = false; fire("PLAYER_TARGET_CHANGED")
+assert(ef.segs[1]._sbc[2] == 0.8 and ef.segs[1]._sbc[1] == 0.95, "one who cannot attack you: neutral")
+UnitCanAttack, S.targetIsPlayer, S.fightsBack = nil, nil, nil
 eh.colorMode = "class"; S.reaction = 5; fire("PLAYER_TARGET_CHANGED")
 assert(ef.segs[1]._sbc[1] == 0.2 and ef.segs[1]._sbc[2] == 0.8, "class mode, an NPC: friendly by standing")
 UnitReaction, S.reaction, eh.colorMode = nil, nil, "custom"

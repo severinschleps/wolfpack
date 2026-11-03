@@ -1024,7 +1024,22 @@ function ns.powerRGB(token)
 end
 
 -- How the unit stands to you: hostile, neutral or friendly, from the palette; nil if unknown.
+-- A player you can attack wears their class color; one who cannot attack you back (not flagged
+-- for PvP) the neutral color, like a mob that leaves you alone.
 function ns.reactionRGB(unit)
+    local function yes(fn, a, b)
+        local ok, v = pcall(fn, a, b)
+        return ok and readable(v) and v and true or false
+    end
+    if unit ~= "player" and yes(UnitIsPlayer, unit) and yes(UnitCanAttack, "player", unit) then
+        if yes(UnitCanAttack, unit, "player") then
+            local cr, cg, cb = classRGB(unit)
+            if cr then return cr, cg, cb end
+        else
+            local n = db.colors.reaction.neutral
+            return n[1], n[2], n[3]
+        end
+    end
     local ok, r = pcall(UnitReaction, unit, "player")
     if not (ok and readable(r) and type(r) == "number") then return end
     local c = db.colors.reaction[r <= 3 and "hostile" or r == 4 and "neutral" or "friendly"]
