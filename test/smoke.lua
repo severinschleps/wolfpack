@@ -775,6 +775,24 @@ assert(bi[1]._point[1] == "TOPLEFT" and bi[2]._point[4] == 22 and bi[3]._point[5
 eh.buffs.wrap = "left"; fire("UNIT_AURA", "target")
 assert(bi[3]._point[5] == 22, "a wrap along the growing makes no sense: auto")
 eh.buffs.wrap = "auto"
+-- the center line: right of the bar, buffs above it and debuffs below, a gap each way; alone, centered
+eh.buffs.anchorTo, eh.buffs.spot, eh.buffs.y, eh.buffs.lineEdge = "line", "righttop", 0, "bottom"
+eh.debuffs.anchorTo, eh.debuffs.spot, eh.debuffs.y, eh.debuffs.lineEdge = "line", "righttop", 0, "top"
+eh.debuffs.show, eh.auraLineGap = true, 3
+S.debuffs = { { icon = 221 } }; fire("UNIT_AURA", "target")
+assert(bb._point[1] == "BOTTOMLEFT" and bb._point[2] == ef and bb._point[3] == "RIGHT" and bb._point[5] == 3,
+    "buffs: bottom edge on the line, 3 above it")
+assert(db_._point[1] == "TOPLEFT" and db_._point[3] == "RIGHT" and db_._point[5] == -3, "debuffs: top edge, 3 below")
+S.debuffs = {}; fire("UNIT_AURA", "target")
+assert(bb._point[1] == "LEFT" and bb._point[3] == "RIGHT" and bb._point[5] == 0, "buffs alone: centered on the line")
+S.debuffs, S.auras = { { icon = 221 } }, {}; fire("UNIT_AURA", "target")
+assert(db_._point[1] == "LEFT" and db_._point[5] == 0, "debuffs alone: centered too")
+eh.buffs.spot = "lefttop"; eh.debuffs.anchorTo = "other"; S.auras = {}; fire("UNIT_AURA", "target")
+assert(db_._point[1] == "RIGHT" and db_._point[3] == "LEFT", "hung on empty buffs on the line: their place, centered")
+S.auras = { { icon = 1 }, { icon = 2 }, { icon = 3 } }
+eh.debuffs.anchorTo, eh.debuffs.spot, eh.debuffs.lineEdge, eh.debuffs.show = "other", "topleft", "top", false
+eh.buffs.anchorTo, eh.buffs.spot, eh.buffs.lineEdge, eh.buffs.y, eh.auraLineGap = "bar", "topright", "bottom", 0, 1
+S.debuffs = nil
 -- the old one-in-all choice converts by itself
 eh.buffs.spot, eh.buffs.grow = "below_left", nil; fire("UNIT_AURA", "target")
 assert(eh.buffs.spot == "bottomright" and eh.buffs.grow == "left" and bb._point[1] == "TOPRIGHT"

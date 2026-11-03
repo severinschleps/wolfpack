@@ -212,10 +212,10 @@ local function layoutDefaults(show, x, y, gap, width, h1, h2, h3, h4, h5, h6, h7
     for _, key in ipairs({ "health", "enemyhealth" }) do
         local b = l.bars[key]
         b.buffs = { show = true, anchorTo = "bar", spot = "topleft", grow = "right", wrap = "auto", x = 0, y = 2, size = 20,
-            radius = 0, cols = 8, rows = 1, max = 8, hideTimer = false, zoom = 8 }
+            radius = 0, cols = 8, rows = 1, max = 8, hideTimer = false, zoom = 8, lineEdge = "bottom" }
         b.debuffs = { show = true, anchorTo = "other", spot = "topleft", grow = "right", wrap = "auto", x = 0, y = 0, size = 24,
-            radius = 0, cols = 8, rows = 2, max = 16, hideTimer = false, zoom = 8 }
-        b.auraGap, b.auraGroupGap = 2, 4
+            radius = 0, cols = 8, rows = 2, max = 16, hideTimer = false, zoom = 8, lineEdge = "top" }
+        b.auraGap, b.auraGroupGap, b.auraLineGap = 2, 4, 1
     end
     -- small icons on the bar: PvP flag (in one of a few looks) and drinking; centered on a
     -- point of the bar, nudged by x/y
@@ -1517,6 +1517,18 @@ function ns.drawAura(b, unit, a)
     end
 end
 
+-- The center line: across the middle of the bar (or of the bar with its pet / target of target).
+-- A group sits on it with its bottom edge (above it), its center, or its top edge (below it),
+-- gap away; on the side its start corner says. Alone there (the other group empty), centered.
+ns.LINE_SIDES = { righttop = { "LEFT", "RIGHT" }, lefttop = { "RIGHT", "LEFT" }, topleft = { "LEFT", "LEFT" },
+    bottomleft = { "LEFT", "LEFT" }, topright = { "RIGHT", "RIGHT" }, bottomright = { "RIGHT", "RIGHT" } }
+function ns.linePlace(o, alone, gap)
+    local side = ns.LINE_SIDES[o.spot] or ns.LINE_SIDES.righttop
+    local edge, v, dy = alone and "center" or o.lineEdge, "", 0
+    if edge == "top" then v, dy = "TOP", -gap elseif edge == "bottom" then v, dy = "BOTTOM", gap end
+    return v .. side[1], side[2], o.x, o.y + dy
+end
+
 -- Each group lives in a box as big as its icons; the box hangs on the bar or on the other
 -- group's box. Both on each other would hang in the air, so then buffs take the bar. One that
 -- hangs on an empty group borrows that group's own anchor on the bar while it is empty: the
@@ -1602,8 +1614,15 @@ function ns.layoutAuras(f)
         local corner, _, _, sp = ns.auraDirs(o)
         local toOther = o.anchorTo == "other" and not (k == "buffs" and c.debuffs.anchorTo == "other")
         local into = f.auraBoxes[other]
+        local alone = (into.n or 0) == 0
         box:ClearAllPoints()
-        if toOther and (into.n or 0) == 0 then -- the empty group's anchor (it always hangs on the bar)
+        if o.anchorTo == "line" then -- on the center line; alone on it, centered
+            local gp, hp, x, y = ns.linePlace(o, alone, c.auraLineGap or 0)
+            box:SetPoint(gp, host, hp, x, y)
+        elseif toOther and alone and c[other].anchorTo == "line" then -- the empty one's place on the line
+            local gp, hp, x, y = ns.linePlace(c[other], true, 0)
+            box:SetPoint(gp, host, hp, x, y)
+        elseif toOther and alone then -- the empty group's anchor (it hangs on the bar)
             local _, _, _, osp = ns.auraDirs(c[other])
             box:SetPoint(corner, host, osp[1], c[other].x, c[other].y)
         else
@@ -5815,7 +5834,7 @@ local function buildConfig()
 
     -- Buffs and debuffs dialog: a tab each (where it sits on the left, its size and grid on the
     -- right), the gaps they share underneath
-    local ad = ns.ui.Window(nil, 440, 540, "Buffs and debuffs")
+    local ad = ns.ui.Window(nil, 440, 660, "Buffs and debuffs")
     ad:SetParent(cfg)
     ad:ClearAllPoints()
     ad:SetPoint("TOPLEFT", cfg, "TOPRIGHT", 12, 0)
@@ -5839,10 +5858,15 @@ local function buildConfig()
         ry = -80
         check(pane, "Show " .. k[2]:lower(), 16, rrow(ROW), function() return A().show end, function(v) A().show = v end)
         label(pane, "Anchor to", "GameFontNormalSmall"):SetPoint("TOPLEFT", 16, rrow(18) - 4)
-        for _, to in ipairs({ { "bar", "The bar" }, { "other", i == 1 and "The debuffs" or "The buffs" } }) do
+        for _, to in ipairs({ { "bar", "The bar" }, { "other", i == 1 and "The debuffs" or "The buffs" },
+            { "line", "The center line" } }) do
             check(pane, to[2], 16, rrow(ROW), function() return A().anchorTo == to[1] end,
                 function() A().anchorTo = to[1] end) -- a radio: ticking one is the choice
         end
+        local edge = dropdown(pane, "On the line", 16, rrow(DROP), { { "Bottom edge (above it)", "bottom" },
+            { "Center", "center" }, { "Top edge (below it)", "top" } }, function() return A().lineEdge end,
+            function(v) A().lineEdge = v end, textPreview)
+        onRefresh(function() edge:SetShown(A().anchorTo == "line") end)
         check(pane, "Hide timer text", 16, rrow(ROW), function() return A().hideTimer end,
             function(v) A().hideTimer = v end)
         dropdown(pane, "Starts at", 16, rrow(DROP), SPOTS, function() return A().spot end,
@@ -5866,14 +5890,18 @@ local function buildConfig()
                 function(v) A()[r[1]] = v end)
         end
     end
-    local shared = ry - 10
+    local shared = ry - 10 - 74 -- the placement column is the longer one now: three radios, the line edge
     slider(ad, "Gap between icons", 16, shared, 0, 20, function() return cur().auraGap or 0 end,
         function(v) cur().auraGap = v end)
     slider(ad, "Gap between the groups", 230, shared, 0, 40, function() return cur().auraGroupGap or 0 end,
         function(v) cur().auraGroupGap = v end)
+    shared = shared - SLIDER - 6
+    slider(ad, "Gap from the center line", 16, shared, 0, 40, function() return cur().auraLineGap or 0 end,
+        function(v) cur().auraLineGap = v end)
     local anote = label(ad, "Your health: all your buffs and debuffs. Enemy health: what Blizzard's target "
         .. "frame shows, all buffs and on an enemy your own debuffs. A group anchored to the other sits the "
-        .. "group gap away from it.", "GameFontDisableSmall")
+        .. "group gap away from it. On the center line, a group with the other one empty sits centered.",
+        "GameFontDisableSmall")
     anote:SetPoint("TOPLEFT", 16, shared - SLIDER - 4)
     anote:SetWidth(408)
     anote:SetJustifyH("LEFT")
