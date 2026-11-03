@@ -2094,6 +2094,10 @@ end
 assert(inUse and inUse._text:find(WolfpackAddonDB.chars[S.name .. " - Realm"], 1, true), "header names the profile")
 inUse._scripts.OnClick(inUse, "LeftButton")
 assert(ns.pages.profile:IsShown() and not ns.pages.combat:IsShown(), "header opens the Profiles page")
+-- one icon everywhere: the title bar, and (toc) the AddOns list and the compartment
+assert(ns.cfg.wpLogo._tex == ns.ICON and ns.cfg.TitleText._point[2] == ns.cfg.wpLogo, "the paw in the title bar")
+assert(io.open("WolfpackAddon/WolfpackAddon.toc"):read("*a"):find("## IconTexture: " .. ns.ICON, 1, true),
+    "the toc names the same icon")
 byText("Combat Display")._scripts.OnClick(byText("Combat Display"), "LeftButton")
 -- Reset asks first; No leaves the profile alone (on a scratch profile, the real one stays as is)
 local home = WolfpackAddonDB.chars[S.name .. " - Realm"]

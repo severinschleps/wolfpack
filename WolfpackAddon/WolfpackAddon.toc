@@ -4,6 +4,7 @@
 ## Author: severin
 ## Version: 1.0.0
 ## SavedVariables: WolfpackAddonDB, BarStackDB
+## IconTexture: Interface\Icons\Ability_Tracking
 ## AddonCompartmentFunc: WolfpackAddon_Toggle
 
 UI.lua

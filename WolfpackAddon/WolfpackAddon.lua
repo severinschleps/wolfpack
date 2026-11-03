@@ -65,6 +65,9 @@ local COMBAT_FONTS = {
     { "Creepster", CF .. "Creepster-Regular.ttf" },
 }
 ns.COMBAT_FONTS = COMBAT_FONTS
+-- The addon's own icon (a paw print: Track Beasts), on the minimap button and the options
+-- window; the toc's IconTexture names the same one for the AddOns list and the compartment.
+ns.ICON = "Interface\\Icons\\Ability_Tracking"
 
 -- The layout new profiles start from: an export string, read through the same checks as one you
 -- paste in. `decodeExport` is defined with the import code; until then DEFAULTS are used.
@@ -7440,6 +7443,13 @@ end
 local function buildConfig()
     cfg = ns.ui.Window("WolfpackAddonConfig", 680, 700, "Wolfpack", 52)
     cfg.TitleText:SetFontObject(ns.ui.TITLE)
+    cfg.wpLogo = cfg:CreateTexture(nil, "OVERLAY")
+    cfg.wpLogo:SetTexture(ns.ICON)
+    cfg.wpLogo:SetTexCoord(0.08, 0.92, 0.08, 0.92) -- the icon's own border trimmed
+    cfg.wpLogo:SetSize(24, 24)
+    cfg.wpLogo:SetPoint("LEFT", cfg, "TOPLEFT", 16, -26) -- the header is 52 tall
+    cfg.TitleText:ClearAllPoints()
+    cfg.TitleText:SetPoint("LEFT", cfg.wpLogo, "RIGHT", 8, 0)
     cfg:HookScript("OnShow", function() ns.configOpen = true; changed() end)
     cfg:HookScript("OnHide", function() ns.configOpen = false; changed() end)
 
@@ -9935,7 +9945,7 @@ miniBtn:SetHighlightTexture("Interface\\Minimap\\UI-Minimap-ZoomButton-Highlight
 local miniIcon = miniBtn:CreateTexture(nil, "BACKGROUND")
 miniIcon:SetSize(20, 20)
 miniIcon:SetPoint("TOPLEFT", 7, -5)
-miniIcon:SetTexture("Interface\\Icons\\Ability_Rogue_Eviscerate")
+miniIcon:SetTexture(ns.ICON)
 local miniBorder = miniBtn:CreateTexture(nil, "OVERLAY")
 miniBorder:SetSize(53, 53)
 miniBorder:SetPoint("TOPLEFT")
