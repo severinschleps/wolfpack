@@ -1379,10 +1379,18 @@ hc.borderSize, hc.borderMode = 0, "custom"
     local d = hs.drop
     assert(d:IsShown() and d._tex:find("Shadow\\s4.tga") and d._points[1][2] == hs.border and d._points[1][4] == -2
         and d._points[1][5] == 2 and d._points[2][4] == 6 and d._points[2][5] == -6, "drop shadow: soft, offset")
-    P.innerShadow.show, P.innerShadow.on, P.innerShadow.size, P.innerShadow.y = false, "bar", 4, -2
-    P.dropShadow.show = false
+    -- spread grows the shape (negative: shrinks it); the bar's own drop shadow hangs on the fill
+    P.dropShadow.spread, P.barShadow.show, P.barShadow.spread = -3, true, 1
     fire("UNIT_MAXPOWER")
-    assert(not d:IsShown() and not left:IsShown(), "both off again")
+    local bd = hs.barDrop
+    assert(d._points[1][4] == 1 and d._points[1][5] == -1 and d._points[2][4] == 3 and d._points[2][5] == -3,
+        "spread -3: the border's shadow 3 smaller each side")
+    assert(bd:IsShown() and bd._points[1][2] == hs and bd._points[1][4] == -3 and bd._points[1][5] == 3
+        and bd._points[2][4] == 5 and bd._tex:find("s3.tga") and bd._vertex[4] == 0.6, "the bar's drop shadow")
+    P.innerShadow.show, P.innerShadow.on, P.innerShadow.size, P.innerShadow.y = false, "bar", 4, -2
+    P.dropShadow.show, P.dropShadow.spread, P.barShadow.show, P.barShadow.spread = false, 0, false, 0
+    fire("UNIT_MAXPOWER")
+    assert(not d:IsShown() and not left:IsShown() and not bd:IsShown(), "all off again")
     P.barShine.show, P.borderShine.show, P.barShine.dir = false, false, "down"
     hc.borderFrom, P.borderSize, P.borderTexture = keptFrom, keptSize, flat
     fire("UNIT_MAXPOWER")

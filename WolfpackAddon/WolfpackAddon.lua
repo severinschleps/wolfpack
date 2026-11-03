@@ -497,7 +497,10 @@ do
     -- every bar's shadows. Inner: fading in from the edges, over the fill ("bar") or between the
     -- border and the bar ("border"). Drop: behind the border. size: how far they fade; x / y: offset (y up)
     p.innerShadow = { show = false, on = "bar", color = { 0, 0, 0, 0.6 }, size = 4, x = 0, y = -2 }
-    p.dropShadow = { show = false, color = { 0, 0, 0, 0.6 }, size = 4, x = 2, y = -2 }
+    -- spread: grows (or, negative, shrinks) the drop shadows' shape before it fades. The bar's
+    -- drop shadow is the fill's, between border and bar; the border's is behind the border
+    p.dropShadow = { show = false, color = { 0, 0, 0, 0.6 }, size = 4, x = 2, y = -2, spread = 0 }
+    p.barShadow = { show = false, color = { 0, 0, 0, 0.6 }, size = 3, x = 1, y = -1, spread = 0 }
     p.texturesSet = false -- ... and bars with a texture of their own "own" (once)
     p.moved = false -- useProfile has moved the per-bar power and cast colors in here (once)
     DEFAULTS.colors = p
@@ -1001,20 +1004,20 @@ function ns.innerShadow(s, w, h, iw, ih, radius, inner)
     end
 end
 
--- The palette's drop shadow: a soft copy of the border behind it (on the bar's frame, so under
--- every segment), offset and fading out over `size`.
-function ns.dropShadow(f, s)
-    local o = db.colors.dropShadow
-    s.drop = s.drop or f:CreateTexture(nil, "BACKGROUND", nil, -8)
+-- The palette's drop shadows: a soft copy of a shape (`box`), offset, grown by `spread` (shrunk
+-- when negative) and fading out over `size`. The border's sits on the bar's frame, so under every
+-- segment; the bar's on the segment, over its border and under its background.
+function ns.dropShadow(tex, o, box)
     local n = math.max(1, math.min(math.floor(o.size), 20))
-    s.drop:SetShown(o.show and true or false)
+    tex:SetShown(o.show and true or false)
     if not o.show then return end
-    s.drop:SetTexture("Interface\\AddOns\\" .. ADDON .. "\\Media\\Shadow\\s" .. n .. ".tga")
-    pcall(s.drop.SetTextureSliceMargins, s.drop, n, n, n, n)
-    s.drop:SetVertexColor(unpack(o.color))
-    s.drop:ClearAllPoints()
-    s.drop:SetPoint("TOPLEFT", s.border, "TOPLEFT", o.x - n, o.y + n)
-    s.drop:SetPoint("BOTTOMRIGHT", s.border, "BOTTOMRIGHT", o.x + n, o.y - n)
+    tex:SetTexture("Interface\\AddOns\\" .. ADDON .. "\\Media\\Shadow\\s" .. n .. ".tga")
+    pcall(tex.SetTextureSliceMargins, tex, n, n, n, n)
+    tex:SetVertexColor(unpack(o.color))
+    tex:ClearAllPoints()
+    local e = n + (o.spread or 0)
+    tex:SetPoint("TOPLEFT", box, "TOPLEFT", o.x - e, o.y + e)
+    tex:SetPoint("BOTTOMRIGHT", box, "BOTTOMRIGHT", o.x + e, o.y - e)
 end
 
 -- A "same as bar" border: the bar's color, lighter or darker by the palette's border shade.
@@ -1171,7 +1174,10 @@ local function layoutBar(f, n, width, over)
             ns.shine(s.edgeShine, db.colors.borderShine, t > 0)
             round(s.edgeShine, s.borderMask, radius, w, c.height)
             ns.innerShadow(s, w, c.height, iw, ih, radius, inner0)
-            ns.dropShadow(f, s)
+            s.drop = s.drop or f:CreateTexture(nil, "BACKGROUND", nil, -8)
+            ns.dropShadow(s.drop, db.colors.dropShadow, s.border)
+            s.barDrop = s.barDrop or s:CreateTexture(nil, "BACKGROUND", nil, -5)
+            ns.dropShadow(s.barDrop, db.colors.barShadow, s)
             s.hl:SetColorTexture(unpack(db.regular.highlight.color))
             s.hl:SetShown((f.mode == "regular" and hovered) or false)
             round(s.hl, s.borderMask, radius, w, c.height)
@@ -7753,8 +7759,10 @@ local function buildConfig()
                 function(v) O().on = v end, textPreview)
         end
         swatch(colorPage, what .. " color", g.x, g:row(SWATCH), function() return O().color end)
-        for _, r in ipairs({ { "size", "Size (how far it fades)", key == "dropShadow" and 1 or 0, 20 },
-            { "x", "X offset", -10, 10 }, { "y", "Y offset (up)", -10, 10 } }) do
+        local rows = { { "size", "Size (how far it fades)", key == "innerShadow" and 0 or 1, 20 },
+            { "x", "X offset", -10, 10 }, { "y", "Y offset (up)", -10, 10 } }
+        if key ~= "innerShadow" then rows[#rows + 1] = { "spread", "Spread (negative: smaller)", -20, 10 } end
+        for _, r in ipairs(rows) do
             slider(colorPage, r[2], g.x, g:row(SLIDER), r[3], r[4], function() return O()[r[1]] end,
                 function(v) O()[r[1]] = v end)
         end
@@ -7777,6 +7785,10 @@ local function buildConfig()
     shadow(inner, "innerShadow", "Shadow")
     note(inner, "Fades in from the edges. Opacity is in the color.", 30)
     inner:close()
+    local barDrop = group(colorPage, COL[1], inner.cursor - 20, 202, "Bars: drop shadow")
+    shadow(barDrop, "barShadow", "Shadow")
+    note(barDrop, "The fill's shadow, over the border and under the bar.", 30)
+    barDrop:close()
 
     local bcard = group(colorPage, COL[2], TOP, 202, "Borders")
     ns.sharedBorderTexMenu = dropdown(colorPage, "Texture", bcard.x, bcard:row(DROP), TEXTURES,
