@@ -255,7 +255,10 @@ local function layoutDefaults(show, x, y, gap, width, h1, h2, h3, h4, h5, h6, h7
     l.bars.health.pvpIcon = { show = true, style = "faction", anchorTo = "bar", point = "TOPLEFT", x = 0, y = 0,
         size = 20, text = "PvP", textColor = { 1, 0.25, 0.25, 1 } } -- text: in the bar's font and size
     l.bars.power.colorMode = "power"
+    -- source: "xp", "rep" (the faction you watch), "honor", or "auto" (experience, then the
+    -- watched faction once you are at the top level)
     l.bars.experience.colorMode, l.bars.experience.hideInCombat = "experience", false
+    l.bars.experience.source, l.bars.experience.hideAtMax = "xp", true
     l.bars.health.colorMode, l.bars.enemyhealth.colorMode, l.bars.castbar.colorMode = "health", "reaction", "cast"
     l.bars.druidmana.colorMode = "power"
     l.bars.castbar.icon, l.bars.castbar.iconSide = true, "left"
@@ -397,6 +400,7 @@ do
     for token, c in pairs(POWER) do p.power[token] = { c[1], c[2], c[3], 1 } end
     p.health = { 0.2, 0.8, 0.2, 1 }
     p.experience = { 0.58, 0, 0.55, 1 } -- Blizzard's experience purple
+    p.honor = { 1, 0.4, 0, 1 }
     p.reaction = { hostile = { 0.85, 0.2, 0.2, 1 }, neutral = { 0.95, 0.8, 0.2, 1 }, friendly = { 0.2, 0.8, 0.2, 1 } }
     -- your cast bar: casting / channeling; your target's: what kind of cast (auto color)
     p.cast = { cast = { 1, 0.7, 0, 1 }, channel = { 0.3, 0.7, 1, 1 }, harm = { 0.9, 0.3, 0.2, 1 },
@@ -610,10 +614,10 @@ local BARS = {
     experience = {
         label = "Experience",
         -- while there is experience to gain (never at the top level), and while placing the bars
-        state = function() return (ns.previewing() or not ns.xpDone()) and true or false, 1 end,
+        state = function() return (ns.previewing() or ns.xpTrack() ~= nil) and true or false, 1 end,
         value = function()
-            local ok, v, max = pcall(function() return UnitXP("player"), UnitXPMax("player") end)
-            if not ok or not max or max <= 0 then return 1, 1 end -- previewing at the top: a full bar
+            local kind, v, max = ns.xpTrack()
+            if not kind then return 1, 1 end -- previewing with nothing to show: a full bar
             return v, max
         end,
     },
@@ -868,8 +872,12 @@ function ns.modeRGB(f, c)
         local r, g, b = classRGB(unit)
         if r or (f.key ~= "enemyhealth" and f.key ~= "tothealth") then return r, g, b end
         return ns.reactionRGB(unit) -- an NPC has no class color of its own: how it stands to you
-    elseif m == "experience" then
-        local x = db.colors.experience
+    elseif m == "experience" then -- its kind's color: experience, honor, a faction's by standing
+        local kind, _, _, standing = ns.xpTrack()
+        local x = kind == "honor" and db.colors.honor or db.colors.experience
+        if kind == "rep" and standing then
+            x = db.colors.reaction[standing <= 3 and "hostile" or standing == 4 and "neutral" or "friendly"]
+        end
         return x[1], x[2], x[3]
     elseif m == "reaction" then
         return ns.reactionRGB(unit)
@@ -1269,6 +1277,44 @@ end
 -- still draw (the game formats them), and a percent comes from the game's own percent call.
 ------------------------------------------------------------------------------------------
 ns.TEXT_BARS = { health = true, power = true, enemyhealth = true, experience = true }
+
+-- The faction you watch: progress within its standing, the standing's size, the standing (1-8).
+function ns.watchedFaction()
+    if C_Reputation and C_Reputation.GetWatchedFactionData then
+        local ok, d = pcall(C_Reputation.GetWatchedFactionData)
+        if ok and type(d) == "table" and d.name then
+            return d.currentStanding - d.currentReactionThreshold, d.nextReactionThreshold - d.currentReactionThreshold,
+                d.reaction
+        end
+    elseif GetWatchedFactionInfo then
+        local ok, name, standing, low, high, value = pcall(GetWatchedFactionInfo)
+        if ok and name then return value - low, high - low, standing end
+    end
+end
+
+-- What the experience bar shows now: "xp", "rep" or "honor" (nil: nothing), its value and max,
+-- and a faction's standing. ponytail: one setting for both layouts, your Combat Display's.
+function ns.xpTrack()
+    local c = db.regular.bars.experience
+    local src = c.source == "auto" and (ns.xpDone() and "rep" or "xp") or c.source
+    if src == "xp" then
+        if ns.xpDone() then
+            if not c.hideAtMax then return "xp", 1, 1 end -- the top level, kept: a full bar
+            return
+        end
+        local ok, v, max = pcall(function() return UnitXP("player"), UnitXPMax("player") end)
+        if ok and type(max) == "number" and max > 0 then return "xp", v, max end
+    elseif src == "rep" then
+        local v, max, standing = ns.watchedFaction()
+        if v then
+            if max <= 0 then return "rep", 1, 1, standing end -- the last standing: full
+            return "rep", v, max, standing
+        end
+    elseif src == "honor" then
+        local ok, v, max = pcall(function() return UnitHonor("player"), UnitHonorMax("player") end)
+        if ok and type(max) == "number" and max > 0 then return "honor", v, max end
+    end
+end
 
 -- No experience to gain: the top level, or experience turned off.
 function ns.xpDone()
@@ -5032,8 +5078,15 @@ local function buildConfig()
         function() return cur().anchor end, function(v) cur().anchor = v end, textPreview)
     ns.sitsMenu = sits
     -- target of target: its name at a click (the rest of it is in the Level and name window)
-    local xpCombat = check(barsPage, "Hide in combat", only.x, only:row(0),
+    -- the experience bar: what it tracks, and when it stays away
+    local xpSource = dropdown(barsPage, "Shows", only.x, only:row(0), { { "Experience", "xp" },
+        { "Watched faction", "rep" }, { "Honor", "honor" }, { "Experience, then faction at the top", "auto" } },
+        function() return cur().source end, function(v) cur().source = v end, textPreview)
+    ns.xpMenu = xpSource
+    local xpCombat = check(barsPage, "Hide in combat", only.x, only:row(0) - DROP,
         function() return cur().hideInCombat end, function(v) cur().hideInCombat = v end)
+    local xpTop = check(barsPage, "Hide at the top level", only.x, only:row(0) - DROP - ROW,
+        function() return cur().hideAtMax end, function(v) cur().hideAtMax = v end)
     local totName = check(barsPage, "Show name", only.x, only:row(0) - ROW - 2 * BUTTON,
         function() return cur().tagName end, function(v) cur().tagName = v end)
     local resCheck = check(barsPage, "Show its resource", only.x, only:row(0),
@@ -5125,6 +5178,8 @@ local function buildConfig()
         sits:SetShown(SITS[selected] ~= nil and mode == "regular")
         totName:SetShown(selected == "tothealth")
         xpCombat:SetShown(selected == "experience")
+        xpSource:SetShown(selected == "experience")
+        xpTop:SetShown(selected == "experience" and cur().source == "xp")
         widthSlider:SetShown(not fixed and hungOn ~= "below")
         heightSlider:SetShown(not fixed and (hungOn == "stack" or hungOn == "below"))
         healCheck:SetShown(selected == "health")
@@ -5177,7 +5232,7 @@ local function buildConfig()
         enemyhealth = { "class", "reaction", "health", "custom" }, castbar = { "cast", "class", "custom" },
         targetcast = { "auto", "cast", "class", "custom" } }
     local MODE_NAMES = { health = "Health color", power = "Power color", class = "Class color",
-        experience = "Experience color",
+        experience = "Its kind's color",
         reaction = "Hostile / neutral / friendly", cast = "Casting / channeling", custom = "Custom",
         auto = "By kind of cast" }
     dropdown(barsPage, "Bar color", look.x, look:row(DROP), function()
@@ -5804,6 +5859,7 @@ local function buildConfig()
     local hcard = group(colorPage, COL[1], TOP, 202, "Health and standing")
     swatch(colorPage, "Health", hcard.x, hcard:row(SWATCH), function() return P().health end)
     swatch(colorPage, "Experience", hcard.x, hcard:row(SWATCH), function() return P().experience end)
+    swatch(colorPage, "Honor", hcard.x, hcard:row(SWATCH), function() return P().honor end)
     swatches(hcard, { { "hostile", "Hostile" }, { "neutral", "Neutral" }, { "friendly", "Friendly" } },
         function() return P().reaction end)
     hcard:close()
@@ -6735,7 +6791,7 @@ ev:SetScript("OnEvent", function(_, event, unit, arg2, arg3)
         for _, e in ipairs({ "PLAYER_ENTERING_WORLD", "UPDATE_SHAPESHIFT_FORM", "PLAYER_TARGET_CHANGED",
             "NAME_PLATE_UNIT_ADDED", "NAME_PLATE_UNIT_REMOVED", "QUEST_LOG_UPDATE", "PLAYER_REGEN_ENABLED",
             "QUEST_DETAIL", "QUEST_ACCEPT_CONFIRM", "QUEST_PROGRESS", "QUEST_COMPLETE", "GOSSIP_SHOW", "QUEST_GREETING",
-            "PLAYER_REGEN_DISABLED", "PLAYER_UPDATE_RESTING", "PLAYER_XP_UPDATE", "PLAYER_LEVEL_UP", "PLAYER_SWING", "PLAYER_TOTEM_UPDATE", "MERCHANT_SHOW", "MERCHANT_CLOSED",
+            "PLAYER_REGEN_DISABLED", "PLAYER_UPDATE_RESTING", "PLAYER_XP_UPDATE", "PLAYER_LEVEL_UP", "UPDATE_FACTION", "HONOR_XP_UPDATE", "PLAYER_SWING", "PLAYER_TOTEM_UPDATE", "MERCHANT_SHOW", "MERCHANT_CLOSED",
             "GOSSIP_CLOSED" }) do
             listen(e)
         end
@@ -6762,7 +6818,7 @@ ev:SetScript("OnEvent", function(_, event, unit, arg2, arg3)
                 safe(ns.layoutBadges, set.health)
             end
         end
-    elseif event == "PLAYER_XP_UPDATE" then
+    elseif event == "PLAYER_XP_UPDATE" or event == "HONOR_XP_UPDATE" then
         fillShown("experience")
     elseif event == "UNIT_HEAL_PREDICTION" then
         fillShown("health")

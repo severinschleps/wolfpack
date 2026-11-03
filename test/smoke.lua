@@ -1274,6 +1274,29 @@ fire("PLAYER_REGEN_ENABLED")
 assert(fr.experience:IsShown(), "back after")
 IsPlayerAtEffectiveMaxLevel = function() return true end; fire("UNIT_MAXPOWER")
 assert(not fr.experience:IsShown(), "top level: nothing to gain")
+S.XB.hideAtMax = false; fire("UNIT_MAXPOWER")
+assert(fr.experience:IsShown() and fr.experience.segs[1]._value == 1, "kept at the top level: a full bar")
+-- or the faction you watch, colored by standing; or honor; or experience, then the faction
+C_Reputation = { GetWatchedFactionData = function() return S.faction2 end }
+S.faction2 = { name = "Stormwind", reaction = 6, currentReactionThreshold = 3000, nextReactionThreshold = 9000,
+    currentStanding = 4500 }
+S.XB.source = "rep"; fire("UPDATE_FACTION")
+assert(fr.experience.segs[1]._value == 1500 and fr.experience.segs[1]._max == 6000
+    and fr.experience.segs[1]._sbc[2] == 0.8, "1500 into a 6000 standing, friendly green")
+S.faction2 = nil; fire("UPDATE_FACTION")
+assert(not fr.experience:IsShown(), "no faction watched: nothing")
+S.faction2 = { name = "Stormwind", reaction = 6, currentReactionThreshold = 3000, nextReactionThreshold = 9000,
+    currentStanding = 4500 }
+S.XB.source = "auto"; fire("UPDATE_FACTION")
+assert(fr.experience.segs[1]._max == 6000, "auto at the top level: the faction")
+IsPlayerAtEffectiveMaxLevel = function() return false end; fire("UPDATE_FACTION")
+assert(fr.experience.segs[1]._max == 1000, "auto below it: experience")
+UnitHonor, UnitHonorMax = function() return 200 end, function() return 800 end
+S.XB.source = "honor"; fire("HONOR_XP_UPDATE"); fire("UNIT_MAXPOWER")
+assert(fr.experience.segs[1]._value == 200 and fr.experience.segs[1]._sbc[1] == 1 and fr.experience.segs[1]._sbc[2] == 0.4,
+    "honor, in the palette's honor color")
+UnitHonor, UnitHonorMax, C_Reputation, S.faction2 = nil, nil, nil, nil
+S.XB.source, S.XB.hideAtMax = "xp", true
 IsPlayerAtEffectiveMaxLevel, S.XB.show, S.XB.hideInCombat, S.xp = nil, false, false, nil
 fire("UNIT_MAXPOWER")
 
@@ -1646,7 +1669,7 @@ nameBox._text = "PvP"; nameBox._scripts.OnEnterPressed(nameBox)
 assert(store.profiles["PvP 2"] and prof() == store.profiles["PvP 2"], "same name again: PvP 2")
 store.profiles["PvP 2"], store.chars[S.name .. " - Realm"] = nil, "PvP"
 local dds = {} -- profile, texture, bar color, border color, radius, font, kill icon, loot icon, combat icon, attach
-for _, f in ipairs(created) do if f._gen and f ~= ns.copyFromMenu and f ~= ns.sitsMenu then dds[#dds + 1] = f end end
+for _, f in ipairs(created) do if f._gen and f ~= ns.copyFromMenu and f ~= ns.sitsMenu and f ~= ns.xpMenu then dds[#dds + 1] = f end end
 local dd = dds[1]
 dd:GenerateMenu()
 local names = {}
