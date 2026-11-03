@@ -6074,6 +6074,9 @@ function ns.ToggleConfig()
         cfg:SetShown(not cfg:IsShown())
     end
     ns.cfg = cfg
+    -- the first opening fires no OnShow (a new frame is shown already), so say it here: it is
+    -- what puts the dummy buffs, debuffs and every other preview up
+    ns.configOpen = cfg:IsShown() and true or false
     if cfg:IsShown() then changed() end
 end
 -- /bs: the options window, opened on Bar Stack; closes it if that is already what is on screen

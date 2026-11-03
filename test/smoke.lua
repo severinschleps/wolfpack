@@ -1465,6 +1465,11 @@ assert(WolfpackAddonDB.minimapAngle ~= 220 and not mini._scripts.OnUpdate, "mini
 -- Options window: typed numbers apply on Enter and clamp to the slider range (gap: 0-30)
 SlashCmdList.WOLFPACKADDON("")
 assert(ns.cfg:IsShown(), "one click opens it -- the first one built it, which is not a toggle")
+-- the very first opening counts as open too (a new frame is shown already, so no OnShow fires):
+-- that is what puts the dummy buffs and debuffs up for tuning
+assert(ns.configOpen, "options open from the first click")
+assert(fr.health.auraIcons.buffs[8]:IsShown() and fr.health.auraIcons.debuffs[16]:IsShown(),
+    "dummy buffs and debuffs on your health bar while the options are open")
 SlashCmdList.WOLFPACKADDON("")
 assert(not ns.cfg:IsShown(), "and the next click closes it again")
 SlashCmdList.WOLFPACKADDON("")
@@ -2265,6 +2270,8 @@ login("ROGUE", 3)
 fire("UNIT_MAXPOWER")
 assert(not ns.frames.totems:IsShown(), "not a shaman: never shows")
 
+-- the options window closes here (the mock fires no OnHide, so say what it would)
+ns.cfg:Hide(); ns.configOpen = false
 -- Mana regen spinner: the five-second rule, mana classes only
 login("MAGE", 0)
 local spin, FS = ns.fsr.frame, prof().other.fsr
