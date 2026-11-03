@@ -859,6 +859,17 @@ assert(rf:GetAlpha() == 0, "nothing left: hidden")
 UnitPower = function() return 40 end
 fire("UNIT_POWER_FREQUENT", "target")
 assert(rf:GetAlpha() == 1, "power back: shown again")
+eh.resHideEmpty = false
+UnitPower = function() return 0 end
+fire("UNIT_POWER_FREQUENT", "target")
+assert(rf:GetAlpha() == 1, "Hide when empty off: an empty bar stays")
+eh.resHideEmpty = true
+-- its own color: power color by default, or a custom one
+assert(rf.segs[1]._sbc[1] == 1 and rf.segs[1]._sbc[3] == 0, "power color: energy yellow")
+eh.resColorMode, eh.resColor = "custom", { 0, 0.5, 0, 1 }
+fire("PLAYER_TARGET_CHANGED")
+assert(rf.segs[1]._sbc[1] == 0 and rf.segs[1]._sbc[2] == 0.5, "custom color")
+eh.resColorMode = "power"
 UnitPower = S.realPower
 eh.resource = false
 fire("PLAYER_TARGET_CHANGED")

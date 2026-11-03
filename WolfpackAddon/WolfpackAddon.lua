@@ -204,9 +204,10 @@ local function layoutDefaults(show, x, y, gap, width, h1, h2, h3, h4, h5, h6, h7
     -- resPlace "inside": drawn over the bar at its point resPoint; "outside": hung on the bar's
     -- edge at resPoint (BOTTOM: underneath it, TOPLEFT: above its left end...)
     eh.resPlace, eh.resPoint = "inside", "BOTTOM"
-    -- its own text switch and border; the rest of its look (texture, font...) is enemy health's
+    -- its own text switch, color and border; the rest of its look (texture, font...) is enemy health's
     eh.resHideText, eh.resBorderSize, eh.resBorderMode, eh.resBorderColor, eh.resRadius =
         false, 0, "bar", { 0, 0, 0, 1 }, 0
+    eh.resColorMode, eh.resColor, eh.resHideEmpty = "power", { 0.2, 0.4, 1, 1 }, true -- "power" or "custom"
     -- level and name, inset in the bar; the level always wears the game's difficulty color
     eh.tagLevel, eh.tagName, eh.tagFont, eh.tagSize, eh.tagOutline = true, false, FONTS[1][2], 10, true
     eh.tagAnchor, eh.tagX, eh.tagY, eh.tagNameColor = "LEFT", 4, 0, { 1, 1, 1, 1 } -- tag*: the level's spot
@@ -1354,9 +1355,14 @@ function ns.fill(f)
         return
     end
     local v, max = (f.res and ns.resValue or BARS[f.key].value)(f.unit or "player")
-    -- an empty enemy resource (none at all, or nothing left) goes invisible, border and all. A
-    -- secret number can't be looked at, so the bar stays while the game keeps it secret.
-    if f.res then f:SetAlpha(((readable(max) and max <= 0) or (readable(v) and v <= 0)) and 0 or 1) end
+    -- an empty enemy resource (none at all, or nothing left) goes invisible, border and all, unless
+    -- Hide when empty is off. A secret number can't be looked at, so the bar stays while the game
+    -- keeps it secret.
+    if f.res then
+        local empty = db[f.mode].bars.enemyhealth.resHideEmpty
+            and ((readable(max) and max <= 0) or (readable(v) and v <= 0))
+        f:SetAlpha(empty and 0 or 1)
+    end
     if f.n == 1 then
         f.segs[1]:SetMinMaxValues(0, max)
         f.segs[1]:SetValue(v)
@@ -1475,9 +1481,10 @@ function ns.resValue(unit)
     return UnitPower(unit), UnitPowerMax(unit)
 end
 
--- The resource bar's settings: its own size, text switch and border, over enemy health's look.
+-- The resource bar's settings: its own size, text switch, color and border, over enemy health's look.
 function ns.resConf(c)
-    return setmetatable({ height = c.resHeight, colorMode = "power", text = c.text and not c.resHideText,
+    return setmetatable({ height = c.resHeight, colorMode = c.resColorMode, color = c.resColor,
+        text = c.text and not c.resHideText,
         borderSize = c.resBorderSize, borderMode = c.resBorderMode, borderColor = c.resBorderColor,
         radius = c.resRadius }, { __index = c })
 end
@@ -7286,7 +7293,7 @@ local function buildConfig()
     klass:close()
 
     -- Enemy resource dialog: beside the window, for the enemy health bar picked on the bars page
-    local rd = ns.ui.Window(nil, 230, 576, "Enemy resource")
+    local rd = ns.ui.Window(nil, 230, 676, "Enemy resource")
     rd:SetParent(cfg)
     rd:ClearAllPoints()
     rd:SetPoint("TOPLEFT", cfg, "TOPRIGHT", 12, 0)
@@ -7296,6 +7303,17 @@ local function buildConfig()
     local function rrow(h) local at = ry; ry = ry - h; return at end
     check(rd, "Hide resource text", 16, rrow(ROW), function() return cur().resHideText end,
         function(v) cur().resHideText = v end)
+    check(rd, "Hide when empty", 16, rrow(ROW), function() return cur().resHideEmpty end,
+        function(v) cur().resHideEmpty = v end)
+    dropdown(rd, "Bar color", 16, rrow(DROP), { { "Power color", "power" }, { "Custom", "custom" } },
+        function() return cur().resColorMode end, function(v) cur().resColorMode = v end, textPreview)
+    swatch(rd, "Custom resource color", 16, rrow(SWATCH), function() return cur().resColor or { 0.2, 0.4, 1, 1 } end, {
+        get = function() return cur().resColorMode end, set = function(v) cur().resColorMode = v end,
+        effective = function()
+            local f = selFrame()
+            return barColors(f.resFrame or f, f.resFrame and ns.resConf(cur()) or cur())
+        end,
+    })
     -- inside the bar at a point of it, or outside, hung on that edge (BOTTOM: underneath)
     ns.resPlaceMenu = dropdown(rd, "Place", 16, rrow(DROP), { { "Inside the bar", "inside" }, { "Outside, on its edge", "outside" } },
         function() return cur().resPlace end, function(v) cur().resPlace = v end, textPreview)
