@@ -3763,18 +3763,18 @@ function ns.np.layout(f)
     ns.np.layoutCast(f)
 end
 
--- Blizzard's own plate: invisible while ours is on it, and kept so when the game sets its alpha
+-- Blizzard's own plate: hidden while ours is on it, and hidden again whenever the game shows it.
+-- Hidden, not just see-through: its hover and target highlight ignore the plate's alpha, and
+-- showed as a white bar over ours (seen in game).
 function ns.np.blizz(plate, hide)
     local uf = rawget(plate, "UnitFrame")
     if not uf then return end
     uf.wpHide = hide
     if hide and not uf.wpHooked then
         uf.wpHooked = true
-        hooksecurefunc(uf, "SetAlpha", function(self, a)
-            if self.wpHide and (not readable(a) or a ~= 0) then self:SetAlpha(0) end
-        end)
+        uf:HookScript("OnShow", function(self) if self.wpHide then self:Hide() end end)
     end
-    pcall(uf.SetAlpha, uf, hide and 0 or 1)
+    pcall(hide and uf.Hide or uf.Show, uf)
 end
 
 function ns.np.add(unit)

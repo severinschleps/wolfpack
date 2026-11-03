@@ -1600,9 +1600,9 @@ ns.configOpen = S.wasOpen
     assert(f and f._parent == plate and f:IsShown() and f.unit == "nameplate4" and f.resFrame.unit == "nameplate4",
         "turned on: a bar on the plate already up, for its unit")
     assert(f._point[1] == "CENTER" and f._point[2] == plate, "centered on the plate")
-    assert(plate.UnitFrame._alpha == 0, "Blizzard's plate invisible")
-    plate.UnitFrame:SetAlpha(1)
-    assert(plate.UnitFrame._alpha == 0, "and kept so when the game sets it")
+    assert(not plate.UnitFrame:IsShown(), "Blizzard's plate hidden (its highlight ignores alpha)")
+    plate.UnitFrame:Show(); plate.UnitFrame._scripts.OnShow(plate.UnitFrame)
+    assert(not plate.UnitFrame:IsShown(), "and kept so when the game shows it")
     assert(f.tag_name:IsShown() and f.tag_level:IsShown(), "name and level")
     assert(f.tag_name._text == UnitName("nameplate4"), "the unit's own name")
     -- stand-in auras belong to the preview only: a real plate never wears them, open options,
@@ -1638,7 +1638,7 @@ ns.configOpen = S.wasOpen
     npFire("UNIT_HEALTH", "nameplate4")
     npFire("NAME_PLATE_UNIT_REMOVED", "nameplate4")
     fire("NAME_PLATE_UNIT_REMOVED", "nameplate4")
-    assert(not f:IsShown() and not ns.np.units.nameplate4 and plate.UnitFrame._alpha == 1, "removed: Blizzard's back")
+    assert(not f:IsShown() and not ns.np.units.nameplate4 and plate.UnitFrame:IsShown(), "removed: Blizzard's back")
     npFire("NAME_PLATE_UNIT_ADDED", "nameplate4")
     assert(ns.np.units.nameplate4 == f, "a recycled plate keeps its bar")
     -- its cast bar: only while that unit casts, under the power bar hanging below
@@ -1661,7 +1661,7 @@ ns.configOpen = S.wasOpen
     npFire("UNIT_SPELLCAST_STOP", "nameplate4")
     ns.configOpen, prof().locked = S.npOpen, S.npLocked
     P.show = false; ns.np.all()
-    assert(not f:IsShown() and plate.UnitFrame._alpha == 1, "turned off: Blizzard's plates again")
+    assert(not f:IsShown() and plate.UnitFrame:IsShown(), "turned off: Blizzard's plates again")
     npFire("NAME_PLATE_UNIT_REMOVED", "nameplate4")
     fire("NAME_PLATE_UNIT_REMOVED", "nameplate4")
     prof().quest.anchor, S.units.nameplate4 = "inside", nil
