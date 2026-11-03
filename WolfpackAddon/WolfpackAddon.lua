@@ -211,9 +211,9 @@ local function layoutDefaults(show, x, y, gap, width, h1, h2, h3, h4, h5, h6, h7
     -- icon size, corner radius and grid
     for _, key in ipairs({ "health", "enemyhealth" }) do
         local b = l.bars[key]
-        b.buffs = { show = true, anchorTo = "bar", spot = "topleft", grow = "right", x = 0, y = 2, size = 20,
+        b.buffs = { show = true, anchorTo = "bar", spot = "topleft", grow = "right", wrap = "auto", x = 0, y = 2, size = 20,
             radius = 0, cols = 8, rows = 1, max = 8, hideTimer = false, zoom = 8 }
-        b.debuffs = { show = true, anchorTo = "other", spot = "topleft", grow = "right", x = 0, y = 0, size = 24,
+        b.debuffs = { show = true, anchorTo = "other", spot = "topleft", grow = "right", wrap = "auto", x = 0, y = 0, size = 24,
             radius = 0, cols = 8, rows = 2, max = 16, hideTimer = false, zoom = 8 }
         b.auraGap, b.auraGroupGap = 2, 4
     end
@@ -1425,8 +1425,8 @@ end
 -- them). Nothing is compared: what the game hands over goes straight to the icon, secret or not.
 ------------------------------------------------------------------------------------------
 -- Where a group starts: a corner of what it hangs on, and which way is away from it (x, y).
--- grow: the way each next icon goes. A new line goes away from what it hangs on -- or, when the
--- icons already grow away, along its edge, inward.
+-- grow: the way each next icon goes. wrap: the way a new line goes (across grow); "auto": away
+-- from what it hangs on -- or, when the icons already grow away, along its edge, inward.
 ns.AURA_SPOTS = {
     topleft = { "TOPLEFT", 0, 1 }, topright = { "TOPRIGHT", 0, 1 },
     bottomleft = { "BOTTOMLEFT", 0, -1 }, bottomright = { "BOTTOMRIGHT", 0, -1 },
@@ -1443,8 +1443,10 @@ function ns.auraDirs(o)
     local old = ns.AURA_OLD_SPOTS[o.spot]
     if old then o.spot, o.grow = old[1], old[2] end
     local sp, g = ns.AURA_SPOTS[o.spot] or ns.AURA_SPOTS.topleft, ns.AURA_GROW[o.grow] or ns.AURA_GROW.right
-    local w = { sp[2], sp[3] }
-    if g[1] * sp[2] + g[2] * sp[3] ~= 0 then -- growing straight away (or back): new lines go along
+    local w, wd = { sp[2], sp[3] }, ns.AURA_GROW[o.wrap or ""]
+    if wd and wd[1] * g[1] + wd[2] * g[2] == 0 then -- new lines the way asked (across the growing)
+        w = { wd[1], wd[2] }
+    elseif g[1] * sp[2] + g[2] * sp[3] ~= 0 then -- growing straight away (or back): new lines go along
         w = sp[3] ~= 0 and { sp[1]:find("LEFT") and 1 or -1, 0 } or { 0, -1 }
     end
     local hx, vy = g[1] ~= 0 and g[1] or w[1], g[2] ~= 0 and g[2] or w[2]
@@ -5811,8 +5813,9 @@ local function buildConfig()
             function(v) B().radius = v end, textPreview)
     end
 
-    -- Buffs and debuffs dialog: a column each, the gaps they share underneath
-    local ad = ns.ui.Window(nil, 440, 800, "Buffs and debuffs")
+    -- Buffs and debuffs dialog: a tab each (where it sits on the left, its size and grid on the
+    -- right), the gaps they share underneath
+    local ad = ns.ui.Window(nil, 440, 540, "Buffs and debuffs")
     ad:SetParent(cfg)
     ad:ClearAllPoints()
     ad:SetPoint("TOPLEFT", cfg, "TOPRIGHT", 12, 0)
@@ -5821,42 +5824,56 @@ local function buildConfig()
     local SPOTS = { { "Top, left corner", "topleft" }, { "Top, right corner", "topright" },
         { "Bottom, left corner", "bottomleft" }, { "Bottom, right corner", "bottomright" },
         { "Right side, at the top", "righttop" }, { "Left side, at the top", "lefttop" } }
+    local auraTab, panes = 1, {}
     for i, k in ipairs({ { "buffs", "Buffs" }, { "debuffs", "Debuffs" } }) do
-        local x = 16 + (i - 1) * 214
+        local tab = button(ad, k[2], 100, 16 + (i - 1) * 104, -44, function() auraTab = i; changed() end)
+        local pane = CreateFrame("Frame", nil, ad)
+        pane:SetAllPoints(ad)
+        panes[i] = pane
+        onRefresh(function()
+            pane:SetShown(auraTab == i)
+            if auraTab == i then tab:LockHighlight() else tab:UnlockHighlight() end
+        end)
         -- another bar picked: the dialog is hidden, its widgets read enemy health's defaults
         local A = function() return cur()[k[1]] or DEFAULTS.regular.bars.enemyhealth[k[1]] end
-        ry = -48
-        label(ad, k[2], ns.ui.HEADING):SetPoint("TOPLEFT", x, rrow(22))
-        check(ad, "Show " .. k[2]:lower(), x, rrow(ROW), function() return A().show end, function(v) A().show = v end)
-        label(ad, "Anchor to", "GameFontNormalSmall"):SetPoint("TOPLEFT", x, rrow(18) - 4)
+        ry = -80
+        check(pane, "Show " .. k[2]:lower(), 16, rrow(ROW), function() return A().show end, function(v) A().show = v end)
+        label(pane, "Anchor to", "GameFontNormalSmall"):SetPoint("TOPLEFT", 16, rrow(18) - 4)
         for _, to in ipairs({ { "bar", "The bar" }, { "other", i == 1 and "The debuffs" or "The buffs" } }) do
-            check(ad, to[2], x, rrow(ROW), function() return A().anchorTo == to[1] end,
+            check(pane, to[2], 16, rrow(ROW), function() return A().anchorTo == to[1] end,
                 function() A().anchorTo = to[1] end) -- a radio: ticking one is the choice
         end
-        check(ad, "Hide timer text", x, rrow(ROW), function() return A().hideTimer end,
+        check(pane, "Hide timer text", 16, rrow(ROW), function() return A().hideTimer end,
             function(v) A().hideTimer = v end)
-        dropdown(ad, "Starts at", x, rrow(DROP), SPOTS, function() return A().spot end,
+        dropdown(pane, "Starts at", 16, rrow(DROP), SPOTS, function() return A().spot end,
             function(v) A().spot = v end, textPreview)
-        dropdown(ad, "Grows", x, rrow(DROP), { { "Right", "right" }, { "Left", "left" }, { "Up", "up" },
+        dropdown(pane, "Grows", 16, rrow(DROP), { { "Right", "right" }, { "Left", "left" }, { "Up", "up" },
             { "Down", "down" } }, function() return A().grow end, function(v) A().grow = v end, textPreview)
-        dropdown(ad, "Corner radius", x, rrow(DROP), { { "None (square)", 0 }, { "Slightly rounded", 12 },
+        -- then: which way a new row (or column) goes; auto: away from what it hangs on
+        dropdown(pane, "Then (new rows / columns)", 16, rrow(DROP), function()
+            local across = A().grow == "left" or A().grow == "right"
+            return across and { { "Auto", "auto" }, { "Up", "up" }, { "Down", "down" } }
+                or { { "Auto", "auto" }, { "Left", "left" }, { "Right", "right" } }
+        end, function() return A().wrap end, function(v) A().wrap = v end, textPreview)
+        dropdown(pane, "Corner radius", 16, rrow(DROP), { { "None (square)", 0 }, { "Slightly rounded", 12 },
             { "Rounded", 25 }, { "Circle", 50 } }, function() return ns.ICON_MASKS[A().radius] and A().radius or 0 end,
             function(v) A().radius = v end, textPreview)
+        ry = -80
         for _, r in ipairs({ { "x", "X", -200, 200 }, { "y", "Y", -200, 200 }, { "size", "Icon size", 8, 64 },
             { "zoom", "Zoom (% cut from each side)", 0, 30 },
             { "cols", "Columns", 1, 20 }, { "rows", "Rows", 1, 10 }, { "max", "Most icons", 1, 40 } }) do
-            slider(ad, r[2], x, rrow(SLIDER), r[3], r[4], function() return A()[r[1]] end,
+            slider(pane, r[2], 230, rrow(SLIDER), r[3], r[4], function() return A()[r[1]] end,
                 function(v) A()[r[1]] = v end)
         end
     end
-    local shared = ry - 6
+    local shared = ry - 10
     slider(ad, "Gap between icons", 16, shared, 0, 20, function() return cur().auraGap or 0 end,
         function(v) cur().auraGap = v end)
     slider(ad, "Gap between the groups", 230, shared, 0, 40, function() return cur().auraGroupGap or 0 end,
         function(v) cur().auraGroupGap = v end)
     local anote = label(ad, "Your health: all your buffs and debuffs. Enemy health: what Blizzard's target "
-        .. "frame shows, all buffs and on an enemy your own debuffs. New rows (or columns) go away from what the group hangs on; a group anchored to the "
-        .. "other sits the group gap away from it.", "GameFontDisableSmall")
+        .. "frame shows, all buffs and on an enemy your own debuffs. A group anchored to the other sits the "
+        .. "group gap away from it.", "GameFontDisableSmall")
     anote:SetPoint("TOPLEFT", 16, shared - SLIDER - 4)
     anote:SetWidth(408)
     anote:SetJustifyH("LEFT")

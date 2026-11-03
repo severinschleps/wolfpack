@@ -765,11 +765,21 @@ assert(bb._w == 42 and bb._h == 42, "two columns of two")
 eh.buffs.spot, eh.buffs.grow = "righttop", "down"; fire("UNIT_AURA", "target")
 assert(bb._point[1] == "TOPLEFT" and bb._point[3] == "TOPRIGHT" and bi[2]._point[5] == -22
     and bi[3]._point[4] == 22 and bi[3]._point[5] == 0, "right side, down, new columns away to the right")
+-- grow then wrap, both chosen: up then left, right then down
+eh.buffs.spot, eh.buffs.grow, eh.buffs.wrap = "topleft", "up", "left"; fire("UNIT_AURA", "target")
+assert(bi[1]._point[1] == "BOTTOMRIGHT" and bi[2]._point[5] == 22 and bi[3]._point[4] == -22
+    and bi[3]._point[5] == 0, "up, then a new column to the left")
+eh.buffs.grow, eh.buffs.wrap = "right", "down"; fire("UNIT_AURA", "target")
+assert(bi[1]._point[1] == "TOPLEFT" and bi[2]._point[4] == 22 and bi[3]._point[5] == -22,
+    "right, then a new row down (into the bar: asked for)")
+eh.buffs.wrap = "left"; fire("UNIT_AURA", "target")
+assert(bi[3]._point[5] == 22, "a wrap along the growing makes no sense: auto")
+eh.buffs.wrap = "auto"
 -- the old one-in-all choice converts by itself
 eh.buffs.spot, eh.buffs.grow = "below_left", nil; fire("UNIT_AURA", "target")
 assert(eh.buffs.spot == "bottomright" and eh.buffs.grow == "left" and bb._point[1] == "TOPRIGHT"
     and bb._point[3] == "BOTTOMRIGHT", "below_left: the bottom right corner, growing left")
-eh.buffs = { show = true, anchorTo = "bar", spot = "topleft", grow = "right", x = 0, y = 2, size = 20, radius = 0,
+eh.buffs = { show = true, anchorTo = "bar", spot = "topleft", grow = "right", wrap = "auto", x = 0, y = 2, size = 20, radius = 0,
     cols = 8, rows = 1, max = 8, hideTimer = false, zoom = 8 }
 eh.debuffs = { show = true, anchorTo = "other", spot = "topleft", grow = "right", x = 0, y = 0, size = 24, radius = 0,
     cols = 8, rows = 2, max = 16, hideTimer = false, zoom = 8 }
@@ -1709,6 +1719,9 @@ byText("Enemy Health")._scripts.OnClick(byText("Enemy Health"), "LeftButton")
 tb._scripts.OnClick(tb, "LeftButton")
 ab._scripts.OnClick(ab, "LeftButton")
 assert(ns.auraDialog:IsShown() and not ns.tagDialog:IsShown(), "buffs and debuffs: its own window too")
+byText("Debuffs")._scripts.OnClick(byText("Debuffs"), "LeftButton")
+assert(byText("Debuffs").locked and not byText("Buffs").locked, "a tab each: debuffs now")
+byText("Buffs")._scripts.OnClick(byText("Buffs"), "LeftButton")
 byText("Health")._scripts.OnClick(byText("Health"), "LeftButton")
 assert(ab:IsShown() and ns.auraDialog:IsShown(), "your health has them too: the window stays, now for it")
 byText("Power")._scripts.OnClick(byText("Power"), "LeftButton")
