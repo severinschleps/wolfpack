@@ -107,6 +107,7 @@ local function barDefaults(show, width, height, r, g, b, text)
         font = FONTS[1][2], fontSize = 10, outline = false, textColor = { 1, 1, 1, 1 },
         colorMode = "custom", -- "custom", "class" or "power" (power bar only)
         borderSize = 0, borderColor = { 0, 0, 0, 1 }, borderMode = "bar", radius = 0, -- border: or "class", "custom"
+        borderFrom = "shared", -- width and corner radius: the profile's shared ones, or "own" (the two above)
     }
 end
 
@@ -406,6 +407,8 @@ do
     p.cast = { cast = { 1, 0.7, 0, 1 }, channel = { 0.3, 0.7, 1, 1 }, harm = { 0.9, 0.3, 0.2, 1 },
         heal = { 0.2, 0.9, 0.3, 1 }, locked = { 0.6, 0.6, 0.65, 1 } }
     p.borderShade = 25
+    p.borderSize, p.radius = 0, 0 -- every bar's border width and corner radius, unless it has its own
+    p.bordersSet = false -- useProfile has given bars with a border or corners of their own "own" (once)
     p.moved = false -- useProfile has moved the per-bar power and cast colors in here (once)
     DEFAULTS.colors = p
 end
@@ -921,6 +924,9 @@ end
 -- beside your health, its resource bar's height and colors)
 local function layoutBar(f, n, width, over)
     local c = db[f.mode].bars[f.key]
+    if c.borderFrom ~= "own" then -- the profile's shared border width and corners
+        c = setmetatable({ borderSize = db.colors.borderSize, radius = db.colors.radius }, { __index = c })
+    end
     if over then c = setmetatable(over, { __index = c }) end
     width = width or c.width
     f.width = width
@@ -4227,6 +4233,14 @@ useProfile = function(name)
     store.chars[charKey] = name
     db = store.profiles[name]
     local P = db.colors
+    if not P.bordersSet then -- a bar that already had a border or rounded corners keeps them as its own
+        for _, m in ipairs({ "regular", "nameplate" }) do
+            for _, b in pairs(db[m].bars) do
+                if type(b) == "table" and ((b.borderSize or 0) ~= 0 or (b.radius or 0) ~= 0) then b.borderFrom = "own" end
+            end
+        end
+        P.bordersSet = true
+    end
     if not P.moved then -- colors that lived on single bars move into the palette
         local pc = db.regular.bars.power.powerColors
         for token, c in pairs(type(pc) == "table" and pc or {}) do
@@ -4890,7 +4904,7 @@ local function buildConfig()
     end
 
     entry("profile", "Profiles")
-    entry("colors", "Colors")
+    entry("colors", "Colors & borders")
     y = y - 12
     shelf("Interface")
     for _, e in ipairs({ { "combat", "Combat Display" }, { "nameplates", "Nameplates", "nameplate" },
@@ -4955,7 +4969,7 @@ local function buildConfig()
         title:SetShown(not np)
         title:SetText(section == "other" and "Other"
             or section == "profile" and "Profiles"
-            or section == "colors" and "Colors"
+            or section == "colors" and "Colors and borders"
             or section == "buffs" and "Buff check"
             or section == "mage" and "Mage: food and water"
             or section == "hunter" and "Hunter: ammo and pet"
@@ -5252,7 +5266,11 @@ local function buildConfig()
     look:close()
 
     local bord = group(barsPage, COL[3], look.cursor - 20, 202, "Border")
-    slider(barsPage, "Thickness", bord.x, bord:row(SLIDER), 0, 10,
+    local RADII = { { "None", 0 }, { "2 px", 2 }, { "4 px", 4 },
+        { "8 px", 8 }, { "16 px", 16 }, { "32 px", 32 }, { "Pill (50% of height)", "pill" } }
+    ns.borderFromMenu = dropdown(barsPage, "Width and corners", bord.x, bord:row(DROP), { { "Shared (Colors page)", "shared" },
+        { "Its own", "own" } }, function() return cur().borderFrom end, function(v) cur().borderFrom = v end, textPreview)
+    local thick = slider(barsPage, "Thickness", bord.x, bord:row(SLIDER), 0, 10,
         function() return cur().borderSize end, function(v) cur().borderSize = v end)
     dropdown(barsPage, "Color", bord.x, bord:row(DROP), { { "Same as bar (shaded)", "bar" }, { "Custom", "custom" } },
         function() return cur().borderMode end, function(v) cur().borderMode = v end,
@@ -5261,9 +5279,12 @@ local function buildConfig()
         get = function() return cur().borderMode end, set = function(v) cur().borderMode = v end,
         effective = function() return select(4, barColors(selFrame(), cur())) end,
     })
-    dropdown(barsPage, "Corner radius", bord.x, bord:row(DROP), { { "None", 0 }, { "2 px", 2 }, { "4 px", 4 },
-        { "8 px", 8 }, { "16 px", 16 }, { "32 px", 32 }, { "Pill (50% of height)", "pill" } },
+    local corners = dropdown(barsPage, "Corner radius", bord.x, bord:row(DROP), RADII,
         function() return cur().radius end, function(v) cur().radius = v end, textPreview)
+    onRefresh(function()
+        thick:SetShown(cur().borderFrom == "own")
+        corners:SetShown(cur().borderFrom == "own")
+    end)
     bord:close()
 
     -- Column 4: gradient and text
@@ -5868,6 +5889,15 @@ local function buildConfig()
         { "heal", "Enemy: healing" }, { "locked", "Enemy: can't be stopped" } }, function() return P().cast end)
     ccard:close()
     local bcard = group(colorPage, COL[1], ccard.cursor - 20, 202, "Borders")
+    slider(colorPage, "Width", bcard.x, bcard:row(SLIDER), 0, 10,
+        function() return P().borderSize end, function(v) P().borderSize = v end)
+    ns.sharedRadiusMenu = dropdown(colorPage, "Corner radius", bcard.x, bcard:row(DROP), { { "None", 0 }, { "2 px", 2 }, { "4 px", 4 },
+        { "8 px", 8 }, { "16 px", 16 }, { "32 px", 32 }, { "Pill (50% of height)", "pill" } },
+        function() return P().radius end, function(v) P().radius = v end, textPreview)
+    local snote = label(colorPage, "Every bar set to \"Shared\" under Border takes these.", "GameFontDisableSmall")
+    snote:SetPoint("TOPLEFT", bcard.x, bcard:row(30))
+    snote:SetWidth(182)
+    snote:SetJustifyH("LEFT")
     slider(colorPage, "\"Same as bar\" shade", bcard.x, bcard:row(SLIDER), -100, 100,
         function() return P().borderShade end, function(v) P().borderShade = v end)
     local bnote = label(colorPage, "How a border that follows its bar differs from it: up to 100 "

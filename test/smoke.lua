@@ -1168,7 +1168,7 @@ S.auras, S.debuffs = nil, nil; fire("UNIT_AURA", "player")
 -- sliced at native size (Media/Round/r<N>.tga)
 local hb = prof().regular.bars.health -- 220 x 18
 local function maskR(m) return m._tex:match("r(%d+)%.tga$") + 0, m._slice[1] end
-hb.borderSize, hb.radius = 2, 8
+hb.borderFrom, hb.borderSize, hb.radius = "own", 2, 8
 fire("UNIT_MAXPOWER")
 local seg = fr.health.segs[1]
 assert(seg._w == 216 and seg._h == 14 and seg._point[4] == 2, "inset by the border")
@@ -1181,6 +1181,23 @@ hb.radius = "pill"; fire("UNIT_MAXPOWER")
 assert(maskR(seg.borderMask) == 9 and maskR(seg.mask) == 7, "pill: half of each height")
 for r = 1, 50 do assert(io.open("WolfpackAddon/Media/Round/r" .. r .. ".tga"), "mask file r" .. r) end
 hb.borderSize, hb.radius = 0, 0; fire("UNIT_MAXPOWER")
+-- shared: every bar not set to its own takes the profile's border width and corners
+hb.borderFrom = "shared"
+prof().colors.borderSize, prof().colors.radius = 2, 8; fire("UNIT_MAXPOWER")
+assert(seg._w == 216 and seg.border:IsShown() and maskR(seg.borderMask) == 8, "shared width and corners")
+assert(fr.power.segs[1].border:IsShown(), "on every shared bar")
+hb.borderFrom, hb.borderSize = "own", 0; fire("UNIT_MAXPOWER")
+assert(seg._w == 220 and not seg.border:IsShown(), "its own (none) wins")
+hb.borderFrom = "shared"
+prof().colors.borderSize, prof().colors.radius = 0, 0; fire("UNIT_MAXPOWER")
+-- an older profile: a bar with a border of its own keeps it, once
+WolfpackAddonDB.profiles.OldBorder = { regular = { bars = { power = { borderSize = 3 } } } }
+S.homeB = WolfpackAddonDB.chars[S.name .. " - Realm"]
+ns.useProfile("OldBorder")
+assert(prof().regular.bars.power.borderFrom == "own" and prof().regular.bars.health.borderFrom == "shared"
+    and prof().colors.bordersSet, "a border of its own stays its own; the rest share")
+ns.useProfile(S.homeB)
+WolfpackAddonDB.profiles.OldBorder = nil
 assert(not seg.border:IsShown() and seg._w == 220 and not seg.bg._masks[seg.mask], "off: square, no border")
 assert(not seg:GetStatusBarTexture()._masks[seg.mask], "fill unmasked")
 
@@ -1207,7 +1224,7 @@ S.mouseOver = false
 assert(fr.power.segs[1]._sbc[1] == 1 and fr.power.segs[1]._sbc[3] == 0, "power type color (energy)")
 local hc = prof().regular.bars.health
 local hs = fr.health.segs[1]
-hc.colorMode, hc.borderSize, hc.borderMode = "class", 1, "bar"; fire("UNIT_MAXPOWER")
+hc.borderFrom, hc.colorMode, hc.borderSize, hc.borderMode = "own", "class", 1, "bar"; fire("UNIT_MAXPOWER")
 assert(hs._sbc[1] == 1 and hs._sbc[3] == 0.41 and math.abs(hs.border._color[3] - 0.5575) < 1e-6
     and hs.border._color[1] == 1, "class bar, border = the bar's color, a quarter of the way to white")
 -- the palette: the border shade, class, power and health colors live there, the bars pick
@@ -1669,7 +1686,7 @@ nameBox._text = "PvP"; nameBox._scripts.OnEnterPressed(nameBox)
 assert(store.profiles["PvP 2"] and prof() == store.profiles["PvP 2"], "same name again: PvP 2")
 store.profiles["PvP 2"], store.chars[S.name .. " - Realm"] = nil, "PvP"
 local dds = {} -- profile, texture, bar color, border color, radius, font, kill icon, loot icon, combat icon, attach
-for _, f in ipairs(created) do if f._gen and f ~= ns.copyFromMenu and f ~= ns.sitsMenu and f ~= ns.xpMenu then dds[#dds + 1] = f end end
+for _, f in ipairs(created) do if f._gen and f ~= ns.copyFromMenu and f ~= ns.sitsMenu and f ~= ns.xpMenu and f ~= ns.borderFromMenu and f ~= ns.sharedRadiusMenu then dds[#dds + 1] = f end end
 local dd = dds[1]
 dd:GenerateMenu()
 local names = {}
@@ -1778,7 +1795,7 @@ assert(ns.iconDialog:IsShown(), "PvP flag: a window of its own")
 byText("Health")._scripts.OnClick(byText("Health"), "LeftButton")
 assert(not pb2:IsShown() and not ns.iconDialog:IsShown(), "closed with the bar")
 -- the Colors page: the palette, in the sidebar
-byText("Colors")._scripts.OnClick(byText("Colors"), "LeftButton")
+byText("Colors & borders")._scripts.OnClick(byText("Colors & borders"), "LeftButton")
 assert(ns.pages.colors:IsShown() and ns.swatches["Mana"]:IsShown() and ns.swatches["Warrior"]
     and ns.swatches["Channeling"] and ns.swatches["Hostile"], "class, power, cast and standing colors")
 byText("Combat Display")._scripts.OnClick(byText("Combat Display"), "LeftButton")
