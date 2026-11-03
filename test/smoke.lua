@@ -1190,12 +1190,23 @@ hb.borderFrom, hb.borderSize = "own", 0; fire("UNIT_MAXPOWER")
 assert(seg._w == 220 and not seg.border:IsShown(), "its own (none) wins")
 hb.borderFrom = "shared"
 prof().colors.borderSize, prof().colors.radius = 0, 0; fire("UNIT_MAXPOWER")
+-- the texture the same way: shared by default, or the bar's own
+S.T2 = ns.TEXTURES[2][2]
+prof().colors.texture = S.T2; fire("UNIT_MAXPOWER")
+assert(seg._tex == S.T2 and fr.power.segs[1]._tex == S.T2, "the shared texture on every bar")
+hb.textureFrom, hb.texture = "own", ns.TEXTURES[3][2]; fire("UNIT_MAXPOWER")
+assert(seg._tex == ns.TEXTURES[3][2] and fr.power.segs[1]._tex == S.T2, "its own wins")
+hb.textureFrom, hb.texture = "shared", ns.TEXTURES[1][2]
+prof().colors.texture = ns.TEXTURES[1][2]; fire("UNIT_MAXPOWER")
 -- an older profile: a bar with a border of its own keeps it, once
-WolfpackAddonDB.profiles.OldBorder = { regular = { bars = { power = { borderSize = 3 } } } }
+WolfpackAddonDB.profiles.OldBorder = { regular = { bars = { power = { borderSize = 3 },
+    castbar = { texture = "Interface\\Old\\Tex" } } } }
 S.homeB = WolfpackAddonDB.chars[S.name .. " - Realm"]
 ns.useProfile("OldBorder")
 assert(prof().regular.bars.power.borderFrom == "own" and prof().regular.bars.health.borderFrom == "shared"
     and prof().colors.bordersSet, "a border of its own stays its own; the rest share")
+assert(prof().regular.bars.castbar.textureFrom == "own" and prof().regular.bars.power.textureFrom == "shared",
+    "a texture of its own stays its own")
 ns.useProfile(S.homeB)
 WolfpackAddonDB.profiles.OldBorder = nil
 assert(not seg.border:IsShown() and seg._w == 220 and not seg.bg._masks[seg.mask], "off: square, no border")
@@ -1686,7 +1697,7 @@ nameBox._text = "PvP"; nameBox._scripts.OnEnterPressed(nameBox)
 assert(store.profiles["PvP 2"] and prof() == store.profiles["PvP 2"], "same name again: PvP 2")
 store.profiles["PvP 2"], store.chars[S.name .. " - Realm"] = nil, "PvP"
 local dds = {} -- profile, texture, bar color, border color, radius, font, kill icon, loot icon, combat icon, attach
-for _, f in ipairs(created) do if f._gen and f ~= ns.copyFromMenu and f ~= ns.sitsMenu and f ~= ns.xpMenu and f ~= ns.borderFromMenu and f ~= ns.sharedRadiusMenu then dds[#dds + 1] = f end end
+for _, f in ipairs(created) do if f._gen and f ~= ns.copyFromMenu and f ~= ns.sitsMenu and f ~= ns.xpMenu and f ~= ns.borderFromMenu and f ~= ns.sharedRadiusMenu and f ~= ns.textureFromMenu and f ~= ns.sharedTextureMenu then dds[#dds + 1] = f end end
 local dd = dds[1]
 dd:GenerateMenu()
 local names = {}

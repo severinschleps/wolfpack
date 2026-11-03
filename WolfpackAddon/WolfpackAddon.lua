@@ -108,6 +108,7 @@ local function barDefaults(show, width, height, r, g, b, text)
         colorMode = "custom", -- "custom", "class" or "power" (power bar only)
         borderSize = 0, borderColor = { 0, 0, 0, 1 }, borderMode = "bar", radius = 0, -- border: or "class", "custom"
         borderFrom = "shared", -- width and corner radius: the profile's shared ones, or "own" (the two above)
+        textureFrom = "shared", -- the profile's shared texture, or "own" (texture above)
     }
 end
 
@@ -409,6 +410,8 @@ do
     p.borderShade = 25
     p.borderSize, p.radius = 0, 0 -- every bar's border width and corner radius, unless it has its own
     p.bordersSet = false -- useProfile has given bars with a border or corners of their own "own" (once)
+    p.texture = TEXTURES[1][2] -- every bar's texture, unless it has its own
+    p.texturesSet = false -- ... and bars with a texture of their own "own" (once)
     p.moved = false -- useProfile has moved the per-bar power and cast colors in here (once)
     DEFAULTS.colors = p
 end
@@ -924,8 +927,11 @@ end
 -- beside your health, its resource bar's height and colors)
 local function layoutBar(f, n, width, over)
     local c = db[f.mode].bars[f.key]
-    if c.borderFrom ~= "own" then -- the profile's shared border width and corners
-        c = setmetatable({ borderSize = db.colors.borderSize, radius = db.colors.radius }, { __index = c })
+    if c.borderFrom ~= "own" or c.textureFrom ~= "own" then -- the profile's shared border and texture
+        local shared = {}
+        if c.borderFrom ~= "own" then shared.borderSize, shared.radius = db.colors.borderSize, db.colors.radius end
+        if c.textureFrom ~= "own" then shared.texture = db.colors.texture end
+        c = setmetatable(shared, { __index = c })
     end
     if over then c = setmetatable(over, { __index = c }) end
     width = width or c.width
@@ -4241,6 +4247,14 @@ useProfile = function(name)
         end
         P.bordersSet = true
     end
+    if not P.texturesSet then -- a bar with a texture other than the first keeps it as its own
+        for _, m in ipairs({ "regular", "nameplate" }) do
+            for _, b in pairs(db[m].bars) do
+                if type(b) == "table" and b.texture and b.texture ~= TEXTURES[1][2] then b.textureFrom = "own" end
+            end
+        end
+        P.texturesSet = true
+    end
     if not P.moved then -- colors that lived on single bars move into the palette
         local pc = db.regular.bars.power.powerColors
         for token, c in pairs(type(pc) == "table" and pc or {}) do
@@ -5236,8 +5250,12 @@ local function buildConfig()
 
     -- Column 3: colors and border
     local look = group(barsPage, COL[3], TOP, 202, "Colors")
-    dropdown(barsPage, "Texture", look.x, look:row(DROP), TEXTURES, function() return cur().texture end,
+    ns.textureFromMenu = dropdown(barsPage, "Texture from", look.x, look:row(DROP),
+        { { "Shared (Colors page)", "shared" }, { "Its own", "own" } }, function() return cur().textureFrom end,
+        function(v) cur().textureFrom = v end, textPreview)
+    local ownTex = dropdown(barsPage, "Texture", look.x, look:row(DROP), TEXTURES, function() return cur().texture end,
         function(v) cur().texture = v end, texturePreview)
+    onRefresh(function() ownTex:SetShown(cur().textureFrom == "own") end)
     -- which palette color the bar wears (the Colors page sets them), or its own
     local MODES = { health = { "health", "class", "custom" }, power = { "power", "class", "custom" },
         druidmana = { "power", "class", "custom" }, pethealth = { "health", "class", "custom" },
@@ -5888,7 +5906,15 @@ local function buildConfig()
     swatches(ccard, { { "cast", "Casting" }, { "channel", "Channeling" }, { "harm", "Enemy: damage" },
         { "heal", "Enemy: healing" }, { "locked", "Enemy: can't be stopped" } }, function() return P().cast end)
     ccard:close()
-    local bcard = group(colorPage, COL[1], ccard.cursor - 20, 202, "Borders")
+    local tcard = group(colorPage, COL[1], ccard.cursor - 20, 202, "Texture")
+    ns.sharedTextureMenu = dropdown(colorPage, "Bar texture", tcard.x, tcard:row(DROP), TEXTURES,
+        function() return P().texture end, function(v) P().texture = v end, texturePreview)
+    local tnote2 = label(colorPage, "Every bar set to \"Shared\" under Colors takes it.", "GameFontDisableSmall")
+    tnote2:SetPoint("TOPLEFT", tcard.x, tcard:row(30))
+    tnote2:SetWidth(182)
+    tnote2:SetJustifyH("LEFT")
+    tcard:close()
+    local bcard = group(colorPage, COL[1], tcard.cursor - 20, 202, "Borders")
     slider(colorPage, "Width", bcard.x, bcard:row(SLIDER), 0, 10,
         function() return P().borderSize end, function(v) P().borderSize = v end)
     ns.sharedRadiusMenu = dropdown(colorPage, "Corner radius", bcard.x, bcard:row(DROP), { { "None", 0 }, { "2 px", 2 }, { "4 px", 4 },
