@@ -3840,7 +3840,14 @@ function ns.bags.button(bag, slot)
     if not ok then b = CreateFrame("Button", name, h, "ContainerFrameItemButtonTemplate") end
     b:SetID(slot)
     if type(rawget(b, "SetBagID")) == "function" or b.SetBagID ~= nil then pcall(b.SetBagID, b, bag) end
-    b.wpIcon = rawget(b, "icon") or _G[name .. "IconTexture"] or b:CreateTexture(nil, "ARTWORK")
+    -- the template's own art (new-item and quest glows, slot frame...) is Blizzard's bag code to
+    -- switch, which never runs on these: all of it goes but the icon, hover and pressed looks
+    local icon = rawget(b, "icon") or _G[name .. "IconTexture"]
+    local keep = { [icon or 0] = true, [b:GetHighlightTexture() or 0] = true, [b:GetPushedTexture() or 0] = true }
+    for _, r in ipairs({ b:GetRegions() }) do
+        if not keep[r] and r.IsObjectType and r:IsObjectType("Texture") then r:SetAlpha(0) end
+    end
+    b.wpIcon = icon or b:CreateTexture(nil, "ARTWORK")
     b.wpCount = rawget(b, "Count") or _G[name .. "Count"]
     b.wpCd = rawget(b, "Cooldown") or _G[name .. "Cooldown"]
     b.wpEdge = b:CreateTexture(nil, "BACKGROUND", nil, -8)
@@ -4031,6 +4038,11 @@ function ns.bags.sync()
             f.wpBagsHooked = true
             f:HookScript("OnShow", function() safe(ns.bags.sync) end)
             f:HookScript("OnHide", function() safe(ns.bags.sync) end)
+            -- parked under the hidden frame, a window being closed fires no OnHide (it was not
+            -- visible to begin with), so the calls themselves are heard too (seen in game)
+            for _, m in ipairs({ "Show", "Hide", "SetShown" }) do
+                hooksecurefunc(f, m, function() safe(ns.bags.sync) end)
+            end
         end
         if on and f:IsShown() and B.mine(f) then
             if not f.wpHome then f.wpHome = f:GetParent() end

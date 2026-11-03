@@ -2124,7 +2124,20 @@ assert(BagsBar._parent == UIParent and BagsBar._point[2] == "MicroButtonAndBagsB
     B.sync()
     assert(ContainerFrame1._parent == UIParent and not (B.frame and B.frame:IsShown()), "off: Blizzard's bags as they are")
     o.show = true
+    -- the game's button template brings art of its own (a glow, here): hidden; hover highlight kept
+    S.realCF = CreateFrame
+    CreateFrame = function(kind, name, parent, template)
+        local b = S.realCF(kind, name, parent, template)
+        if template == "ContainerFrameItemButtonTemplate" then
+            S.glow, S.hl = b:CreateTexture(), b:CreateTexture()
+            S.glow._kind, S.hl._kind = "Texture", "Texture"
+            b.GetHighlightTexture = function() return S.hl end
+        end
+        return b
+    end
     B.sync()
+    CreateFrame = S.realCF
+    assert(S.glow._alpha == 0 and S.hl._alpha ~= 0, "the template's glow hidden, the hover highlight kept")
     local f = B.frame
     assert(f:IsShown() and ContainerFrame1._parent == hider, "on: ours open, Blizzard's parked")
     assert(bank._parent == UIParent, "a bank bag's window stays Blizzard's")
@@ -2144,8 +2157,9 @@ assert(BagsBar._parent == UIParent and BagsBar._point[2] == "MicroButtonAndBagsB
     B.layout()
     assert(epic.wpEdge._color[1] == 0 and not junk.wpJunk:IsShown(), "both can be turned off")
     assert(BagsBar._parent == f and BagsBar._point[1] == "BOTTOMRIGHT" and BagsBar._point[3] == "TOPRIGHT", "bag bar on top")
-    ContainerFrame1._shown = false
-    ContainerFrame1._scripts.OnHide()
+    -- the key closes Blizzard's window while it sits under the hidden parent: Hide() fires no
+    -- OnHide there (nothing becomes invisible), so ours must hear the call itself (seen in game)
+    ContainerFrame1:Hide()
     assert(not f:IsShown() and ContainerFrame1._parent == UIParent, "closed with Blizzard's, theirs given back")
     o.show = false
     B.sync()
