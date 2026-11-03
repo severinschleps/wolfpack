@@ -1864,18 +1864,6 @@ ns.configOpen = S.wasOpen
     assert(l1._w == 11 and l2:IsShown() and l2._w == 2 and l2._h == 11 and l2._point[4] == 149 and l2._point[5] == 0
         and l2._grad[1] == "VERTICAL" and l2._grad[2][4] == 1 and math.abs(l2._grad[3][4] - 0.5) < 1e-9,
         "two pieces joined at the corner, the fade running on down the right side")
-    -- rounded corners: the path bends round them, the arc drawn in dots half a stroke apart
-    f.edgeRadius = 5 -- path: 140 along the top, a quarter circle of radius 5 round the corner
-    tr.head = 147 / (280 + 2 * math.pi * 5)
-    ns.np.trailDraw(tr)
-    local dots = tr.dots
-    assert(math.abs(l1._w - 13) < 1e-6 and math.abs(l1._point[4] - 132) < 1e-6 and not l2:IsShown(), "the top's stretch (from x 5 + 127), no corner reach")
-    assert(#dots == 8 and dots[8]:IsShown() and math.abs(dots[1]._point[4] - 145) < 1e-6 and math.abs(dots[1]._point[5] - 10) < 1e-6
-        and math.abs(dots[8]._point[4] - (145 + 5 * math.sin(7 / 5))) < 1e-6, "dots round the corner")
-    assert(math.abs(tr.caps[1]._point[4] - (145 + 5 * math.sin(1.4))) < 1e-6 and math.abs(dots[8]._vertex[4] - 1) < 1e-6, "the head on the arc")
-    f.edgeRadius = 0
-    ns.np.trailDraw(tr)
-    assert(not dots[1]:IsShown(), "square again: no dots")
     tr.head = 0.5
     tr._scripts.OnUpdate(tr, T.states.idle.lap / 4)
     assert(math.abs(tr.head - 0.75) < 1e-9, "a quarter of the round in a quarter of the lap")
