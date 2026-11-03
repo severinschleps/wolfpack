@@ -307,8 +307,9 @@ local DEFAULTS = {
         minimap = { square = false, border = false, radius = 0, tray = false, trayBlizzard = false,
             infoBar = false, hideDayNight = false, x = 0, y = 0 },
         -- five-second-rule spinner: centered on a bar (or the group, if that bar is hidden) + x/y
+        -- regen: once the window is over, a pulsing full ring in regenColor while mana refills
         fsr = { show = false, bar = "power", size = 28, x = 0, y = 0, color = { 0.3, 0.6, 1, 0.7 },
-            fill = true },
+            fill = true, regen = true, regenColor = { 0.3, 1, 0.5, 0.7 } },
     },
 }
 
@@ -2421,13 +2422,34 @@ function fsr:sync()
     self.frame:SetSize(o.size, o.size)
     self.frame:SetSwipeColor(o.color[1], o.color[2], o.color[3], o.color[4])
     self.frame:SetReverse(o.fill and true or false) -- fill up, or drain away
+    local regen = false
     if self:on() and ns.previewing() then
         self.frame:SetCooldown(GetTime(), 3600) -- a sweep too slow to see: a full ring, to place it
         self.endTime = nil
         self.frame:Show()
+    elseif self:on() and (self.endTime or 0) > GetTime() then
+        self.frame:Show() -- the window: its sweep is already running
+    elseif self:on() and o.regen and self:regenerating() then
+        regen = true
+        local c = o.regenColor
+        self.frame:SetSwipeColor(c[1], c[2], c[3], c[4])
+        if not self.regenOn then self.frame:SetCooldown(GetTime(), 3600) end -- a full ring
+        self.frame:Show()
     else
-        self.frame:SetShown(self:on() and (self.endTime or 0) > GetTime())
+        self.frame:Hide()
     end
+    if regen ~= (self.regenOn or false) then -- regenerating: the ring breathes
+        self.frame:SetScript("OnUpdate", regen and function(f) f:SetAlpha(0.45 + 0.55 * math.abs(math.sin(GetTime() * 2))) end or nil)
+        if not regen then self.frame:SetAlpha(1) end
+    end
+    self.regenOn = regen
+end
+
+-- Spirit regen is running: the window is over and mana isn't full (a secret number can't be
+-- told: then not shown).
+function fsr:regenerating()
+    local ok, v, max = pcall(function() return UnitPower("player", PT.Mana), UnitPowerMax("player", PT.Mana) end)
+    return (ok and readable(v) and readable(max) and type(max) == "number" and max > 0 and v < max) and true or false
 end
 
 -- In combat the window is the plain five-second rule; out of combat regen takes until the
@@ -2436,6 +2458,9 @@ function fsr:start()
     if not self:on() then return end
     local seconds = inCombat and 5 or 7
     self.endTime = GetTime() + seconds
+    self.regenOn = nil -- the window's sweep replaces the regen ring
+    self.frame:SetScript("OnUpdate", nil)
+    self.frame:SetAlpha(1)
     self:sync()
     self.frame:SetCooldown(GetTime(), seconds)
     self.frame:Show()
@@ -4793,7 +4818,7 @@ end
 function ns.toggleDialog(d)
     local show = not d:IsShown()
     for _, o in ipairs({ ns.resDialog, ns.tagDialog, ns.auraDialog, ns.textDialog, ns.iconDialog,
-        ns.statusDialog }) do o:Hide() end
+        ns.statusDialog, ns.fsrDialog }) do o:Hide() end
     d:SetShown(show)
 end
 
@@ -5170,6 +5195,8 @@ local function buildConfig()
         function() return cur().cost end, function(v) cur().cost = v end)
     local costColor = swatch(barsPage, "Cost color", only.x, only:row(0) - ROW,
         function() return cur().costColor or { 0, 0, 0, 1 } end)
+    local regenButton = button(barsPage, "Mana regen spinner", 186, only.x, only:row(0) - 2 * ROW - 4,
+        function() ns.toggleDialog(ns.fsrDialog) end)
     local castIcon = check(barsPage, "Show spell icon", only.x, only:row(ROW),
         function() return cur().icon end, function(v) cur().icon = v end)
     local castSide = button(barsPage, "", 186, only.x, only:row(BUTTON), function()
@@ -5214,6 +5241,8 @@ local function buildConfig()
         healColor:SetShown(selected == "health")
         costCheck:SetShown(selected == "power")
         costColor:SetShown(selected == "power")
+        regenButton:SetShown(selected == "power")
+        if not (selected == "power" and (section == "combat" or section == "nameplates")) then ns.fsrDialog:Hide() end
         for _, w in ipairs(swingChecks) do w:SetShown(selected == "swing") end
         for _, row in ipairs(totemRows) do
             for _, w in ipairs(row) do w:SetShown(selected == "totems") end
@@ -5857,33 +5886,6 @@ local function buildConfig()
     bwhatNote:SetJustifyH("LEFT")
     bwhat:close()
 
-    local FS = function() return db.other.fsr end
-    local spin = group(otherPage, COL[4], mouse.cursor - 20, 202, "Mana regen spinner")
-    check(otherPage, "Show", spin.x, spin:row(ROW), function() return FS().show end,
-        function(v) FS().show = v end)
-    dropdown(otherPage, "Attach to bar", spin.x, spin:row(DROP), function()
-        local list = {}
-        for _, key in ipairs(db.regular.order) do list[#list + 1] = { BARS[key].label, key } end
-        return list
-    end, function() return FS().bar end, function(v) FS().bar = v end, textPreview)
-    slider(otherPage, "Size", spin.x, spin:row(SLIDER), 8, 96, function() return FS().size end,
-        function(v) FS().size = v end)
-    local spinDir = button(otherPage, "", 186, spin.x, spin:row(BUTTON), function()
-        FS().fill = not FS().fill
-        changed()
-    end)
-    onRefresh(function() spinDir:SetText(FS().fill and "Ring: Fills up" or "Ring: Drains away") end)
-    slider(otherPage, "X (left / right)", spin.x, spin:row(SLIDER), -200, 200,
-        function() return FS().x end, function(v) FS().x = v end)
-    slider(otherPage, "Y (down / up)", spin.x, spin:row(SLIDER), -200, 200,
-        function() return FS().y end, function(v) FS().y = v end)
-    swatch(otherPage, "Color", spin.x, spin:row(SWATCH), function() return FS().color end)
-    local spinNote = label(otherPage, "Runs until Spirit regen is back: 5 s in combat, 7 s out of it. "
-        .. "Mana classes only.", "GameFontDisableSmall")
-    spinNote:SetPoint("TOPLEFT", spin.x, spin:row(28))
-    spinNote:SetWidth(182)
-    spinNote:SetJustifyH("LEFT")
-    spin:close()
 
     -- Four columns of cards are built; the window holds two. Columns 3 and 4 move under 1 and 2:
     -- anything placed on the page itself right of column 2 shifts left and down, and whatever
@@ -6186,6 +6188,40 @@ local function buildConfig()
         note:SetWidth(408)
         note:SetJustifyH("LEFT")
     end
+
+    -- Mana regen spinner dialog (the setting itself lives with the other page's, db.other.fsr)
+    local fd = ns.ui.Window(nil, 230, 560, "Mana regen spinner")
+    fd:SetParent(cfg)
+    fd:ClearAllPoints()
+    fd:SetPoint("TOPLEFT", cfg, "TOPRIGHT", 12, 0)
+    fd:Hide()
+    ns.fsrDialog = fd
+    local FS = function() return db.other.fsr end
+    ry = -48
+    check(fd, "Show", 16, rrow(ROW), function() return FS().show end, function(v) FS().show = v end)
+    dropdown(fd, "Attach to bar", 16, rrow(DROP), function()
+        local list = {}
+        for _, key in ipairs(db.regular.order) do list[#list + 1] = { BARS[key].label, key } end
+        return list
+    end, function() return FS().bar end, function(v) FS().bar = v end, textPreview)
+    slider(fd, "Size", 16, rrow(SLIDER), 8, 96, function() return FS().size end, function(v) FS().size = v end)
+    local spinDir = button(fd, "", 186, 16, rrow(BUTTON), function()
+        FS().fill = not FS().fill
+        changed()
+    end)
+    onRefresh(function() spinDir:SetText(FS().fill and "Ring: Fills up" or "Ring: Drains away") end)
+    slider(fd, "X (left / right)", 16, rrow(SLIDER), -200, 200, function() return FS().x end, function(v) FS().x = v end)
+    slider(fd, "Y (down / up)", 16, rrow(SLIDER), -200, 200, function() return FS().y end, function(v) FS().y = v end)
+    swatch(fd, "Spinner color", 16, rrow(SWATCH), function() return FS().color end)
+    check(fd, "Show while regenerating", 16, rrow(ROW), function() return FS().regen end,
+        function(v) FS().regen = v end)
+    swatch(fd, "Regenerating color", 16, rrow(SWATCH), function() return FS().regenColor end)
+    local fnote = label(fd, "Runs until Spirit regen is back: 5 s in combat, 7 s out of it. Then, while "
+        .. "your mana refills, a full ring breathes in the regenerating color. Mana classes only.",
+        "GameFontDisableSmall")
+    fnote:SetPoint("TOPLEFT", 16, rrow(60))
+    fnote:SetWidth(198)
+    fnote:SetJustifyH("LEFT")
 
     -- Numbers dialog: percent, current and current / max for the bar picked, a row each
     local nd = ns.ui.Window(nil, 440, 520, "Numbers")
@@ -6898,6 +6934,7 @@ ev:SetScript("OnEvent", function(_, event, unit, arg2, arg3)
             end
         else
             fillShown("power", "combo", "druidmana")
+            if fsr:on() and (fsr.endTime or 0) <= GetTime() then safe(fsr.sync, fsr) end -- refilling, full yet?
         end
 
     elseif event:find("^UNIT_SPELLCAST_") then
