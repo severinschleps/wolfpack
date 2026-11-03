@@ -3746,6 +3746,28 @@ assert(MultiBarBottomLeft._parent == UIParent, "and back")
     local ic = B[1].icons.buffs
     assert(#ic == 3 and ic[1]._point[1] == "TOPRIGHT" and ic[1]._point[4] == -6 and ic[2]._point[4] == -6 - 15,
         "buffs: the large group's spot, growing left")
+    -- icons inset by their border, the edge in the border color
+    o.buffs.border, o.buffs.borderColor = 2, { 0.2, 0.4, 0.6, 1 }
+    U.sync()
+    assert(ic[1].tex._points[1][2] == 2 and ic[1].tex._points[2][3] == 2 and ic[1].edge:IsShown()
+        and ic[1].edge._color[3] == 0.6, "buff border: inset, colored")
+    o.buffs.border = 0
+    U.sync()
+    assert(not ic[1].edge:IsShown(), "no border")
+    -- hover: a fill and a border over the frame, in its shape
+    local hv = B[1].hover
+    o.hover.color, o.hover.borderColor, o.hover.borderSize = { 1, 0, 0, 0.3 }, { 0, 1, 0, 0.9 }, 2
+    U.sync()
+    assert(not hv:IsShown(), "no hover yet")
+    B[1]._scripts.OnEnter(B[1])
+    assert(hv:IsShown() and hv.fill._color[1] == 1 and hv.fill._color[4] == 0.3 and hv.edges[1]._color[2] == 1
+        and hv.edges[1]._h == 2 and hv.edges[3]._w == 2 and hv.fill._points[1][2] == 2, "hovered: fill and border")
+    B[1]._scripts.OnLeave(B[1])
+    assert(not hv:IsShown(), "and gone again")
+    o.hover.show = false
+    B[1]._scripts.OnEnter(B[1])
+    assert(not hv:IsShown(), "turned off")
+    o.hover.show, o.buffs.border = true, 1
     o.dummy = 4
     U.sync()
     assert(ic[1]._point[4] == -2 and not B[6]:IsShown(), "four: the small group's spot, the rest hidden")

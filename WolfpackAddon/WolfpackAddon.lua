@@ -381,15 +381,19 @@ DEFAULTS.bags = { show = false, cols = 10, size = 36, gap = 4, sectionGap = 12, 
 -- everyone, `petHeight` high, in their owner's class color. Buffs and debuffs: which (mode), how
 -- many in what grid, and where on the frame: `small` up to `breakpoint` members, `large` above.
 -- bars: the health and power bars' look (Colors page settings apply as on any bar).
-function ns.ufAuraDefaults(mode, point, x, y)
+function ns.ufAuraDefaults(mode, point, x, y, edge)
     return { mode = mode, max = 3, cols = 3, rows = 1, size = 14, radius = 0, hideTimer = true,
+        border = 1, borderColor = edge, -- the icon inset by `border` px, the edge in its color
         small = { point = point, x = x, y = y }, large = { point = point, x = x, y = y } }
 end
 DEFAULTS.unitframes = { show = false, replace = true, fixed = "width", size = 400, per = 5, grow = "down",
     gap = 4, x = -500, y = 200, fontSize = 10, power = true, powerHeight = 4,
     pets = true, petHeight = 14, roleIcon = true, marker = true, dummy = 10, breakpoint = 5,
     roles = { "TANK", "HEALER", "DAMAGER" },
-    buffs = ns.ufAuraDefaults("mine", "TOPRIGHT", -2, -2), debuffs = ns.ufAuraDefaults("dispel", "BOTTOMLEFT", 2, 2),
+    buffs = ns.ufAuraDefaults("mine", "TOPRIGHT", -2, -2, { 0, 0, 0, 1 }),
+    debuffs = ns.ufAuraDefaults("dispel", "BOTTOMLEFT", 2, 2, { 0.8, 0.1, 0.1, 1 }),
+    -- the cursor over a frame: a color over it and a border round it, in the frame's shape
+    hover = { show = true, color = { 1, 1, 1, 0.12 }, borderColor = { 1, 1, 1, 0.8 }, borderSize = 1 },
     bars = { tothealth = barDefaults(true, 80, 32, 0.2, 0.8, 0.2, false), power = barDefaults(true, 80, 4, 0.2, 0.4, 1, false) } }
 DEFAULTS.unitframes.bars.tothealth.colorMode = "class" -- "tothealth": a bar of another unit's health
 DEFAULTS.unitframes.bars.power.colorMode = "power"
@@ -4975,6 +4979,17 @@ function ns.uf.button(i)
     b.marker = b:CreateTexture(nil, "OVERLAY")
     b.marker:SetTexture("Interface\\TargetingFrame\\UI-RaidTargetingIcons")
     b.icons = { buffs = {}, debuffs = {} }
+    -- the hover look: a fill and four edges over the bars, masked to their rounded shape
+    b.hover = CreateFrame("Frame", nil, b)
+    b.hover:SetAllPoints()
+    b.hover.fill = b.hover:CreateTexture(nil, "ARTWORK")
+    b.hover.mask, b.hover.fillMask = newMask(b.hover), newMask(b.hover)
+    b.hover.mask:SetAllPoints(b.hover)
+    b.hover.edges = {}
+    for k = 1, 4 do b.hover.edges[k] = b.hover:CreateTexture(nil, "ARTWORK", nil, 1) end
+    b.hover:Hide()
+    b:HookScript("OnEnter", function(self) self.hover:SetShown(db.unitframes.hover.show and true or false) end)
+    b:HookScript("OnLeave", function(self) self.hover:Hide() end)
     b:Hide()
     ns.uf.buttons[i] = b
     return b
@@ -5076,7 +5091,41 @@ function ns.uf.style(b)
     b.marker:SetSize(isize, isize)
     b.marker:ClearAllPoints()
     b.marker:SetPoint("TOP", b, "TOP", 0, isize / 2)
+    ns.uf.styleHover(b)
     ns.uf.update(b)
+end
+
+-- The hover look in the frame's shape: the corner radius its bars wear (shared or their own),
+-- the fill inset by the border, the border four edges under the same rounded outline.
+function ns.uf.styleHover(b)
+    local o, hv = db.unitframes.hover, b.hover
+    local c = db.unitframes.bars.tothealth
+    local radius = (c.borderFrom ~= "own" and db.colors.radius) or c.radius
+    radius = radius == "pill" and math.huge or radius
+    local w, h, t = b.wpW, b.wpH, math.min(o.borderSize, b.wpH / 2)
+    hv:SetFrameLevel(b:GetFrameLevel() + 7)
+    hv.fill:ClearAllPoints()
+    hv.fill:SetPoint("TOPLEFT", t, -t)
+    hv.fill:SetPoint("BOTTOMRIGHT", -t, t)
+    hv.fill:SetColorTexture(unpack(o.color))
+    hv.fillMask:SetAllPoints(hv.fill)
+    round(hv.fill, hv.fillMask, math.max(radius - t, 0), w - 2 * t, h - 2 * t)
+    for k, e in ipairs(hv.edges) do
+        e:SetColorTexture(unpack(o.borderColor))
+        e:SetShown(t > 0)
+        e:ClearAllPoints()
+        local side = ({ "TOP", "BOTTOM", "LEFT", "RIGHT" })[k]
+        if k <= 2 then
+            e:SetPoint(side .. "LEFT")
+            e:SetPoint(side .. "RIGHT")
+            e:SetHeight(t)
+        else
+            e:SetPoint("TOP" .. side, 0, -t)
+            e:SetPoint("BOTTOM" .. side, 0, t)
+            e:SetWidth(t)
+        end
+        round(e, hv.mask, radius, w, h)
+    end
 end
 
 -- what changes with the unit: fill, name, role, marker, auras
@@ -5128,12 +5177,15 @@ function ns.uf.auras(b)
             local ic = icons[i]
             if not ic and i <= #list then
                 ic = CreateFrame("Frame", nil, b)
+                ic.edge = ic:CreateTexture(nil, "BACKGROUND")
+                ic.edge:SetAllPoints()
+                ic.edgeMask = ic:CreateMaskTexture()
+                ic.edgeMask:SetAllPoints(ic.edge)
                 ic.tex = ic:CreateTexture(nil, "ARTWORK")
-                ic.tex:SetAllPoints()
                 ic.mask = ic:CreateMaskTexture()
                 ic.mask:SetAllPoints(ic.tex)
                 ic.cd = CreateFrame("Cooldown", nil, ic, "CooldownFrameTemplate")
-                ic.cd:SetAllPoints()
+                ic.cd:SetAllPoints(ic.tex)
                 ic.cd:SetReverse(true)
                 ic.count = ic:CreateFontString(nil, "OVERLAY", "NumberFontNormalSmall")
                 ic.count:SetPoint("BOTTOMRIGHT", -1, 1)
@@ -5147,6 +5199,13 @@ function ns.uf.auras(b)
                     ic:SetFrameLevel(b:GetFrameLevel() + 8)
                     ic:ClearAllPoints()
                     ic:SetPoint(spot.point, b, spot.point, spot.x + gx * col * (a.size + 1), spot.y + gy * row * (a.size + 1))
+                    local t = math.min(a.border or 0, a.size / 3)
+                    ic.tex:ClearAllPoints()
+                    ic.tex:SetPoint("TOPLEFT", t, -t)
+                    ic.tex:SetPoint("BOTTOMRIGHT", -t, t)
+                    ic.edge:SetShown(t > 0)
+                    ic.edge:SetColorTexture(unpack(a.borderColor))
+                    ns.iconCorners(ic.edge, ic.edgeMask, a.radius, { 0, 1, 0, 1 })
                     ns.iconCorners(ic.tex, ic.mask, a.radius, { 0.08, 0.92, 0.08, 0.92 })
                     ic.cd:SetSwipeTexture(file and "Interface\\AddOns\\WolfpackAddon\\Media\\Icon\\" .. file .. ".tga"
                         or "Interface\\Buttons\\WHITE8X8")
@@ -8440,6 +8499,16 @@ local function buildConfig()
         end
         c3:close()
 
+        local hv = group(pg, COL[1], c3.cursor - 20, 202, "Hover")
+        local H = function() return U().hover end
+        check(pg, "Highlight the frame under the cursor", hv.x, hv:row(ROW), function() return H().show end,
+            function(v) H().show = v end)
+        swatch(pg, "Hover color", hv.x, hv:row(SWATCH), function() return H().color end)
+        swatch(pg, "Hover border color", hv.x, hv:row(SWATCH), function() return H().borderColor end)
+        sliders(hv, H, { { "borderSize", "Hover border width", 0, 6 } })
+        note(hv, "In the frame's shape and corners. Opacity is in each color.", 30)
+        hv:close()
+
         -- buffs and debuffs: which, how many, the grid, and their spot below / above the breakpoint
         local bp = group(pg, COL[2], c2.cursor - 20, 202, "Buffs and debuffs")
         sliders(bp, U, { { "breakpoint", "Small group: up to (members)", 1, 39 } })
@@ -8462,6 +8531,8 @@ local function buildConfig()
                 function(v) A().radius = v end, textPreview)
             check(pg, "Hide timer text", g.x, g:row(ROW), function() return A().hideTimer end,
                 function(v) A().hideTimer = v end)
+            sliders(g, A, { { "border", "Border width", 0, 4 } })
+            swatch(pg, k[2] .. ": border color", g.x, g:row(SWATCH), function() return A().borderColor end)
             for _, sz in ipairs({ { "small", "Small group" }, { "large", "Large group" } }) do
                 local S = function() return A()[sz[1]] end
                 dropdown(pg, sz[2] .. ": anchor", g.x, g:row(DROP), POINTS, function() return S().point end,
