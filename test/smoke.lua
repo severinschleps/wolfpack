@@ -1140,7 +1140,7 @@ prof().regular.bars.castbar.icon, prof().regular.bars.castbar.iconSide = true, "
 
 -- Swing timer: a row joins the stack only while that weapon swings
 local sw, swf = prof().regular.bars.swing, ns.swingFrames.regular
-sw.off, sw.ranged = true, true
+sw.classes[S.class].off, sw.classes[S.class].ranged = true, true -- your class's rows
 fire("UNIT_MAXPOWER")
 assert(not swf[1]:IsShown() and not swf[3]:IsShown() and WolfpackAddonFrame._h == 48, "idle: no rows")
 fire("PLAYER_SWING", 2.6, 0) -- main hand, 2.6 s
@@ -1186,7 +1186,7 @@ prof().locked = false; fire("UNIT_MAXPOWER")
 assert(swf[1]:IsShown() and swf[3]:IsShown() and swf[1].text._text == "Main hand", "unlocked: preview rows")
 assert(swf[1].segs[1]._value == 1 and swf[1].segs[1]._max == 1, "a full bar to place, not the last swing's fill")
 prof().locked = true
-sw.off, sw.ranged = false, false
+sw.classes[S.class].off, sw.classes[S.class].ranged = false, false
 fire("UNIT_MAXPOWER")
 
 -- Pet health: only with a pet; own value; joins the stack (48 + 2 + 10)
@@ -2193,10 +2193,10 @@ prof().locked = false
 byText("Swing Timer")._scripts.OnClick(byText("Swing Timer"), "LeftButton")
 assert(ns.swingFrames.regular[1]:IsShown() and regionWithText(ns.pages.combat, "Swing Timer"),
     "rows up while placing: not called hidden")
-prof().regular.bars.swing.main = false; fire("UNIT_MAXPOWER")
+prof().regular.bars.swing.classes[S.class].main = false; fire("UNIT_MAXPOWER")
 byText("Swing Timer")._scripts.OnClick(byText("Swing Timer"), "LeftButton")
 assert(regionWithText(ns.pages.combat, "Swing Timer |cff888888(hidden)|r"), "no row ticked: hidden")
-prof().regular.bars.swing.main, prof().locked = true, true
+prof().regular.bars.swing.classes[S.class].main, prof().locked = true, true
 byText("Health")._scripts.OnClick(byText("Health"), "LeftButton")
 -- Bar Stack is a page of this window, not a window of its own
 ns.bs = { ShowConfig = function(page) S.bsPage = page end }
@@ -4203,6 +4203,26 @@ do
     bf:SetAlpha(0.5)
     assert(bf:GetAlpha() == 0.5, "given back: Blizzard's again")
     RogueComboPointBarFrame = nil
+end
+
+-- Swing timer per class: one set from before is copied into every class, once; then each class its own
+do
+    local here = WolfpackAddonDB.chars[S.name .. " - Realm"]
+    local sw, swf = prof().regular.bars.swing, ns.swingFrames.regular
+    sw.classesSet, sw.off = false, true
+    ns.useProfile(here)
+    assert(sw.classesSet and sw.classes.MAGE.off and sw.classes.WARRIOR.off, "the old ticks, in every class")
+    sw.off = false
+    ns.useProfile(here)
+    assert(sw.classes.MAGE.off, "only once: the per-class ticks stay")
+    sw.classes[S.class].off, sw.classes[S.class].ranged = false, false
+    prof().locked = false; fire("UNIT_MAXPOWER") -- placing: every ticked row shows
+    assert(swf[1]:IsShown() and not swf[2]:IsShown(), "another class's off hand is not yours")
+    sw.classes[S.class].off = true; fire("UNIT_MAXPOWER")
+    assert(swf[2]:IsShown(), "your class's tick")
+    sw.classes[S.class].off, prof().locked = false, true
+    fire("UNIT_MAXPOWER")
+    assert(ns.swingDialog and ns.swingButton, "the per-class window, from the swing timer's settings")
 end
 
 realPrint("smoke ok")

@@ -126,6 +126,23 @@ end
 -- (regular) or from the bottom of the target's nameplate (nameplate).
 -- One bar per weapon; the Swing Timer bar shows the ones ticked here.
 local SWING_TYPES = { { "main", "Main hand", 0 }, { "off", "Off hand", 1 }, { "ranged", "Ranged", 2 } }
+-- every class of every client, for settings kept per class
+ns.ALL_CLASSES = { "WARRIOR", "PALADIN", "HUNTER", "ROGUE", "PRIEST", "DEATHKNIGHT", "SHAMAN", "MAGE", "WARLOCK",
+    "MONK", "DRUID", "DEMONHUNTER", "EVOKER" }
+-- a profile from before the swing timer had rows per class: what every class showed, into each
+-- class, once (at login for all profiles, so a parent and its children agree)
+function ns.swingPerClass(prof)
+    for _, m in ipairs({ "regular", "plates", "platesTarget" }) do
+        local sw = type(prof[m]) == "table" and type(prof[m].bars) == "table" and prof[m].bars.swing
+        if type(sw) == "table" and not sw.classesSet then
+            sw.classes = type(sw.classes) == "table" and sw.classes or {}
+            for _, t in ipairs(ns.ALL_CLASSES) do
+                sw.classes[t] = { main = sw.main ~= false, off = sw.off == true, ranged = sw.ranged == true }
+            end
+            sw.classesSet = true
+        end
+    end
+end
 
 -- Incoming heals come from a calculator object: it takes the secret numbers and hands the bar a
 -- value it can draw, so nothing is read here either. The cost of the spell being cast is read
@@ -307,6 +324,10 @@ local function layoutDefaults(show, x, y, gap, width, h1, h2, h3, h4, h5, h6, h7
     -- colored by kind, onto auto (once, so picking another mode sticks)
     l.bars.targetcast.colorMode, l.bars.targetcast.autoSet = "auto", false
     l.bars.swing.main, l.bars.swing.off, l.bars.swing.ranged = true, false, false
+    -- classes[token]: the rows each class shows. classesSet: useProfile has copied main/off/ranged
+    -- (what every class showed before) into each class, once
+    l.bars.swing.classes, l.bars.swing.classesSet = {}, false
+    for _, t in ipairs(ns.ALL_CLASSES) do l.bars.swing.classes[t] = { main = true, off = false, ranged = false } end
     l.bars.health.heal, l.bars.health.healColor = false, { 0.4, 1, 0.5, 0.45 } -- incoming heals
     l.bars.power.cost, l.bars.power.costColor = false, { 1, 1, 1, 0.35 } -- what the cast will take
     -- combo points as circles (on): per point a background disc, the fill disc over it while the
@@ -2827,7 +2848,8 @@ local function stack(container, set, L, on, swings)
         if key == "swing" then -- one row per ticked weapon, sharing this bar's settings
             for i, kind in ipairs(SWING_TYPES) do
                 local sf = swings[i]
-                local rowShown = (shown and c[kind[1]] and (swingActive(kind[3]) or ns.previewing())) and true or false
+                local mine = c.classes and c.classes[class or ""] or c -- your class's ticks
+                local rowShown = (shown and mine[kind[1]] and (swingActive(kind[3]) or ns.previewing())) and true or false
                 sf:SetShown(rowShown)
                 if rowShown then
                     layoutBar(sf, 1)
@@ -6600,6 +6622,7 @@ useProfile = function(name)
     end
     store.chars[charKey] = name
     db = store.profiles[name]
+    ns.swingPerClass(db) -- one imported or made since login
     if not db.regular.bars.ammo.hunterSet then -- the Hunter page's panel moves onto the bars
         local H, am = db.hunter, db.regular.bars.ammo
         am.show = (H.show and H.ammo) and true or false
@@ -7734,11 +7757,8 @@ local function buildConfig()
     local auraButton = button(barsPage, "Buffs and debuffs", 186, only.x, only:row(0) - ROW - 2 * BUTTON, function()
         ns.toggleDialog(ns.auraDialog)
     end)
-    local swingChecks = {}
-    for i, kind in ipairs(SWING_TYPES) do
-        swingChecks[i] = check(barsPage, kind[2], only.x, only:row(0) - (i - 1) * ROW,
-            function() return cur()[kind[1]] end, function(v) cur()[kind[1]] = v end)
-    end
+    ns.swingButton = button(barsPage, "Weapons per class", 186, only.x, only:row(0),
+        function() ns.toggleDialog(ns.swingDialog) end)
     -- Totems: one row per segment, in the order they appear, each with its element's color.
     local totemRows = {}
     local function moveTotem(i, d)
@@ -7839,7 +7859,8 @@ local function buildConfig()
         local here = section == "combat" or section == "nameplates"
         if not (selected == "pethealth" and here) then ns.happyDialog:Hide() end
         if not (selected == "power" and (section == "combat" or section == "nameplates")) then ns.fsrDialog:Hide() end
-        for _, w in ipairs(swingChecks) do w:SetShown(selected == "swing") end
+        ns.swingButton:SetShown(selected == "swing")
+        if selected ~= "swing" then ns.swingDialog:Hide() end
         for _, row in ipairs(totemRows) do
             for _, w in ipairs(row) do w:SetShown(selected == "totems") end
         end
@@ -9272,6 +9293,33 @@ local function buildConfig()
         n:SetJustifyH("LEFT")
     end
 
+    -- Swing timer: per class, which weapons get a row
+    ;(function()
+        local list = ns.mac.classes()
+        local d = ns.ui.Window(nil, 340, 116 + #list * 24, "Swing timer: weapons per class")
+        d:SetParent(cfg)
+        d:ClearAllPoints()
+        d:SetPoint("TOPLEFT", cfg, "TOPRIGHT", 12, 0)
+        d:Hide()
+        ns.swingDialog = d
+        local O = function(token)
+            return ((selected == "swing" and cur() or DEFAULTS.regular.bars.swing).classes or {})[token] or {}
+        end
+        for j, kind in ipairs(SWING_TYPES) do
+            label(d, kind[2], "GameFontNormalSmall"):SetPoint("TOPLEFT", 130 + (j - 1) * 66, -52)
+        end
+        for i, c in ipairs(list) do
+            local y = -68 - (i - 1) * 24
+            label(d, c[2] .. (c[1] == class and " (you)" or ""), "GameFontHighlightSmall"):SetPoint("TOPLEFT", 16, y - 8)
+            for j, kind in ipairs(SWING_TYPES) do
+                check(d, "", 130 + (j - 1) * 66, y, function() return O(c[1])[kind[1]] end,
+                    function(v) O(c[1])[kind[1]] = v end)
+            end
+        end
+        local n = label(d, "A row shows only while that weapon swings.", "GameFontDisableSmall")
+        n:SetPoint("TOPLEFT", 16, -76 - #list * 24)
+    end)()
+
     -- Combo points as circles: on or off, the gap, and per layer its size and color (a function
     -- of its own: buildConfig is at Lua's limit of 200 locals)
     ;(function()
@@ -9902,6 +9950,7 @@ ev:SetScript("OnEvent", function(_, event, unit, arg2, arg3)
             for _, which in ipairs({ "regular", "plates", "platesTarget" }) do
                 ns.repairOrder(prof[which], DEFAULTS[which].order)
             end
+            ns.swingPerClass(prof)
         end
         store.flights = store.flights or {} -- ["Ironforge > Menethil Harbor"] = seconds
         safe(ft.hook)
