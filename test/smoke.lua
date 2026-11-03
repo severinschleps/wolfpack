@@ -240,6 +240,7 @@ GetSubZoneText = function() return S.subZone or "" end
 GetZoneText = function() return S.zone or "Elwynn Forest" end
 UnitRace = function() return "Orc", "Orc", S.raceID or 2 end
 UnitFactionGroup = function() return S.faction or "Horde" end
+IsResting = function() return S.resting end
 IsSpellKnown = function(id) return (S.known or {})[id] == true end
 GetMoneyString = function(c) return tostring(math.floor(c / 10000)) .. "g" end
 GameTooltip.SetSpellByID = function(_, id) S.tooltip = id end
@@ -937,32 +938,45 @@ assert(pb.segs[1]._value == 120 and fr.health.segs[1]._value == SECRET, "pet upd
 S.petHP = nil; fire("UNIT_PET", "player")
 assert(not pb:IsShown() and WolfpackAddonFrame._h == 48, "pet gone")
 
--- In-combat icon: in combat only (or previewing); x counts from the middle of the chosen bar
-local ci, icon = prof().regular.combatIcon, ns.combatIcon
+-- Status icon on your health bar: the combat icon in a fight, else rested while resting
+local st, sti = prof().regular.bars.health.statusIcon, nil
 fire("UNIT_MAXPOWER")
-assert(not icon:IsShown(), "out of combat: hidden")
+sti = fr.health.statusIcon
+assert(not sti:IsShown(), "out of combat, not resting: nothing")
 fire("PLAYER_REGEN_DISABLED")
-local ip = icon._point
-assert(icon:IsShown() and ip[1] == "CENTER" and ip[2] == fr.health and ip[3] == "CENTER" and ip[4] == -122,
-    "the old default, 12 left of the edge of a 220 bar, moved over: still there")
-assert(ci.fromCenter, "moved over once")
-ci.x = 0; fire("UNIT_MAXPOWER")
-assert(icon._point[3] == "CENTER" and icon._point[4] == 0, "x 0: the bar's middle")
-fire("PLAYER_LOGIN")
-assert(ci.x == 0, "and never moved over again")
-fire("PLAYER_REGEN_DISABLED")
-assert(icon.tex._atlas == "UI-HUD-UnitFrame-Player-CombatIcon" and icon._w == 20, "default art and size")
-ci.bar, ci.style = "druidmana", "classic"; fire("UNIT_MAXPOWER")
-assert(icon._point[2] == WolfpackAddonFrame, "attached bar hidden: falls back to the group")
-assert(icon.tex._tex == 130936 and icon.tex._coords[1] == 0.5, "classic swords cropped from the state icon")
-ci.show = false; fire("UNIT_MAXPOWER")
-assert(not icon:IsShown(), "show off")
-ci.show, ci.bar, ci.style = true, "health", "atlas"
+assert(sti:IsShown() and sti.tex._atlas == "UI-HUD-UnitFrame-Player-CombatIcon" and sti._w == 20
+    and sti._point[1] == "CENTER" and sti._point[2] == fr.health and sti._point[3] == "LEFT" and sti._point[4] == -12,
+    "in a fight: the combat icon, just left of the bar")
+st.style = "classic"; fire("UNIT_MAXPOWER")
+assert(sti.tex._tex == 130936 and sti.tex._coords[1] == 0.5, "classic swords cropped from the state icon")
+st.style = "atlas"
 fire("PLAYER_REGEN_ENABLED")
-assert(not icon:IsShown(), "combat over")
+assert(not sti:IsShown(), "combat over")
+S.resting = true; fire("PLAYER_UPDATE_RESTING")
+assert(sti:IsShown() and sti.tex._tex == 130936 and sti.tex._coords[1] == 0, "resting: the rested icon")
+st.rested = false; fire("PLAYER_UPDATE_RESTING")
+assert(not sti:IsShown(), "rested icon off")
+st.rested, S.resting = true, false
 prof().locked = false; fire("UNIT_MAXPOWER")
-assert(icon:IsShown(), "unlocked: preview for placing it")
+assert(sti:IsShown(), "unlocked: preview for placing it")
 prof().locked = true; fire("UNIT_MAXPOWER")
+-- the old in-combat icon moves onto it, where it was
+WolfpackAddonDB.profiles.OldIcon = { regular = { combatIcon = { show = false, style = "battle", bar = "health",
+    size = 30, x = -40, y = 5, fromCenter = true } } }
+local home2 = WolfpackAddonDB.chars[S.name .. " - Realm"]
+ns.useProfile("OldIcon")
+local mst = prof().regular.bars.health.statusIcon
+assert(mst.show == false and mst.style == "battle" and mst.size == 30 and mst.point == "CENTER" and mst.x == -40
+    and mst.y == 5 and prof().regular.combatIcon == nil, "moved over, from the bar's middle")
+ns.useProfile(home2)
+WolfpackAddonDB.profiles.OldIcon = nil
+-- your own PvP flag on your health bar
+UnitIsPVP = function(u) return u == "player" end
+fire("UNIT_FACTION", "player")
+assert(fr.health.pvpIcon:IsShown() and fr.health.pvpIcon.tex._tex:find("UI%-PVP%-Horde"), "your PvP flag")
+UnitIsPVP = function() return false end; fire("UNIT_FACTION", "player")
+assert(not fr.health.pvpIcon:IsShown(), "not flagged")
+UnitIsPVP = nil
 
 -- Border and radius: border inside the bar's size, bar inset by it; one mask file per radius,
 -- sliced at native size (Media/Round/r<N>.tga)
@@ -1471,6 +1485,13 @@ pb2._scripts.OnClick(pb2, "LeftButton")
 assert(ns.iconDialog:IsShown(), "PvP and drinking icons: a window of its own")
 byText("Health")._scripts.OnClick(byText("Health"), "LeftButton")
 assert(not pb2:IsShown() and not ns.iconDialog:IsShown(), "closed with the bar")
+local sb = byText("Status and PvP icons")
+byText("Health")._scripts.OnClick(byText("Health"), "LeftButton")
+sb._scripts.OnClick(sb, "LeftButton")
+assert(sb:IsShown() and ns.statusDialog:IsShown(), "your health: status and PvP icons window")
+byText("Power")._scripts.OnClick(byText("Power"), "LeftButton")
+assert(not sb:IsShown() and not ns.statusDialog:IsShown(), "only for your health")
+assert(not byText("In-combat icon"), "the old combat icon card is gone")
 -- Health, power and enemy health: a Numbers window instead of the one size and color
 local nb = byText("Numbers")
 byText("Health")._scripts.OnClick(byText("Health"), "LeftButton")

@@ -215,6 +215,11 @@ local function layoutDefaults(show, x, y, gap, width, h1, h2, h3, h4, h5, h6, h7
     -- point of the bar, nudged by x/y
     eh.pvpIcon = { show = true, style = "faction", point = "TOPLEFT", x = 0, y = 0, size = 20 }
     eh.drinkIcon = { show = true, point = "RIGHT", x = 12, y = 0, size = 18 }
+    -- your health: a status icon (the combat icon in a fight, else rested while resting) and
+    -- your own PvP flag
+    l.bars.health.statusIcon = { show = true, style = "atlas", rested = true, point = "LEFT", x = -12, y = 0,
+        size = 20 }
+    l.bars.health.pvpIcon = { show = true, style = "faction", point = "TOPLEFT", x = 0, y = 0, size = 20 }
     l.bars.power.colorMode = "power"
     -- "Power type color": one color per power, Blizzard's own to start with; any other power
     -- (runic power, astral power...) keeps Blizzard's
@@ -328,11 +333,6 @@ DEFAULTS.regular.targetMenu = true       -- right-click on the enemy health bar 
 DEFAULTS.regular.playerTarget = false    -- left-click on the bars targets yourself
 DEFAULTS.regular.playerMouseover = false -- hovering the bars makes you @mouseover
 DEFAULTS.regular.highlight = { show = false, color = { 1, 1, 1, 0.25 } } -- overlay while hovered
--- In-combat icon, centered on a bar (or the group, if that bar is hidden) + x/y. x once counted
--- from the bar's left edge: useProfile moves such a profile over once (fromCenter), keeping the
--- icon where it was -- which is also how the default, 12 left of the edge, comes out.
-DEFAULTS.regular.combatIcon = { show = true, style = "atlas", bar = "health", size = 20, x = -12, y = 0,
-    fromCenter = false }
 
 local function merge(dst, src)
     for k, v in pairs(src) do
@@ -1455,8 +1455,34 @@ function ns.layoutAuras(f)
 end
 
 ------------------------------------------------------------------------------------------
--- PvP flag and drinking, as icons on the enemy health bar
+-- Small icons on the bars: PvP flag and drinking on enemy health, status (combat / rested)
+-- and your PvP flag on your health
 ------------------------------------------------------------------------------------------
+-- Combat icon art: an atlas or a file (with a crop). Rested: the Zzz from the same state icon.
+local COMBAT_ICONS = {
+    { "Player frame swords", "atlas" },
+    { "Classic swords", "classic" },
+    { "Dual Wield icon", "dualwield" },
+    { "Battle Stance icon", "battle" },
+}
+local COMBAT_ART = {
+    atlas = { atlas = "UI-HUD-UnitFrame-Player-CombatIcon" },
+    classic = { file = 130936, coords = { 0.5, 1, 0, 0.49 } },     -- Interface/CHARACTERFRAME/UI-StateIcon
+    dualwield = { file = 132147, coords = { 0.08, 0.92, 0.08, 0.92 } }, -- Interface/ICONS/Ability_DualWield
+    battle = { file = 132349, coords = { 0.08, 0.92, 0.08, 0.92 } }, -- Interface/ICONS/Ability_Warrior_OffensiveStance
+}
+local function setCombatArt(t, style)
+    local a = COMBAT_ART[style] or COMBAT_ART.atlas
+    if a.atlas then
+        t:SetAtlas(a.atlas)
+    else
+        t:SetTexture(a.file)
+        t:SetTexCoord(unpack(a.coords))
+    end
+end
+
+local REST_ART = { file = 130936, coords = { 0, 0.5, 0, 0.421875 } } -- Interface/CHARACTERFRAME/UI-StateIcon
+ns.BADGES = { health = { "statusIcon", "pvpIcon" }, enemyhealth = { "pvpIcon", "drinkIcon" } }
 -- looks for the PvP icon: a file (or one per faction, FFA for free-for-all) and its crop
 ns.PVP_STYLES = {
     faction = { file = "Interface\\TargetingFrame\\UI-PVP-%s", coords = { 0, 0.62, 0, 0.62 } },
@@ -1490,10 +1516,10 @@ function ns.drinking(unit)
 end
 
 function ns.layoutBadges(f)
-    local c = db[f.mode].bars.enemyhealth
-    local unit = UnitExists(f.unit) and f.unit
-    local preview = not unit and ns.previewing()
-    for _, k in ipairs({ "pvpIcon", "drinkIcon" }) do
+    local c = db[f.mode].bars[f.key]
+    local unit = f.key == "health" and "player" or (UnitExists(f.unit) and f.unit)
+    local preview = ns.previewing()
+    for _, k in ipairs(ns.BADGES[f.key]) do
         local o, b = c[k], f[k]
         if not b then
             b = CreateFrame("Frame", nil, f)
@@ -1501,21 +1527,29 @@ function ns.layoutBadges(f)
             b.tex:SetAllPoints()
             f[k] = b
         end
-        local file, coords
-        if o.show and k == "pvpIcon" then
+        local art -- { file, coords } or { atlas } or a combat icon style
+        if not o.show then
+            art = nil
+        elseif k == "pvpIcon" then
             local flag = unit and ns.pvpFlag(unit) or (preview and (UnitFactionGroup("player") or "FFA"))
             local st = ns.PVP_STYLES[o.style] or ns.PVP_STYLES.faction
-            if flag then
-                file = st[flag] or (st.file and st.file:format(flag)) or st.Horde
-                coords = st.coords
+            if flag then art = { file = st[flag] or (st.file and st.file:format(flag)) or st.Horde, coords = st.coords } end
+        elseif k == "drinkIcon" then
+            if (not unit and preview) or (unit and ns.drinking(unit)) then
+                art = { file = ns.DRINK_ICON, coords = { 0.08, 0.92, 0.08, 0.92 } }
             end
-        elseif o.show and (preview or (unit and ns.drinking(unit))) then
-            file, coords = ns.DRINK_ICON, { 0.08, 0.92, 0.08, 0.92 }
+        elseif ns.inCombat or preview then -- status: shown while placing it, for placing it
+            art = o.style
+        elseif o.rested and IsResting() then
+            art = REST_ART
         end
-        b:SetShown(file ~= nil)
-        if file then
-            b.tex:SetTexture(file)
-            b.tex:SetTexCoord(unpack(coords))
+        b:SetShown(art ~= nil)
+        if art then
+            if type(art) == "string" then setCombatArt(b.tex, art)
+            else
+                b.tex:SetTexture(art.file)
+                b.tex:SetTexCoord(unpack(art.coords))
+            end
             b:SetSize(o.size, o.size)
             b:SetFrameLevel(f:GetFrameLevel() + 8)
             b:ClearAllPoints()
@@ -1776,7 +1810,8 @@ local function stack(container, set, L, on, swings)
             else
                 f:SetPoint("TOP", container, "TOP", c.x, c.y - h)
             end
-            if f.resFrame then ns.layoutRes(f); ns.layoutTag(f); ns.layoutAuras(f); ns.layoutBadges(f) end
+            if f.resFrame then ns.layoutRes(f); ns.layoutTag(f); ns.layoutAuras(f) end
+            if ns.BADGES[key] then ns.layoutBadges(f) end
             h = h + c.height + c.padBottom
             w = math.max(w, c.width)
         end
@@ -1896,47 +1931,7 @@ local function syncGryphons()
     gryphonsHidden = hide
 end
 
--- In-combat icon art: an atlas or a file (with a crop).
-local COMBAT_ICONS = {
-    { "Player frame swords", "atlas" },
-    { "Classic swords", "classic" },
-    { "Dual Wield icon", "dualwield" },
-    { "Battle Stance icon", "battle" },
-}
-local COMBAT_ART = {
-    atlas = { atlas = "UI-HUD-UnitFrame-Player-CombatIcon" },
-    classic = { file = 130936, coords = { 0.5, 1, 0, 0.49 } },     -- Interface/CHARACTERFRAME/UI-StateIcon
-    dualwield = { file = 132147, coords = { 0.08, 0.92, 0.08, 0.92 } }, -- Interface/ICONS/Ability_DualWield
-    battle = { file = 132349, coords = { 0.08, 0.92, 0.08, 0.92 } }, -- Interface/ICONS/Ability_Warrior_OffensiveStance
-}
-local function setCombatArt(t, style)
-    local a = COMBAT_ART[style] or COMBAT_ART.atlas
-    if a.atlas then
-        t:SetAtlas(a.atlas)
-    else
-        t:SetTexture(a.file)
-        t:SetTexCoord(unpack(a.coords))
-    end
-end
-
 local inCombat -- from PLAYER_REGEN_DISABLED / _ENABLED
-local combatIcon = CreateFrame("Frame", nil, anchor)
-combatIcon:SetFrameLevel(anchor:GetFrameLevel() + 15) -- above the bars
-combatIcon.tex = combatIcon:CreateTexture(nil, "OVERLAY")
-combatIcon.tex:SetAllPoints()
-ns.combatIcon = combatIcon
-
-local function syncCombatIcon()
-    local ci = db.regular.combatIcon
-    local bar = frames[ci.bar]
-    local host = (bar and bar:IsShown()) and bar or anchor
-    combatIcon:ClearAllPoints()
-    combatIcon:SetPoint("CENTER", host, "CENTER", ci.x, ci.y)
-    combatIcon:SetSize(ci.size, ci.size)
-    setCombatArt(combatIcon.tex, ci.style)
-    -- also shown as a preview while unlocked or in the options, for placing it
-    combatIcon:SetShown((ci.show and (inCombat or not db.locked or ns.configOpen)) and true or false)
-end
 
 -- Five-second rule: spending mana stops Spirit-based regen for five seconds. This spinner runs
 -- for exactly that window. It's a cooldown swipe, so the animation happens in C and nothing about
@@ -2549,7 +2544,6 @@ local function Refresh()
     moverHint:SetFormattedText(HINT, db.regular.x, db.regular.y)
     syncProtected()
     syncGryphons()
-    syncCombatIcon()
     bf.refresh()
     mg.refresh()
     hn.refresh()
@@ -3792,9 +3786,13 @@ useProfile = function(name)
     store.chars[charKey] = name
     db = store.profiles[name]
     local ci = db.regular.combatIcon
-    if not ci.fromCenter then -- x counted from the bar's left edge; now from its middle
-        local b = db.regular.bars[ci.bar]
-        ci.x, ci.fromCenter = ci.x - math.floor((b and b.width or 0) / 2), true
+    if type(ci) == "table" then -- the old in-combat icon becomes your health bar's status icon
+        local st = db.regular.bars.health.statusIcon
+        st.show, st.style, st.size = ci.show and true or false, ci.style or st.style, ci.size or st.size
+        if ci.bar == nil or ci.bar == "health" then -- its spot: x from the middle, or (older) the left edge
+            st.point, st.x, st.y = ci.fromCenter and "CENTER" or "LEFT", ci.x or st.x, ci.y or st.y
+        end
+        db.regular.combatIcon = nil
     end
     for _, m in ipairs({ "regular", "nameplate" }) do
         for _, key in ipairs({ "health", "power", "enemyhealth" }) do
@@ -4304,7 +4302,8 @@ end
 -- the windows beside the options: one at a time; clicking its button again closes it
 function ns.toggleDialog(d)
     local show = not d:IsShown()
-    for _, o in ipairs({ ns.resDialog, ns.tagDialog, ns.auraDialog, ns.textDialog, ns.iconDialog }) do o:Hide() end
+    for _, o in ipairs({ ns.resDialog, ns.tagDialog, ns.auraDialog, ns.textDialog, ns.iconDialog,
+        ns.statusDialog }) do o:Hide() end
     d:SetShown(show)
 end
 
@@ -4612,6 +4611,9 @@ local function buildConfig()
     end)
     local iconButton = button(barsPage, "PvP and drinking icons", 186, only.x, only:row(0) - ROW - 3 * BUTTON,
         function() ns.toggleDialog(ns.iconDialog) end)
+    -- your health: under the incoming heals rows
+    local statusButton = button(barsPage, "Status and PvP icons", 186, only.x, only:row(0) - ROW - BUTTON,
+        function() ns.toggleDialog(ns.statusDialog) end)
     local auraButton = button(barsPage, "Buffs and debuffs", 186, only.x, only:row(0) - ROW - 2 * BUTTON, function()
         ns.toggleDialog(ns.auraDialog)
     end)
@@ -4687,6 +4689,10 @@ local function buildConfig()
         auraButton:SetShown(selected == "enemyhealth")
         iconButton:SetShown(selected == "enemyhealth")
         if not ehOn then ns.tagDialog:Hide(); ns.auraDialog:Hide(); ns.iconDialog:Hide() end
+        statusButton:SetShown(selected == "health")
+        if not (selected == "health" and (section == "combat" or section == "nameplates")) then
+            ns.statusDialog:Hide()
+        end
         -- beside your health it takes half your health bar's width and all of its height
         local fixed = selected == "enemyhealth" and mode == "regular" and cur().beside or false
         widthSlider:SetShown(not fixed)
@@ -4952,28 +4958,6 @@ local function buildConfig()
     hnote:SetWidth(182)
     hnote:SetJustifyH("LEFT")
     hover:close()
-
-    local CI = function() return db.regular.combatIcon end
-    local icon = group(otherPage, COL[2], blizz.cursor - 20, 202, "In-combat icon")
-    check(otherPage, "Show", icon.x, icon:row(ROW), function() return CI().show end, function(v) CI().show = v end)
-    dropdown(otherPage, "Icon", icon.x, icon:row(DROP), COMBAT_ICONS, function() return CI().style end,
-        function(v) CI().style = v end, function(button, item)
-            local t = button:AttachTexture()
-            t:SetSize(20, 20)
-            setCombatArt(t, item[2])
-            return beforeName(button, item, t, 20)
-        end)
-    dropdown(otherPage, "Attach to bar", icon.x, icon:row(DROP), function()
-        local list = {}
-        for _, key in ipairs(db.regular.order) do list[#list + 1] = { BARS[key].label, key } end
-        return list
-    end, function() return CI().bar end, function(v) CI().bar = v end, textPreview)
-    slider(otherPage, "Size", icon.x, icon:row(SLIDER), 8, 64, function() return CI().size end, function(v) CI().size = v end)
-    slider(otherPage, "X (0 = the bar's middle)", icon.x, icon:row(SLIDER), -400, 400,
-        function() return CI().x end, function(v) CI().x = v end)
-    slider(otherPage, "Y (down / up)", icon.x, icon:row(SLIDER), -200, 200,
-        function() return CI().y end, function(v) CI().y = v end)
-    icon:close()
 
     local look2 = group(otherPage, COL[3], cfont.cursor - 20, 202, "Minimap look")
     local MM = function() return db.other.minimap end
@@ -5493,42 +5477,60 @@ local function buildConfig()
     anote:SetWidth(408)
     anote:SetJustifyH("LEFT")
 
-    -- PvP and drinking icons dialog: a column each
-    local idl = ns.ui.Window(nil, 440, 420, "PvP and drinking icons")
-    idl:SetParent(cfg)
-    idl:ClearAllPoints()
-    idl:SetPoint("TOPLEFT", cfg, "TOPRIGHT", 12, 0)
-    idl:Hide()
-    ns.iconDialog = idl
+    -- Icon dialogs: enemy health's PvP and drinking icons, your health's status and PvP icons,
+    -- a column each
     local POINTS = { { "Top left", "TOPLEFT" }, { "Top", "TOP" }, { "Top right", "TOPRIGHT" }, { "Left", "LEFT" },
         { "Center", "CENTER" }, { "Right", "RIGHT" }, { "Bottom left", "BOTTOMLEFT" }, { "Bottom", "BOTTOM" },
         { "Bottom right", "BOTTOMRIGHT" } }
-    local lowest = 0
-    for i, k in ipairs({ { "pvpIcon", "PvP flag" }, { "drinkIcon", "Drinking" } }) do
-        local x = 16 + (i - 1) * 214
-        -- another bar picked: the dialog is hidden, its widgets read enemy health's defaults
-        local I = function() return cur()[k[1]] or DEFAULTS.regular.bars.enemyhealth[k[1]] end
-        ry = -48
-        label(idl, k[2], "GameFontNormal"):SetPoint("TOPLEFT", x, rrow(22))
-        check(idl, "Show", x, rrow(ROW), function() return I().show end, function(v) I().show = v end)
-        if i == 1 then
-            dropdown(idl, "Icon", x, rrow(DROP), { { "Faction emblem", "faction" }, { "Faction banner", "banner" },
-                { "Crossed swords", "swords" }, { "Skull", "skull" } }, function() return I().style end,
-                function(v) I().style = v end, textPreview)
+    for _, spec in ipairs({
+        { "iconDialog", "PvP and drinking icons", "enemyhealth", { { "pvpIcon", "PvP flag" }, { "drinkIcon", "Drinking" } },
+            "PvP: shows while your target is flagged, in its faction's look (free-for-all has its own). Drinking: "
+            .. "while it has a Drink buff; one the game keeps secret in a fight can't be told." },
+        { "statusDialog", "Status and PvP icons", "health", { { "statusIcon", "Status" }, { "pvpIcon", "PvP flag" } },
+            "Status: the combat icon in a fight, else the rested icon while you are resting, else nothing. "
+            .. "PvP: while you are flagged." },
+    }) do
+        local d = ns.ui.Window(nil, 440, 480, spec[2])
+        d:SetParent(cfg)
+        d:ClearAllPoints()
+        d:SetPoint("TOPLEFT", cfg, "TOPRIGHT", 12, 0)
+        d:Hide()
+        ns[spec[1]] = d
+        local lowest = 0
+        for i, k in ipairs(spec[4]) do
+            local x = 16 + (i - 1) * 214
+            -- another bar picked: the dialog is hidden, its widgets read the defaults
+            local I = function() return cur()[k[1]] or DEFAULTS.regular.bars[spec[3]][k[1]] end
+            ry = -48
+            label(d, k[2], "GameFontNormal"):SetPoint("TOPLEFT", x, rrow(22))
+            check(d, "Show", x, rrow(ROW), function() return I().show end, function(v) I().show = v end)
+            if k[1] == "pvpIcon" then
+                dropdown(d, "Icon", x, rrow(DROP), { { "Faction emblem", "faction" }, { "Faction banner", "banner" },
+                    { "Crossed swords", "swords" }, { "Skull", "skull" } }, function() return I().style end,
+                    function(v) I().style = v end, textPreview)
+            elseif k[1] == "statusIcon" then
+                dropdown(d, "Combat icon", x, rrow(DROP), COMBAT_ICONS, function() return I().style end,
+                    function(v) I().style = v end, function(button, item)
+                        local t = button:AttachTexture()
+                        t:SetSize(20, 20)
+                        setCombatArt(t, item[2])
+                        return beforeName(button, item, t, 20)
+                    end)
+                check(d, "Rested icon while resting", x, rrow(ROW), function() return I().rested end,
+                    function(v) I().rested = v end)
+            end
+            dropdown(d, "Anchor (on the bar)", x, rrow(DROP), POINTS, function() return I().point end,
+                function(v) I().point = v end, textPreview)
+            slider(d, "X", x, rrow(SLIDER), -200, 200, function() return I().x end, function(v) I().x = v end)
+            slider(d, "Y", x, rrow(SLIDER), -100, 100, function() return I().y end, function(v) I().y = v end)
+            slider(d, "Size", x, rrow(SLIDER), 8, 64, function() return I().size end, function(v) I().size = v end)
+            lowest = math.min(lowest, ry)
         end
-        dropdown(idl, "Anchor (on the bar)", x, rrow(DROP), POINTS, function() return I().point end,
-            function(v) I().point = v end, textPreview)
-        slider(idl, "X", x, rrow(SLIDER), -200, 200, function() return I().x end, function(v) I().x = v end)
-        slider(idl, "Y", x, rrow(SLIDER), -100, 100, function() return I().y end, function(v) I().y = v end)
-        slider(idl, "Size", x, rrow(SLIDER), 8, 64, function() return I().size end, function(v) I().size = v end)
-        lowest = math.min(lowest, ry)
+        local note = label(d, spec[5], "GameFontDisableSmall")
+        note:SetPoint("TOPLEFT", 16, lowest - 4)
+        note:SetWidth(408)
+        note:SetJustifyH("LEFT")
     end
-    local inote = label(idl, "PvP: shows while your target is flagged, in its faction's look (free-for-all "
-        .. "has its own). Drinking: while it has a Drink buff; one the game keeps secret in a fight can't be "
-        .. "told.", "GameFontDisableSmall")
-    inote:SetPoint("TOPLEFT", 16, lowest - 4)
-    inote:SetWidth(408)
-    inote:SetJustifyH("LEFT")
 
     -- Numbers dialog: percent, current and current / max for the bar picked, a row each
     local nd = ns.ui.Window(nil, 440, 520, "Numbers")
@@ -6170,28 +6172,30 @@ ev:SetScript("OnEvent", function(_, event, unit, arg2, arg3)
         end
         listen("UNIT_QUEST_LOG_CHANGED", "player")
         listen("UNIT_AURA", "target") -- the enemy health bar's buffs and debuffs, and drinking
-        listen("UNIT_FACTION", "target") -- its PvP flag
+        listen("UNIT_FACTION", "target", "player") -- PvP flags
         for _, e in ipairs({ "PLAYER_ENTERING_WORLD", "UPDATE_SHAPESHIFT_FORM", "PLAYER_TARGET_CHANGED",
             "NAME_PLATE_UNIT_ADDED", "NAME_PLATE_UNIT_REMOVED", "QUEST_LOG_UPDATE", "PLAYER_REGEN_ENABLED",
             "QUEST_DETAIL", "QUEST_ACCEPT_CONFIRM", "QUEST_PROGRESS", "QUEST_COMPLETE", "GOSSIP_SHOW", "QUEST_GREETING",
-            "PLAYER_REGEN_DISABLED", "PLAYER_SWING", "PLAYER_TOTEM_UPDATE", "MERCHANT_SHOW", "MERCHANT_CLOSED",
+            "PLAYER_REGEN_DISABLED", "PLAYER_UPDATE_RESTING", "PLAYER_SWING", "PLAYER_TOTEM_UPDATE", "MERCHANT_SHOW", "MERCHANT_CLOSED",
             "GOSSIP_CLOSED" }) do
             listen(e)
         end
         if ns.swingLog then listen("COMBAT_LOG_EVENT_UNFILTERED") end -- swings, where no PLAYER_SWING
         inCombat = InCombatLockdown() -- a /reload mid-fight
+        ns.inCombat = inCombat
         local mine = store.chars[charKey]
         if not (mine and store.profiles[mine]) then
             mine = store.classProfiles and store.classProfiles[class or ""]
         end
         useProfile(store.profiles[mine or ""] and mine or classProfile)
         placeMini()
-    elseif event == "UNIT_AURA" or event == "UNIT_FACTION" then
+    elseif event == "UNIT_AURA" or event == "UNIT_FACTION" or event == "PLAYER_UPDATE_RESTING" then
         for _, set in ipairs({ frames, plateFrames }) do
-            if set.enemyhealth:IsShown() then
+            if set.enemyhealth:IsShown() and unit == "target" then
                 if event == "UNIT_AURA" then safe(ns.layoutAuras, set.enemyhealth) end
                 safe(ns.layoutBadges, set.enemyhealth)
             end
+            if set.health:IsShown() and unit ~= "target" then safe(ns.layoutBadges, set.health) end
         end
     elseif event == "UNIT_HEAL_PREDICTION" then
         fillShown("health")
@@ -6255,10 +6259,10 @@ ev:SetScript("OnEvent", function(_, event, unit, arg2, arg3)
     elseif event == "QUEST_LOG_UPDATE" or event == "UNIT_QUEST_LOG_CHANGED" then
         safe(questLogChanged)
     elseif event == "PLAYER_REGEN_DISABLED" then
-        inCombat = true
+        inCombat, ns.inCombat = true, true
         safe(Refresh)
     elseif event == "PLAYER_REGEN_ENABLED" then
-        inCombat = false
+        inCombat, ns.inCombat = false, false
         safe(questLogChanged) -- tooltips may have been secret during combat
         safe(Refresh)         -- and protected frames couldn't change
     else
