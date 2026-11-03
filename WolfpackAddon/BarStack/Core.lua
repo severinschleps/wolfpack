@@ -328,6 +328,21 @@ function BS.LoadProfile()
   BS.db.profiles[key] = BS.profile
 end
 
+-- Wolfpack copied profile `from` onto the one in use: every spec's set comes along, and a spec
+-- the source has no set for ends up empty here too.
+function BS.CopyFrom(from)
+  local pre, into, sets = ("wp:%s:"):format(from), ("wp:%s:"):format(ns.profileName), {}
+  for key, p in pairs(BS.db.profiles) do
+    local spec = key:sub(1, #pre) == pre and tonumber(key:sub(#pre + 1))
+    if spec then sets[spec] = CopyTable(p) end
+    if key:sub(1, #into) == into and tonumber(key:sub(#into + 1)) then BS.db.profiles[key] = nil end
+  end
+  for spec, p in pairs(sets) do BS.db.profiles[into .. spec] = p end
+  BS.LoadProfile()
+  BS.Save()
+  BS.Apply()
+end
+
 -- Bar Stack has no export string of its own: its profile travels inside Wolfpack's profile
 -- string, which hands it back here on import (for the profile in use and this spec).
 function BS.ImportProfile(p)

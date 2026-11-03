@@ -128,6 +128,14 @@ assert(#BS.profile.groups[1].bars == 0, "another profile has its own, empty set"
 ns.profileName = "Warrior"
 BS.LoadProfile()
 assert(BS.profile.groups[1].bars[1].name == "Imported", "switching back restores the set")
+-- copying a Wolfpack profile brings its sets along, and a spec the source lacks ends up empty
+BS.db.profiles["wp:Alpha:3"] = { groups = {} }
+ns.profileName = "Alpha"
+BS.CopyFrom("Warrior")
+assert(BS.profile.groups[1].bars[1].name == "Imported", "the copied set is in use")
+assert(BS.profile ~= BS.db.profiles["wp:Warrior:1"], "a copy, not the same table")
+assert(not BS.db.profiles["wp:Alpha:3"], "a spec the source has no set for is cleared")
+BS.db.profiles["wp:Alpha:1"] = nil
 ns.profileName = nil
 BS.db.profiles["Tester-Realm:1"] = BS.db.profiles["wp:Warrior:1"]
 BS.LoadProfile()

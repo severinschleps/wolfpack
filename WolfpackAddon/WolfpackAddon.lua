@@ -3651,6 +3651,35 @@ ns.exportString, ns.editModeString, ns.importString = exportString, editModeStri
 ns.seedFromBaked = function() return seedFromBaked() end
 ns.useProfile = useProfile
 
+-- Another profile's settings (Bar Stack's too) replace the current one's; the name stays.
+function ns.copyProfile(from)
+    local into = store.chars[charKey]
+    if from == into then return end
+    wipe(db)
+    merge(db, store.profiles[from] or ns.freshProfile(from))
+    if ns.bs and ns.bs.CopyFrom then pcall(ns.bs.CopyFrom, from) end
+    useProfile(into)
+end
+
+StaticPopupDialogs.WOLFPACKADDON_COPY = {
+    text = "Copy profile \"%s\" onto \"%s\"?\nIts current settings are replaced.",
+    button1 = YES, button2 = NO,
+    OnAccept = function(_, from) ns.copyProfile(from) end,
+    timeout = 0, whileDead = true, hideOnEscape = true,
+}
+
+StaticPopupDialogs.WOLFPACKADDON_RESET = {
+    text = "Reset profile \"%s\" to its defaults?",
+    button1 = YES, button2 = NO,
+    OnAccept = function()
+        wipe(db)
+        merge(db, ns.freshProfile(store.chars[charKey]))
+        place()
+        changed()
+    end,
+    timeout = 0, whileDead = true, hideOnEscape = true,
+}
+
 StaticPopupDialogs.WOLFPACKADDON_DELETE = {
     text = "Delete Wolfpack Addon profile \"%s\"?",
     button1 = YES, button2 = NO,
@@ -3909,13 +3938,25 @@ local function buildConfig()
     shelf("Profile") -- the header row has no room left for these
     button(cfg, "Export", 122, 12, y, function() openIO("export") end, true)
     button(cfg, "Import", 122, 12, y - 28, function() openIO("import") end, true)
-    button(cfg, "Reset", 122, 12, y - 56, function()
-        wipe(db)
-        merge(db, ns.freshProfile(store.chars[charKey]))
-        place()
-        changed()
+    local from = ns.ui.Dropdown(CreateFrame("DropdownButton", nil, cfg, "WowStyle1DropdownTemplate"))
+    from:SetPoint("TOPLEFT", 12, y - 56)
+    from:SetSize(122, 24)
+    from:SetDefaultText("Copy from...")
+    from:SetupMenu(function(_, root)
+        for _, name in ipairs(profileNames()) do
+            if name ~= store.chars[charKey] then
+                root:CreateRadio(name, function() return false end, function()
+                    StaticPopup_Show("WOLFPACKADDON_COPY", name, store.chars[charKey], name)
+                end)
+            end
+        end
+    end)
+    onRefresh(function() from:GenerateMenu() end)
+    ns.copyFromMenu = from
+    button(cfg, "Reset", 122, 12, y - 84, function()
+        StaticPopup_Show("WOLFPACKADDON_RESET", store.chars[charKey])
     end, true)
-    y = y - 84
+    y = y - 112
 
     ns.sidebarBottom = y
     local divider = cfg:CreateTexture(nil, "ARTWORK")

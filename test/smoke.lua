@@ -1087,6 +1087,36 @@ byText("Combat Display")._scripts.OnClick(byText("Combat Display"), "LeftButton"
 assert(ns.pages.combat.need > 1000 and ns.content._h == ns.pages.combat.need - 90 + 16,
     "the scroll area is as tall as the page")
 assert(byText("Export") and byText("Import") and byText("Reset"), "profile buttons moved to the sidebar")
+-- Reset asks first; No leaves the profile alone (on a scratch profile, the real one stays as is)
+local home = WolfpackAddonDB.chars[S.name .. " - Realm"]
+ns.useProfile("Scratch")
+local asked, realShow = nil, StaticPopup_Show
+StaticPopup_Show = function(which, a) asked = { which, a } end
+prof().regular.bars.health.width = 333
+byText("Reset")._scripts.OnClick(byText("Reset"), "LeftButton")
+assert(asked[1] == "WOLFPACKADDON_RESET" and prof().regular.bars.health.width == 333, "reset waits for Yes")
+StaticPopupDialogs.WOLFPACKADDON_RESET.OnAccept()
+assert(prof().regular.bars.health.width ~= 333, "Yes resets")
+StaticPopup_Show = realShow
+-- Copy from: another profile's settings (and Bar Stack's) land on the current one, name kept
+local here = WolfpackAddonDB.chars[S.name .. " - Realm"]
+WolfpackAddonDB.profiles.Source = { regular = { bars = { health = { width = 321 } } } }
+local bsFrom
+ns.bs = { CopyFrom = function(n) bsFrom = n end }
+ns.copyFromMenu:GenerateMenu()
+local pick
+for _, it in ipairs(ns.copyFromMenu._items) do
+    assert(it.text ~= here, "the current profile is not offered")
+    if it.text == "Source" then pick = it end
+end
+pick.set()
+assert(WolfpackAddonDB.chars[S.name .. " - Realm"] == here and prof().regular.bars.health.width == 321,
+    "copied onto the current profile")
+assert(prof() ~= WolfpackAddonDB.profiles.Source, "a copy, not the same table")
+assert(bsFrom == "Source", "Bar Stack's sets come along")
+ns.bs, WolfpackAddonDB.profiles.Source = nil, nil
+ns.useProfile(home)
+WolfpackAddonDB.profiles.Scratch = nil
 -- the swing timer draws in its rows, so it is "(hidden)" only when no row is up
 prof().locked = false
 byText("Swing Timer")._scripts.OnClick(byText("Swing Timer"), "LeftButton")
@@ -1124,7 +1154,7 @@ nameBox._text = "PvP"; nameBox._scripts.OnEnterPressed(nameBox)
 assert(store.profiles["PvP 2"] and prof() == store.profiles["PvP 2"], "same name again: PvP 2")
 store.profiles["PvP 2"], store.chars[S.name .. " - Realm"] = nil, "PvP"
 local dds = {} -- profile, texture, bar color, border color, radius, font, kill icon, loot icon, combat icon, attach
-for _, f in ipairs(created) do if f._gen then dds[#dds + 1] = f end end
+for _, f in ipairs(created) do if f._gen and f ~= ns.copyFromMenu then dds[#dds + 1] = f end end
 local dd = dds[1]
 dd:GenerateMenu()
 local names = {}
