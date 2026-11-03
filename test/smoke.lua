@@ -511,8 +511,18 @@ for _, v in ipairs({ "11509", "16001", "20506", "50504", "120105" }) do
 end
 assert(loadfile("WolfpackAddon/WolfpackAddon.lua"))("WolfpackAddon", ns)
 local function fire(e, ...) evFrame._scripts.OnEvent(evFrame, e, ...) end
--- each class logs in as its own character
-local function login(class, ptype) S.class, S.name, S.ptype = class, class .. "Char", ptype; fire("PLAYER_LOGIN") end
+-- each class logs in as its own character; once S.perClass is set, on a profile of its own (named
+-- after the class, as the tests below were written for), else on Alpha like a real first login
+local function login(class, ptype)
+    S.class, S.name, S.ptype = class, class .. "Char", ptype
+    local db = WolfpackAddonDB
+    if S.perClass and db and db.profiles and not (db.classProfiles or {})[class] then -- a tie wins
+        local own, key = class:sub(1, 1) .. class:sub(2):lower(), S.name .. " - Realm"
+        if db.chars[key] == nil or db.chars[key] == "Alpha" then db.chars[key] = own end
+        db.profiles[own] = db.profiles[own] or {}
+    end
+    fire("PLAYER_LOGIN")
+end
 local function prof() return WolfpackAddonDB.profiles[WolfpackAddonDB.chars[S.name .. " - Realm"]] end
 local function byText(text) for _, f in ipairs(created) do if f._text == text then return f end end end
 local fr = ns.frames
@@ -593,10 +603,13 @@ assert(not fr.combo:IsShown(), "no holy power on this client")
 login("WARRIOR", 1)
 assert(not fr.combo:IsShown() and fr.power:IsShown(), "warrior")
 
--- Profiles: one per class, named after it, shared account-wide
+-- Profiles: shared account-wide; a character with no pick of its own and no profile tied to
+-- its class starts on Alpha
 local store = WolfpackAddonDB
-assert(store.profiles.Rogue and store.profiles.Druid and store.profiles.Paladin and store.profiles.Warrior, "class profiles")
-assert(store.chars["WARRIORChar - Realm"] == "Warrior", "character on its class profile")
+assert(store.profiles.Alpha and store.chars["WARRIORChar - Realm"] == "Alpha"
+    and store.chars["ROGUEChar - Realm"] == "Alpha", "every character starts on Alpha")
+S.perClass = true -- from here on each test class keeps a profile of its own
+login("WARRIOR", 1)
 
 -- Per-bar offsets move only that bar; the next bar keeps its slot (18 + 2 = 20, then 20 + 14 + 2 = 36)
 S.secret = true
@@ -2152,7 +2165,7 @@ byText("Combat Display")._scripts.OnClick(byText("Combat Display"), "LeftButton"
 byText("Combat Display")._scripts.OnClick(byText("Combat Display"), "LeftButton")
 assert(gapBox._text == "30", "back on Combat Display")
 
--- Profiles: create copies the current one, dropdown switches, delete falls back to the class profile
+-- Profiles: create copies the current one, dropdown switches, delete falls back to Alpha
 nameBox._text = "  PvP "; nameBox._scripts.OnEnterPressed(nameBox)
 assert(store.profiles.PvP and store.profiles.PvP.regular.gap == 30 and prof() == store.profiles.PvP, "create copies + switches")
 prof().regular.gap = 5
@@ -2167,16 +2180,13 @@ local dd = dds[1]
 dd:GenerateMenu()
 local names = {}
 for _, it in ipairs(dd._items) do names[#names + 1] = it.text .. (it.sel() and "*" or "") end
--- "Alpha" is a ready-made profile: listed before it exists, created when picked
-assert(table.concat(names, ",") == "Alpha,Druid,Paladin,PvP*,Rogue,Warrior", table.concat(names, ","))
-assert(store.profiles.Alpha == nil, "not created until used")
-dd._items[1].set()
-assert(store.profiles.Alpha and prof() == store.profiles.Alpha, "picked: made from the preset")
-dd._items[5].set()
+assert(table.concat(names, ",") == "Alpha,PvP*,Rogue,Warrior", table.concat(names, ","))
+dd._items[3].set()
 assert(prof() == store.profiles.Rogue, "dropdown switches")
-dd._items[4].set()
+dd._items[2].set()
 byText("Delete profile")._scripts.OnClick(byText("Delete profile"), "LeftButton")
-assert(not store.profiles.PvP and prof() == store.profiles.Rogue, "delete falls back to class profile")
+assert(not store.profiles.PvP and prof() == store.profiles.Alpha, "delete falls back to Alpha")
+ns.useProfile("Rogue") -- back on the test rogue's own profile
 
 -- Texture and font dropdowns: pick sets the selected bar (Health), previews render
 local texDD, fontDD = dds[2], dds[6]
@@ -2887,7 +2897,7 @@ local bakedFont = ns.COMBAT_FONTS[5][2]
 blobs[#blobs + 1] = { profile = {}, combatFont = bakedFont }
 bakedStub = "zblob" .. #blobs
 assert(ns.freshProfile("Alpha").other.combatFont == bakedFont, "new profiles carry the baked font")
--- an empty account is filled from the baked bundle, classes and all
+-- an empty account is filled from the baked bundle: its profiles, and Alpha
 blobs[#blobs + 1] = { profile = {}, profiles = { ["Alpha Warrior"] = { regular = { gap = 5 } } },
     classes = { WARRIOR = "Alpha Warrior" } }
 bakedStub = "zblob" .. #blobs
@@ -2895,7 +2905,8 @@ local keptProfiles, keptClasses = WolfpackAddonDB.profiles, WolfpackAddonDB.clas
 WolfpackAddonDB.profiles, WolfpackAddonDB.classProfiles = {}, {}
 ns.seedFromBaked()
 assert(WolfpackAddonDB.profiles["Alpha Warrior"], "the baked bundle fills an empty account")
-assert(WolfpackAddonDB.classProfiles.WARRIOR == "Alpha Warrior", "with each class on its own")
+assert(next(WolfpackAddonDB.classProfiles) == nil and WolfpackAddonDB.profiles.Alpha,
+    "no class tied to a profile, so everyone starts on Alpha, made from the bundle's own profile")
 WolfpackAddonDB.profiles, WolfpackAddonDB.classProfiles = keptProfiles, keptClasses
 -- new profiles start from it, or the plain defaults if it can't be read
 local fresh = ns.freshProfile()
