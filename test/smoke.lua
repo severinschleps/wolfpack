@@ -1268,7 +1268,7 @@ assert(pcb._parent == UIParent, "option off: Blizzard moves it freely")
 
 -- Right-click menu: secure unit buttons over your health and power bars only, synced out of
 -- combat, off while unlocked
-assert(not WolfpackAddonClicker, "no secure button unless asked")
+assert(not (WolfpackAddonClicker and WolfpackAddonClicker:IsShown()), "no secure button shown unless asked (one may exist, hidden, for a pet to hang on)")
 R0.playerMenu = true; fire("UNIT_MAXPOWER")
 local ck, cp = WolfpackAddonClicker, WolfpackAddonClickerPower
 assert(ck._template == "SecureUnitButtonTemplate" and ck._attr.unit == "player" and ck._attr.type2 == "togglemenu", "menu button")
@@ -1311,6 +1311,30 @@ R0.targetMenu = false; fire("UNIT_MAXPOWER")
 assert(not ct._watched and not ct:IsShown(), "option off: gone")
 R0.targetMenu, R0.bars.enemyhealth.show, R0.bars.enemyhealth.beside = true, false, false; fire("UNIT_MAXPOWER")
 assert(not ct._watched, "enemy health hidden: no button")
+-- your pet and your target's target: a menu each, shown by the unit watch; hung on another bar,
+-- theirs hangs on that bar's button
+S.PB, S.TT = R0.bars.pethealth, R0.bars.tothealth
+S.PB.show, S.PB.anchor, S.petHP = true, "left", 100; fire("UNIT_PET", "player")
+S.cpet = WolfpackAddonClickerPet
+assert(S.cpet and S.cpet._attr.unit == "pet" and S.cpet._attr.type2 == "togglemenu" and S.cpet._watched,
+    "pet: a menu, while there is a pet")
+assert(S.cpet._point[1] == "TOPRIGHT" and S.cpet._point[2] == WolfpackAddonClicker and S.cpet._point[3] == "TOPLEFT"
+    and S.cpet._point[4] == -R0.gap and S.cpet._w == S.PB.width and S.cpet._h == WolfpackAddonClicker._h,
+    "left of your health's button, its height")
+S.PB.anchor = "below"; fire("UNIT_PET", "player")
+assert(S.cpet._point[1] == "TOPLEFT" and S.cpet._point[3] == "BOTTOMLEFT" and S.cpet._point[5] == -R0.gap
+    and S.cpet._w == WolfpackAddonClicker._w and S.cpet._h == S.PB.height, "below it, its width")
+R0.petMenu = false; fire("UNIT_PET", "player")
+assert(not S.cpet._watched, "pet menu off")
+R0.petMenu, S.PB.show, S.PB.anchor, S.petHP = true, false, "stack", nil
+R0.bars.enemyhealth.show, S.TT.show, S.TT.anchor = true, true, "right"; fire("UNIT_MAXPOWER")
+S.ctot = WolfpackAddonClickerToT
+assert(S.ctot and S.ctot._attr.unit == "targettarget" and S.ctot._watched and S.ctot._point[2] == WolfpackAddonClickerTarget
+    and S.ctot._point[3] == "TOPRIGHT" and S.ctot._point[4] == R0.gap, "target of target: right of enemy health's button")
+S.TT.anchor = "below"; fire("UNIT_MAXPOWER")
+assert(S.ctot._point[1] == "BOTTOMLEFT" and S.ctot._point[3] == "BOTTOMLEFT" and S.ctot._h == S.TT.height
+    and S.ctot:GetFrameLevel() > WolfpackAddonClickerTarget:GetFrameLevel(), "below: the bottom of enemy health's slot, over its button")
+S.TT.show, S.TT.anchor, R0.bars.enemyhealth.show = false, "right", false; fire("UNIT_MAXPOWER")
 
 -- Nameplate layout is separate: own show flags, sizes, gap and group offset
 local pf, plateStack = ns.plateFrames, ns.plateFrames.combo._parent

@@ -358,6 +358,8 @@ DEFAULTS.regular.hideTargetFrame = false -- hide Blizzard's target unit frame
 DEFAULTS.regular.hideBlizzCastbar = false -- hide Blizzard's player cast bar
 DEFAULTS.regular.playerMenu = false      -- right-click on the bars opens the player menu
 DEFAULTS.regular.targetMenu = true       -- right-click on the enemy health bar opens the target's menu
+DEFAULTS.regular.petMenu = true          -- ... on the pet bar, your pet's
+DEFAULTS.regular.totMenu = true          -- ... on target of target, its menu
 DEFAULTS.regular.playerTarget = false    -- left-click on the bars targets yourself
 DEFAULTS.regular.playerMouseover = false -- hovering the bars makes you @mouseover
 DEFAULTS.regular.highlight = { show = false, color = { 1, 1, 1, 0.25 } } -- overlay while hovered
@@ -2190,44 +2192,75 @@ end
 -- The enemy health bar has one too (unit "target", right-click menu). The game's unit watch shows
 -- it only while you have a target, in combat as well; ponytail: its spot is the bar's last one
 -- out of combat, which is off only if the stack changes shape mid-fight.
+-- Your pet and your target's target have one each too (right-click menu, unit watch). Hung on
+-- another bar, theirs hangs on that bar's button (secure on secure, so that is allowed in combat).
 ns.clickers = {}
-local CLICKER_NAMES = { health = "WolfpackAddonClicker", power = "WolfpackAddonClickerPower",
-    enemyhealth = "WolfpackAddonClickerTarget" }
+local CLICKERS = { health = { "WolfpackAddonClicker", "player" }, power = { "WolfpackAddonClickerPower", "player" },
+    enemyhealth = { "WolfpackAddonClickerTarget", "target" }, pethealth = { "WolfpackAddonClickerPet", "pet" },
+    tothealth = { "WolfpackAddonClickerToT", "targettarget" } }
+local HUNG_ON = { pethealth = "health", tothealth = "enemyhealth" }
 function ns.syncClickers()
     local R = db.regular
     local eh = R.bars.enemyhealth
     local beside = eh.show and eh.beside
     local top = R.grow == "up" and R.y + anchor:GetHeight() or R.y -- the group's top edge
-    for _, key in ipairs({ "health", "power", "enemyhealth" }) do
-        local enemy = key == "enemyhealth"
-        local wanted = (enemy and R.targetMenu or not enemy and (R.playerMenu or R.playerTarget or R.playerMouseover))
-            and true or false
-        local c, f = ns.clickers[key], frames[key]
-        if wanted and not c then
-            c = CreateFrame("Button", CLICKER_NAMES[key], UIParent, "SecureUnitButtonTemplate")
-            c:SetAttribute("unit", enemy and "target" or "player")
+    local player = (R.playerMenu or R.playerTarget or R.playerMouseover) and true or false
+    local want = { health = player, power = player, enemyhealth = R.targetMenu, pethealth = R.petMenu,
+        tothealth = R.totMenu }
+    local function hungWanted(key) return want[key] and R.bars[key].show and R.bars[key].anchor ~= "stack" end
+    for _, key in ipairs({ "health", "power", "enemyhealth", "pethealth", "tothealth" }) do
+        local b, f, mine = R.bars[key], frames[key], CLICKERS[key][2] == "player"
+        local c = ns.clickers[key]
+        -- also made for a bar whose pet / target of target hangs on it, to hang that one on
+        local need = want[key] or (key == "health" and hungWanted("pethealth"))
+            or (key == "enemyhealth" and hungWanted("tothealth"))
+        if need and not c then
+            c = CreateFrame("Button", CLICKERS[key][1], UIParent, "SecureUnitButtonTemplate")
+            c:SetAttribute("unit", CLICKERS[key][2])
             c:RegisterForClicks("LeftButtonUp", "RightButtonUp")
             ns.clickers[key] = c
         end
         if c then
-            c:SetAttribute("type1", not enemy and R.playerTarget and "target" or nil)
-            c:SetAttribute("type2", (enemy or R.playerMenu) and "togglemenu" or nil)
-            local point, _, _, x, y = (enemy and beside and frames.health or f):GetPoint(1)
-            local on = wanted and db.locked and point ~= nil -- unlocked: dragging wins
-                and (enemy and eh.show or not enemy and f:IsShown())
-            if enemy then
-                if on then RegisterUnitWatch(c) else UnregisterUnitWatch(c); c:Hide() end
-            else
+            c:SetAttribute("type1", mine and R.playerTarget and "target" or nil)
+            c:SetAttribute("type2", (not mine or R.playerMenu) and "togglemenu" or nil)
+            local host = HUNG_ON[key] and b.anchor ~= "stack" and ns.clickers[HUNG_ON[key]]
+            local point, _, _, x, y = (key == "enemyhealth" and beside and frames.health or f):GetPoint(1)
+            local placed = host or point ~= nil
+            local on = want[key] and db.locked and placed -- unlocked: dragging wins
+                and (mine and f:IsShown() or not mine and b.show)
+            if mine then
                 c:SetShown(on or false)
+            elseif on then
+                RegisterUnitWatch(c)
+            else
+                UnregisterUnitWatch(c)
+                c:Hide()
             end
-            if on then
-                local b = R.bars[key]
+            if placed then
                 local w, h = f:GetWidth(), b.height
                 c:ClearAllPoints()
-                if beside and key ~= "power" then -- the two halves of your health bar's width
+                if host then
+                    c:SetFrameLevel(host:GetFrameLevel() + 1)
+                    if b.anchor == "below" and key == "tothealth" then -- the bottom of enemy health's slot
+                        w = host:GetWidth()
+                        c:SetPoint("BOTTOMLEFT", host, "BOTTOMLEFT")
+                    elseif b.anchor == "below" then -- your pet: under your health
+                        w = host:GetWidth()
+                        c:SetPoint("TOPLEFT", host, "BOTTOMLEFT", 0, -R.gap)
+                    else
+                        w, h = b.width, host:GetHeight()
+                        if b.anchor == "left" then
+                            c:SetPoint("TOPRIGHT", host, "TOPLEFT", -R.gap, 0)
+                        else
+                            c:SetPoint("TOPLEFT", host, "TOPRIGHT", R.gap, 0)
+                        end
+                    end
+                elseif beside and key ~= "power" then -- the two halves of your health bar's width
                     local hb = R.bars.health
                     w, h = (hb.width - R.gap) / 2, hb.height
-                    local left = R.x + hb.x - hb.width / 2 + (enemy and w + R.gap or 0)
+                    -- enemy health beside you also spans a pet below your health
+                    if key == "enemyhealth" and ns.petBelow() then h = h + R.bars.pethealth.height + R.gap end
+                    local left = R.x + hb.x - hb.width / 2 + (key == "enemyhealth" and w + R.gap or 0)
                     c:SetPoint("TOPLEFT", UIParent, "CENTER", left, top + y)
                 else
                     c:SetPoint(point, UIParent, "CENTER", R.x + x, top + y)
@@ -5272,6 +5305,10 @@ local function buildConfig()
         function() return db.regular.playerMenu end, function(v) db.regular.playerMenu = v end)
     check(otherPage, "Enemy health: right-click menu", mouse.x, mouse:row(ROW),
         function() return db.regular.targetMenu end, function(v) db.regular.targetMenu = v end)
+    check(otherPage, "Pet: right-click menu", mouse.x, mouse:row(ROW),
+        function() return db.regular.petMenu end, function(v) db.regular.petMenu = v end)
+    check(otherPage, "Target of target: right-click menu", mouse.x, mouse:row(ROW),
+        function() return db.regular.totMenu end, function(v) db.regular.totMenu = v end)
     check(otherPage, "Mouseover macros", mouse.x, mouse:row(ROW),
         function() return db.regular.playerMouseover end, function(v) db.regular.playerMouseover = v end)
     check(otherPage, "Highlight on mouseover", mouse.x, mouse:row(ROW),
