@@ -2264,8 +2264,21 @@ assert(not store.parents.Alpha, "Alpha can't be given a parent")
 store.profiles.Rogue.regular.bars.health.height = 61
 store.parents.Alpha, store.overrides.Alpha = "Rogue", {}
 login("ROGUE", 3)
-assert(not store.parents.Alpha and store.parents.Rogue == "Alpha"
-    and store.overrides.Rogue.regular.bars.health.height == 61, "turned round: Rogue is Alpha's child")
+assert(not store.parents.Alpha and store.parents.Rogue == "Alpha" and next(store.overrides.Rogue) == nil
+    and prof().regular.bars.health.height == store.profiles.Alpha.regular.bars.health.height,
+    "turned round: Rogue is a plain child of Alpha")
+-- picking a parent for a profile that differs from it asks: a plain child, or keep its own
+store.parents.Rogue, store.overrides.Rogue = nil, nil
+prof().regular.bars.health.height = 62
+ns.cfg:Show(); byText("Profiles")._scripts.OnClick(byText("Profiles"), "LeftButton")
+ns.parentMenu:GenerateMenu()
+for _, it in ipairs(ns.parentMenu._items) do if it.text == "Alpha" then it.set() end end -- the popup: Plain child
+assert(store.parents.Rogue == "Alpha" and next(store.overrides.Rogue) == nil
+    and prof().regular.bars.health.height == store.profiles.Alpha.regular.bars.health.height, "plain child")
+store.parents.Rogue, store.overrides.Rogue = nil, nil
+prof().regular.bars.health.height = 62
+StaticPopupDialogs.WOLFPACKADDON_LINK.OnAlt(nil, { "Rogue", "Alpha" })
+assert(store.overrides.Rogue.regular.bars.health.height == 62, "or keeping its own")
 store.parents.Rogue, store.overrides.Rogue = nil, nil
 ns.useProfile("Rogue")
 

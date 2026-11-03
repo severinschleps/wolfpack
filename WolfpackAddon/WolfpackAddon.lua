@@ -7228,6 +7228,23 @@ function ns.copyProfile(from)
     useProfile(into)
 end
 
+-- giving a profile that differs a parent: a plain child (its settings become the parent's), or
+-- one that keeps its differences as changes of its own
+StaticPopupDialogs.WOLFPACKADDON_LINK = {
+    text = "Make \"%s\" a child of \"%s\"?\nA plain child takes all its parent's settings. Or it can keep "
+        .. "the settings it has now as changes of its own.",
+    button1 = "Plain child", button3 = "Keep its settings", button2 = CANCEL or "Cancel",
+    OnAccept = function(_, d)
+        ns.inh.link(d[1], d[2])
+        store.overrides[d[1]] = {}
+        ns.inh.rebuild(d[1])
+        place()
+        changed()
+    end,
+    OnAlt = function(_, d) ns.inh.link(d[1], d[2]); changed() end,
+    timeout = 0, whileDead = true, hideOnEscape = true,
+}
+
 StaticPopupDialogs.WOLFPACKADDON_COPY = {
     text = "Copy profile \"%s\" onto \"%s\"?\nIts current settings are replaced.",
     button1 = YES, button2 = NO,
@@ -7613,8 +7630,10 @@ local function buildConfig()
                 if name ~= me() and not ns.inh.loops(me(), name) then
                     root:CreateRadio(name, function() return ns.inh.parentOf(me()) == name end, function()
                         store.profiles[name] = store.profiles[name] or merge(ns.freshProfile(name), DEFAULTS)
-                        ns.inh.link(me(), name)
-                        changed()
+                        local k = ns.inh.diff(db, ns.inh.base(name))
+                        if not k then ns.inh.link(me(), name); return changed() end
+                        -- it differs from its new parent: start plain, or keep the differences?
+                        StaticPopup_Show("WOLFPACKADDON_LINK", me(), name, { me(), name })
                     end)
                 end
             end
@@ -10258,13 +10277,12 @@ ev:SetScript("OnEvent", function(_, event, unit, arg2, arg3)
         store.classProfiles = store.classProfiles or {} -- [class token] = profile name
         store.parents, store.overrides = store.parents or {}, store.overrides or {} -- see ns.inh
         -- Alpha set to follow another (picked the wrong way round, before Alpha became the base):
-        -- turned round, so that one becomes Alpha's child, keeping what differs from Alpha
+        -- turned round, so that one becomes Alpha's child, a plain one, as was meant
         local wrong = store.parents[ns.DEFAULT_NAME]
         if wrong then
             store.parents[ns.DEFAULT_NAME], store.overrides[ns.DEFAULT_NAME] = nil, nil
             if store.profiles[wrong] and store.profiles[ns.DEFAULT_NAME] and not store.parents[wrong] then
-                store.parents[wrong] = ns.DEFAULT_NAME
-                ns.inh.save(wrong)
+                store.parents[wrong], store.overrides[wrong] = ns.DEFAULT_NAME, {}
             end
         end
         -- every profile, not just the one in use: a bar added since it was saved belongs on all
