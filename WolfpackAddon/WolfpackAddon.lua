@@ -2590,6 +2590,19 @@ function ns.syncSpecialBars()
     ns.ab.placing = false
 end
 
+-- /wp binds: each of your keys, and what the game really does with it (another addon's binding
+-- on the same key would show up here instead of the button)
+function ns.BindReport()
+    local any = false
+    for slot, key in pairs(db.actionbars.binds) do
+        any = true
+        local ok, action = pcall(GetBindingAction, key, true)
+        print(("|cff88ccffWolfpack|r %s -> slot %s: %s"):format(key, slot, ok and tostring(action) or "?"))
+    end
+    if not any then print("|cff88ccffWolfpack|r no keys bound on your action bars yet") end
+end
+
+-- isPriority: over other addons' override bindings on the same key, not only the game's own
 function ns.abBinds()
     if InCombatLockdown() then return end
     local owner = ns.ab.owner
@@ -2597,13 +2610,13 @@ function ns.abBinds()
     for i, bar in ipairs(db.actionbars.bars) do
         for j, b in ipairs(ns.ab.buttons[i] or {}) do
             local key = b:IsShown() and db.actionbars.binds[tostring(bar.first + j - 1)]
-            if key then SetOverrideBindingClick(owner, false, key, b:GetName(), "LeftButton") end
+            if key then SetOverrideBindingClick(owner, true, key, b:GetName(), "LeftButton") end
         end
     end
     for _, kind in ipairs({ "stance", "pet" }) do
         for i = 1, 10 do
             local key, b = db.actionbars.binds[kind .. ":" .. i], ns.abBlizzButton(kind, i)
-            if key and b and b:GetName() then SetOverrideBindingClick(owner, false, key, b:GetName(), "LeftButton") end
+            if key and b and b:GetName() then SetOverrideBindingClick(owner, true, key, b:GetName(), "LeftButton") end
         end
     end
 end
@@ -7087,6 +7100,7 @@ SlashCmdList.WOLFPACKADDON = function(msg)
     if msg:find("flight") then return safe(ns.FlightReport) end
     if msg:find("heal") then return safe(ns.HealReport) end
     if msg:find("cast") then return safe(ns.CastReport) end
+    if msg:find("bind") then return safe(ns.BindReport) end
     safe(ns.ToggleConfig)
 end
 

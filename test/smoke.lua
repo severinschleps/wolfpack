@@ -227,7 +227,8 @@ S.binds = {}
 RegisterStateDriver = function(f, kind, rule) f._driver = rule end
 UnregisterStateDriver = function(f) f._driver = nil end
 ClearOverrideBindings = function(owner) S.binds = {} end
-SetOverrideBindingClick = function(owner, prio, key, name, btn) S.binds[key] = name end
+SetOverrideBindingClick = function(owner, prio, key, name, btn) S.binds[key] = name; S.bindPrio = prio end
+GetBindingAction = function(key) return S.binds[key] and ("CLICK " .. S.binds[key] .. ":LeftButton") or "" end
 IsInGroup = function() return S.group end
 IsInRaid = function() return S.raid or false end
 CanMerchantRepair = function() return S.canRepair end
@@ -3009,6 +3010,11 @@ S.ab[3]._scripts.OnEnter(S.ab[3])
 S.shift = true; ns.abKey("LSHIFT"); ns.abKey("3"); S.shift = false
 assert(S.A.binds["3"] == "SHIFT-3" and S.binds["SHIFT-3"] == "WolfpackActionBar1Button3"
     and S.ab[3].wpKey._text == "S3", "shift-3 on slot 3, shown short")
+assert(S.bindPrio == true, "over other addons' bindings on the same key")
+ns.abBindMode(true); S.ab[3]._scripts.OnEnter(S.ab[3]); ns.abKey("Q")
+assert(S.A.binds["3"] == "Q" and S.binds.Q == "WolfpackActionBar1Button3", "a plain key binds too")
+S.A.binds["3"] = "SHIFT-3"; ns.abBinds()
+SlashCmdList.WOLFPACKADDON("binds") -- the report runs
 S.ab[3]._scripts.OnLeave(S.ab[3]); ns.ab.buttons[2][1]._scripts.OnEnter(ns.ab.buttons[2][1])
 S.shift = true; ns.abKey("3"); S.shift = false
 assert(S.A.binds["13"] == "SHIFT-3" and not S.A.binds["3"] and S.ab[3].wpKey._text == "", "the key moved")
