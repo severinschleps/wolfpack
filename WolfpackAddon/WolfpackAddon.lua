@@ -2367,12 +2367,13 @@ function ns.abUsed()
     return n
 end
 
--- A key as short as fits a button: SHIFT-1 -> S1, BUTTON4 -> M4
+-- A key as short as fits a button: SHIFT-1 -> S1, META-E -> ME, BUTTON4 -> B4
 function ns.abKeyText(slot)
     local key = db.actionbars.binds[tostring(slot)]
     if not key then return "" end
-    return (key:gsub("ALT%-", "A"):gsub("CTRL%-", "C"):gsub("SHIFT%-", "S"):gsub("META%-", "Cm"):gsub("NUMPAD", "N")
-        :gsub("MOUSEWHEELUP", "WU"):gsub("MOUSEWHEELDOWN", "WD"):gsub("BUTTON", "M"))
+    -- M: the Mac's Command key, so mouse buttons are B (BUTTON4 -> B4)
+    return (key:gsub("ALT%-", "A"):gsub("CTRL%-", "C"):gsub("SHIFT%-", "S"):gsub("META%-", "M"):gsub("NUMPAD", "N")
+        :gsub("MOUSEWHEELUP", "WU"):gsub("MOUSEWHEELDOWN", "WD"):gsub("BUTTON", "B"))
 end
 function ns.abHotkey(b)
     if not b.wpKey then return end
@@ -2380,6 +2381,26 @@ function ns.abHotkey(b)
     if b.wpBlizz and not db.actionbars.binds[tostring(slot)] then return end -- the game's own key text
     b.wpKey:SetText(ns.abKeyText(slot))
     b.wpKey:Show()
+end
+
+-- Keybind mode on a button: hovering makes it the target; the middle and side mouse buttons and
+-- the wheel bind there too (left and right stay for clicking Done and dragging spells).
+function ns.abHooks(b)
+    b:HookScript("OnEnter", function(self) if ns.ab.binding then ns.ab.target = self end end)
+    b:HookScript("OnLeave", function(self) if ns.ab.target == self then ns.ab.target = nil end end)
+    b:HookScript("OnMouseDown", function(self, btn)
+        local n = btn == "MiddleButton" and 3 or tonumber((btn or ""):match("^Button(%d+)$"))
+        if ns.ab.binding and n then
+            ns.ab.target = self
+            ns.abKey("BUTTON" .. n)
+        end
+    end)
+    b:HookScript("OnMouseWheel", function(self, delta)
+        if ns.ab.binding then
+            ns.ab.target = self
+            ns.abKey(delta > 0 and "MOUSEWHEELUP" or "MOUSEWHEELDOWN")
+        end
+    end)
 end
 
 function ns.abButton(f, i, j)
@@ -2400,8 +2421,7 @@ function ns.abButton(f, i, j)
     if mask then pcall(b.wpIcon.RemoveMaskTexture, b.wpIcon, mask) end
     -- the game writes its own key text over ours when bindings change: write ours back
     if type(rawget(b, "UpdateHotkeys")) == "function" then hooksecurefunc(b, "UpdateHotkeys", ns.abHotkey) end
-    b:HookScript("OnEnter", function(self) if ns.ab.binding then ns.ab.target = self end end)
-    b:HookScript("OnLeave", function(self) if ns.ab.target == self then ns.ab.target = nil end end)
+    ns.abHooks(b)
     return b
 end
 
@@ -2537,8 +2557,7 @@ function ns.syncSpecialBars()
                             b.wpEdgeMask, b.wpMask = b:CreateMaskTexture(), b:CreateMaskTexture()
                             b.wpEdgeMask:SetAllPoints(b.wpEdge)
                             b.wpMask:SetAllPoints(b.wpIcon)
-                            b:HookScript("OnEnter", function(self) if ns.ab.binding then ns.ab.target = self end end)
-                            b:HookScript("OnLeave", function(self) if ns.ab.target == self then ns.ab.target = nil end end)
+                            ns.abHooks(b)
                         end
                     end
                     b:SetParent(i <= n and f or hider)
@@ -2667,7 +2686,7 @@ function ns.abBindMode(on)
         local text = f:CreateFontString(nil, "OVERLAY")
         text:SetFontObject(ns.ui.TEXT)
         text:SetPoint("TOP", 0, -12)
-        text:SetText("Keybind mode: hover a button, press a key.\nEscape on a button unbinds it.")
+        text:SetText("Keybind mode: hover a button, press a key,\nmouse button or wheel. Escape on it unbinds.")
         local done = ns.ui.Button(f, "Done", 80)
         done:SetPoint("BOTTOMRIGHT", -10, 8)
         done:SetScript("OnClick", function() ns.abBindMode(false) end)
@@ -2676,8 +2695,23 @@ function ns.abBindMode(on)
         f:Hide()
         ab.binder = f
     end
+    if InCombatLockdown() and on then return end -- buttons can't change in combat
     ab.binding, ab.target = on and true or false, nil
     ab.binder:SetShown(on and true or false)
+    if InCombatLockdown() then return end
+    -- while binding: the wheel lands on the buttons, and a click on one of yours casts nothing
+    for _, list in pairs(ab.buttons) do
+        for _, b in ipairs(list) do
+            b:EnableMouseWheel(on and true or false)
+            if on then b:RegisterForClicks() else b:RegisterForClicks("AnyUp", "AnyDown") end
+        end
+    end
+    for _, kind in ipairs({ "stance", "pet" }) do
+        for i = 1, 10 do
+            local b = ns.abBlizzButton(kind, i)
+            if b and b.wpBlizz then b:EnableMouseWheel(on and true or false) end
+        end
+    end
 end
 
 -- Secure unit buttons over your health and power bars, clicking like Blizzard's player frame:

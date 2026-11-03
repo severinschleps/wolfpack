@@ -49,6 +49,7 @@ function M:SetHideCountdownNumbers(v) self._hideNums = v end
 function M:SetAttribute(k, v) self._attr = self._attr or {}; self._attr[k] = v end
 function M:GetAttribute(k) return (self._attr or {})[k] end
 function M:RegisterForClicks(...) self._clicks = { ... } end
+function M:EnableMouseWheel(v) self._wheel = v end
 function M:SetFont(path, size, flags) self._font = { path, size, flags }; return true end
 function M:SetTextColor(...) self._color = { ... } end
 function M:GetFont() return self._font and self._font[1] or "Fonts\\FRIZQT__.TTF", 25, "OUTLINE" end
@@ -3016,7 +3017,17 @@ assert(S.A.binds["3"] == "Q" and S.binds.Q == "WolfpackActionBar1Button3", "a pl
 -- the Mac's Command key: never bound by itself, and part of the chord
 IsMetaKeyDown = function() return S.meta end
 S.meta = true; ns.abKey("LMETA"); ns.abKey("E"); S.meta = false
-assert(S.A.binds["3"] == "META-E" and S.binds["META-E"] and S.ab[3].wpKey._text == "CmE", "Command+E")
+assert(S.A.binds["3"] == "META-E" and S.binds["META-E"] and S.ab[3].wpKey._text == "ME", "Command+E, shown ME")
+-- mouse: the wheel and the middle / side buttons bind on the hovered button; clicks cast nothing
+assert(S.ab[3]._wheel == true and #S.ab[3]._clicks == 0, "binding: wheel on, clicks off")
+S.ab[3]._scripts.OnMouseWheel(S.ab[3], 1)
+assert(S.A.binds["3"] == "MOUSEWHEELUP" and S.ab[3].wpKey._text == "WU", "wheel up")
+S.ab[3]._scripts.OnMouseDown(S.ab[3], "Button4")
+assert(S.A.binds["3"] == "BUTTON4" and S.ab[3].wpKey._text == "B4", "side button, shown B4")
+S.ab[3]._scripts.OnMouseDown(S.ab[3], "MiddleButton")
+assert(S.A.binds["3"] == "BUTTON3", "middle button")
+S.ab[3]._scripts.OnMouseDown(S.ab[3], "LeftButton")
+assert(S.A.binds["3"] == "BUTTON3", "left click: left for dragging and Done")
 S.A.binds["3"] = "SHIFT-3"; ns.abBinds()
 SlashCmdList.WOLFPACKADDON("binds") -- the report runs
 S.ab[3]._scripts.OnLeave(S.ab[3]); ns.ab.buttons[2][1]._scripts.OnEnter(ns.ab.buttons[2][1])
@@ -3028,6 +3039,7 @@ S.combat = true; ns.abKey("Q"); S.combat = false
 assert(not S.A.binds["13"], "no binding in combat")
 ns.ab.buttons[2][1]._scripts.OnLeave(ns.ab.buttons[2][1]); ns.abKey("ESCAPE")
 assert(not ns.ab.binding and not ns.ab.binder:IsShown(), "Escape off the buttons: done")
+assert(S.ab[3]._wheel == false and S.ab[3]._clicks[1] == "AnyUp", "done: wheel off, clicks back")
 -- deleting a bar frees its slots; its frame goes
 StaticPopupDialogs.WOLFPACKADDON_DELBAR.OnAccept(nil, 2)
 assert(#S.A.bars == 1 and not ns.ab.frames[2]:IsShown() and ns.abRoom(1) == 120, "deleted: the room is back")
