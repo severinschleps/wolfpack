@@ -1589,6 +1589,7 @@ assert(ns.plateUnits.nameplate1 == h, "recycled plate reuses its holder")
     local P, plate = prof().plates.bars.enemyhealth, new()
     plate.UnitFrame = new()
     S.plates.nameplate4 = plate
+    S.units = S.units or {}; S.units.nameplate4 = "NONE" -- a plate's unit exists
     local function npFire(e, u) ns.npEv._scripts.OnEvent(ns.npEv, e, u) end
     npFire("NAME_PLATE_UNIT_ADDED", "nameplate4")
     fire("NAME_PLATE_UNIT_ADDED", "nameplate4") -- the quest icon holder
@@ -1603,6 +1604,20 @@ assert(ns.plateUnits.nameplate1 == h, "recycled plate reuses its holder")
     plate.UnitFrame:SetAlpha(1)
     assert(plate.UnitFrame._alpha == 0, "and kept so when the game sets it")
     assert(f.tag_name:IsShown() and f.tag_level:IsShown(), "name and level")
+    assert(f.tag_name._text == UnitName("nameplate4"), "the unit's own name")
+    -- stand-in auras belong to the preview only: a real plate never wears them, open options,
+    -- unlocked bars or not, and closing the options in combat (no aura data) leaves none behind
+    local function dummies()
+        for _, k in ipairs({ "buffs", "debuffs" }) do
+            for _, b in ipairs(f.auraIcons[k]) do if b:IsShown() then return true end end
+        end
+    end
+    local wasOpen, wasLocked = ns.configOpen, prof().locked
+    ns.configOpen, prof().locked = true, false; ns.np.all()
+    assert(not dummies(), "no dummy auras on a real plate while placing")
+    ns.configOpen, prof().locked = wasOpen, wasLocked
+    S.combat = true; ns.np.all(); S.combat = nil
+    assert(not dummies(), "and none left after")
     assert(f.tag_name._justify == "CENTER", "a name on the TOP anchor centers (the game takes no TOP)")
     local r = f.resFrame
     assert(r:IsShown() and r._point[1] == "TOP" and r._point[2] == f and r._point[3] == "BOTTOM", "power underneath")
@@ -1630,7 +1645,7 @@ assert(ns.plateUnits.nameplate1 == h, "recycled plate reuses its holder")
     assert(not f:IsShown() and plate.UnitFrame._alpha == 1, "turned off: Blizzard's plates again")
     npFire("NAME_PLATE_UNIT_REMOVED", "nameplate4")
     fire("NAME_PLATE_UNIT_REMOVED", "nameplate4")
-    prof().quest.anchor = "inside"
+    prof().quest.anchor, S.units.nameplate4 = "inside", nil
 end)()
 
 -- Minimap icon: dragging moves it around the minimap

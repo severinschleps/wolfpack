@@ -1735,11 +1735,16 @@ function ns.layoutAuras(f)
         local per = across and o.cols or o.rows
         local max = math.min(o.max, o.cols * o.rows)
         local list = {}
-        if o.show and ns.previewing() then -- the options are open: a full grid to tune it by
+        -- the options are open: a full grid to tune it by (never on a real nameplate)
+        local dummy = o.show and ns.previewing() and not f.plate
+        if dummy then
             list = ns.dummyAuras(k, max)
         elseif o.show and unit then
             list = ns.auraList(unit, k == "buffs" and "HELPFUL" or ns.debuffFilter(unit), max)
         end
+        -- the game refusing (in combat) right after the preview: no stand-ins left behind
+        if not list and box.dummy then list = {} end
+        box.dummy = dummy
         if list then -- nil: the game refused, the icons stay as they are
             local n = math.min(#list, max)
             local file = ns.ICON_MASKS[o.radius]
