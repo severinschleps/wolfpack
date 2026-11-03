@@ -44,6 +44,8 @@ function M:SetTexCoord(...) self._coords = { ... } end
 function M:SetStatusBarColor(...) self._sbc = { ... } end
 function M:SetStatusBarTexture(t) self._tex = t end
 function M:SetCooldown(start, dur) self._cd = { start, dur } end
+function M:SetSwipeTexture(t) self._swipeTex = t end
+function M:SetHideCountdownNumbers(v) self._hideNums = v end
 function M:SetAttribute(k, v) self._attr = self._attr or {}; self._attr[k] = v end
 function M:GetAttribute(k) return (self._attr or {})[k] end
 function M:RegisterForClicks(...) self._clicks = { ... } end
@@ -596,30 +598,48 @@ eh.tagLevel, eh.tagName = false, false; fire("PLAYER_TARGET_CHANGED")
 assert(not tl:IsShown() and not tn:IsShown(), "both off: nothing")
 eh.tagLevel, S.tLevel, S.tKind = true, nil, nil
 UnitLevel, GetQuestDifficultyColor, UnitClassification = realLevel, nil, nil
--- buffs and debuffs: above the bar by default, debuffs stacked after the buffs in the same spot
+-- buffs and debuffs: each group in a box; buffs hang above the bar, debuffs above the buffs
 S.auras = { { icon = 111, duration = 10, expirationTime = 20 }, { icon = 112, applications = 3 } }
 S.debuffs = { { icon = 221 } }
 fire("UNIT_AURA", "target")
 local bi, di = ef.auraIcons.buffs, ef.auraIcons.debuffs
+local bb, db_ = ef.auraBoxes.buffs, ef.auraBoxes.debuffs
 assert(bi[1]:IsShown() and bi[2]:IsShown() and bi[1].tex._tex == 111 and bi[2].count._text == 3
     and bi[1].cd._cd[1] == 10 and bi[1].cd._cd[2] == 10, "the target's buffs, with timer and stacks")
-assert(bi[1]._point[1] == "BOTTOMLEFT" and bi[1]._point[3] == "TOPLEFT" and bi[1]._point[5] == 2
-    and bi[2]._point[4] == 22, "above, growing right, 20 + 2 apart")
-assert(di[1].tex._tex == 221 and di[1]._point[5] == 2 + 20 + 4, "debuffs over the buffs, a group gap up")
-eh.debuffs.spot = "below_left"; eh.buffs.cols, eh.buffs.rows = 1, 2; fire("UNIT_AURA", "target")
-assert(di[1]._point[1] == "TOPRIGHT" and di[1]._point[3] == "BOTTOMRIGHT" and di[1]._point[5] == 2,
-    "a spot of its own: no stacking")
-assert(bi[2]._point[4] == 0 and bi[2]._point[5] == 2 + 22, "one column: the second buff goes up a row")
+assert(bb._point[1] == "BOTTOMLEFT" and bb._point[2] == ef and bb._point[3] == "TOPLEFT" and bb._point[5] == 2
+    and bb._w == 42 and bb._h == 20, "the buff box: above the bar, as big as two icons and a gap")
+assert(bi[2]._point[2] == bb and bi[2]._point[4] == 22, "icons grow right, 20 + 2 apart")
+assert(di[1].tex._tex == 221 and db_._point[2] == bb and db_._point[3] == "TOPLEFT" and db_._point[5] == 4,
+    "debuffs hang on the buffs, a group gap up")
+-- debuffs on the bar, buffs on the debuffs: the other way round
+eh.debuffs.anchorTo, eh.buffs.anchorTo, eh.buffs.spot = "bar", "other", "right"
+fire("UNIT_AURA", "target")
+assert(db_._point[2] == ef and bb._point[2] == db_ and bb._point[1] == "TOPLEFT" and bb._point[3] == "TOPRIGHT"
+    and bb._point[4] == 4, "buffs to the right of the debuffs, a group gap across")
+-- both on each other: buffs take the bar, nothing hangs in the air
+eh.debuffs.anchorTo = "other"; fire("UNIT_AURA", "target")
+assert(bb._point[2] == ef and db_._point[2] == bb, "a loop is broken at the buffs")
+eh.buffs.anchorTo, eh.buffs.spot, eh.debuffs.spot = "bar", "above_right", "below_left"
+eh.buffs.cols, eh.buffs.rows = 1, 2; fire("UNIT_AURA", "target")
+assert(bi[2]._point[4] == 0 and bi[2]._point[5] == 22 and bb._h == 42, "one column: the second buff goes up a row")
 eh.buffs.max = 1; fire("UNIT_AURA", "target")
 assert(bi[1]:IsShown() and not bi[2]:IsShown(), "most icons caps it")
+-- rounded icons, the swipe rounded with them; the timer text can go
+eh.buffs.radius, eh.buffs.hideTimer = 25, true; fire("UNIT_AURA", "target")
+assert(bi[1].tex._masks[bi[1].mask] and bi[1].cd._swipeTex:find("i25"), "rounded, swipe too")
+assert(bi[1].cd._hideNums == true and di[1].cd._hideNums == false, "buff timer text hidden, debuffs keep theirs")
+eh.buffs.radius = 0; fire("UNIT_AURA", "target")
+assert(not bi[1].tex._masks[bi[1].mask] and bi[1].cd._swipeTex:find("WHITE8X8"), "square again")
 S.combat = true; S.auras = {}; fire("UNIT_AURA", "target")
 assert(bi[1]:IsShown(), "the game refuses: the icons stay")
 S.combat = false; fire("UNIT_AURA", "target")
-assert(not bi[1]:IsShown(), "no buffs, no icons")
+assert(not bi[1]:IsShown() and bb._w == 0, "no buffs, no icons, an empty box")
 eh.debuffs.show = false; fire("UNIT_AURA", "target")
 assert(not di[1]:IsShown(), "debuffs off")
-eh.buffs = { show = true, spot = "above_right", x = 0, y = 2, size = 20, cols = 8, rows = 1, max = 8 }
-eh.debuffs = { show = true, spot = "above_right", x = 0, y = 2, size = 24, cols = 8, rows = 2, max = 16 }
+eh.buffs = { show = true, anchorTo = "bar", spot = "above_right", x = 0, y = 2, size = 20, radius = 0,
+    cols = 8, rows = 1, max = 8, hideTimer = false }
+eh.debuffs = { show = true, anchorTo = "other", spot = "above_right", x = 0, y = 0, size = 24, radius = 0,
+    cols = 8, rows = 2, max = 16, hideTimer = false }
 S.auras, S.debuffs = nil, nil
 eh.resWidth, eh.resHeight, eh.resX, eh.resY = 50, 8, -20, 5
 fire("PLAYER_TARGET_CHANGED")
