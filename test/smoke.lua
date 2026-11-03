@@ -1579,6 +1579,54 @@ assert(not h.kill:IsShown() and not ns.plateUnits.nameplate1, "removed plate cle
 fire("NAME_PLATE_UNIT_ADDED", "nameplate1")
 assert(ns.plateUnits.nameplate1 == h, "recycled plate reuses its holder")
 
+-- Plates: a bar of ours on every nameplate, Blizzard's own plate made invisible
+;(function()
+    local P, plate = prof().plates.bars.enemyhealth, new()
+    plate.UnitFrame = new()
+    S.plates.nameplate4 = plate
+    local function npFire(e, u) ns.npEv._scripts.OnEvent(ns.npEv, e, u) end
+    npFire("NAME_PLATE_UNIT_ADDED", "nameplate4")
+    fire("NAME_PLATE_UNIT_ADDED", "nameplate4") -- the quest icon holder
+    assert(not ns.np.units.nameplate4 and P.show == false, "off to start: Blizzard's plates stay")
+    P.show = true
+    ns.np.all()
+    local f = ns.np.units.nameplate4
+    assert(f and f._parent == plate and f:IsShown() and f.unit == "nameplate4" and f.resFrame.unit == "nameplate4",
+        "turned on: a bar on the plate already up, for its unit")
+    assert(f._point[1] == "CENTER" and f._point[2] == plate, "centered on the plate")
+    assert(plate.UnitFrame._alpha == 0, "Blizzard's plate invisible")
+    plate.UnitFrame:SetAlpha(1)
+    assert(plate.UnitFrame._alpha == 0, "and kept so when the game sets it")
+    assert(f.tag_name:IsShown() and f.tag_level:IsShown(), "name and level")
+    local r = f.resFrame
+    assert(r:IsShown() and r._point[1] == "TOP" and r._point[2] == f and r._point[3] == "BOTTOM", "power underneath")
+    P.resPlace = "inside"; ns.np.all()
+    assert(r._point[1] == "BOTTOM" and r._point[3] == "BOTTOM", "or inside it")
+    P.resPlace, P.resPoint = "outside", "LEFT"; ns.np.all()
+    assert(r._point[1] == "RIGHT" and r._point[3] == "LEFT", "or hung on any edge")
+    P.resource = false; ns.np.all()
+    assert(not r:IsShown(), "or hidden")
+    P.resource, P.resPoint = true, "BOTTOM"
+    -- the quest icon row hangs on our bar, where Sits says
+    local h = ns.plateUnits.nameplate4
+    prof().quest.anchor = "above"; ns.np.all()
+    assert(h.box._point[1] == "BOTTOMRIGHT" and h.box._point[2] == f and h.box._point[3] == "TOPRIGHT", "quest row above the bar")
+    -- the bar's own settings are enemy health's, of this layout only
+    P.width = 150; ns.np.all()
+    assert(f.width == 150 and prof().regular.bars.enemyhealth.width ~= 150, "its own width")
+    npFire("UNIT_HEALTH", "nameplate4")
+    npFire("NAME_PLATE_UNIT_REMOVED", "nameplate4")
+    fire("NAME_PLATE_UNIT_REMOVED", "nameplate4")
+    assert(not f:IsShown() and not ns.np.units.nameplate4 and plate.UnitFrame._alpha == 1, "removed: Blizzard's back")
+    npFire("NAME_PLATE_UNIT_ADDED", "nameplate4")
+    assert(ns.np.units.nameplate4 == f, "a recycled plate keeps its bar")
+    P.show = false; ns.np.all()
+    assert(not f:IsShown() and plate.UnitFrame._alpha == 1, "turned off: Blizzard's plates again")
+    npFire("NAME_PLATE_UNIT_REMOVED", "nameplate4")
+    fire("NAME_PLATE_UNIT_REMOVED", "nameplate4")
+    prof().quest.anchor = "inside"
+end)()
+
 -- Minimap icon: dragging moves it around the minimap
 local mini = WolfpackAddonMinimapButton
 mini._scripts.OnDragStart(mini); mini._scripts.OnUpdate(mini); mini._scripts.OnDragStop(mini)
@@ -1617,14 +1665,24 @@ for _, f in ipairs(created) do if f._scripts.OnMouseUp and f._scripts.OnDragStar
 mover._scripts.OnDragStart(mover); mover._scripts.OnUpdate(mover); mover._scripts.OnDragStop(mover)
 assert(prof().regular.x == 0 and prof().regular.y == 50 and not mover._scripts.OnUpdate, "drag stores coordinates")
 
--- Sidebar: Nameplates (Bars tab) edits the nameplate layout only; its group range is +-200
+-- Sidebar: Nameplates (Target bars tab) edits the nameplate layout only; its group range is +-200
 byText("Nameplates")._scripts.OnClick(byText("Nameplates"), "LeftButton")
+byText("Target bars")._scripts.OnClick(byText("Target bars"), "LeftButton")
 assert(gapBox._text == "1" and xBox._text == "0" and yBox._text == "-2", "tab shows nameplate values")
 gapBox._text = "4"; gapBox._scripts.OnEnterPressed(gapBox)
 xBox._text = "-150"; xBox._scripts.OnEnterPressed(xBox)
 boxes[5]._text = "90"; boxes[5]._scripts.OnEnterPressed(boxes[5])
 assert(prof().nameplate.gap == 4 and prof().nameplate.x == -150 and prof().nameplate.bars.health.width == 90, "nameplate edits")
 assert(prof().regular.gap == 30 and prof().regular.x == 0 and prof().regular.bars.health.width == 220, "regular untouched")
+-- the Plates tab edits the one nameplate bar; the bar picked before comes back on leaving it
+byText("Plates")._scripts.OnClick(byText("Plates"), "LeftButton")
+boxes[5]._text = "130"; boxes[5]._scripts.OnEnterPressed(boxes[5])
+assert(prof().plates.bars.enemyhealth.width == 130 and prof().nameplate.bars.enemyhealth.width ~= 130, "plate width")
+assert(ns.np.preview:IsShown() and ns.np.preview.width == 130 and ns.np.preview._point[2] == ns.cfg,
+    "a preview plate beside the window while the tab is open")
+byText("Target bars")._scripts.OnClick(byText("Target bars"), "LeftButton")
+assert(not ns.np.preview:IsShown(), "and gone on another tab")
+assert(boxes[5]._text == "90", "back on the nameplate health bar")
 -- every sidebar entry is really there, opens its page, and that page has settings on it
 for _, name in ipairs({ "Combat Display", "Nameplates", "Buff check", "Other",
     "Mage", "Rogue", "Shaman", "Warlock" }) do
@@ -1746,7 +1804,7 @@ nameBox._text = "PvP"; nameBox._scripts.OnEnterPressed(nameBox)
 assert(store.profiles["PvP 2"] and prof() == store.profiles["PvP 2"], "same name again: PvP 2")
 store.profiles["PvP 2"], store.chars[S.name .. " - Realm"] = nil, "PvP"
 local dds = {} -- profile, texture, bar color, border color, radius, font, kill icon, loot icon, combat icon, attach
-for _, f in ipairs(created) do if f._gen and f ~= ns.copyFromMenu and f ~= ns.sitsMenu and f ~= ns.xpMenu and f ~= ns.borderFromMenu and f ~= ns.sharedRadiusMenu and f ~= ns.textureFromMenu and f ~= ns.sharedTextureMenu and not (f._parent == ns.pages.actionbars) then dds[#dds + 1] = f end end
+for _, f in ipairs(created) do if f._gen and f ~= ns.copyFromMenu and f ~= ns.questSpotMenu and f ~= ns.resPlaceMenu and f ~= ns.resPointMenu and f ~= ns.sitsMenu and f ~= ns.xpMenu and f ~= ns.borderFromMenu and f ~= ns.sharedRadiusMenu and f ~= ns.textureFromMenu and f ~= ns.sharedTextureMenu and not (f._parent == ns.pages.actionbars) then dds[#dds + 1] = f end end
 local dd = dds[1]
 dd:GenerateMenu()
 local names = {}

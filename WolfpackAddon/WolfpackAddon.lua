@@ -201,6 +201,9 @@ local function layoutDefaults(show, x, y, gap, width, h1, h2, h3, h4, h5, h6, h7
     local eh = l.bars.enemyhealth
     eh.beside, eh.resource = false, true
     eh.resHeight, eh.resWidth, eh.resX, eh.resY = math.max(2, math.floor(h1 / 4)), 90, 0, 3
+    -- resPlace "inside": drawn over the bar at its point resPoint; "outside": hung on the bar's
+    -- edge at resPoint (BOTTOM: underneath it, TOPLEFT: above its left end...)
+    eh.resPlace, eh.resPoint = "inside", "BOTTOM"
     -- its own text switch and border; the rest of its look (texture, font...) is enemy health's
     eh.resHideText, eh.resBorderSize, eh.resBorderMode, eh.resBorderColor, eh.resRadius =
         false, 0, "bar", { 0, 0, 0, 1 }, 0
@@ -306,7 +309,7 @@ local DEFAULTS = {
     regular = layoutDefaults(true, 0, -120, 2, 220, 18, 14, 12, 6, 14, 10, 10, 10, 10),
     nameplate = layoutDefaults(false, 0, -2, 1, 110, 8, 6, 6, 4, 8, 5, 5, 5, 5),
     quest = {
-        x = 0, y = 0, spacing = 2,
+        x = 0, y = 0, spacing = 2, anchor = "inside", -- anchor: a key of ns.QUEST_SPOTS
         kill = { show = true, icon = 131013, size = 20, count = false },
         loot = { show = true, icon = 131023, size = 20, count = false },
     },
@@ -325,6 +328,20 @@ local DEFAULTS = {
             fill = true, regen = true, regenColor = { 0.3, 1, 0.5, 0.7 } },
     },
 }
+
+-- Our own nameplates: every nameplate gets an enemy health bar, set up like one on the Plates
+-- tab. Only enemy health of this layout is used; show = Blizzard's plates are replaced. x / y:
+-- the bar's center from the plate's center.
+do
+    local l = layoutDefaults(false, 0, 0, 2, 120, 10, 6, 6, 4, 8, 5, 5, 5, 5)
+    local e = l.bars.enemyhealth
+    e.tagName, e.tagLevel, e.tagSize = true, true, 9
+    e.nameAnchor, e.nameX, e.nameY, e.tagAttach = "TOP", 0, 12, "right"
+    e.resource, e.resPlace, e.resPoint, e.resWidth, e.resHeight, e.resX, e.resY = true, "outside", "BOTTOM", 100, 3, 0, -1
+    e.buffs.show, e.debuffs.anchorTo, e.debuffs.spot, e.debuffs.size, e.debuffs.y = false, "bar", "topleft", 18, 16
+    for _, t in pairs(e.texts) do t.show = false end
+    DEFAULTS.plates = l
+end
 
 -- Rogue and shaman: what is on each weapon, and when it is nearly gone.
 -- (a local would put this file over Lua's limit of 200 of them, so it hangs off ns)
@@ -1457,8 +1474,12 @@ function ns.layoutRes(f)
     layoutBar(r, 1, math.max(1, math.floor(f.width * c.resWidth / 100 + 0.5)), ns.resConf(c))
     ns.fill(r)
     r:ClearAllPoints()
-    r:SetPoint("BOTTOM", f, "BOTTOM", c.resX, c.resY)
+    local p = c.resPoint or "BOTTOM"
+    r:SetPoint(c.resPlace == "outside" and ns.OPPOSITE[p] or p, f, p, c.resX, c.resY)
 end
+-- the point of a frame hung outside another's point: TOP of it on the BOTTOM edge, and so on
+ns.OPPOSITE = { TOP = "BOTTOM", BOTTOM = "TOP", LEFT = "RIGHT", RIGHT = "LEFT", CENTER = "CENTER",
+    TOPLEFT = "BOTTOMLEFT", TOPRIGHT = "BOTTOMRIGHT", BOTTOMLEFT = "TOPLEFT", BOTTOMRIGHT = "TOPRIGHT" }
 
 -- Level and name, inset in enemy health. The level takes the color the game gives it (grey: no
 -- experience, red: far above you), "+" for an elite, "??" for a skull. Without a target (placing
@@ -2140,6 +2161,13 @@ local function questKinds(unit)
         mine.loot and "mine" or party.loot and "party" or nil, left
 end
 
+-- Where the quest icon row sits: { label, its point, the plate's (or our bar's) point }
+ns.QUEST_SPOTS = { inside = { "Inside, top right", "TOPRIGHT", "TOPRIGHT" },
+    above = { "Above, right end", "BOTTOMRIGHT", "TOPRIGHT" }, aboveleft = { "Above, left end", "BOTTOMLEFT", "TOPLEFT" },
+    right = { "Right of it", "LEFT", "RIGHT" }, left = { "Left of it", "RIGHT", "LEFT" },
+    below = { "Below, right end", "TOPRIGHT", "BOTTOMRIGHT" } }
+ns.QUEST_SPOT_ORDER = { "inside", "above", "aboveleft", "right", "left", "below" }
+
 -- Nameplates are recycled, so each plate keeps one icon holder; plateUnits maps the units
 -- currently on screen to their holder.
 local questHolders, plateUnits = {}, {}
@@ -2158,7 +2186,10 @@ local function styleQuest(h)
     end
     h.box:SetSize(math.max(w, 1), math.max(ht, 1))
     h.box:ClearAllPoints()
-    h.box:SetPoint("TOPRIGHT", h, "TOPRIGHT", q.x, q.y)
+    -- on our own nameplate the row hangs on its bar; on Blizzard's, on the whole plate
+    local ours = ns.np and ns.np.bars[h.plate]
+    local spot = ns.QUEST_SPOTS[q.anchor] or ns.QUEST_SPOTS.inside
+    h.box:SetPoint(spot[2], (ours and ours:IsShown()) and ours or h, spot[3], q.x, q.y)
     local x = 0
     for _, kind in ipairs(QUEST_ORDER) do
         local c, t = q[kind], h[kind]
@@ -2198,6 +2229,7 @@ local function plateAdded(unit)
     local h = questHolders[plate]
     if not h then
         h = CreateFrame("Frame", nil, plate)
+        h.plate = plate
         h:SetAllPoints()
         h:SetFrameLevel(plate:GetFrameLevel() + 10)
         h.box = CreateFrame("Frame", nil, h)
@@ -3622,6 +3654,120 @@ local function safe(fn, ...)
     end
 end
 
+------------------------------------------------------------------------------------------
+-- Our own nameplates: on every plate (not your own, not one the game keeps to itself) an enemy
+-- health bar from db.plates, and Blizzard's plate made invisible (alpha only, which the game
+-- allows any time). Plates are recycled: each keeps its bar, given to whichever unit it shows.
+------------------------------------------------------------------------------------------
+ns.np = { units = {}, bars = {}, seen = {} } -- unit -> bar; plate -> bar; units with a plate
+function ns.np.on() return db and db.plates.bars.enemyhealth.show and true or false end
+
+function ns.np.bar(parent)
+    local f = newBar(parent, "enemyhealth", "plates")
+    f.resFrame = newBar(f, "enemyhealth", "plates")
+    f.resFrame.res = true
+    f.resFrame:Hide()
+    return f
+end
+
+function ns.np.layout(f)
+    f:Show()
+    layoutBar(f, 1)
+    ns.fill(f)
+    f:ClearAllPoints()
+    if f.plate then
+        f:SetPoint("CENTER", f.plate, "CENTER", db.plates.x, db.plates.y)
+    else -- the preview: left of the options window, where it is not covered
+        f:SetPoint("RIGHT", ns.cfg or UIParent, "LEFT", -60, 0)
+    end
+    ns.layoutTag(f)
+    ns.layoutRes(f)
+    ns.layoutAuras(f)
+    ns.layoutBadges(f)
+end
+
+-- Blizzard's own plate: invisible while ours is on it, and kept so when the game sets its alpha
+function ns.np.blizz(plate, hide)
+    local uf = rawget(plate, "UnitFrame")
+    if not uf then return end
+    uf.wpHide = hide
+    if hide and not uf.wpHooked then
+        uf.wpHooked = true
+        hooksecurefunc(uf, "SetAlpha", function(self, a)
+            if self.wpHide and (not readable(a) or a ~= 0) then self:SetAlpha(0) end
+        end)
+    end
+    pcall(uf.SetAlpha, uf, hide and 0 or 1)
+end
+
+function ns.np.add(unit)
+    if not ns.np.on() or UnitIsUnit(unit, "player") then return end
+    local ok, plate = pcall(C_NamePlate.GetNamePlateForUnit, unit)
+    if not ok or not plate or plate:IsForbidden() then return end
+    local f = ns.np.bars[plate] or ns.np.bar(plate)
+    ns.np.bars[plate], f.plate = f, plate
+    f.unit, f.resFrame.unit = unit, unit
+    ns.np.units[unit] = f
+    ns.np.blizz(plate, true)
+    ns.np.layout(f)
+    if questHolders[plate] then styleQuest(questHolders[plate]) end
+end
+
+function ns.np.remove(unit)
+    local f = ns.np.units[unit]
+    if not f then return end
+    ns.np.units[unit], f.unit = nil, nil
+    f:Hide()
+    ns.np.blizz(f.plate, false)
+    if questHolders[f.plate] then styleQuest(questHolders[f.plate]) end
+end
+
+-- After a settings change: every plate again, or every plate back to Blizzard's. The preview
+-- (your target, or a stand-in) shows above the screen center while the Plates tab is open.
+function ns.np.all()
+    for unit in pairs(ns.np.seen) do
+        if ns.np.on() then ns.np.add(unit) else ns.np.remove(unit) end
+    end
+    local p = ns.np.previewBar()
+    if ns.np.wantPreview and ns.np.wantPreview() then ns.np.layout(p) else p:Hide() end
+end
+function ns.np.previewBar()
+    if not ns.np.preview then
+        ns.np.preview = ns.np.bar(UIParent)
+        ns.np.preview.unit, ns.np.preview.resFrame.unit = "target", "target"
+        ns.np.preview:Hide()
+    end
+    return ns.np.preview
+end
+
+ns.npEv = CreateFrame("Frame")
+for _, e in ipairs({ "NAME_PLATE_UNIT_ADDED", "NAME_PLATE_UNIT_REMOVED", "UNIT_HEALTH", "UNIT_MAXHEALTH",
+    "UNIT_POWER_FREQUENT", "UNIT_MAXPOWER", "UNIT_DISPLAYPOWER", "UNIT_AURA", "UNIT_NAME_UPDATE", "UNIT_LEVEL",
+    "UNIT_FACTION", "UNIT_CLASSIFICATION_CHANGED" }) do
+    pcall(ns.npEv.RegisterEvent, ns.npEv, e)
+end
+ns.npEv:SetScript("OnEvent", function(_, event, unit)
+    if event == "NAME_PLATE_UNIT_ADDED" then
+        ns.np.seen[unit] = true
+        return safe(ns.np.add, unit)
+    elseif event == "NAME_PLATE_UNIT_REMOVED" then
+        ns.np.seen[unit] = nil
+        return safe(ns.np.remove, unit)
+    end
+    local f = ns.np.units[unit]
+    if not f then return end
+    if event == "UNIT_HEALTH" or event == "UNIT_MAXHEALTH" then
+        safe(ns.fill, f)
+    elseif event == "UNIT_POWER_FREQUENT" or event == "UNIT_MAXPOWER" then
+        if f.resFrame:IsShown() then safe(ns.fill, f.resFrame) end
+    elseif event == "UNIT_AURA" then
+        safe(ns.layoutAuras, f)
+        safe(ns.layoutTag, f) -- eating, drinking
+    else
+        safe(ns.np.layout, f)
+    end
+end)
+
 bf = { rows = {} }
 ns.bf = bf
 
@@ -4570,7 +4716,7 @@ end
 -- Options window (/cpd)
 ------------------------------------------------------------------------------------------
 -- section = sidebar entry, sub = tab inside Nameplates, mode = which bar layout is being edited
-local cfg, selected, mode, section, sub = nil, "health", "regular", "combat", "bars"
+local cfg, selected, mode, section, sub = nil, "health", "regular", "combat", "plates"
 -- Classes the addon has settings of its own for: { section key, label, class token }
 ns.CLASS_SECTIONS = { { "mage", "Mage", "MAGE" },
     { "rogue", "Rogue", "ROGUE" }, { "shaman", "Shaman", "SHAMAN" },
@@ -4579,10 +4725,18 @@ local refreshers = {}
 
 changed = function()
     safe(Refresh)
+    safe(ns.np.all)
     for _, fn in ipairs(refreshers) do fn() end
 end
 
 local function L() return db[mode] end
+-- Plates edits one bar, enemy health; the bar picked for the other layouts comes back after
+function ns.platesMode(on, other)
+    if on and mode ~= "plates" then ns.barPicked = selected end
+    if not on and mode == "plates" then selected = ns.barPicked or selected end
+    mode = on and "plates" or other
+    if on then selected = "enemyhealth" end
+end
 local function cur() return L().bars[selected] end
 local function onRefresh(fn) refreshers[#refreshers + 1] = fn end
 
@@ -5540,7 +5694,8 @@ local function buildConfig()
     end
     local function entry(key, text, m)
         local b = button(cfg, text, 122, 12, y, function()
-            section, mode = key, m or "regular"
+            section = key
+            ns.platesMode(key == "nameplates" and sub == "plates", m or "regular")
             changed()
         end, true)
         onRefresh(function() if section == key then b:LockHighlight() else b:UnlockHighlight() end end)
@@ -5605,8 +5760,12 @@ local function buildConfig()
     local title = label(cfg, "Combat Display", "GameFontNormalLarge")
     title:SetPoint("TOPLEFT", 150, -72)
     local tabs = {}
-    for i, t in ipairs({ { "bars", "Bars" }, { "quest", "Quest mobs" } }) do
-        tabs[i] = button(cfg, t[2], 110, 150 + (i - 1) * 114, -66, function() sub = t[1]; changed() end)
+    for i, t in ipairs({ { "plates", "Plates" }, { "bars", "Target bars" }, { "quest", "Quest mobs" } }) do
+        tabs[i] = button(cfg, t[2], 96, 150 + (i - 1) * 100, -66, function()
+            sub = t[1]
+            ns.platesMode(sub == "plates", "nameplate")
+            changed()
+        end)
         onRefresh(function() if sub == t[1] then tabs[i]:LockHighlight() else tabs[i]:UnlockHighlight() end end)
     end
     onRefresh(function()
@@ -5625,7 +5784,7 @@ local function buildConfig()
             or section == "barstack" and "Bar Stack"
             or "Combat Display")
         for _, t in ipairs(tabs) do t:SetShown(np) end
-        barsPage:SetShown(section == "combat" or (np and sub == "bars"))
+        barsPage:SetShown(section == "combat" or (np and sub ~= "quest"))
         questPage:SetShown(np and sub == "quest")
         otherPage:SetShown(section == "other")
         buffPage:SetShown(section == "buffs")
@@ -5650,10 +5809,11 @@ local function buildConfig()
     local tabNote = label(barsPage, "", "GameFontDisableSmall")
     onRefresh(function()
         tabNote:ClearAllPoints()
-        if section == "nameplates" then tabNote:SetPoint("LEFT", tabs[2], "RIGHT", 14, 0)
+        if section == "nameplates" then tabNote:SetPoint("LEFT", tabs[#tabs], "RIGHT", 14, 0)
         else tabNote:SetPoint("LEFT", title, "RIGHT", 14, -1) end
         tabNote:SetText(mode == "regular" and "Health, power and combo bars on your screen."
-            or "Bars under your target's nameplate. Needs enemy nameplates on (V key).")
+            or mode == "plates" and "Every nameplate as a bar of yours. Nameplates on: V key."
+            or "Bars under your target's nameplate.")
     end)
 
     -- Bars page, column 1: which bars, and where the group sits
@@ -5661,24 +5821,33 @@ local function buildConfig()
     for i = 1, #db.regular.order do
         local y = bars:row(ROW)
         local sel = button(barsPage, "", 100, bars.x, y, function() selected = L().order[i]; changed() end, true)
-        button(barsPage, "Up", 34, bars.x + 104, y, function() move(i, -1) end):SetHeight(22)
-        button(barsPage, "Down", 40, bars.x + 140, y, function() move(i, 1) end):SetHeight(22)
+        local up = button(barsPage, "Up", 34, bars.x + 104, y, function() move(i, -1) end)
+        local down = button(barsPage, "Down", 40, bars.x + 140, y, function() move(i, 1) end)
+        up:SetHeight(22)
+        down:SetHeight(22)
         sel:SetHeight(22)
         onRefresh(function()
-            local key = L().order[i]
-            sel:SetText(BARS[key].label)
+            -- Plates: one bar, enemy health, on every nameplate
+            local one = mode == "plates"
+            sel:SetShown(not one or i == 1)
+            up:SetShown(not one)
+            down:SetShown(not one)
+            local key = one and "enemyhealth" or L().order[i]
+            sel:SetText(one and "Nameplate" or BARS[key].label)
             if key == selected then sel:LockHighlight() else sel:UnlockHighlight() end
         end)
     end
-    slider(barsPage, "Gap between bars", bars.x, bars:row(SLIDER), 0, 30,
+    local gapSlider = slider(barsPage, "Gap between bars", bars.x, bars:row(SLIDER), 0, 30,
         function() return L().gap end, function(v) L().gap = v end)
+    onRefresh(function() gapSlider:SetShown(mode ~= "plates") end)
     bars:close()
 
     local grp = group(barsPage, COL[1], bars.cursor - 20, 202, "Group position")
     local groupNote = label(barsPage, "", "GameFontDisableSmall")
     groupNote:SetPoint("TOPLEFT", grp.x, grp:row(16))
     onRefresh(function()
-        groupNote:SetText((L().grow == "up" and "bottom-center" or "top-center")
+        groupNote:SetText(mode == "plates" and "the bar's center, from the nameplate's"
+            or (L().grow == "up" and "bottom-center" or "top-center")
             .. (mode == "regular" and ", from the screen center" or ", from under the nameplate"))
     end)
     local grow = button(barsPage, "", 186, grp.x, grp:row(BUTTON), function()
@@ -5686,7 +5855,10 @@ local function buildConfig()
         place()
         changed()
     end)
-    onRefresh(function() grow:SetText("Grows: " .. (L().grow == "up" and "Upwards" or "Downwards")) end)
+    onRefresh(function()
+        grow:SetText("Grows: " .. (L().grow == "up" and "Upwards" or "Downwards"))
+        grow:SetShown(mode ~= "plates")
+    end)
     local function xr() return mode == "regular" and math.floor(UIParent:GetWidth() / 2) or 200 end
     local function yr() return mode == "regular" and math.floor(UIParent:GetHeight() / 2) or 200 end
     slider(barsPage, "X (left / right)", grp.x, grp:row(SLIDER), function() return -xr() end, xr,
@@ -5703,7 +5875,10 @@ local function buildConfig()
         :SetPoint("TOPLEFT", grp.x, grp.cursor - 24)
 
     -- Column 2: the selected bar's size and spacing
-    local function selFrame() return (mode == "regular" and frames or plateFrames)[selected] end
+    local function selFrame()
+        if mode == "plates" then return ns.np.previewBar() end
+        return (mode == "regular" and frames or plateFrames)[selected]
+    end
     local size = group(barsPage, COL[2], TOP, 202, "")
     onRefresh(function()
         local shown = selFrame():IsShown()
@@ -5712,7 +5887,10 @@ local function buildConfig()
         end
         size.title:SetText(BARS[selected].label .. (shown and "" or " |cff888888(hidden)|r"))
     end)
-    check(barsPage, "Show", size.x, size:row(ROW), function() return cur().show end, function(v) cur().show = v end)
+    local showCheck = check(barsPage, "Show", size.x, size:row(ROW), function() return cur().show end,
+        function(v) cur().show = v end)
+    onRefresh(function() showCheck.Text:SetText(mode == "plates" and "Replace Blizzard's nameplates" or "Show") end)
+    ns.np.wantPreview = function() return cfg:IsShown() and section == "nameplates" and sub == "plates" end
     local widthSlider = slider(barsPage, "Width", size.x, size:row(SLIDER), 10, 600,
         function() return cur().width end, function(v) cur().width = v end)
     local heightSlider = slider(barsPage, "Height", size.x, size:row(SLIDER), 2, 100,
@@ -6008,9 +6186,9 @@ local function buildConfig()
     -- Quest mobs page
     local qinfo = group(questPage, COL[1], TOP, 202, "Quest mobs")
     local desc = label(questPage, "Marks enemies you still need for a quest.\n\nSword: you need to kill it.\n"
-        .. "Bag: it drops an item you need.\nGray: only groupmates still need it.\n\nThe icons sit in a row at "
-        .. "the nameplate's top-right corner; a lone icon keeps to the row's left. Needs enemy nameplates on "
-        .. "(V key).", "GameFontHighlightSmall")
+        .. "Bag: it drops an item you need.\nGray: only groupmates still need it.\n\nThe icons sit in a row, "
+        .. "where Sits puts it: on the nameplate, or on its bar with Plates on. A lone icon keeps to the "
+        .. "row's left. Needs enemy nameplates on (V key).", "GameFontHighlightSmall")
     desc:SetPoint("TOPLEFT", qinfo.x, qinfo:row(186))
     desc:SetWidth(182)
     desc:SetJustifyH("LEFT")
@@ -6018,6 +6196,12 @@ local function buildConfig()
 
     local Q = function() return db.quest end
     local row = group(questPage, COL[1], qinfo.cursor - 20, 202, "Icon row")
+    -- on Blizzard's plates it hangs on the whole plate, on yours on the bar
+    ns.questSpotMenu = dropdown(questPage, "Sits", row.x, row:row(DROP), function()
+        local out = {}
+        for _, k in ipairs(ns.QUEST_SPOT_ORDER) do out[#out + 1] = { ns.QUEST_SPOTS[k][1], k } end
+        return out
+    end, function() return Q().anchor end, function(v) Q().anchor = v end, textPreview)
     slider(questPage, "X (left / right)", row.x, row:row(SLIDER), -200, 200, function() return Q().x end,
         function(v) Q().x = v end)
     slider(questPage, "Y (down / up)", row.x, row:row(SLIDER), -200, 200, function() return Q().y end,
@@ -6630,7 +6814,7 @@ local function buildConfig()
     klass:close()
 
     -- Enemy resource dialog: beside the window, for the enemy health bar picked on the bars page
-    local rd = ns.ui.Window(nil, 230, 476, "Enemy resource")
+    local rd = ns.ui.Window(nil, 230, 576, "Enemy resource")
     rd:SetParent(cfg)
     rd:ClearAllPoints()
     rd:SetPoint("TOPLEFT", cfg, "TOPRIGHT", 12, 0)
@@ -6640,8 +6824,15 @@ local function buildConfig()
     local function rrow(h) local at = ry; ry = ry - h; return at end
     check(rd, "Hide resource text", 16, rrow(ROW), function() return cur().resHideText end,
         function(v) cur().resHideText = v end)
+    -- inside the bar at a point of it, or outside, hung on that edge (BOTTOM: underneath)
+    ns.resPlaceMenu = dropdown(rd, "Place", 16, rrow(DROP), { { "Inside the bar", "inside" }, { "Outside, on its edge", "outside" } },
+        function() return cur().resPlace end, function(v) cur().resPlace = v end, textPreview)
+    ns.resPointMenu = dropdown(rd, "Anchor", 16, rrow(DROP), { { "Bottom", "BOTTOM" }, { "Top", "TOP" }, { "Left", "LEFT" },
+        { "Right", "RIGHT" }, { "Center", "CENTER" }, { "Top left", "TOPLEFT" }, { "Top right", "TOPRIGHT" },
+        { "Bottom left", "BOTTOMLEFT" }, { "Bottom right", "BOTTOMRIGHT" } },
+        function() return cur().resPoint end, function(v) cur().resPoint = v end, textPreview)
     for _, r in ipairs({ { "resHeight", "Height", 1, 40 }, { "resWidth", "Width (% of the bar)", 10, 100 },
-        { "resX", "X", -100, 100 }, { "resY", "Y (from the bottom)", -50, 50 },
+        { "resX", "X", -100, 100 }, { "resY", "Y", -50, 50 },
         { "resBorderSize", "Border width", 0, 10 } }) do
         slider(rd, r[2], 16, rrow(SLIDER), r[3], r[4],
             function() return cur()[r[1]] or 0 end, function(v) cur()[r[1]] = v end)
