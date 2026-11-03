@@ -641,11 +641,11 @@ eh.tagLevel, eh.tagName = false, false; fire("PLAYER_TARGET_CHANGED")
 assert(not tl:IsShown() and not tn:IsShown(), "both off: nothing")
 eh.tagLevel, S.tLevel, S.tKind = true, nil, nil
 UnitLevel, GetQuestDifficultyColor, UnitClassification = realLevel, nil, nil
--- PvP flag and drinking icons on the bar
+-- PvP flag on the bar: an icon, or text of your own
 UnitIsPVP = function() return S.tPvP end
 UnitIsPVPFreeForAll = function() return S.tFFA end
 S.tPvP = true; fire("UNIT_FACTION", "target")
-local pv, dr = ef.pvpIcon, ef.drinkIcon
+local pv = ef.pvpIcon
 assert(pv:IsShown() and pv.tex._tex == "Interface\\TargetingFrame\\UI-PVP-Horde" and pv._point[1] == "CENTER"
     and pv._point[2] == ef and pv._point[3] == "TOPLEFT" and pv._w == 20, "flagged: its faction's emblem at top left")
 eh.pvpIcon.style, eh.pvpIcon.point, eh.pvpIcon.x, eh.pvpIcon.size = "banner", "RIGHT", 5, 30
@@ -654,17 +654,41 @@ assert(pv.tex._tex:find("INV_BannerPVP_01") and pv._point[3] == "RIGHT" and pv._
     "another look, anchor, nudge and size")
 S.tFFA = true; eh.pvpIcon.style = "faction"; fire("UNIT_FACTION", "target")
 assert(pv.tex._tex:find("UI%-PVP%-FFA"), "free-for-all has its own")
+-- text instead: its own words and color, the name's font and size
+eh.pvpIcon.style, eh.pvpIcon.text, eh.pvpIcon.textColor = "text", "PVP!", { 0, 1, 0, 1 }
+eh.tagSize = 13; fire("UNIT_FACTION", "target")
+assert(pv:IsShown() and pv.text:IsShown() and not pv.tex:IsShown() and pv.text._text == "PVP!"
+    and pv.text._color[2] == 1 and pv.text._font[2] == 13, "text, in its color, at the name's size")
+-- on the name: outside it, on the side asked for; the name hidden: back on the bar
+eh.pvpIcon.anchorTo, eh.pvpIcon.point, eh.pvpIcon.x = "name", "LEFT", -2
+eh.tagName = true; fire("PLAYER_TARGET_CHANGED")
+assert(pv._point[1] == "RIGHT" and pv._point[2] == ef.tag_name.box and pv._point[3] == "LEFT"
+    and pv._point[4] == -2, "left of the name")
+eh.pvpIcon.anchorTo = "level"; fire("UNIT_FACTION", "target")
+assert(pv._point[2] == ef.tag_level.box, "or of the level")
+eh.tagName, eh.pvpIcon.anchorTo = false, "name"; fire("PLAYER_TARGET_CHANGED")
+assert(pv._point[2] == ef and pv._point[3] == "LEFT", "the name hidden: on the bar")
+eh.tagSize = 10
 S.tPvP, S.tFFA = false, false; fire("UNIT_FACTION", "target")
 assert(not pv:IsShown(), "not flagged: gone")
 UnitIsPVP = function() return SECRET end; fire("UNIT_FACTION", "target")
 assert(not pv:IsShown(), "a secret answer: not shown, no error")
-assert(not dr:IsShown(), "not drinking")
+-- drinking: the name's place reads "Drinking!", flashing, in its color -- even with the name off
+local tn2 = ef.tag_name
+assert(not tn2:IsShown(), "name off, not drinking: nothing")
 S.auras = { { name = "Drink", icon = 1 } }; fire("UNIT_AURA", "target")
-assert(dr:IsShown() and dr.tex._tex:find("INV_Drink_07") and dr._point[3] == "RIGHT" and dr._point[4] == 12,
-    "drinking: the drink icon, right of the bar")
+assert(tn2:IsShown() and tn2._text == "Drinking!" and tn2._color[3] == 1 and tn2.box._scripts.OnUpdate,
+    "drinking: says so, flashing")
+tn2.box._scripts.OnUpdate(tn2.box)
+eh.drinking.color = { 1, 0, 1, 1 }; fire("UNIT_AURA", "target")
+assert(tn2._color[1] == 1 and tn2._color[2] == 0, "in the color you pick")
 S.auras = { { name = SECRET, icon = 1 } }; fire("UNIT_AURA", "target")
-assert(not dr:IsShown(), "a secret name can't be told")
-eh.pvpIcon = { show = true, style = "faction", point = "TOPLEFT", x = 0, y = 0, size = 20 }
+assert(not tn2:IsShown() and not tn2.box._scripts.OnUpdate and tn2.box._alpha == 1, "a secret name can't be told: back")
+eh.drinking.show = false; S.auras = { { name = "Drink", icon = 1 } }; fire("UNIT_AURA", "target")
+assert(not tn2:IsShown(), "turned off")
+eh.drinking = { show = true, color = { 0.35, 0.75, 1, 1 } }
+eh.pvpIcon = { show = true, style = "faction", anchorTo = "bar", point = "TOPLEFT", x = 0, y = 0, size = 20,
+    text = "PvP", textColor = { 1, 0.25, 0.25, 1 } }
 S.auras, UnitIsPVP, UnitIsPVPFreeForAll = nil, nil, nil
 fire("UNIT_AURA", "target")
 -- buffs and debuffs: each group in a box; buffs hang above the bar, debuffs above the buffs
@@ -990,6 +1014,10 @@ WolfpackAddonDB.profiles.OldIcon = nil
 UnitIsPVP = function(u) return u == "player" end
 fire("UNIT_FACTION", "player")
 assert(fr.health.pvpIcon:IsShown() and fr.health.pvpIcon.tex._tex:find("UI%-PVP%-Horde"), "your PvP flag")
+prof().regular.bars.health.pvpIcon.style, prof().regular.bars.health.fontSize = "text", 12
+fire("UNIT_FACTION", "player")
+assert(fr.health.pvpIcon.text._text == "PvP" and fr.health.pvpIcon.text._font[2] == 12, "text: the bar's font size")
+prof().regular.bars.health.pvpIcon.style = "faction"
 UnitIsPVP = function() return false end; fire("UNIT_FACTION", "player")
 assert(not fr.health.pvpIcon:IsShown(), "not flagged")
 UnitIsPVP = nil
@@ -1519,10 +1547,10 @@ assert(ns.tagDialog:IsShown() and not ns.resDialog:IsShown(), "level and name: i
 byText("Health")._scripts.OnClick(byText("Health"), "LeftButton")
 assert(not rb:IsShown() and not ns.resDialog:IsShown(), "another bar picked: closed")
 assert(not tb:IsShown() and not ns.tagDialog:IsShown(), "and that one too")
-local pb2 = byText("PvP and drinking icons")
+local pb2 = byText("PvP flag")
 byText("Enemy Health")._scripts.OnClick(byText("Enemy Health"), "LeftButton")
 pb2._scripts.OnClick(pb2, "LeftButton")
-assert(ns.iconDialog:IsShown(), "PvP and drinking icons: a window of its own")
+assert(ns.iconDialog:IsShown(), "PvP flag: a window of its own")
 byText("Health")._scripts.OnClick(byText("Health"), "LeftButton")
 assert(not pb2:IsShown() and not ns.iconDialog:IsShown(), "closed with the bar")
 -- the Colors page: the palette, in the sidebar

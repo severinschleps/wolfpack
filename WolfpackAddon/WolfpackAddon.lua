@@ -213,13 +213,18 @@ local function layoutDefaults(show, x, y, gap, width, h1, h2, h3, h4, h5, h6, h7
     eh.auraGap, eh.auraGroupGap = 2, 4
     -- small icons on the bar: PvP flag (in one of a few looks) and drinking; centered on a
     -- point of the bar, nudged by x/y
-    eh.pvpIcon = { show = true, style = "faction", point = "TOPLEFT", x = 0, y = 0, size = 20 }
-    eh.drinkIcon = { show = true, point = "RIGHT", x = 12, y = 0, size = 18 }
+    -- anchorTo: "bar", or "name" / "level" (then it sits outside that box, on the side of point).
+    -- style "text": text instead of an icon, in the name's font and size, its own color.
+    eh.pvpIcon = { show = true, style = "faction", anchorTo = "bar", point = "TOPLEFT", x = 0, y = 0, size = 20,
+        text = "PvP", textColor = { 1, 0.25, 0.25, 1 } }
+    -- drinking: the name reads "Drinking!" instead, flashing, in this color
+    eh.drinking = { show = true, color = { 0.35, 0.75, 1, 1 } }
     -- your health: a status icon (the combat icon in a fight, else rested while resting) and
     -- your own PvP flag
     l.bars.health.statusIcon = { show = true, style = "atlas", rested = true, point = "LEFT", x = -12, y = 0,
         size = 20 }
-    l.bars.health.pvpIcon = { show = true, style = "faction", point = "TOPLEFT", x = 0, y = 0, size = 20 }
+    l.bars.health.pvpIcon = { show = true, style = "faction", anchorTo = "bar", point = "TOPLEFT", x = 0, y = 0,
+        size = 20, text = "PvP", textColor = { 1, 0.25, 0.25, 1 } } -- text: in the bar's font and size
     l.bars.power.colorMode = "power"
     l.bars.health.colorMode, l.bars.enemyhealth.colorMode, l.bars.castbar.colorMode = "health", "reaction", "cast"
     l.bars.druidmana.colorMode = "power"
@@ -1305,15 +1310,21 @@ function ns.layoutTag(f)
     end
     -- The level beside the name, on the side the name starts from (left of a name on the left,
     -- right of one on the right): the level takes the name's spot and the name moves over.
-    local side = c.tagName and ns.TAG_SIDES[c.tagAttach]
+    -- drinking: the name's place says so, flashing, even with the name itself turned off
+    local drinking = (c.drinking.show and unit and ns.drinking(unit)) and true or false
+    local nameOn = c.tagName or drinking
+    local side = nameOn and ns.TAG_SIDES[c.tagAttach]
     local leads = side and c.tagLevel and ((c.tagAttach == "left" and c.nameAnchor == "LEFT")
         or (c.tagAttach == "right" and c.nameAnchor == "RIGHT"))
     for _, which in ipairs({ "name", "level" }) do
         local lvl = which == "level"
         local t = f["tag_" .. which]
-        local on = (lvl and c.tagLevel or not lvl and c.tagName) and true or false
+        local on = (lvl and c.tagLevel or not lvl and nameOn) and true or false
         t:SetShown(on)
         t.box:SetShown(on)
+        local flash = on and not lvl and drinking
+        t.box:SetScript("OnUpdate", flash and function(self) self:SetAlpha(0.55 + 0.45 * math.cos(GetTime() * 6)) end or nil)
+        if not flash then t.box:SetAlpha(1) end
         if on then
             if not t:SetFont(c.tagFont, c.tagSize, flags) then t:SetFont(FONTS[1][2], c.tagSize, flags) end
             local point, x, y, bg = c.tagAnchor, c.tagX, c.tagY, c.tagBg
@@ -1343,8 +1354,13 @@ function ns.layoutTag(f)
                     t:SetText("")
                 end
             else
-                t:SetTextColor(unpack(c.tagNameColor))
-                pcall(t.SetText, t, unit and UnitName(unit) or "Target") -- a secret name still draws
+                if drinking then
+                    t:SetTextColor(unpack(c.drinking.color))
+                    t:SetText("Drinking!")
+                else
+                    t:SetTextColor(unpack(c.tagNameColor))
+                    pcall(t.SetText, t, unit and UnitName(unit) or "Target") -- a secret name still draws
+                end
             end
             -- as wide as its text, up to the bar's width (then "..."); a secret name's width
             -- can't be read, so that one is never cut
@@ -1549,7 +1565,10 @@ local function setCombatArt(t, style)
 end
 
 local REST_ART = { file = 130936, coords = { 0, 0.5, 0, 0.421875 } } -- Interface/CHARACTERFRAME/UI-StateIcon
-ns.BADGES = { health = { "statusIcon", "pvpIcon" }, enemyhealth = { "pvpIcon", "drinkIcon" } }
+ns.BADGES = { health = { "statusIcon", "pvpIcon" }, enemyhealth = { "pvpIcon" } }
+-- the badge's own point that meets a point of the name / level box, so it sits outside on that side
+ns.OPPOSITE = { TOPLEFT = "BOTTOMRIGHT", TOP = "BOTTOM", TOPRIGHT = "BOTTOMLEFT", LEFT = "RIGHT", CENTER = "CENTER",
+    RIGHT = "LEFT", BOTTOMLEFT = "TOPRIGHT", BOTTOM = "TOP", BOTTOMRIGHT = "TOPLEFT" }
 -- looks for the PvP icon: a file (or one per faction, FFA for free-for-all) and its crop
 ns.PVP_STYLES = {
     faction = { file = "Interface\\TargetingFrame\\UI-PVP-%s", coords = { 0, 0.62, 0, 0.62 } },
@@ -1558,7 +1577,6 @@ ns.PVP_STYLES = {
     swords = { file = "Interface\\WorldStateFrame\\CombatSwords", coords = { 0, 0.5, 0, 0.5 } },
     skull = { file = "Interface\\TargetingFrame\\UI-TargetingFrame-Skull", coords = { 0, 1, 0, 1 } },
 }
-ns.DRINK_ICON = "Interface\\Icons\\INV_Drink_07"
 
 -- "Alliance", "Horde" or "FFA" while the unit is flagged, else nil
 function ns.pvpFlag(unit)
@@ -1592,35 +1610,56 @@ function ns.layoutBadges(f)
             b = CreateFrame("Frame", nil, f)
             b.tex = b:CreateTexture(nil, "OVERLAY")
             b.tex:SetAllPoints()
+            b.text = b:CreateFontString(nil, "OVERLAY")
+            b.text:SetPoint("CENTER")
             f[k] = b
         end
-        local art -- { file, coords } or { atlas } or a combat icon style
+        local art, text -- art: { file, coords }, or a combat icon style; text: a PvP text
         if not o.show then
             art = nil
         elseif k == "pvpIcon" then
             local flag = unit and ns.pvpFlag(unit) or (preview and (UnitFactionGroup("player") or "FFA"))
             local st = ns.PVP_STYLES[o.style] or ns.PVP_STYLES.faction
-            if flag then art = { file = st[flag] or (st.file and st.file:format(flag)) or st.Horde, coords = st.coords } end
-        elseif k == "drinkIcon" then
-            if (not unit and preview) or (unit and ns.drinking(unit)) then
-                art = { file = ns.DRINK_ICON, coords = { 0.08, 0.92, 0.08, 0.92 } }
+            if flag and o.style == "text" then
+                text = o.text
+            elseif flag then
+                art = { file = st[flag] or (st.file and st.file:format(flag)) or st.Horde, coords = st.coords }
             end
         elseif ns.inCombat or preview then -- status: shown while placing it, for placing it
             art = o.style
         elseif o.rested and IsResting() then
             art = REST_ART
         end
-        b:SetShown(art ~= nil)
-        if art then
-            if type(art) == "string" then setCombatArt(b.tex, art)
+        b:SetShown(art ~= nil or text ~= nil)
+        b.tex:SetShown(art ~= nil)
+        b.text:SetShown(text ~= nil)
+        if art or text then
+            if text then -- the font and size of the name on enemy health, of the bar's text on yours
+                local font, size, outline = c.font, c.fontSize, c.outline
+                if f.key == "enemyhealth" then font, size, outline = c.tagFont, c.tagSize, c.tagOutline end
+                local flags = outline and "OUTLINE" or ""
+                if not b.text:SetFont(font, size, flags) then b.text:SetFont(FONTS[1][2], size, flags) end
+                b.text:SetTextColor(unpack(o.textColor))
+                b.text:SetText(text)
+                local w = b.text:GetStringWidth()
+                b:SetSize(readable(w) and math.max(1, w) or size, size)
             else
-                b.tex:SetTexture(art.file)
-                b.tex:SetTexCoord(unpack(art.coords))
+                if type(art) == "string" then setCombatArt(b.tex, art)
+                else
+                    b.tex:SetTexture(art.file)
+                    b.tex:SetTexCoord(unpack(art.coords))
+                end
+                b:SetSize(o.size, o.size)
             end
-            b:SetSize(o.size, o.size)
             b:SetFrameLevel(f:GetFrameLevel() + 8)
             b:ClearAllPoints()
-            b:SetPoint("CENTER", f, o.point, o.x, o.y)
+            -- on the bar, centered on its point; or outside the name / level, on that side of it
+            local host = (o.anchorTo == "name" and f.tag_name) or (o.anchorTo == "level" and f.tag_level)
+            if host and host:IsShown() then
+                b:SetPoint(ns.OPPOSITE[o.point] or "CENTER", host.box, o.point, o.x, o.y)
+            else
+                b:SetPoint("CENTER", f, o.point, o.x, o.y)
+            end
         end
     end
 end
@@ -4702,7 +4741,7 @@ local function buildConfig()
     local tagButton = button(barsPage, "Level and name", 186, only.x, only:row(0) - ROW - BUTTON, function()
         ns.toggleDialog(ns.tagDialog)
     end)
-    local iconButton = button(barsPage, "PvP and drinking icons", 186, only.x, only:row(0) - ROW - 3 * BUTTON,
+    local iconButton = button(barsPage, "PvP flag", 186, only.x, only:row(0) - ROW - 3 * BUTTON,
         function() ns.toggleDialog(ns.iconDialog) end)
     -- your health: under the incoming heals rows
     local statusButton = button(barsPage, "Status and PvP icons", 186, only.x, only:row(0) - ROW - BUTTON,
@@ -5493,7 +5532,7 @@ local function buildConfig()
         function() return cur().resRadius end, function(v) cur().resRadius = v end, textPreview)
 
     -- Level and name dialog: same place, for the same bar. The font on top, then a column each.
-    local td = ns.ui.Window(nil, 440, 640, "Level and name")
+    local td = ns.ui.Window(nil, 440, 690, "Level and name")
     td:SetParent(cfg)
     td:ClearAllPoints()
     td:SetPoint("TOPLEFT", cfg, "TOPRIGHT", 12, 0)
@@ -5523,6 +5562,10 @@ local function buildConfig()
             function(v) cur()[w[3]] = v end)
         if p == "name" then
             swatch(td, "Name color", x, rrow(SWATCH), function() return cur().tagNameColor or { 1, 1, 1, 1 } end)
+            local D = function() return cur().drinking or DEFAULTS.regular.bars.enemyhealth.drinking end
+            check(td, "\"Drinking!\" instead, flashing", x, rrow(ROW), function() return D().show end,
+                function(v) D().show = v end)
+            swatch(td, "Drinking color", x, rrow(SWATCH), function() return D().color end)
         end
         if p == "tag" then
             dropdown(td, "Sits", x, rrow(DROP), { { "Free, on the bar", "free" }, { "Left of the name", "left" },
@@ -5600,14 +5643,14 @@ local function buildConfig()
         { "Center", "CENTER" }, { "Right", "RIGHT" }, { "Bottom left", "BOTTOMLEFT" }, { "Bottom", "BOTTOM" },
         { "Bottom right", "BOTTOMRIGHT" } }
     for _, spec in ipairs({
-        { "iconDialog", "PvP and drinking icons", "enemyhealth", { { "pvpIcon", "PvP flag" }, { "drinkIcon", "Drinking" } },
-            "PvP: shows while your target is flagged, in its faction's look (free-for-all has its own). Drinking: "
-            .. "while it has a Drink buff; one the game keeps secret in a fight can't be told." },
+        { "iconDialog", "PvP flag", "enemyhealth", { { "pvpIcon", "PvP flag" } },
+            "Shows while your target is flagged: an icon in its faction's look (free-for-all has its own), or "
+            .. "your own text in the name's font and size. On the name or level it sits outside, on that side." },
         { "statusDialog", "Status and PvP icons", "health", { { "statusIcon", "Status" }, { "pvpIcon", "PvP flag" } },
             "Status: the combat icon in a fight, else the rested icon while you are resting, else nothing. "
             .. "PvP: while you are flagged." },
     }) do
-        local d = ns.ui.Window(nil, 440, 480, spec[2])
+        local d = ns.ui.Window(nil, #spec[4] == 1 and 230 or 440, 640, spec[2])
         d:SetParent(cfg)
         d:ClearAllPoints()
         d:SetPoint("TOPLEFT", cfg, "TOPRIGHT", 12, 0)
@@ -5623,8 +5666,29 @@ local function buildConfig()
             check(d, "Show", x, rrow(ROW), function() return I().show end, function(v) I().show = v end)
             if k[1] == "pvpIcon" then
                 dropdown(d, "Icon", x, rrow(DROP), { { "Faction emblem", "faction" }, { "Faction banner", "banner" },
-                    { "Crossed swords", "swords" }, { "Skull", "skull" } }, function() return I().style end,
-                    function(v) I().style = v end, textPreview)
+                    { "Crossed swords", "swords" }, { "Skull", "skull" }, { "Text", "text" } },
+                    function() return I().style end, function(v) I().style = v end, textPreview)
+                -- text: what it says, and its color
+                label(d, "Text", "GameFontNormalSmall"):SetPoint("TOPLEFT", x, rrow(16))
+                local tb = ns.ui.Input(d, 178)
+                tb:SetPoint("TOPLEFT", x, rrow(30))
+                tb:SetMaxLetters(24)
+                local function keep()
+                    I().text = tb:GetText()
+                    tb:ClearFocus()
+                    changed()
+                end
+                tb:SetScript("OnEnterPressed", keep)
+                tb:HookScript("OnEditFocusLost", keep)
+                tb:SetScript("OnEscapePressed", function() tb:SetText(I().text); tb:ClearFocus() end)
+                onRefresh(function() if not tb:HasFocus() then tb:SetText(I().text or "") end end)
+                swatch(d, spec[3] == "health" and "Your PvP text color" or "PvP text color", x, rrow(SWATCH),
+                    function() return I().textColor end)
+                if spec[3] == "enemyhealth" then
+                    dropdown(d, "Anchor to", x, rrow(DROP), { { "The bar", "bar" }, { "The name", "name" },
+                        { "The level", "level" } }, function() return I().anchorTo end,
+                        function(v) I().anchorTo = v end, textPreview)
+                end
             elseif k[1] == "statusIcon" then
                 dropdown(d, "Combat icon", x, rrow(DROP), COMBAT_ICONS, function() return I().style end,
                     function(v) I().style = v end, function(button, item)
@@ -5636,7 +5700,7 @@ local function buildConfig()
                 check(d, "Rested icon while resting", x, rrow(ROW), function() return I().rested end,
                     function(v) I().rested = v end)
             end
-            dropdown(d, "Anchor (on the bar)", x, rrow(DROP), POINTS, function() return I().point end,
+            dropdown(d, "Point", x, rrow(DROP), POINTS, function() return I().point end,
                 function(v) I().point = v end, textPreview)
             slider(d, "X", x, rrow(SLIDER), -200, 200, function() return I().x end, function(v) I().x = v end)
             slider(d, "Y", x, rrow(SLIDER), -100, 100, function() return I().y end, function(v) I().y = v end)
@@ -6309,7 +6373,10 @@ ev:SetScript("OnEvent", function(_, event, unit, arg2, arg3)
     elseif event == "UNIT_AURA" or event == "UNIT_FACTION" or event == "PLAYER_UPDATE_RESTING" then
         for _, set in ipairs({ frames, plateFrames }) do
             if set.enemyhealth:IsShown() and unit == "target" then
-                if event == "UNIT_AURA" then safe(ns.layoutAuras, set.enemyhealth) end
+                if event == "UNIT_AURA" then
+                    safe(ns.layoutAuras, set.enemyhealth)
+                    safe(ns.layoutTag, set.enemyhealth) -- drinking
+                end
                 safe(ns.layoutBadges, set.enemyhealth)
             end
             if set.health:IsShown() and unit ~= "target" then safe(ns.layoutBadges, set.health) end
