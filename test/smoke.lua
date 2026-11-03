@@ -1086,14 +1086,23 @@ assert(regionWithText(ns.pages.combat, "Gradient")._point[4] == 238, "column 4 u
 byText("Combat Display")._scripts.OnClick(byText("Combat Display"), "LeftButton")
 assert(ns.pages.combat.need > 1000 and ns.content._h == ns.pages.combat.need - 90 + 16,
     "the scroll area is as tall as the page")
-assert(byText("Export") and byText("Import") and byText("Reset"), "profile buttons moved to the sidebar")
+-- Profiles has its own page; the header names the profile in use and opens that page
+assert(byText("Export") and byText("Import") and byText("Reset to defaults") and byText("Create"), "profile page")
+local inUse
+for _, f in ipairs(created) do
+    if type(f._text) == "string" and f._text:find("^Profile: ") then inUse = f end
+end
+assert(inUse and inUse._text:find(WolfpackAddonDB.chars[S.name .. " - Realm"], 1, true), "header names the profile")
+inUse._scripts.OnClick(inUse, "LeftButton")
+assert(ns.pages.profile:IsShown() and not ns.pages.combat:IsShown(), "header opens the Profiles page")
+byText("Combat Display")._scripts.OnClick(byText("Combat Display"), "LeftButton")
 -- Reset asks first; No leaves the profile alone (on a scratch profile, the real one stays as is)
 local home = WolfpackAddonDB.chars[S.name .. " - Realm"]
 ns.useProfile("Scratch")
 local asked, realShow = nil, StaticPopup_Show
 StaticPopup_Show = function(which, a) asked = { which, a } end
 prof().regular.bars.health.width = 333
-byText("Reset")._scripts.OnClick(byText("Reset"), "LeftButton")
+byText("Reset to defaults")._scripts.OnClick(byText("Reset to defaults"), "LeftButton")
 assert(asked[1] == "WOLFPACKADDON_RESET" and prof().regular.bars.health.width == 333, "reset waits for Yes")
 StaticPopupDialogs.WOLFPACKADDON_RESET.OnAccept()
 assert(prof().regular.bars.health.width ~= 333, "Yes resets")
@@ -1167,7 +1176,7 @@ assert(store.profiles.Alpha and prof() == store.profiles.Alpha, "picked: made fr
 dd._items[5].set()
 assert(prof() == store.profiles.Rogue, "dropdown switches")
 dd._items[4].set()
-byText("Delete")._scripts.OnClick(byText("Delete"), "LeftButton")
+byText("Delete profile")._scripts.OnClick(byText("Delete profile"), "LeftButton")
 assert(not store.profiles.PvP and prof() == store.profiles.Rogue, "delete falls back to class profile")
 
 -- Texture and font dropdowns: pick sets the selected bar (Health), previews render

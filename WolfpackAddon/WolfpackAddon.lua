@@ -3762,7 +3762,7 @@ local function openIO(mode)
     f.area2:SetShown(export)
     f.label2:SetShown(export)
     if export then
-        f.label1:SetText("1. Addon profile. Import it here with Import (profile row).")
+        f.label1:SetText("1. Addon profile. Import it on the Profiles page.")
         f.area1.box:SetText(exportString(f.all:GetChecked()))
         f.area2.box:SetText(editModeString() or "(The WoW UI layout isn't available right now.)")
         f.note:SetText("Click a box, then Ctrl+C. Keep the profile string somewhere safe: the beta forgets "
@@ -3874,21 +3874,77 @@ local function buildConfig()
     cfg:HookScript("OnShow", function() ns.configOpen = true; changed() end)
     cfg:HookScript("OnHide", function() ns.configOpen = false; changed() end)
 
-    -- Header: the profile (account-wide, holds every page) and what you can do with it
-    label(cfg, "Profile", "GameFontNormalSmall"):SetPoint("LEFT", cfg, "TOPLEFT", 150, -26)
-    local dd = ns.ui.Dropdown(CreateFrame("DropdownButton", nil, cfg, "WowStyle1DropdownTemplate"))
-    dd:SetPoint("LEFT", cfg, "TOPLEFT", 196, -26)
-    dd:SetSize(170, 26)
-    dd:SetupMenu(function(_, root)
-        for _, name in ipairs(profileNames()) do
-            root:CreateRadio(name, function() return name == store.chars[charKey] end, function() useProfile(name) end)
-        end
-    end)
-    onRefresh(function() dd:GenerateMenu() end)
-    local nameBox = ns.ui.Input(cfg, 120)
-    nameBox:SetPoint("LEFT", cfg, "TOPLEFT", 382, -26)
+    -- Pages to the right of the sidebar, in a scroll area under the title row. A page keeps the
+    -- window's coordinates (its cards start 100 down), so it sits 90 above the area's top.
+    local scroller = ns.ui.Scroll(CreateFrame("ScrollFrame", nil, cfg, "UIPanelScrollFrameTemplate"))
+    scroller:SetPoint("TOPLEFT", 143, -90)
+    scroller:SetPoint("BOTTOMRIGHT", -22, 8)
+    local content = CreateFrame("Frame", nil, scroller)
+    content:SetSize(515, 1)
+    scroller:SetScrollChild(content)
+    ns.scroller, ns.content = scroller, content
+    -- Four columns of boxes; a box's rows are stacked by g:row(height).
+    local COL, TOP = { 16, 226, 436, 646 }, -100
+    local ROW, SLIDER, DROP, SWATCH, BUTTON = 24, 46, 50, 26, 28
+
+    -- Header: the profile in use (account-wide, holds every page); a click opens its page
+    local inUse = button(cfg, "", 240, 150, -14, function() section, mode = "profile", "regular"; changed() end, true)
+    onRefresh(function() inUse:SetText("Profile: |cffffffff" .. tostring(store.chars[charKey]) .. "|r") end)
+
+    -- Profiles page: everything about profiles, each job in its own card
+    local profilePage = CreateFrame("Frame", nil, content)
+    profilePage:SetPoint("TOPLEFT", content, "TOPLEFT", -9, 90)
+    profilePage:SetSize(524, 700)
+    local function note(g, text, h)
+        local n = label(profilePage, text, "GameFontDisableSmall")
+        n:SetPoint("TOPLEFT", g.x, g:row(h))
+        n:SetWidth(178)
+        n:SetJustifyH("LEFT")
+    end
+    local function profileMenu(g, pick, others) -- others: leave out the profile in use
+        local dd = ns.ui.Dropdown(CreateFrame("DropdownButton", nil, profilePage, "WowStyle1DropdownTemplate"))
+        dd:SetPoint("TOPLEFT", g.x, g:row(32))
+        dd:SetSize(178, 26)
+        dd:SetupMenu(function(_, root)
+            for _, name in ipairs(profileNames()) do
+                if not (others and name == store.chars[charKey]) then
+                    root:CreateRadio(name, function() return not others and name == store.chars[charKey] end,
+                        function() pick(name) end)
+                end
+            end
+        end)
+        onRefresh(function() dd:GenerateMenu() end)
+        return dd
+    end
+    local function danger(b)
+        b:SetNormalFontObject(ns.ui.DANGER)
+        b:SetHighlightFontObject(ns.ui.DANGER)
+        return b
+    end
+
+    local use = group(profilePage, COL[1], TOP, 202, "In use")
+    profileMenu(use, useProfile)
+    note(use, "Every page of this window is saved to it, Bar Stack included. Any character can use it.", 46)
+    danger(button(profilePage, "Delete profile", 178, use.x, use:row(BUTTON), function()
+        local name = store.chars[charKey]
+        StaticPopup_Show("WOLFPACKADDON_DELETE", name, nil, name)
+    end))
+    note(use, "Characters on it go back to their class profile.", 22)
+    use:close()
+
+    local copy = group(profilePage, COL[1], use.cursor - 20, 202, "Copy settings")
+    ns.copyFromMenu = profileMenu(copy, function(name)
+        StaticPopup_Show("WOLFPACKADDON_COPY", name, store.chars[charKey], name)
+    end, true)
+    ns.copyFromMenu:SetDefaultText("Copy from...")
+    note(copy, "Another profile's settings replace this one's, Bar Stack included. Asks first.", 34)
+    copy:close()
+
+    local new = group(profilePage, COL[2], TOP, 202, "New profile")
+    local nameBox = ns.ui.Input(profilePage, 178)
+    nameBox:SetPoint("TOPLEFT", new.x, new:row(32))
     nameBox:SetMaxLetters(32)
-    local hint = label(nameBox, "New profile name", "GameFontDisableSmall")
+    local hint = label(nameBox, "Name", "GameFontDisableSmall")
     hint:SetPoint("LEFT", 8, 0)
     nameBox:HookScript("OnTextChanged", function(self) hint:SetShown(self:GetText() == "") end)
     local function create()
@@ -3898,11 +3954,23 @@ local function buildConfig()
     end
     nameBox:SetScript("OnEnterPressed", create)
     nameBox:SetScript("OnEscapePressed", function() nameBox:ClearFocus() end)
-    button(cfg, "Copy", 56, 508, -14, create)
-    button(cfg, "Delete", 64, 570, -14, function()
-        local name = store.chars[charKey]
-        StaticPopup_Show("WOLFPACKADDON_DELETE", name, nil, name)
-    end)
+    button(profilePage, "Create", 178, new.x, new:row(BUTTON), create)
+    note(new, "Starts as a copy of the profile in use, and switches to it.", 34)
+    new:close()
+
+    local share = group(profilePage, COL[2], new.cursor - 20, 202, "Share or back up")
+    local at = share:row(BUTTON)
+    button(profilePage, "Export", 87, share.x, at, function() openIO("export") end)
+    button(profilePage, "Import", 87, share.x + 91, at, function() openIO("import") end)
+    note(share, "One text string holds the profile. Keep a copy: the beta forgets addon settings on restart.", 46)
+    share:close()
+
+    local reset = group(profilePage, COL[2], share.cursor - 20, 202, "Start over")
+    danger(button(profilePage, "Reset to defaults", 178, reset.x, reset:row(BUTTON), function()
+        StaticPopup_Show("WOLFPACKADDON_RESET", store.chars[charKey])
+    end))
+    note(reset, "Puts this profile back to how it started. Asks first.", 34)
+    reset:close()
 
     -- Sidebar: what dresses the screen, then your classes
     local y = -64
@@ -3920,6 +3988,8 @@ local function buildConfig()
         return b
     end
 
+    entry("profile", "Profiles")
+    y = y - 12
     shelf("Interface")
     for _, e in ipairs({ { "combat", "Combat Display" }, { "nameplates", "Nameplates", "nameplate" },
         { "buffs", "Buff check" }, { "other", "Other" }, { "barstack", "Bar Stack" } }) do
@@ -3934,30 +4004,6 @@ local function buildConfig()
         end
     end
 
-    y = y - 12
-    shelf("Profile") -- the header row has no room left for these
-    button(cfg, "Export", 122, 12, y, function() openIO("export") end, true)
-    button(cfg, "Import", 122, 12, y - 28, function() openIO("import") end, true)
-    local from = ns.ui.Dropdown(CreateFrame("DropdownButton", nil, cfg, "WowStyle1DropdownTemplate"))
-    from:SetPoint("TOPLEFT", 12, y - 56)
-    from:SetSize(122, 24)
-    from:SetDefaultText("Copy from...")
-    from:SetupMenu(function(_, root)
-        for _, name in ipairs(profileNames()) do
-            if name ~= store.chars[charKey] then
-                root:CreateRadio(name, function() return false end, function()
-                    StaticPopup_Show("WOLFPACKADDON_COPY", name, store.chars[charKey], name)
-                end)
-            end
-        end
-    end)
-    onRefresh(function() from:GenerateMenu() end)
-    ns.copyFromMenu = from
-    button(cfg, "Reset", 122, 12, y - 84, function()
-        StaticPopup_Show("WOLFPACKADDON_RESET", store.chars[charKey])
-    end, true)
-    y = y - 112
-
     ns.sidebarBottom = y
     local divider = cfg:CreateTexture(nil, "ARTWORK")
     ns.ui.paint(divider, ns.ui.C.border)
@@ -3965,15 +4011,6 @@ local function buildConfig()
     divider:SetPoint("BOTTOMLEFT", 142, 1)
     divider:SetWidth(1)
 
-    -- Pages to the right of the sidebar, in a scroll area under the title row. A page keeps the
-    -- window's coordinates (its cards start 100 down), so it sits 90 above the area's top.
-    local scroller = ns.ui.Scroll(CreateFrame("ScrollFrame", nil, cfg, "UIPanelScrollFrameTemplate"))
-    scroller:SetPoint("TOPLEFT", 143, -90)
-    scroller:SetPoint("BOTTOMRIGHT", -22, 8)
-    local content = CreateFrame("Frame", nil, scroller)
-    content:SetSize(515, 1)
-    scroller:SetScrollChild(content)
-    ns.scroller, ns.content = scroller, content
     local barsPage = CreateFrame("Frame", nil, content)
     barsPage:SetPoint("TOPLEFT", content, "TOPLEFT", -9, 90)
     barsPage:SetSize(524, 700)
@@ -3999,7 +4036,7 @@ local function buildConfig()
     bsPage.need = 100 + ns.ui.BS_H
     ns.pages = { combat = barsPage, nameplates = questPage, buffs = buffPage, mage = magePage,
         hunter = hunterPage, warlock = lockPage, rogue = roguePage, shaman = shamanPage,
-        other = otherPage }
+        other = otherPage, profile = profilePage }
 
     local title = label(cfg, "Combat Display", "GameFontNormalLarge")
     title:SetPoint("TOPLEFT", 150, -72)
@@ -4013,6 +4050,7 @@ local function buildConfig()
         -- the tab row stands where the title would: the tabs are the heading on those pages
         title:SetShown(not np)
         title:SetText(section == "other" and "Other"
+            or section == "profile" and "Profiles"
             or section == "buffs" and "Buff check"
             or section == "mage" and "Mage: food and water"
             or section == "hunter" and "Hunter: ammo and pet"
@@ -4032,6 +4070,7 @@ local function buildConfig()
         roguePage:SetShown(section == "rogue")
         shamanPage:SetShown(section == "shaman")
         bsPage:SetShown(section == "barstack")
+        profilePage:SetShown(section == "profile")
         local page = section == "barstack" and bsPage or ns.pages[section]
         if np and sub == "quest" then page = questPage end
         if page and page.need then content:SetHeight(math.max(1, page.need - 90 + 16)) end
@@ -4050,10 +4089,6 @@ local function buildConfig()
         tabNote:SetText(mode == "regular" and "Health, power and combo bars on your screen."
             or "Bars under your target's nameplate. Needs enemy nameplates on (V key).")
     end)
-
-    -- Four columns of boxes; a box's rows are stacked by g:row(height).
-    local COL, TOP = { 16, 226, 436, 646 }, -100
-    local ROW, SLIDER, DROP, SWATCH, BUTTON = 24, 46, 50, 26, 28
 
     -- Bars page, column 1: which bars, and where the group sits
     local bars = group(barsPage, COL[1], TOP, 202, "Bars, top to bottom")

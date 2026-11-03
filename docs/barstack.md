@@ -62,8 +62,8 @@ Other commands:
 - `/bs check` shows which APIs and storage backends work on this client. Run it after a relog to see which saved settings survived.
 - Groups, bars and icons are saved to the Wolfpack profile you have chosen, one set per spec.
   Switching profile switches them; a character's older set moves to the first profile it uses.
-  **Copy from...** under Profile copies another profile onto the current one, Bar Stack sets included.
-- Bar Stack has no export string of its own: Wolfpack's profile string (Export / Import at the top
+  **Copy from...** on the Profiles page copies another profile onto the current one, Bar Stack sets included.
+- Bar Stack has no export string of its own: Wolfpack's profile string (Export / Import on the Profiles page
   of the options window) carries Bar Stack's profile too, and importing it restores it into the
   profile the import switches to, for the spec you are on.
 
