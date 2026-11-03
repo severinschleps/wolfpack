@@ -224,6 +224,8 @@ IsShiftKeyDown = function() return S.shift end
 IsAltKeyDown = function() return S.alt end
 IsControlKeyDown = function() return S.ctrl end
 S.binds = {}
+RegisterStateDriver = function(f, kind, rule) f._driver = rule end
+UnregisterStateDriver = function(f) f._driver = nil end
 ClearOverrideBindings = function(owner) S.binds = {} end
 SetOverrideBindingClick = function(owner, prio, key, name, btn) S.binds[key] = name end
 IsInGroup = function() return S.group end
@@ -3025,6 +3027,45 @@ S.A.bars[1].cols = 7
 S.nm = ns.importString(ns.exportString())
 assert(S.nm and prof().actionbars.binds["5"] == "CTRL-F" and #prof().actionbars.bars == 1
     and prof().actionbars.bars[1].cols == 7, "bars and binds travel in the profile string")
+-- Stance and pet bars: Blizzard's own buttons, moved into bars of yours; given back when off
+StanceBar = new(); StanceBar._parent = UIParent
+;(function()
+    for i = 1, 3 do
+        _G["StanceButton" .. i] = new(); _G["StanceButton" .. i]._parent = StanceBar
+        _G["StanceButton" .. i]._name = "StanceButton" .. i
+        _G["StanceButton" .. i]:SetPoint("LEFT", StanceBar, "LEFT", (i - 1) * 30, 0)
+    end
+    for i = 1, 10 do _G["PetActionButton" .. i] = new(); _G["PetActionButton" .. i]._parent = UIParent end
+end)()
+S.SB, S.PT = prof().actionbars.stance, prof().actionbars.pet
+S.SB.show = true; fire("UNIT_MAXPOWER")
+S.sf = ns.ab.special.stance.frame
+assert(StanceButton1._parent == S.sf and StanceButton2._point[2] == S.sf and StanceButton2._point[4] == 34
+    and StanceButton1._w == 30, "the stance buttons in a bar of yours, 30 + 4 apart")
+assert(S.sf._point[1] == "BOTTOMLEFT" and S.sf._point[2] == ns.ab.frames[1] and S.sf._point[3] == "TOPLEFT"
+    and S.sf._point[5] == S.SB.gap, "on top of bar 1")
+S.PT.show, S.PT.anchorTo, S.PT.side = true, "stance", "right"; fire("UNIT_MAXPOWER")
+S.pf2 = ns.ab.special.pet.frame
+assert(S.pf2._driver == "[pet] show; hide" and PetActionButton1._parent == S.pf2, "pet bar: only with a pet")
+assert(S.pf2._point[2] == S.sf and S.pf2._point[1] == "TOPLEFT" and S.pf2._point[3] == "TOPRIGHT",
+    "right of the stance bar")
+S.SB.cols, S.SB.rows = 2, 1; fire("UNIT_MAXPOWER")
+assert(StanceButton3._parent ~= S.sf and StanceButton3._parent ~= StanceBar, "a third doesn't fit two: parked")
+-- keybind mode works on them too, by their own slot names
+ns.abBindMode(true); StanceButton1._scripts.OnEnter(StanceButton1); ns.abKey("F1")
+assert(prof().actionbars.binds["stance:1"] == "F1" and S.binds.F1 == "StanceButton1", "F1 on the first stance")
+StanceButton1._scripts.OnLeave(StanceButton1); ns.abBindMode(false)
+S.SB.show, S.SB.cols = false, 10; fire("UNIT_MAXPOWER")
+assert(StanceButton1._parent == StanceBar and StanceButton2._point[2] == StanceBar and StanceButton2._point[4] == 30,
+    "off: given back where they were")
+assert(S.pf2._point[1] == "BOTTOM" and S.pf2._point[2] == UIParent, "its anchor gone: the pet bar on the screen")
+S.PT.show = false; fire("UNIT_MAXPOWER")
+assert(not S.pf2._driver and PetActionButton1._parent == UIParent, "pet bar off too")
+-- Blizzard's own stance bar hidden
+prof().regular.hideStanceBar = true; fire("UNIT_MAXPOWER")
+assert(StanceBar._parent ~= UIParent, "Blizzard's stance bar hidden")
+prof().regular.hideStanceBar = false; fire("UNIT_MAXPOWER")
+assert(StanceBar._parent == UIParent, "and back")
 -- Blizzard's action bars, hidden the same way as its unit frames
 MultiBarBottomLeft = new(); MultiBarBottomLeft._parent = UIParent
 prof().regular.hideActionBars = true; fire("UNIT_MAXPOWER")

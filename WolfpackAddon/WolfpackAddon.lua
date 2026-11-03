@@ -375,6 +375,17 @@ ns.AB_BAR = { first = 1, rows = 1, cols = 12, size = 36, gap = 4, radius = 0, zo
     borderColor = { 0, 0, 0, 1 }, grow = "rightdown", point = "BOTTOM", x = 0, y = 60,
     keyFont = FONTS[1][2], keySize = 11, macroFont = FONTS[1][2], macroSize = 10, macroText = true }
 DEFAULTS.actionbars = { bars = {}, binds = {}, seeded = false }
+-- Stance and pet bars: Blizzard's own buttons, moved into a bar of yours. anchorTo: "screen", "bar:N"
+-- (one of your bars) or the other of the two; side: where on it ("above", "below", "left", "right").
+for _, key in ipairs({ "stance", "pet" }) do
+    local b = {}
+    for k, v in pairs(ns.AB_BAR) do b[k] = type(v) == "table" and { unpack(v) } or v end
+    b.show, b.cols, b.size, b.anchorTo, b.side, b.y = false, 10, 30, "bar:1", "above", 0
+    b.first = nil
+    DEFAULTS.actionbars[key] = b
+end
+DEFAULTS.regular.hideStanceBar = false
+DEFAULTS.regular.hidePetBar = false
 DEFAULTS.regular.hideBlizzCastbar = false -- hide Blizzard's player cast bar
 DEFAULTS.regular.playerMenu = false      -- right-click on the bars opens the player menu
 DEFAULTS.regular.targetMenu = true       -- right-click on the enemy health bar opens the target's menu
@@ -2264,6 +2275,10 @@ else
     table.insert(ns.unitFrameHides, { "MainActionBar", "hideActionBars" })
     table.insert(ns.unitFrameHides, { "MainMenuBar", "hideActionBars" })
 end
+for _, u in ipairs({ { "StanceBar", "hideStanceBar" }, { "StanceBarFrame", "hideStanceBar" },
+    { "ShapeshiftBarFrame", "hideStanceBar" }, { "PetActionBar", "hidePetBar" }, { "PetActionBarFrame", "hidePetBar" } }) do
+    table.insert(ns.unitFrameHides, u)
+end
 ns.unitFrameParents = {}
 local castHidden, castParent, castHooked
 
@@ -2360,7 +2375,9 @@ function ns.abKeyText(slot)
 end
 function ns.abHotkey(b)
     if not b.wpKey then return end
-    b.wpKey:SetText(ns.abKeyText(b:GetAttribute("action")))
+    local slot = b.wpSlot or b:GetAttribute("action")
+    if b.wpBlizz and not db.actionbars.binds[tostring(slot)] then return end -- the game's own key text
+    b.wpKey:SetText(ns.abKeyText(slot))
     b.wpKey:Show()
 end
 
@@ -2387,7 +2404,7 @@ function ns.abButton(f, i, j)
     return b
 end
 
-function ns.abLook(b, bar, slot)
+function ns.abLook(b, bar, slot, blizz)
     local nt = b:GetNormalTexture()
     if nt then nt:SetAlpha(0) end -- the game's frame art: the border is ours
     local t, z = bar.borderSize, bar.zoom / 100
@@ -2399,6 +2416,7 @@ function ns.abLook(b, bar, slot)
     ns.iconCorners(b.wpIcon, b.wpMask, bar.radius, { z, 1 - z, z, 1 - z })
     ns.iconCorners(b.wpEdge, b.wpEdgeMask, bar.radius, { 0, 1, 0, 1 })
     if not b.wpKey:SetFont(bar.keyFont, bar.keySize, "OUTLINE") then b.wpKey:SetFont(FONTS[1][2], bar.keySize, "OUTLINE") end
+    if blizz then return ns.abHotkey(b) end -- the game keeps its own buttons up to date
     if not b.wpName:SetFont(bar.macroFont, bar.macroSize, "OUTLINE") then
         b.wpName:SetFont(FONTS[1][2], bar.macroSize, "OUTLINE")
     end
@@ -2435,6 +2453,7 @@ function ns.syncActionBars()
                 if j <= n then
                     local slot = bar.first + j - 1
                     b:SetAttribute("action", slot)
+                    b.wpSlot = slot
                     b:SetSize(bar.size, bar.size)
                     b:ClearAllPoints()
                     b:SetPoint(corner, f, corner, g[1] * ((j - 1) % bar.cols) * step,
@@ -2445,7 +2464,130 @@ function ns.syncActionBars()
         end
     end
     for i = #A.bars + 1, #ab.frames do ab.frames[i]:Hide() end
+    ns.syncSpecialBars()
     ns.abBinds()
+end
+
+-- Stance and pet bars. Blizzard's buttons are moved in (and given back, where they were, when
+-- the bar is turned off); Blizzard goes on updating them. The pet bar shows while you have a pet,
+-- by the game's own state driver, so that holds in combat too. ponytail: given back, a button
+-- keeps this bar's look until /reload.
+ns.AB_SPECIAL = {
+    stance = { name = "WolfpackStanceBar", containers = { "StanceBar", "StanceBarFrame", "ShapeshiftBarFrame" },
+        buttons = { "StanceButton", "ShapeshiftButton" } },
+    pet = { name = "WolfpackPetBar", containers = { "PetActionBar", "PetActionBarFrame" }, buttons = { "PetActionButton" },
+        driver = "[pet] show; hide" },
+}
+ns.ab.special = { stance = { saved = {} }, pet = { saved = {} } }
+ns.AB_SIDES = { above = { "BOTTOMLEFT", "TOPLEFT", 0, 1 }, below = { "TOPLEFT", "BOTTOMLEFT", 0, -1 },
+    left = { "TOPRIGHT", "TOPLEFT", -1, 0 }, right = { "TOPLEFT", "TOPRIGHT", 1, 0 } }
+
+function ns.abBlizzButton(key, i)
+    for _, prefix in ipairs(ns.AB_SPECIAL[key].buttons) do
+        if _G[prefix .. i] then return _G[prefix .. i] end
+    end
+end
+
+-- what a stance or pet bar hangs on: one of your bars, the other of the two, or nil (the screen)
+function ns.abTarget(o)
+    local n = tonumber((o.anchorTo or ""):match("^bar:(%d+)$"))
+    if n then return db.actionbars.bars[n] and ns.ab.frames[n] end
+    local other = ns.ab.special[o.anchorTo or ""]
+    return other and other.frame and db.actionbars[o.anchorTo].show and other.frame or nil
+end
+
+function ns.syncSpecialBars()
+    if InCombatLockdown() or ns.ab.placing then return end
+    ns.ab.placing = true -- giving buttons back makes Blizzard lay its bar out, which calls here
+    for _, key in ipairs({ "stance", "pet" }) do
+        local o, spec, st = db.actionbars[key], ns.AB_SPECIAL[key], ns.ab.special[key]
+        if o.show then
+            local f = st.frame or CreateFrame("Frame", spec.name, UIParent, "SecureHandlerStateTemplate")
+            st.frame = f
+            if spec.driver then
+                if not st.driven then RegisterStateDriver(f, "visibility", spec.driver) end
+                st.driven = true
+            else
+                f:Show()
+            end
+            local n, step = math.min(o.rows * o.cols, 10), o.size + o.gap
+            local g = ns.AB_GROW[o.grow] or ns.AB_GROW.rightdown
+            local corner = (g[2] < 0 and "TOP" or "BOTTOM") .. (g[1] > 0 and "LEFT" or "RIGHT")
+            f:SetSize(math.max(1, math.min(n, o.cols) * step - o.gap), math.max(1, math.ceil(n / o.cols) * step - o.gap))
+            for i = 1, 10 do
+                local b = ns.abBlizzButton(key, i)
+                if b then
+                    if not st.saved[i] then
+                        local pts = {}
+                        for p = 1, b:GetNumPoints() do pts[p] = { b:GetPoint(p) } end
+                        st.saved[i] = { parent = b:GetParent(), points = pts }
+                        if not b.wpBlizz then -- once per button: what ours have too
+                            local name = b:GetName() or ""
+                            b.wpBlizz, b.wpSlot = true, key .. ":" .. i
+                            b.wpIcon = rawget(b, "icon") or _G[name .. "Icon"] or b:CreateTexture(nil, "ARTWORK")
+                            b.wpKey = rawget(b, "HotKey") or _G[name .. "HotKey"] or b:CreateFontString(nil, "OVERLAY")
+                            b.wpEdge = b:CreateTexture(nil, "BACKGROUND", nil, -8)
+                            b.wpEdge:SetAllPoints()
+                            b.wpEdgeMask, b.wpMask = b:CreateMaskTexture(), b:CreateMaskTexture()
+                            b.wpEdgeMask:SetAllPoints(b.wpEdge)
+                            b.wpMask:SetAllPoints(b.wpIcon)
+                            b:HookScript("OnEnter", function(self) if ns.ab.binding then ns.ab.target = self end end)
+                            b:HookScript("OnLeave", function(self) if ns.ab.target == self then ns.ab.target = nil end end)
+                        end
+                    end
+                    b:SetParent(i <= n and f or hider)
+                    if i <= n then
+                        b:SetSize(o.size, o.size)
+                        b:ClearAllPoints()
+                        b:SetPoint(corner, f, corner, g[1] * ((i - 1) % o.cols) * step,
+                            g[2] * math.floor((i - 1) / o.cols) * step)
+                        ns.abLook(b, o, nil, true)
+                    end
+                end
+            end
+            -- Blizzard lays its bar out again now and then (a new form), which would take them back
+            for _, c in ipairs(spec.containers) do
+                local box = _G[c]
+                if box and not st.hooked then
+                    for _, m in ipairs({ "Layout", "UpdateGridLayout" }) do
+                        if type(box[m]) == "function" then
+                            hooksecurefunc(box, m, function() pcall(ns.syncSpecialBars) end)
+                        end
+                    end
+                end
+            end
+            st.hooked = true
+        elseif st.frame then -- turned off: the buttons go back where they were
+            for i, sv in pairs(st.saved) do
+                local b = ns.abBlizzButton(key, i)
+                b:SetParent(sv.parent)
+                b:ClearAllPoints()
+                for _, pt in ipairs(sv.points) do b:SetPoint(unpack(pt)) end
+            end
+            st.saved = {}
+            if st.driven then UnregisterStateDriver(st.frame, "visibility") end
+            st.driven = false
+            st.frame:Hide()
+            for _, c in ipairs(spec.containers) do
+                local box = _G[c]
+                if box then pcall(function() (box.UpdateGridLayout or box.Layout)(box) end) end
+            end
+        end
+    end
+    -- anchored after both exist: either may hang on the other
+    for _, key in ipairs({ "stance", "pet" }) do
+        local o, f = db.actionbars[key], ns.ab.special[key].frame
+        if o.show and f then
+            f:ClearAllPoints()
+            local to, side = ns.abTarget(o), ns.AB_SIDES[o.side] or ns.AB_SIDES.above
+            if to and to ~= f then
+                f:SetPoint(side[1], to, side[2], o.x + side[3] * o.gap, o.y + side[4] * o.gap)
+            else
+                f:SetPoint(o.point, UIParent, o.point, o.x, o.y)
+            end
+        end
+    end
+    ns.ab.placing = false
 end
 
 function ns.abBinds()
@@ -2458,6 +2600,12 @@ function ns.abBinds()
             if key then SetOverrideBindingClick(owner, false, key, b:GetName(), "LeftButton") end
         end
     end
+    for _, kind in ipairs({ "stance", "pet" }) do
+        for i = 1, 10 do
+            local key, b = db.actionbars.binds[kind .. ":" .. i], ns.abBlizzButton(kind, i)
+            if key and b and b:GetName() then SetOverrideBindingClick(owner, false, key, b:GetName(), "LeftButton") end
+        end
+    end
 end
 
 -- Quick keybind mode: hover a button and press a key to bind it there, Escape to unbind; Escape
@@ -2468,7 +2616,7 @@ function ns.abKey(key)
     local t, binds = ns.ab.target, db.actionbars.binds
     if key == "ESCAPE" and not t then return ns.abBindMode(false) end
     if not t or InCombatLockdown() then return end
-    local slot = tostring(t:GetAttribute("action"))
+    local slot = tostring(t.wpSlot or t:GetAttribute("action"))
     if key == "ESCAPE" then
         binds[slot] = nil
     else
@@ -2479,6 +2627,7 @@ function ns.abKey(key)
     end
     ns.abBinds()
     for _, list in pairs(ns.ab.buttons) do for _, b in ipairs(list) do ns.abHotkey(b) end end
+    if t.wpBlizz and t.wpKey then t.wpKey:SetText(ns.abKeyText(slot)) end
 end
 
 function ns.abBindMode(on)
@@ -4702,9 +4851,9 @@ local function sanitize(src, template)
             out.binds = {}
             for slot, key in pairs(type(v) == "table" and v or {}) do
                 local n = tonumber(slot)
-                if n and n >= 1 and n <= ns.AB_POOL and type(key) == "string" and #key <= 40 then
-                    out.binds[tostring(n)] = key
-                end
+                local kind, i = tostring(slot):match("^(%a+):(%d+)$")
+                local ok = (n and n >= 1 and n <= ns.AB_POOL) or ((kind == "stance" or kind == "pet") and tonumber(i) <= 10)
+                if ok and type(key) == "string" and #key <= 40 then out.binds[n and tostring(n) or slot] = key end
             end
         elseif k == "hover" then -- a map: only known elements, only true
             out.hover = {}
@@ -6170,13 +6319,20 @@ local function buildConfig()
     local abSel = 1
     -- no bar picked (all deleted): the widgets read and write a scratch copy, never the defaults
     local scratch = merge({}, ns.AB_BAR)
-    local AB = function() return db.actionbars.bars[abSel] or scratch end
+    local AB = function()
+        if abSel == "stance" or abSel == "pet" then return db.actionbars[abSel] end
+        return db.actionbars.bars[abSel] or scratch
+    end
+    ns.abIsSpecial = function() return abSel == "stance" or abSel == "pet" end
+    local special = ns.abIsSpecial
     local abc = group(actionPage, COL[1], TOP, 202, "Bars")
     ns.abMenu = dropdown(actionPage, "Bar", abc.x, abc:row(DROP), function()
         local list = {}
         for i, b in ipairs(db.actionbars.bars) do
             list[i] = { ("Bar %d (slots %d-%d)"):format(i, b.first, b.first + math.max(ns.abCount(i), 1) - 1), i }
         end
+        list[#list + 1] = { "Stance bar", "stance" }
+        list[#list + 1] = { "Pet bar", "pet" }
         return list
     end, function() return abSel end, function(v) abSel = v end, textPreview)
     local abRow = abc:row(BUTTON)
@@ -6193,8 +6349,8 @@ local function buildConfig()
     abUsed:SetWidth(178)
     abUsed:SetJustifyH("LEFT")
     onRefresh(function()
-        if not db.actionbars.bars[abSel] then abSel = math.max(1, #db.actionbars.bars) end
-        local room = db.actionbars.bars[abSel] and ns.abRoom(abSel)
+        if not special() and not db.actionbars.bars[abSel] then abSel = math.max(1, #db.actionbars.bars) end
+        local room = not special() and db.actionbars.bars[abSel] and ns.abRoom(abSel)
         abUsed:SetText(("%d of %d action slots in use.%s"):format(ns.abUsed(), ns.AB_POOL,
             room and AB().rows * AB().cols > room and ("\nThis bar has room for " .. room .. " here.") or ""))
     end)
@@ -6205,6 +6361,10 @@ local function buildConfig()
     end)
     check(actionPage, "Hide Blizzard's action bars", abc.x, abc:row(ROW),
         function() return db.regular.hideActionBars end, function(v) db.regular.hideActionBars = v end)
+    check(actionPage, "Hide Blizzard's stance bar", abc.x, abc:row(ROW),
+        function() return db.regular.hideStanceBar end, function(v) db.regular.hideStanceBar = v end)
+    check(actionPage, "Hide Blizzard's pet bar", abc.x, abc:row(ROW),
+        function() return db.regular.hidePetBar end, function(v) db.regular.hidePetBar = v end)
     local abNote = label(actionPage, "Bars, keys and hiding change out of combat only: the game allows "
         .. "nothing else. Drag spells onto the buttons as usual.", "GameFontDisableSmall")
     abNote:SetPoint("TOPLEFT", abc.x, abc:row(44))
@@ -6213,6 +6373,26 @@ local function buildConfig()
     abc:close()
 
     local abl = group(actionPage, COL[1], abc.cursor - 20, 202, "Layout")
+    -- stance and pet bars: on or off, and what they hang on
+    local w = {} -- this page's widgets, in one local: the builder is at Lua's 200-local ceiling
+    w.show = check(actionPage, "Show this bar", abl.x, abl:row(0), function() return AB().show end,
+        function(v) AB().show = v end)
+    w.to = dropdown(actionPage, "Anchor to", abl.x, abl:row(0) - ROW, function()
+        local list = { { "The screen", "screen" } }
+        for i in ipairs(db.actionbars.bars) do list[#list + 1] = { "Bar " .. i, "bar:" .. i } end
+        list[#list + 1] = abSel == "pet" and { "Stance bar", "stance" } or { "Pet bar", "pet" }
+        return list
+    end, function() return AB().anchorTo end, function(v) AB().anchorTo = v end, textPreview)
+    w.side = dropdown(actionPage, "On its", abl.x, abl:row(0) - ROW - DROP, { { "Top", "above" },
+        { "Bottom", "below" }, { "Left", "left" }, { "Right", "right" } }, function() return AB().side end,
+        function(v) AB().side = v end, textPreview)
+    ns.abSpecialMenus = { w.to, w.side }
+    onRefresh(function()
+        w.show:SetShown(special())
+        w.to:SetShown(special())
+        w.side:SetShown(special() and AB().anchorTo ~= "screen")
+    end)
+    abl:row(ROW + 2 * DROP) -- room for the stance / pet controls (empty for your own bars)
     for _, r in ipairs({ { "rows", "Rows", 1, 12 }, { "cols", "Columns", 1, 24 }, { "size", "Button size", 16, 64 },
         { "gap", "Gap", 0, 20 } }) do
         slider(actionPage, r[2], abl.x, abl:row(SLIDER), r[3], r[4], function() return AB()[r[1]] end,
@@ -6221,11 +6401,12 @@ local function buildConfig()
     dropdown(actionPage, "Grows", abl.x, abl:row(DROP), { { "Right, then down", "rightdown" },
         { "Right, then up", "rightup" }, { "Left, then down", "leftdown" }, { "Left, then up", "leftup" } },
         function() return AB().grow end, function(v) AB().grow = v end, textPreview)
-    dropdown(actionPage, "Anchored to the screen's", abl.x, abl:row(DROP), { { "Center", "CENTER" },
+    w.point = dropdown(actionPage, "Anchored to the screen's", abl.x, abl:row(DROP), { { "Center", "CENTER" },
         { "Top (centered)", "TOP" }, { "Bottom (centered)", "BOTTOM" }, { "Left (centered)", "LEFT" },
         { "Right (centered)", "RIGHT" }, { "Top left", "TOPLEFT" }, { "Top right", "TOPRIGHT" },
         { "Bottom left", "BOTTOMLEFT" }, { "Bottom right", "BOTTOMRIGHT" } },
         function() return AB().point end, function(v) AB().point = v end, textPreview)
+    onRefresh(function() w.point:SetShown(not special() or AB().anchorTo == "screen") end)
     slider(actionPage, "X", abl.x, abl:row(SLIDER), -1500, 1500, function() return AB().x end, function(v) AB().x = v end)
     slider(actionPage, "Y", abl.x, abl:row(SLIDER), -1000, 1000, function() return AB().y end, function(v) AB().y = v end)
     abl:close()
