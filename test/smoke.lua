@@ -3718,7 +3718,7 @@ assert(MultiBarBottomLeft._parent == UIParent, "and back")
     CompactRaidFrameContainer = new()
     CompactRaidFrameContainer._parent = UIParent
     -- the options pages have been clicked through above: start from known settings
-    o.show, o.replace, o.fixed, o.grow, o.size, o.per, o.gap, o.cross, o.dummy = true, true, "width", "down", 400, 5, 4, 36, 10
+    o.show, o.replace, o.fixed, o.grow, o.size, o.per, o.gap, o.dummy = true, true, "width", "down", 400, 5, 4, 10
     o.pets, o.petHeight, o.power, o.roleIcon, o.marker, o.breakpoint = true, 14, true, true, true, 5
     o.buffs.mode, o.buffs.max, o.buffs.cols, o.buffs.rows, o.buffs.size = "mine", 3, 3, 1, 14
     o.buffs.small, o.buffs.large = { point = "TOPRIGHT", x = -2, y = -2 }, { point = "TOPRIGHT", x = -2, y = -2 }
@@ -3731,13 +3731,14 @@ assert(MultiBarBottomLeft._parent == UIParent, "and back")
     -- ten stand-ins: two tanks, four healers, four damage dealers; a hunter's and a warlock's pet
     assert(used() == 12 and B[1].entry.dummy == 1 and B[2].entry.dummy == 9 and B[3].entry.role == "HEALER"
         and B[7].entry.role == "DAMAGER" and B[11].entry.pet and B[12].entry.pet, "tanks, healers, damage, pets")
-    -- fixed width 400, five a row, gap 4: frames 76.8 wide, rows 36 high going down
+    -- fixed width 400, five a row, gap 4: frames 76.8 wide and half that high, rows going down
     local p2, p6 = B[2]._point, B[6]._point
-    assert(B[1]._point[1] == "TOPLEFT" and math.abs(p2[4] - 80.8) < 1e-9 and p2[5] == 0 and p6[4] == 0
-        and p6[5] == -40 and math.abs(B[2]._w - 76.8) < 1e-9 and B[2]._h == 36, "rows of five")
-    assert(B[11]._point[5] == -80 and B[11]._h == 14 and B[11]._point[4] == 0, "pets in a line of their own, own height")
+    local function near(a, b) return math.abs(a - b) < 1e-9 end
+    assert(B[1]._point[1] == "TOPLEFT" and near(p2[4], 80.8) and p2[5] == 0 and p6[4] == 0
+        and near(p6[5], -42.4) and near(B[2]._w, 76.8) and near(B[2]._h, 38.4), "rows of five")
+    assert(near(B[11]._point[5], -84.8) and B[11]._h == 14 and B[11]._point[4] == 0, "pets in a line of their own, own height")
     assert(B[11].health.segs[1]._sbc[1] == prof().colors.class.HUNTER[1], "a pet in its owner's class color")
-    assert(U.frame._point[1] == "TOPLEFT" and U.frame._w == 400 and U.frame._h == 94, "the block: as tall as it needs")
+    assert(U.frame._point[1] == "TOPLEFT" and U.frame._w == 400 and near(U.frame._h, 98.8), "the block: as tall as it needs")
     assert(B[1].role:IsShown() and B[1].marker:IsShown() and not B[2].marker:IsShown(), "role icon, a raid marker")
     -- auras: up to three buffs in a row from the top right; ten members is over the breakpoint (5)
     o.buffs.large.x = -6
@@ -3755,12 +3756,12 @@ assert(MultiBarBottomLeft._parent == UIParent, "and back")
     o.roles = { "DAMAGER", "TANK", "HEALER" }
     U.sync()
     assert(B[1].entry.role == "DAMAGER", "role order")
-    -- fixed height 300, five a column, growing left: columns 36 wide
+    -- fixed height 300, five a column, growing left: frames 56.8 high and twice that wide
     o.fixed, o.grow, o.size = "height", "left", 300
     o.dummy = 6
     U.sync()
-    assert(B[1]._point[1] == "TOPRIGHT" and B[6]._point[4] == -40 and math.abs(B[2]._point[5] + 60.8) < 1e-9
-        and B[2]._w == 36, "columns of five, growing left")
+    assert(B[1]._point[1] == "TOPRIGHT" and near(B[6]._point[4], -117.6) and near(B[2]._point[5], -60.8)
+        and near(B[2]._w, 113.6) and near(B[2]._h, 56.8), "columns of five, growing left")
     -- a real party: you and party1 (a healer); clicks target and open the menu, the game shows them
     ns.configOpen, o.fixed, o.grow, o.size, o.dummy = false, "width", "down", 400, 10
     o.roles = { "TANK", "HEALER", "DAMAGER" } -- you have no role: damage, after the healer
