@@ -410,6 +410,8 @@ EditModeManagerFrame = EditModeManagerFrame or new()
 ShowUIPanel = function(f) S.shownPanel = f end
 PlayerFrame = new()
 PlayerFrame._parent = UIParent
+TargetFrame = new()
+TargetFrame._parent = UIParent
 GetRealmName = function() return "Realm" end
 CreateFrame = function(kind, name, parent, template)
     local f = new(kind)
@@ -1152,6 +1154,14 @@ local hider = PlayerFrame._parent
 assert(hider ~= UIParent and not hider:IsShown(), "hidden after combat")
 R0.hidePlayerFrame = false; fire("UNIT_MAXPOWER")
 assert(PlayerFrame._parent == UIParent, "restored")
+-- the target frame the same way, on its own switch
+assert(TargetFrame._parent == UIParent, "target frame untouched by default")
+R0.hideTargetFrame = true; fire("UNIT_MAXPOWER")
+assert(TargetFrame._parent == hider and PlayerFrame._parent == UIParent, "target frame hidden, player frame not")
+S.combat = true; R0.hideTargetFrame = false; fire("UNIT_MAXPOWER")
+assert(TargetFrame._parent == hider, "waits for combat to end")
+S.combat = false; fire("PLAYER_REGEN_ENABLED")
+assert(TargetFrame._parent == UIParent, "given back")
 
 -- Blizzard cast bar: parked under the hidden frame, stays there when Blizzard re-parents it
 local pcb = PlayerCastingBarFrame

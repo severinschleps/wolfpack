@@ -333,6 +333,7 @@ DEFAULTS.buffs = {
 -- the old "Target health beside it" switch; useProfile turns it into Enemy Health beside you
 DEFAULTS.regular.bars.health.target = false
 DEFAULTS.regular.hidePlayerFrame = false -- hide Blizzard's player unit frame
+DEFAULTS.regular.hideTargetFrame = false -- hide Blizzard's target unit frame
 DEFAULTS.regular.hideBlizzCastbar = false -- hide Blizzard's player cast bar
 DEFAULTS.regular.playerMenu = false      -- right-click on the bars opens the player menu
 DEFAULTS.regular.targetMenu = true       -- right-click on the enemy health bar opens the target's menu
@@ -2001,7 +2002,10 @@ end
 ------------------------------------------------------------------------------------------
 local hider = CreateFrame("Frame")
 hider:Hide()
-local playerFrameHidden, playerFrameParent
+-- Blizzard unit frames hidden by parking them under `hider`: the option for each, and where it
+-- was before (to give it back). Never touched unless asked.
+ns.unitFrameHides = { { "PlayerFrame", "hidePlayerFrame" }, { "TargetFrame", "hideTargetFrame" } }
+ns.unitFrameParents = {}
 local castHidden, castParent, castHooked
 
 -- Blizzard's player cast bar: parked under the hidden frame. Blizzard re-parents it itself when
@@ -2028,11 +2032,14 @@ end
 local function syncProtected()
     if InCombatLockdown() then return end
     syncCastbar() -- may be attached to the (protected) player frame, so also out of combat only
-    local hide = db.regular.hidePlayerFrame and true or false
-    if PlayerFrame and hide ~= (playerFrameHidden or false) then -- never touch it unless asked
-        if hide then playerFrameParent = PlayerFrame:GetParent() end
-        PlayerFrame:SetParent(hide and hider or playerFrameParent)
-        playerFrameHidden = hide
+    for _, u in ipairs(ns.unitFrameHides) do
+        local frame, hide = _G[u[1]], db.regular[u[2]] and true or false
+        local was = ns.unitFrameParents[u[1]]
+        if frame and hide ~= (was ~= nil) then
+            if hide then ns.unitFrameParents[u[1]] = frame:GetParent() end
+            frame:SetParent(hide and hider or was)
+            if not hide then ns.unitFrameParents[u[1]] = nil end
+        end
     end
     ns.syncClickers()
 end
@@ -5073,6 +5080,8 @@ local function buildConfig()
     local blizz = group(otherPage, COL[2], TOP, 202, "Blizzard frames")
     check(otherPage, "Hide player frame", blizz.x, blizz:row(ROW),
         function() return db.regular.hidePlayerFrame end, function(v) db.regular.hidePlayerFrame = v end)
+    check(otherPage, "Hide target frame", blizz.x, blizz:row(ROW),
+        function() return db.regular.hideTargetFrame end, function(v) db.regular.hideTargetFrame = v end)
     check(otherPage, "Hide cast bar", blizz.x, blizz:row(ROW),
         function() return db.regular.hideBlizzCastbar end, function(v) db.regular.hideBlizzCastbar = v end)
     check(otherPage, "Hide action bar gryphons", blizz.x, blizz:row(ROW),
