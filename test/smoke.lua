@@ -2612,35 +2612,43 @@ assert(BagsBar._parent == UIParent and BagsBar._point[2] == "MicroButtonAndBagsB
     o.quality, o.junk = false, false
     B.layout()
     assert(epic.wpEdge._color[1] == 0 and not junk.wpJunk:IsShown(), "both can be turned off")
-    -- custom bags: the sidebar's + makes one (an item held on it goes in), a dropped item groups
-    -- there, dropped again it goes back; your class's presets wait faded below
+    -- your class's bags are there by themselves (a rogue: poisons, tools), filled by item; a
+    -- dropped item goes out of one and stays out. The + after them makes a bag by hand (an item
+    -- held on it goes in); dropped again, the item goes back.
     o.sort = false
     local cursor, keptCursor = nil, { GetCursorInfo, ClearCursor }
     GetCursorInfo, ClearCursor = function() if cursor then return "item", cursor end end, function() cursor = nil end
+    S.bags[0][4] = { itemID = 5060, iconFileID = 16, quality = 1, stackCount = 1 } -- thieves' tools
     B.layout()
     local side = f.side.btns
-    assert(not side[1].wpBag and side[2].wpPreset.key == "poisons" and side[3].wpPreset.key == "tools"
-        and side[2]._alpha == 0.5, "+ first, then the rogue's presets, faded")
-    cursor = 3
-    side[1]._scripts.OnClick(side[1], "LeftButton")
-    assert(cursor == nil and o.custom[1].name == "Bag 1" and o.custom[1].items[3] == true, "made with the held item")
-    assert(epic._point[5] == -132 and f.tags.c1:IsShown() and f.tags.c1._text == "Bag 1"
-        and side[1].wpBag == 1 and side[1].count._text == 1, "it groups apart, its count on the icon")
-    cursor = 3
-    side[1]._scripts.OnReceiveDrag(side[1])
-    assert(o.custom[1].items[3] == nil and epic._point[5] == -8 and not f.tags.c1:IsShown(), "dropped again: back")
-    -- a preset holds its items without being told; one dropped out stays out
-    S.bags[0][4] = { itemID = 5060, iconFileID = 16, quality = 1, stackCount = 1 }
-    side[4]._scripts.OnClick(side[4], "LeftButton") -- the tools preset (+ moved down a place)
     local tools = B.holders[0].buttons[4]
-    assert(o.custom[2].preset == "tools" and tools._point[5] == -132 and f.tags.c2._text == "Tools and powders",
-        "the preset groups its items")
+    assert(side[1].wpBag == 1 and side[2].wpBag == 2 and not side[3].wpBag, "poisons, tools, then the +")
+    assert(#o.custom == 0 and f.tags.c2._text == "Tools and powders" and tools._point[5] == -132
+        and side[2].count._text == 1, "the tools bag holds its item without being made or told")
     cursor = 5060
     side[2]._scripts.OnClick(side[2], "LeftButton")
-    assert(o.custom[2].items[5060] == false and tools._point[5] == -8, "taken out of the preset")
-    -- right-click removes a bag (the popup says yes here)
-    side[1]._scripts.OnClick(side[1], "RightButton")
-    assert(#o.custom == 1 and o.custom[1].preset == "tools", "removed")
+    assert(o.classItems["ROGUE:tools"][5060] == false and tools._point[5] == -8, "dropped out: stays out")
+    side[2]._scripts.OnClick(side[2], "RightButton")
+    assert(B.all()[2].class, "a class bag can't be removed")
+    o.classItems["ROGUE:tools"] = {}
+    cursor = 3
+    side[3]._scripts.OnClick(side[3], "LeftButton")
+    assert(cursor == nil and o.custom[1].name == "Bag 1" and o.custom[1].items[3] == true, "made with the held item")
+    assert(f.tags.c3:IsShown() and f.tags.c3._text == "Bag 1" and side[3].wpBag == 3, "it groups apart, after the class bags")
+    cursor = 3
+    side[3]._scripts.OnReceiveDrag(side[3])
+    assert(o.custom[1].items[3] == nil and not f.tags.c3:IsShown(), "dropped again: back")
+    side[3]._scripts.OnClick(side[3], "RightButton")
+    assert(#o.custom == 0, "a hand-made bag can be removed (the popup says yes here)")
+    -- a hand-made bag of a class preset, from before: its items move into the class bag
+    o.custom = { { name = "Poisons", preset = "poisons", items = { [777] = true } } }
+    B.layout()
+    assert(#o.custom == 0 and o.classItems["ROGUE:poisons"][777] == true, "moved into the class bag")
+    -- turned off: no class bags
+    o.classBags = false
+    B.layout()
+    assert(not side[1].wpBag and #B.all() == 0, "off: only the +")
+    o.classBags, o.classItems = true, {}
     o.custom = {}
     S.bags[0][4] = nil
     -- the keyring: its button joins the bag bar, its keys show in our look above it

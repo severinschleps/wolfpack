@@ -390,10 +390,12 @@ end
 -- keyring: where the game has one, its button joins the bag bar and its keys show in our look
 -- above it. side: the custom bags' strip left of the window; custom = { { name, preset, items =
 -- { [itemID] = true (in) / false (kept out of the preset) } } }, a group each, in this order.
+-- classBags: your class's own bags (poisons, totems, reagents...) are there by themselves, filled
+-- by item; classItems["CLASS:key"]: what was dropped in or out of one, as custom's items.
 DEFAULTS.bags = { show = false, cols = 10, size = 36, gap = 4, sectionGap = 12, borderSize = 1,
     borderColor = { 0, 0, 0, 1 }, radius = 0, zoom = 8, quality = true, junk = true, sort = false,
     countSize = 11, font = FONTS[1][2], bg = { 0.05, 0.05, 0.06, 0.6 }, x = -60, y = 110,
-    keyring = true, side = true, custom = {} }
+    keyring = true, side = true, custom = {}, classBags = true, classItems = {} }
 
 -- Unit frames: your party or raid, a frame each, in a block with one side fixed. Each group size
 -- has its own block and auras: g5 up to 5 players, g10 up to 10, g20 up to 20, g40 more. fixed
@@ -4557,18 +4559,44 @@ function ns.bags.holds(c, id)
     for _, pat in ipairs(name and p.match or {}) do if name:find(pat) then return true end end
     return false
 end
-function ns.bags.customOf(id)
-    for i, c in ipairs(db.bags.custom) do if ns.bags.holds(c, id) then return i end end
+-- every bag of ours: your class's bags first (made from its presets, never stored in the profile,
+-- so another class on the same profile has none), then the ones made by hand. A hand-made bag
+-- of a class preset (from before the class bags) hands its items over to the class bag.
+function ns.bags.all()
+    local o, out = db.bags, {}
+    local cls = select(2, UnitClass("player")) or ""
+    if o.classBags then
+        for i = #o.custom, 1, -1 do
+            local c = o.custom[i]
+            if c.preset and ns.bags.preset(c.preset) then
+                local key = cls .. ":" .. c.preset
+                o.classItems[key] = o.classItems[key] or {}
+                for id, v in pairs(c.items) do o.classItems[key][id] = v end
+                table.remove(o.custom, i)
+            end
+        end
+        for _, p in ipairs(ns.bags.classPresets()) do
+            local key = cls .. ":" .. p.key
+            o.classItems[key] = o.classItems[key] or {}
+            out[#out + 1] = { name = p.name, preset = p.key, items = o.classItems[key], class = true }
+        end
+    end
+    for _, c in ipairs(o.custom) do out[#out + 1] = c end
+    return out
+end
+function ns.bags.customOf(id, all)
+    for i, c in ipairs(all or ns.bags.all()) do if ns.bags.holds(c, id) then return i end end
 end
 
 -- an item dropped on custom bag i goes there (and out of the others); dropped again, it goes back
 function ns.bags.drop(i)
     local ok, kind, id = pcall(GetCursorInfo)
-    local c = db.bags.custom[i]
+    local all = ns.bags.all()
+    local c = all[i]
     if not (ok and kind == "item" and id and c) then return end
     ClearCursor()
     local here = ns.bags.holds(c, id)
-    for _, o in ipairs(db.bags.custom) do
+    for _, o in ipairs(all) do
         o.items[id] = nil
         if ns.bags.holds(o, id) then o.items[id] = false end
     end
@@ -4580,7 +4608,7 @@ function ns.bags.addBag(name, preset, id)
     local c = { name = name, preset = preset, items = {} }
     table.insert(db.bags.custom, c)
     if id then
-        for _, o in ipairs(db.bags.custom) do if o ~= c and ns.bags.holds(o, id) then o.items[id] = false end end
+        for _, o in ipairs(ns.bags.all()) do if o ~= c and ns.bags.holds(o, id) then o.items[id] = false end end
         c.items[id] = true
     end
     if ns.bags.frame and ns.bags.frame:IsShown() then ns.bags.layout() end
@@ -4616,14 +4644,15 @@ StaticPopupDialogs.WOLFPACKADDON_DELBAG = {
     text = "Remove the bag \"%s\"? Its items go back into the bags.",
     button1 = YES, button2 = NO,
     OnAccept = function(_, i)
-        table.remove(db.bags.custom, i)
+        local c = ns.bags.all()[i]
+        for k, o in ipairs(db.bags.custom) do if o == c then table.remove(db.bags.custom, k) end end
         if ns.bags.frame and ns.bags.frame:IsShown() then safe(ns.bags.layout) end
     end,
     timeout = 0, whileDead = true, hideOnEscape = true,
 }
 
--- the strip left of the window: a button per custom bag (drop items on it), one to make a bag,
--- and your class's presets not yet made, faded
+-- the strip left of the window: a button per bag of ours (your class's, then the hand-made ones;
+-- drop items on it), then one to make a bag
 function ns.bags.sideButton(i)
     local s = ns.bags.frame.side
     if s.btns[i] then return s.btns[i] end
@@ -4641,10 +4670,9 @@ function ns.bags.sideButton(i)
         if self.wpBag then
             if item then safe(ns.bags.drop, self.wpBag)
             elseif button == "RightButton" then
-                StaticPopup_Show("WOLFPACKADDON_DELBAG", db.bags.custom[self.wpBag].name, nil, self.wpBag)
+                local c = ns.bags.all()[self.wpBag]
+                if c and not c.class then StaticPopup_Show("WOLFPACKADDON_DELBAG", c.name, nil, self.wpBag) end
             end
-        elseif self.wpPreset then
-            safe(ns.bags.addBag, self.wpPreset.name, self.wpPreset.key)
         else -- the new bag button; an item held on it goes in the new bag
             if item then ClearCursor() end
             StaticPopup_Show("WOLFPACKADDON_NEWBAG", nil, nil, item)
@@ -4653,12 +4681,13 @@ function ns.bags.sideButton(i)
     b:SetScript("OnEnter", function(self)
         GameTooltip:SetOwner(self, "ANCHOR_LEFT")
         if self.wpBag then
-            GameTooltip:SetText(db.bags.custom[self.wpBag].name)
+            local c = ns.bags.all()[self.wpBag] or { name = "" }
+            GameTooltip:SetText(c.name)
+            if c.class then
+                GameTooltip:AddLine("Your class's bag: what belongs in it goes in by itself.", 1, 1, 1, true)
+            end
             GameTooltip:AddLine("Drop an item here to keep it in this bag; drop it again to take it out.", 1, 1, 1, true)
-            GameTooltip:AddLine("Right-click to remove the bag.", 0.6, 0.6, 0.6, true)
-        elseif self.wpPreset then
-            GameTooltip:SetText(self.wpPreset.name)
-            GameTooltip:AddLine("Class preset: click to add this bag.", 1, 1, 1, true)
+            if not c.class then GameTooltip:AddLine("Right-click to remove the bag.", 0.6, 0.6, 0.6, true) end
         else
             GameTooltip:SetText("New bag")
             GameTooltip:AddLine("Click to make a custom bag, then drop items on its icon.", 1, 1, 1, true)
@@ -4675,23 +4704,15 @@ function ns.bags.layoutSide(counts)
     local s = B.frame.side
     s:SetShown(o.side)
     if not o.side then return end
-    local list, have = {}, {}
-    for i, c in ipairs(o.custom) do
-        list[#list + 1] = { bag = i, icon = B.icon(c), count = counts[i] or 0 }
-        if c.preset then have[c.preset] = true end
-    end
+    local list = {}
+    for i, c in ipairs(B.all()) do list[#list + 1] = { bag = i, icon = B.icon(c), count = counts[i] or 0 } end
     list[#list + 1] = { icon = "Interface\\PaperDollInfoFrame\\Character-Plus" }
-    for _, p in ipairs(B.classPresets()) do
-        if not have[p.key] then list[#list + 1] = { preset = p, icon = B.icon({ preset = p.key, items = {} }) } end
-    end
     local pad, size = 6, math.floor(o.size * 0.9)
     for i, e in ipairs(list) do
         local b = B.sideButton(i)
-        b.wpBag, b.wpPreset = e.bag, e.preset
+        b.wpBag = e.bag
         b:SetSize(size, size)
         b.icon:SetTexture(e.icon)
-        b.icon:SetDesaturated(e.preset and true or false)
-        b:SetAlpha(e.preset and 0.5 or 1)
         b.count:SetText(e.bag and e.count or "")
         b:ClearAllPoints()
         b:SetPoint("TOPLEFT", s, "TOPLEFT", pad, -pad - (i - 1) * (size + o.gap))
@@ -4846,17 +4867,17 @@ function ns.bags.layout()
     local o, B = db.bags, ns.bags
     local f = B.frame
     -- the custom bags' groups come right after the quest items
-    local order, groups, free = {}, {}, 0
+    local order, groups, free, all = {}, {}, 0, B.all()
     for _, k in ipairs(B.order) do
         order[#order + 1] = k
-        if k == "quest" then for i in ipairs(o.custom) do order[#order + 1] = "c" .. i end end
+        if k == "quest" then for i in ipairs(all) do order[#order + 1] = "c" .. i end end
     end
     for _, k in ipairs(order) do groups[k] = {} end
     for _, bag in ipairs(B.list()) do
         local sec = B.section(bag)
         B.slots(bag, function(slot, info)
             if not info then free = free + 1 end
-            local c = sec == "main" and info and info.itemID and B.customOf(info.itemID)
+            local c = sec == "main" and info and info.itemID and B.customOf(info.itemID, all)
             if c then return groups["c" .. c] end
             local quest = sec == "main" and info and B.isQuest(bag, slot, info) or false
             return groups[quest and "quest" or sec], quest
@@ -4868,7 +4889,7 @@ function ns.bags.layout()
     for _, tag in pairs(f.tags) do tag:Hide() end
     for _, k in ipairs(order) do
         local list = groups[k]
-        local c = k:match("^c(%d+)$") and o.custom[tonumber(k:sub(2))]
+        local c = k:match("^c(%d+)$") and all[tonumber(k:sub(2))]
         local tag = (B.labels[k] or c) and f.tags[k]
         if c and not tag then
             tag = f:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
@@ -4895,7 +4916,7 @@ function ns.bags.layout()
     f:SetPoint("BOTTOMRIGHT", UIParent, "BOTTOMRIGHT", o.x, o.y)
     f.sort:SetShown(B.api("SortBags") ~= nil)
     local counts = {}
-    for i in ipairs(o.custom) do counts[i] = #groups["c" .. i] end
+    for i in ipairs(all) do counts[i] = #groups["c" .. i] end
     B.layoutSide(counts)
 end
 
@@ -8834,6 +8855,8 @@ local function buildConfig()
             function(v) G().quality = v end)
         check(pg, "Mark junk (gray items)", c1.x, c1:row(ROW), function() return G().junk end,
             function(v) G().junk = v end)
+        check(pg, "Your class's bags (poisons, reagents...)", c1.x, c1:row(ROW), function() return G().classBags end,
+            function(v) G().classBags = v end)
         check(pg, "Custom bags sidebar", c1.x, c1:row(ROW), function() return G().side end,
             function(v) G().side = v end)
         if KeyRingButton then -- only clients with a keyring
