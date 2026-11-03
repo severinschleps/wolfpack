@@ -2395,6 +2395,12 @@ fsr.frame:SetDrawBling(false)
 -- The swipe is masked to a ring texture, so it sweeps as a ring instead of a pie slice.
 fsr.frame:SetSwipeTexture("Interface\\AddOns\\WolfpackAddon\\Media\\Ring")
 fsr.frame:Hide()
+-- while mana refills: a fifth of the ring, turning (Media/Arc20: Ring.tga cut to 72 degrees)
+fsr.arc = fsr.frame:CreateTexture(nil, "OVERLAY")
+fsr.arc:SetTexture("Interface\\AddOns\\WolfpackAddon\\Media\\Arc20")
+fsr.arc:SetAllPoints()
+fsr.arc:Hide()
+function fsr.turn() fsr.arc:SetRotation(-(GetTime() * 4) % (2 * math.pi)) end -- clockwise, ~1.5 s a turn
 ns.fsr = fsr
 
 -- Spell costs are static data, but a pcall keeps a missing API (or a secret cost) from erroring:
@@ -2431,16 +2437,15 @@ function fsr:sync()
         self.frame:Show() -- the window: its sweep is already running
     elseif self:on() and o.regen and self:regenerating() then
         regen = true
-        local c = o.regenColor
-        self.frame:SetSwipeColor(c[1], c[2], c[3], c[4])
-        if not self.regenOn then self.frame:SetCooldown(GetTime(), 3600) end -- a full ring
+        if not self.regenOn then pcall(self.frame.Clear, self.frame) end -- no sweep: the arc instead
+        self.arc:SetVertexColor(unpack(o.regenColor))
         self.frame:Show()
     else
         self.frame:Hide()
     end
-    if regen ~= (self.regenOn or false) then -- regenerating: the ring breathes
-        self.frame:SetScript("OnUpdate", regen and function(f) f:SetAlpha(0.45 + 0.55 * math.abs(math.sin(GetTime() * 2))) end or nil)
-        if not regen then self.frame:SetAlpha(1) end
+    if regen ~= (self.regenOn or false) then -- regenerating: the arc turns
+        self.arc:SetShown(regen)
+        self.frame:SetScript("OnUpdate", regen and fsr.turn or nil)
     end
     self.regenOn = regen
 end
@@ -2458,9 +2463,9 @@ function fsr:start()
     if not self:on() then return end
     local seconds = inCombat and 5 or 7
     self.endTime = GetTime() + seconds
-    self.regenOn = nil -- the window's sweep replaces the regen ring
+    self.regenOn = nil -- the window's sweep replaces the turning arc
     self.frame:SetScript("OnUpdate", nil)
-    self.frame:SetAlpha(1)
+    self.arc:Hide()
     self:sync()
     self.frame:SetCooldown(GetTime(), seconds)
     self.frame:Show()
@@ -6217,7 +6222,7 @@ local function buildConfig()
         function(v) FS().regen = v end)
     swatch(fd, "Regenerating color", 16, rrow(SWATCH), function() return FS().regenColor end)
     local fnote = label(fd, "Runs until Spirit regen is back: 5 s in combat, 7 s out of it. Then, while "
-        .. "your mana refills, a full ring breathes in the regenerating color. Mana classes only.",
+        .. "your mana refills, a fifth of the ring keeps turning in the regenerating color. Mana classes only.",
         "GameFontDisableSmall")
     fnote:SetPoint("TOPLEFT", 16, rrow(60))
     fnote:SetWidth(198)

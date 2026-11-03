@@ -2373,11 +2373,13 @@ S.time = 3012; ns.fsr:sync()
 assert(not spin:IsShown(), "window over: regen is back (a secret mana number: can't tell it refills)")
 -- regenerating: once the window is over and mana isn't full, a full ring breathes in its own color
 S.secret = false; fire("UNIT_POWER_FREQUENT", "player")
-assert(spin:IsShown() and spin._swipe[2] == 1 and spin._cd[2] == 3600 and spin._scripts.OnUpdate,
-    "mana 3 of 100: regenerating, a full green ring")
+assert(spin:IsShown() and ns.fsr.arc:IsShown() and ns.fsr.arc._tex:find("Arc20") and spin._scripts.OnUpdate,
+    "mana 3 of 100: regenerating, a fifth of the ring turning")
+assert(ns.fsr.arc._vertex and ns.fsr.arc._vertex[2] == 1, "in the regenerating color")
 spin._scripts.OnUpdate(spin)
 fire("UNIT_SPELLCAST_SUCCEEDED", "player", "cast8", 133)
-assert(spin._cd[2] == 7 and spin._swipe[1] == 1 and not spin._scripts.OnUpdate, "spending mana: the window again")
+assert(spin._cd[2] == 7 and spin._swipe[1] == 1 and not spin._scripts.OnUpdate and not ns.fsr.arc:IsShown(),
+    "spending mana: the window's sweep again")
 S.time = 3030; FS.regen = false; ns.fsr:sync()
 assert(not spin:IsShown(), "regen ring off")
 FS.regen, S.secret = true, true
