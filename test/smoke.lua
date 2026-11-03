@@ -1356,6 +1356,13 @@ hc.borderSize, hc.borderMode = 0, "custom"
     P.barShine.dir = "right"
     fire("UNIT_MAXPOWER")
     assert(hs.shine._grad[1] == "HORIZONTAL" and hs.shine._grad[2][4] == 0.25, "or left to right")
+    -- either end can take the bar's color, at the swatch's opacity
+    P.barShine.fromMode = "bar"
+    fire("UNIT_MAXPOWER")
+    local from = hs.shine._grad[2]
+    assert(from[1] == hs.rgb[1] and from[2] == hs.rgb[2] and from[3] == hs.rgb[3] and from[4] == 0.25
+        and hs.shine._grad[3][1] == 1, "from: the bar's color, to: its own")
+    P.barShine.fromMode = "custom"
     P.borderSize = 0
     fire("UNIT_MAXPOWER")
     assert(not hs.edgeShine:IsShown(), "no border, no border overlay")

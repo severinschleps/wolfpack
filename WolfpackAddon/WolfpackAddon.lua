@@ -492,8 +492,11 @@ do
     p.borderTexture = TEXTURES[2][2] -- every border's (flat), tinted by its color, unless the bar has its own
     -- a gradient laid over every bar's fill, and one over every border: from one color to the
     -- other (opacity included), top to bottom ("down") or left to right ("right")
-    p.barShine = { show = false, dir = "down", from = { 1, 1, 1, 0.25 }, to = { 1, 1, 1, 0 } }
-    p.borderShine = { show = false, dir = "down", from = { 1, 1, 1, 0.35 }, to = { 0, 0, 0, 0.35 } }
+    -- fromMode / toMode "bar": that end is the bar's color, at the swatch's opacity
+    p.barShine = { show = false, dir = "down", from = { 1, 1, 1, 0.25 }, to = { 1, 1, 1, 0 },
+        fromMode = "custom", toMode = "custom" }
+    p.borderShine = { show = false, dir = "down", from = { 1, 1, 1, 0.35 }, to = { 0, 0, 0, 0.35 },
+        fromMode = "custom", toMode = "custom" }
     -- every bar's shadows. Inner: fading in from the edges, over the fill ("bar") or between the
     -- border and the bar ("border"). Drop: behind the border. size: how far they fade; x / y: offset (y up)
     p.innerShadow = { show = false, on = "bar", color = { 0, 0, 0, 0.6 }, size = 4, x = 0, y = -2 }
@@ -950,16 +953,22 @@ function ns.reactionRGB(unit)
     return c[1], c[2], c[3]
 end
 
--- A gradient overlay from the palette (o: show, dir, from, to) on a white texture.
-function ns.shine(tex, o, allowed)
+-- A gradient overlay from the palette (o: show, dir, from, to) on a white texture. fromMode /
+-- toMode "bar": that end takes the bar's color (rgb), keeping its own opacity.
+function ns.shine(tex, o, allowed, rgb)
     local on = o.show and allowed ~= false
     tex:SetShown(on and true or false)
     if not on then return end
+    local function col(c, m)
+        if m == "bar" and rgb then return CreateColor(rgb[1], rgb[2], rgb[3], c[4]) end
+        return CreateColor(unpack(c))
+    end
+    local from, to = col(o.from, o.fromMode), col(o.to, o.toMode)
     tex:SetColorTexture(1, 1, 1, 1)
     if o.dir == "right" then
-        tex:SetGradient("HORIZONTAL", CreateColor(unpack(o.from)), CreateColor(unpack(o.to)))
+        tex:SetGradient("HORIZONTAL", from, to)
     else -- VERTICAL runs bottom to top: the "to" color is the bottom one
-        tex:SetGradient("VERTICAL", CreateColor(unpack(o.to)), CreateColor(unpack(o.from)))
+        tex:SetGradient("VERTICAL", to, from)
     end
 end
 
@@ -1080,6 +1089,11 @@ function ns.wearColor(f, c)
     if not r or c.gradient then return end
     local s = f.segs[1]
     s:SetStatusBarColor(r, g, b, c.color[4] or 1)
+    s.rgb = { r, g, b }
+    if s.shine then -- the overlays' "same as bar" ends follow the cast
+        ns.shine(s.shine, db.colors.barShine, nil, s.rgb)
+        ns.shine(s.edgeShine, db.colors.borderShine, s.border:IsShown(), s.rgb)
+    end
     if c.borderMode ~= "custom" then
         local br, bg, bb = ns.shade(r, g, b)
         s.border:SetVertexColor(br, bg, bb, c.borderColor[4]) -- tints its texture
@@ -1149,8 +1163,10 @@ local function layoutBar(f, n, width, over)
             s:SetMinMaxValues(i - 1, i) -- pip range; single bars get their real max in ns.fill()
             s.bg:SetColorTexture(unpack(c.bgColor))
             local sr, sg, sb = br, bg, bb
+            s.rgb = { r, g, b } -- what "same as bar" overlay colors take
             if f.key == "totems" then -- each segment wears its element's color, border included
                 local col = c.slotColors[c.slots[i]]
+                s.rgb = { col[1], col[2], col[3] }
                 paint(s, c, col[1], col[2], col[3], w, c.height)
                 if c.borderMode ~= "custom" and not c.gradient then sr, sg, sb = ns.shade(col[1], col[2], col[3]) end
             else
@@ -1167,11 +1183,11 @@ local function layoutBar(f, n, width, over)
             local inner0 = math.max(radius - t, 0)
             s.shine = s.shine or s:CreateTexture(nil, "ARTWORK", nil, 3)
             s.shine:SetAllPoints(s:GetStatusBarTexture())
-            ns.shine(s.shine, db.colors.barShine)
+            ns.shine(s.shine, db.colors.barShine, nil, s.rgb)
             round(s.shine, s.mask, inner0, iw, ih)
             s.edgeShine = s.edgeShine or s:CreateTexture(nil, "BACKGROUND", nil, -7) -- over the border, under the bar
             s.edgeShine:SetAllPoints(s.border)
-            ns.shine(s.edgeShine, db.colors.borderShine, t > 0)
+            ns.shine(s.edgeShine, db.colors.borderShine, t > 0, s.rgb)
             round(s.edgeShine, s.borderMask, radius, w, c.height)
             ns.innerShadow(s, w, c.height, iw, ih, radius, inner0)
             s.drop = s.drop or f:CreateTexture(nil, "BACKGROUND", nil, -8)
@@ -7747,8 +7763,16 @@ local function buildConfig()
         ns.shineMenus[#ns.shineMenus + 1] = dropdown(colorPage, "Direction", g.x, g:row(DROP),
             { { "Top to bottom", "down" }, { "Left to right", "right" } }, function() return O().dir end,
             function(v) O().dir = v end, textPreview)
-        swatch(colorPage, what .. " overlay: from", g.x, g:row(SWATCH), function() return O().from end)
-        swatch(colorPage, what .. " overlay: to", g.x, g:row(SWATCH), function() return O().to end)
+        -- each end: a color of its own, or the bar's (picking a color makes it its own again)
+        for _, e in ipairs({ { "from", "From" }, { "to", "To" } }) do
+            local m = e[1] .. "Mode"
+            dropdown(colorPage, e[2] .. " color", g.x, g:row(DROP), { { "Custom", "custom" }, { "Same as bar", "bar" } },
+                function() return O()[m] end, function(v) O()[m] = v end, textPreview)
+            swatch(colorPage, what .. " overlay: " .. e[1], g.x, g:row(SWATCH), function() return O()[e[1]] end, {
+                get = function() return O()[m] end, set = function(v) O()[m] = v end,
+                effective = function() local c = O()[e[1]]; return c[1], c[2], c[3] end,
+            })
+        end
     end
     local function shadow(g, key, what)
         local O = function() return P()[key] end
