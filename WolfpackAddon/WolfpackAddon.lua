@@ -399,9 +399,9 @@ DEFAULTS.unitframes = { show = false, replace = true, fontSize = 10, power = tru
     g5 = ns.ufGroupDefaults(400, 5, 36), g10 = ns.ufGroupDefaults(400, 5, 36),
     g20 = ns.ufGroupDefaults(400, 5, 30), g40 = ns.ufGroupDefaults(640, 8, 26),
     -- the resource bar: "below" or "above" the health bar (which gives up the room), or "inside"
-    -- over it at `point`, `inset` px in from the frame's sides; then moved by x / y. ownBorder: its
-    -- own border width and color instead of the bars' shared ones
-    res = { place = "below", point = "BOTTOM", inset = 2, x = 0, y = 0, ownBorder = false, borderSize = 1,
+    -- over it at `point`, `inset` px in from the frame's sides; then moved by x / y. width: px, 0 = as
+    -- wide as there is room. ownBorder: its own border width and color instead of the bars' shared ones
+    res = { place = "below", point = "BOTTOM", inset = 2, x = 0, y = 0, width = 0, ownBorder = false, borderSize = 1,
         borderColor = { 0, 0, 0, 1 } },
     -- the cursor over a frame: a color over it and a border round it, in the frame's shape
     hover = { show = true, color = { 1, 1, 1, 0.12 }, borderColor = { 1, 1, 1, 0.8 }, borderSize = 1 },
@@ -5129,7 +5129,8 @@ function ns.uf.style(b)
         if R.ownBorder then
             po.borderSize, po.borderColor, po.borderMode = R.borderSize, R.borderColor, "custom"
         end
-        layoutBar(b.power, 1, inside and math.max(b.wpW - 2 * R.inset, 1) or b.wpW, po)
+        local room = inside and math.max(b.wpW - 2 * R.inset, 1) or b.wpW
+        layoutBar(b.power, 1, R.width > 0 and R.width or room, po)
         b.power:ClearAllPoints()
         b.power:SetFrameLevel(b.health:GetFrameLevel() + 3) -- inside: over the health bar
         if inside then -- in from the sides it touches
@@ -8605,7 +8606,8 @@ local function buildConfig()
         local rs = group(pg, COL[2], c2.cursor - 20, 202, "Resources")
         local R = function() return U().res end
         check(pg, "Show resources", rs.x, rs:row(ROW), function() return U().power end, function(v) U().power = v end)
-        sliders(rs, U, { { "powerHeight", "Resource height", 1, 20 } })
+        sliders(rs, U, { { "powerHeight", "Height (px)", 1, 40 } })
+        sliders(rs, R, { { "width", "Width (px, 0 = full)", 0, 300 } })
         dropdown(pg, "Placement", rs.x, rs:row(DROP), { { "Below the health bar", "below" },
             { "Above the health bar", "above" }, { "Inside the frame", "inside" } }, function() return R().place end,
             function(v) R().place = v end, textPreview)

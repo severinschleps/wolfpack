@@ -3728,6 +3728,7 @@ assert(MultiBarBottomLeft._parent == UIParent, "and back")
         g.buffs.point, g.buffs.x, g.buffs.y = "TOPRIGHT", -2, -2
     end
     o.roles, o.bars.tothealth.colorMode = { "TANK", "HEALER", "DAMAGER" }, "class"
+    o.res.place, o.res.point, o.res.inset, o.res.x, o.res.y, o.res.width = "below", "BOTTOM", 2, 0, 0, 0
     ns.configOpen = true
     U.sync()
     local B = U.buttons
@@ -3795,6 +3796,10 @@ assert(MultiBarBottomLeft._parent == UIParent, "and back")
     U.sync()
     assert(B[1].health._h == 40 and B[1].power._point[1] == "BOTTOM" and B[1].power._point[5] == 3
         and near(B[1].power._w, 76.8 - 4), "resources inside: anchored, inset")
+    o.res.width = 30
+    U.sync()
+    assert(B[1].power._w == 30, "resource width set")
+    o.res.width = 0
     o.res.place, o.res.y = "below", 0
     o.hover.show, o.g10.buffs.border = true, 1
     o.dummy = 4
