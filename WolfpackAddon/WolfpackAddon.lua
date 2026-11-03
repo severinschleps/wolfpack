@@ -418,6 +418,14 @@ function ns.ufGroupDefaults(size, per, frameHeight)
         buffs = ns.ufAuraDefaults("mine", "TOPRIGHT", -2, -2, { 0, 0, 0, 1 }),
         debuffs = ns.ufAuraDefaults("dispel", "BOTTOMLEFT", 2, 2, { 0.8, 0.1, 0.1, 1 }) }
 end
+-- The micro menu (character, spellbook, ... game menu): show = ours carries Blizzard's buttons in
+-- a row on a panel, in the action bars' look. anchor "screen": `point` of the screen; "bagbar":
+-- `side` of the bag bar ("left", "above", "right", "below"). Then x / y. hover: only under the
+-- cursor. scale: of the buttons; gap: between them; pad: the panel round them.
+DEFAULTS.micro = { show = false, anchor = "screen", point = "BOTTOMRIGHT", side = "left", x = -320, y = 4,
+    scale = 1, gap = 2, pad = 4, hover = false, bg = { 0.05, 0.05, 0.06, 0.6 }, borderColor = { 0, 0, 0, 1 },
+    borderSize = 1, buttonBg = { 0, 0, 0, 0.5 } }
+
 DEFAULTS.unitframes = { show = false, replace = true, fontSize = 10, power = true, powerHeight = 4,
     pets = true, petHeight = 14, roleIcon = true, marker = true,
     -- rangeFirst: players in your healing range before the rest, then by role order
@@ -5059,6 +5067,123 @@ ns.bags.ev:SetScript("OnEvent", function(_, event)
 end)
 
 ------------------------------------------------------------------------------------------
+-- Micro menu: Blizzard's own buttons (so every click is the game's) lifted into a row of ours, on
+-- a panel, each on a dark square with a border. Moved out of combat only; when the game puts
+-- them back (a vehicle, a pet battle), they are taken again; turned off, they go home.
+------------------------------------------------------------------------------------------
+ns.micro = { NAMES = { "CharacterMicroButton", "ProfessionMicroButton", "PlayerSpellsMicroButton",
+    "SpellbookMicroButton", "TalentMicroButton", "AchievementMicroButton", "QuestLogMicroButton",
+    "HousingMicroButton", "SocialsMicroButton", "GuildMicroButton", "LFGMicroButton", "LFDMicroButton",
+    "CollectionsMicroButton", "EJMicroButton", "PVPMicroButton", "WorldMapMicroButton", "StoreMicroButton",
+    "MainMenuMicroButton", "HelpMicroButton" } }
+ns.micro.SIDES = { left = { "RIGHT", "LEFT", -1, 0 }, right = { "LEFT", "RIGHT", 1, 0 },
+    above = { "BOTTOM", "TOP", 0, 1 }, below = { "TOP", "BOTTOM", 0, -1 } }
+
+-- the game's buttons, in the game's order (MICRO_BUTTONS where it has that list)
+function ns.micro.buttons()
+    local out = {}
+    for _, n in ipairs(type(MICRO_BUTTONS) == "table" and MICRO_BUTTONS or ns.micro.NAMES) do
+        local b = _G[n]
+        if b and not tContains(out, b) then out[#out + 1] = b end
+    end
+    return out
+end
+
+-- the bag bar to hang on: the game's whole bar, else its backpack (right) and last bag (left)
+function ns.micro.bagBar(side)
+    if BagsBar then return BagsBar end
+    if side == "left" then
+        for i = 3, 0, -1 do if _G["CharacterBag" .. i .. "Slot"] then return _G["CharacterBag" .. i .. "Slot"] end end
+    end
+    return MainMenuBarBackpackButton
+end
+
+function ns.micro.sync()
+    local o, U = db and db.micro, ns.micro
+    if not o or (not o.show and not U.frame) then return end
+    if InCombatLockdown() then U.pending = true return end
+    U.pending = false
+    if not U.frame then
+        U.frame = CreateFrame("Frame", "WolfpackMicroMenu", UIParent)
+        U.frame.bg = U.frame:CreateTexture(nil, "BACKGROUND", nil, -7)
+        U.frame.bg:SetAllPoints()
+        U.frame.edge = U.frame:CreateTexture(nil, "BACKGROUND", nil, -8)
+        U.hooked = {}
+    end
+    for _, fn in ipairs({ "UpdateMicroButtonsParent", "MoveMicroButtons" }) do -- the game taking them back
+        if not U.hooked[fn] and type(_G[fn]) == "function" then
+            hooksecurefunc(fn, function() if db.micro.show then safe(ns.micro.sync) end end)
+            U.hooked[fn] = true
+        end
+    end
+    local f, list = U.frame, U.buttons()
+    for _, b in ipairs(list) do
+        if o.show then
+            if not b.wpHome then
+                b.wpHome = { parent = b:GetParent() }
+                for k = 1, b:GetNumPoints() do b.wpHome[k] = { b:GetPoint(k) } end
+            end
+        elseif b.wpHome then -- turned off: home, where the game put it
+            b:SetParent(b.wpHome.parent)
+            b:ClearAllPoints()
+            for _, pt in ipairs(b.wpHome) do b:SetPoint(unpack(pt)) end
+            b.wpHome = nil
+            if b.wpBack then b.wpBack:Hide() end
+        end
+    end
+    f:SetShown(o.show)
+    if not o.show then
+        if MicroMenu and MicroMenu.Layout then pcall(MicroMenu.Layout, MicroMenu) end
+        return
+    end
+    -- the row: the buttons the game shows, each on its dark square (inside its own art's insets)
+    local x, h, t = o.pad, 0, o.borderSize
+    for _, b in ipairs(list) do
+        if b:IsShown() then
+            b:SetParent(f)
+            b:SetScale(o.scale)
+            b:ClearAllPoints()
+            local l, r, top, bottom = b:GetHitRectInsets()
+            l, r, top, bottom = l or 0, r or 0, top or 0, bottom or 0
+            b:SetPoint("BOTTOMLEFT", f, "BOTTOMLEFT", x / o.scale - l, (o.pad - bottom * o.scale) / o.scale)
+            if not b.wpBack then
+                b.wpBack = b:CreateTexture(nil, "BACKGROUND", nil, -8)
+                b.wpBack.edge = b:CreateTexture(nil, "BACKGROUND", nil, -7)
+            end
+            local back, edge = b.wpBack, b.wpBack.edge
+            edge:ClearAllPoints()
+            edge:SetPoint("TOPLEFT", b, "TOPLEFT", l, -top)
+            edge:SetPoint("BOTTOMRIGHT", b, "BOTTOMRIGHT", -r, bottom)
+            edge:SetColorTexture(unpack(o.borderColor))
+            edge:SetShown(t > 0)
+            back:ClearAllPoints()
+            back:SetPoint("TOPLEFT", edge, "TOPLEFT", t, -t)
+            back:SetPoint("BOTTOMRIGHT", edge, "BOTTOMRIGHT", -t, t)
+            back:SetColorTexture(unpack(o.buttonBg))
+            back:Show()
+            local w, bh = (b:GetWidth() - l - r) * o.scale, (b:GetHeight() - top - bottom) * o.scale
+            x, h = x + w + o.gap, math.max(h, bh)
+        end
+    end
+    f:SetSize(math.max(1, x - o.gap + o.pad), math.max(1, h + 2 * o.pad))
+    f.bg:SetColorTexture(unpack(o.bg))
+    f.edge:ClearAllPoints()
+    f.edge:SetPoint("TOPLEFT", -t, t)
+    f.edge:SetPoint("BOTTOMRIGHT", t, -t)
+    f.edge:SetColorTexture(unpack(o.borderColor))
+    f.edge:SetShown(t > 0)
+    f:ClearAllPoints()
+    local s = U.SIDES[o.side] or U.SIDES.left
+    local bar = o.anchor == "bagbar" and U.bagBar(o.side)
+    if bar then
+        f:SetPoint(s[1], bar, s[2], o.x, o.y)
+    else
+        f:SetPoint(o.point, UIParent, o.point, o.x, o.y)
+    end
+    ns.abFadeSet(f, o.hover)
+end
+
+------------------------------------------------------------------------------------------
 -- Unit frames: your party or raid in a block of frames, one side of it fixed, the other as long
 -- as the group needs. Each frame is the game's secure unit button (left click targets, right
 -- click opens the menu) with a health bar, a power bar under it, the name, role and raid marker
@@ -5879,6 +6004,7 @@ changed = function()
     safe(Refresh)
     safe(ns.np.all)
     safe(ns.bags.sync)
+    safe(ns.micro.sync)
     -- the Unit frames page's stand-ins: as many as its tab says (General: 5), set before they're laid out
     ns.uf.preview = section == "unitframes" and (tonumber(ns.ufTab) or 5) or nil
     safe(ns.uf.sync)
@@ -7174,7 +7300,7 @@ local function buildConfig()
     shelf("Interface")
     for _, e in ipairs({ { "combat", "Combat Display" }, { "actionbars", "Action bars" }, { "bags", "Bags" },
         { "nameplates", "Nameplates" }, { "unitframes", "Unit frames" },
-        { "macros", "Macros" }, { "other", "Other" }, { "barstack", "Bar Stack" } }) do
+        { "micro", "Micro menu" }, { "macros", "Macros" }, { "other", "Other" }, { "barstack", "Bar Stack" } }) do
         entry(e[1], e[2], e[3])
     end
 
@@ -7205,8 +7331,9 @@ local function buildConfig()
     bsPage.need = 100 + ns.ui.BS_H
     ns.pages = { combat = barsPage, nameplates = questPage, other = otherPage, profile = profilePage, colors = colorPage, actionbars = actionPage,
         bags = CreateFrame("Frame", nil, content), unitframes = CreateFrame("Frame", nil, content),
-        macros = CreateFrame("Frame", nil, content) }
+        macros = CreateFrame("Frame", nil, content), micro = CreateFrame("Frame", nil, content) }
     ns.pages.macros:SetAllPoints(barsPage)
+    ns.pages.micro:SetAllPoints(barsPage)
     ns.pages.bags:SetAllPoints(barsPage)
     ns.pages.unitframes:SetAllPoints(barsPage)
 
@@ -7247,6 +7374,7 @@ local function buildConfig()
             or section == "unitframes" and "Unit frames"
             or section == "barstack" and "Bar Stack"
             or section == "macros" and "Macros"
+            or section == "micro" and "Micro menu"
             or "Combat Display")
         for _, t in ipairs(tabs) do t:SetShown(np) end
         local trail = np and sub == "targeted" and ns.npTrail
@@ -7260,6 +7388,7 @@ local function buildConfig()
         actionPage:SetShown(section == "actionbars")
         ns.pages.bags:SetShown(section == "bags")
         ns.pages.macros:SetShown(section == "macros")
+        ns.pages.micro:SetShown(section == "micro")
         ns.pages.unitframes:SetShown(uf and ns.ufTab == "general")
         local page = section == "barstack" and bsPage or ns.pages[section]
         if uf and ns.ufTab ~= "general" then page = ns.pages["uf" .. ns.ufTab] end
@@ -8091,6 +8220,52 @@ local function buildConfig()
     slider(actionPage, "Macro name size", abt.x, abt:row(SLIDER), 6, 24, function() return AB().macroSize end,
         function(v) AB().macroSize = v end)
     abt:close()
+
+    ----------------------------------------------------------------------------------
+    -- Micro menu page (a function of its own: buildConfig is at Lua's limit of 200 locals)
+    ----------------------------------------------------------------------------------
+    ;(function()
+        local pg, O = ns.pages.micro, function() return db.micro end
+        local c1 = group(pg, COL[1], TOP, 202, "Micro menu")
+        check(pg, "Reskin and place the micro menu", c1.x, c1:row(ROW), function() return O().show end,
+            function(v) O().show = v end)
+        check(pg, "Show only on mouseover", c1.x, c1:row(ROW), function() return O().hover end,
+            function(v) O().hover = v end)
+        local n = label(pg, "The game's own buttons, so every click works as always. Moved out of combat only.",
+            "GameFontDisableSmall")
+        n:SetPoint("TOPLEFT", c1.x, c1:row(44))
+        n:SetWidth(178)
+        n:SetJustifyH("LEFT")
+        c1:close()
+        local c2 = group(pg, COL[1], c1.cursor - 20, 202, "Position")
+        dropdown(pg, "Anchored to", c2.x, c2:row(DROP), { { "The screen", "screen" }, { "The bag bar", "bagbar" } },
+            function() return O().anchor end, function(v) O().anchor = v end, textPreview)
+        local pt = dropdown(pg, "Point of the screen", c2.x, c2:row(DROP), { { "Top left", "TOPLEFT" }, { "Top", "TOP" },
+            { "Top right", "TOPRIGHT" }, { "Left", "LEFT" }, { "Center", "CENTER" }, { "Right", "RIGHT" },
+            { "Bottom left", "BOTTOMLEFT" }, { "Bottom", "BOTTOM" }, { "Bottom right", "BOTTOMRIGHT" } },
+            function() return O().point end, function(v) O().point = v end, textPreview)
+        local sd = dropdown(pg, "Side of the bag bar", c2.x, c2:row(0), { { "Left of it", "left" }, { "Above it", "above" },
+            { "Right of it", "right" }, { "Below it", "below" } }, function() return O().side end,
+            function(v) O().side = v end, textPreview)
+        onRefresh(function()
+            pt:SetShown(O().anchor ~= "bagbar")
+            sd:SetShown(O().anchor == "bagbar")
+        end)
+        slider(pg, "X offset", c2.x, c2:row(SLIDER), -1600, 1600, function() return O().x end, function(v) O().x = v end)
+        slider(pg, "Y offset", c2.x, c2:row(SLIDER), -1000, 1000, function() return O().y end, function(v) O().y = v end)
+        c2:close()
+        local c3 = group(pg, COL[2], TOP, 202, "Look")
+        slider(pg, "Button size (%)", c3.x, c3:row(SLIDER), 50, 200, function() return math.floor(O().scale * 100 + 0.5) end,
+            function(v) O().scale = v / 100 end)
+        slider(pg, "Gap", c3.x, c3:row(SLIDER), 0, 20, function() return O().gap end, function(v) O().gap = v end)
+        slider(pg, "Padding", c3.x, c3:row(SLIDER), 0, 20, function() return O().pad end, function(v) O().pad = v end)
+        slider(pg, "Border width", c3.x, c3:row(SLIDER), 0, 6, function() return O().borderSize end,
+            function(v) O().borderSize = v end)
+        swatch(pg, "Panel color", c3.x, c3:row(SWATCH), function() return O().bg end)
+        swatch(pg, "Button background", c3.x, c3:row(SWATCH), function() return O().buttonBg end)
+        swatch(pg, "Border color", c3.x, c3:row(SWATCH), function() return O().borderColor end)
+        c3:close()
+    end)()
 
     ----------------------------------------------------------------------------------
     -- Bags page: our bag window, in the action bars' look
@@ -9663,8 +9838,10 @@ ev:SetScript("OnEvent", function(_, event, unit, arg2, arg3)
         safe(questLogChanged) -- tooltips may have been secret during combat
         safe(Refresh)         -- and protected frames couldn't change
         if ns.mac and ns.mac.pending then safe(ns.mac.sync) end -- macros changed in the fight
+        if ns.micro.pending then safe(ns.micro.sync) end
     else
         if event == "PLAYER_ENTERING_WORLD" and ns.mac then safe(ns.mac.sync) end -- the macro library
+        if event == "PLAYER_ENTERING_WORLD" then safe(ns.micro.sync) end
         if event == "NAME_PLATE_UNIT_ADDED" then safe(plateAdded, unit) end
         if event == "NAME_PLATE_UNIT_REMOVED" then safe(plateRemoved, unit) end
         -- form, max, target or nameplate changes: re-layout (target change moves the nameplate bars)

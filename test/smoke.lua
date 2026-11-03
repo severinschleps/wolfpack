@@ -3935,6 +3935,66 @@ assert(MultiBarBottomLeft._parent == UIParent, "and back")
     o.g10.fixed, o.g10.grow, o.g10.size = "width", "down", 400
 end)()
 
+-- Micro menu: the game's buttons in a row of ours on a panel, placed on the screen or on the bag
+-- bar, faded until hovered if asked; out of combat only; taken again when the game moves them
+-- back; home again when turned off
+do
+    login("ROGUE", 3)
+    MICRO_BUTTONS = { "CharacterMicroButton", "SpellbookMicroButton", "MainMenuMicroButton" }
+    UpdateMicroButtonsParent = function(p) for _, n in ipairs(MICRO_BUTTONS) do _G[n]:SetParent(p) end end
+    local home = new()
+    local btns = {}
+    for i, n in ipairs(MICRO_BUTTONS) do
+        local b = new()
+        b._parent, b._w, b._h = home, 28, 58
+        b:SetPoint("LEFT", home, "LEFT", (i - 1) * 28, 0)
+        b.GetHitRectInsets = function() return 0, 0, 18, 0 end -- the classic art: its top is see-through
+        _G[n], btns[i] = b, b
+    end
+    local o = prof().micro
+    o.show, o.anchor, o.point, o.x, o.y, o.gap, o.pad, o.scale, o.hover = true, "screen", "BOTTOMRIGHT", -10, 5, 2, 4, 1, false
+    ns.micro.sync()
+    local f = ns.micro.frame
+    assert(btns[1]._parent == f and btns[3]._parent == f, "the game's buttons, in ours")
+    assert(btns[2]._point[1] == "BOTTOMLEFT" and btns[2]._point[4] == 34 and btns[2]._point[5] == 4,
+        "in a row, the gap between")
+    assert(f._w == 96 and f._h == 48 and f._point[1] == "BOTTOMRIGHT" and f._point[2] == UIParent
+        and f._point[4] == -10 and f._point[5] == 5, "the panel round them, on the screen's corner")
+    assert(btns[1].wpBack:IsShown() and btns[1].wpBack.edge._points[1][5] == -18, "a dark square on the drawn part")
+    -- on the bag bar: the game's whole bar where it has one, else its buttons (left: the last bag)
+    o.anchor, o.side = "bagbar", "left"
+    ns.micro.sync()
+    assert(f._point[1] == "RIGHT" and f._point[2] == BagsBar and f._point[3] == "LEFT", "left of the bag bar")
+    local keptBar = BagsBar
+    BagsBar, CharacterBag3Slot, MainMenuBarBackpackButton = nil, new(), new()
+    ns.micro.sync()
+    assert(f._point[2] == CharacterBag3Slot, "a client without one: left of its last bag")
+    o.side = "above"
+    ns.micro.sync()
+    assert(f._point[1] == "BOTTOM" and f._point[2] == MainMenuBarBackpackButton, "above it: the backpack's")
+    BagsBar = keptBar
+    o.hover = true
+    ns.micro.sync()
+    assert(f._scripts.OnUpdate == ns.abFade, "faded until hovered")
+    -- the game takes them back: taken again
+    UpdateMicroButtonsParent(home)
+    assert(btns[1]._parent == f, "the game's move undone")
+    -- not in combat
+    S.combat, o.x = true, 40
+    ns.micro.sync()
+    assert(f._point[4] == -10 and ns.micro.pending, "in combat: waits")
+    S.combat = false
+    fire("PLAYER_REGEN_ENABLED")
+    assert(f._point[4] == 40 and not ns.micro.pending, "placed once combat ends")
+    -- off: home again
+    o.show = false
+    ns.micro.sync()
+    assert(btns[1]._parent == home and btns[2]._point[2] == home and btns[2]._point[4] == 28 and not f:IsShown(),
+        "turned off: back where the game had them")
+    for _, n in ipairs(MICRO_BUTTONS) do _G[n] = nil end
+    MICRO_BUTTONS, UpdateMicroButtonsParent, CharacterBag3Slot, MainMenuBarBackpackButton = nil, nil, nil, nil
+end
+
 -- Macros: one library for every character, a General tab and one per class, written into the
 -- game's own slots (General: the account's, your class's: this character's); sorted by name
 -- there, as the game does
