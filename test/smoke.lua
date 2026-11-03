@@ -849,13 +849,13 @@ eh.resHideText, eh.resBorderSize, eh.resRadius = true, 1, 4
 eh.resBorderMode, eh.resBorderColor = "custom", { 0, 0, 1, 1 }
 fire("PLAYER_TARGET_CHANGED")
 assert(not rf.text:IsShown() and ef.texts.current:IsShown(), "resource text hidden, health text kept")
-assert(rf.segs[1].border._shown and rf.segs[1].border._color[3] == 1 and rf.segs[1]._w == 196 and rf.segs[1]._h == 2,
+assert(rf.segs[1].border._shown and rf.segs[1].border._vertex[3] == 1 and rf.segs[1]._w == 196 and rf.segs[1]._h == 2,
     "a 1 px blue border inside its size")
 assert(rf.segs[1].borderMask._tex:match("r2%.tga$"), "its own corner radius, capped at half its 4 px height")
 assert(ef.segs[1].border._shown == false, "enemy health's border untouched")
 eh.resBorderMode = "bar"
 fire("PLAYER_TARGET_CHANGED")
-assert(rf.segs[1].border._color[1] == 1 and rf.segs[1].border._color[3] == 0.25, "same as bar: a lighter energy yellow")
+assert(rf.segs[1].border._vertex[1] == 1 and rf.segs[1].border._vertex[3] == 0.25, "same as bar: a lighter energy yellow")
 eh.resHideText, eh.resBorderSize, eh.resRadius = false, 0, 0
 fire("PLAYER_TARGET_CHANGED")
 -- an empty resource hides; a secret one can't be looked at, so it stays
@@ -1000,7 +1000,7 @@ assert(#gs.slices == 1 and gs.slices[1]:IsShown() and gs._sbc[4] == 0, "two poin
 S.gc = gb.stops[1].color
 gb.stops[1].color = { 0, 0, 1, 1 }
 fire("UNIT_MAXPOWER")
-assert(gs.border._color[1] == 0.25 and gs.border._color[3] == 1, "gradient border from its start")
+assert(gs.border._vertex[1] == 0.25 and gs.border._vertex[3] == 1, "gradient border from its start")
 gb.stops[1].color = S.gc
 fire("UNIT_MAXPOWER")
 assert(gs.slices[1]._masks[gs.fillMask], "slices show only over the filled part")
@@ -1303,12 +1303,12 @@ assert(fr.power.segs[1]._sbc[1] == 1 and fr.power.segs[1]._sbc[3] == 0, "power t
 local hc = prof().regular.bars.health
 local hs = fr.health.segs[1]
 hc.borderFrom, hc.colorMode, hc.borderSize, hc.borderMode = "own", "class", 1, "bar"; fire("UNIT_MAXPOWER")
-assert(hs._sbc[1] == 1 and hs._sbc[3] == 0.41 and math.abs(hs.border._color[3] - 0.5575) < 1e-6
-    and hs.border._color[1] == 1, "class bar, border = the bar's color, a quarter of the way to white")
+assert(hs._sbc[1] == 1 and hs._sbc[3] == 0.41 and math.abs(hs.border._vertex[3] - 0.5575) < 1e-6
+    and hs.border._vertex[1] == 1, "class bar, border = the bar's color, a quarter of the way to white")
 -- the palette: the border shade, class, power and health colors live there, the bars pick
 local PAL = prof().colors
 PAL.borderShade = -50; fire("UNIT_MAXPOWER")
-assert(math.abs(hs.border._color[1] - 0.5) < 1e-6 and math.abs(hs.border._color[3] - 0.205) < 1e-6,
+assert(math.abs(hs.border._vertex[1] - 0.5) < 1e-6 and math.abs(hs.border._vertex[3] - 0.205) < 1e-6,
     "shade -50: the class color halfway to black")
 PAL.borderShade = 25
 PAL.class.ROGUE = { 0.1, 0.2, 0.3, 1 }; fire("UNIT_MAXPOWER")
@@ -1318,8 +1318,36 @@ hc.colorMode = "health"; PAL.health = { 0.3, 0.6, 0.9, 1 }; fire("UNIT_MAXPOWER"
 assert(hs._sbc[1] == 0.3 and hs._sbc[3] == 0.9, "health color from the palette")
 PAL.health = { 0.2, 0.8, 0.2, 1 }
 hc.colorMode, hc.borderMode = "custom", "custom"; fire("UNIT_MAXPOWER")
-assert(hs._sbc[1] == 0.2 and hs.border._color[1] == 0, "custom bar, custom border")
+assert(hs._sbc[1] == 0.2 and hs.border._vertex[1] == 0, "custom bar, custom border")
 hc.borderSize, hc.borderMode = 0, "custom"
+-- border textures (shared, or the bar's own) and the palette's gradient overlays
+;(function()
+    local P, stripes, flat = PAL, "Interface\\AddOns\\WolfpackAddon\\Media\\Bar\\Stripes", "Interface\\Buttons\\WHITE8X8"
+    local keptFrom, keptSize = hc.borderFrom, P.borderSize
+    hc.borderFrom, P.borderSize, P.borderTexture = "shared", 2, stripes
+    fire("UNIT_MAXPOWER")
+    assert(hs.border._tex == stripes, "the shared border texture")
+    hc.borderFrom, hc.borderSize, hc.borderTexture = "own", 2, flat
+    fire("UNIT_MAXPOWER")
+    assert(hs.border._tex == flat, "or the bar's own")
+    hc.borderFrom = "shared"
+    fire("UNIT_MAXPOWER")
+    assert(not hs.shine:IsShown() and not hs.edgeShine:IsShown(), "no overlays to start")
+    P.barShine.show, P.borderShine.show = true, true
+    fire("UNIT_MAXPOWER")
+    local g = hs.shine._grad
+    assert(hs.shine:IsShown() and g[1] == "VERTICAL" and g[2][4] == 0 and g[3][4] == 0.25, "bar overlay, top to bottom")
+    assert(hs.edgeShine:IsShown() and hs.edgeShine._grad[3][1] == 1, "border overlay")
+    P.barShine.dir = "right"
+    fire("UNIT_MAXPOWER")
+    assert(hs.shine._grad[1] == "HORIZONTAL" and hs.shine._grad[2][4] == 0.25, "or left to right")
+    P.borderSize = 0
+    fire("UNIT_MAXPOWER")
+    assert(not hs.edgeShine:IsShown(), "no border, no border overlay")
+    P.barShine.show, P.borderShine.show, P.barShine.dir = false, false, "down"
+    hc.borderFrom, P.borderSize, P.borderTexture = keptFrom, keptSize, flat
+    fire("UNIT_MAXPOWER")
+end)()
 -- a color per power: rage, energy, mana, focus and more, all on the Colors page
 assert(PAL.power.RAGE and PAL.power.ENERGY and PAL.power.MANA and PAL.power.FOCUS and PAL.power.RUNIC_POWER,
     "power colors in the palette")
@@ -1864,7 +1892,7 @@ nameBox._text = "PvP"; nameBox._scripts.OnEnterPressed(nameBox)
 assert(store.profiles["PvP 2"] and prof() == store.profiles["PvP 2"], "same name again: PvP 2")
 store.profiles["PvP 2"], store.chars[S.name .. " - Realm"] = nil, "PvP"
 local dds = {} -- profile, texture, bar color, border color, radius, font, kill icon, loot icon, combat icon, attach
-for _, f in ipairs(created) do if f._gen and f ~= ns.copyFromMenu and f ~= ns.resPlaceMenu and f ~= ns.resPointMenu and f ~= ns.sitsMenu and f ~= ns.xpMenu and f ~= ns.borderFromMenu and f ~= ns.sharedRadiusMenu and f ~= ns.textureFromMenu and f ~= ns.sharedTextureMenu and not (f._parent == ns.pages.actionbars) then dds[#dds + 1] = f end end
+for _, f in ipairs(created) do if f._gen and f ~= ns.copyFromMenu and f ~= ns.sharedBorderTexMenu and f ~= ns.ownBorderTexMenu and f ~= ns.shineMenus[1] and f ~= ns.shineMenus[2] and f ~= ns.resPlaceMenu and f ~= ns.resPointMenu and f ~= ns.sitsMenu and f ~= ns.xpMenu and f ~= ns.borderFromMenu and f ~= ns.sharedRadiusMenu and f ~= ns.textureFromMenu and f ~= ns.sharedTextureMenu and not (f._parent == ns.pages.actionbars) then dds[#dds + 1] = f end end
 local dd = dds[1]
 dd:GenerateMenu()
 local names = {}
@@ -1883,7 +1911,7 @@ assert(not store.profiles.PvP and prof() == store.profiles.Rogue, "delete falls 
 -- Texture and font dropdowns: pick sets the selected bar (Health), previews render
 local texDD, fontDD = dds[2], dds[6]
 texDD:GenerateMenu(); fontDD:GenerateMenu()
-assert(#texDD._items == 5 and #fontDD._items == 6, "dropdown entries")
+assert(#texDD._items == 11 and #fontDD._items == 6, "dropdown entries")
 -- Menu entries' regions refuse SetFont in the real client (Blizzard_Menu Compositor)
 local function menuButton()
     local b = new()
@@ -2602,8 +2630,8 @@ assert(tb.segs[1]._sbc[2] == 1 and tb.segs[2]._sbc[1] == 1, "air segment first, 
 assert(tb.segs[2]._timer.slot == 1, "the fire totem moved with it")
 -- "Same as bar color": each segment's border a lighter shade of its own element's color
 assert(tc.borderMode == "bar", "the default border follows the bar")
-assert(tb.segs[1].border._color[2] == 1 and tb.segs[1].border._color[1] == 0.25
-    and tb.segs[2].border._color[1] == 1 and tb.segs[2].border._color[2] == 0.475, "green and red edges")
+assert(tb.segs[1].border._vertex[2] == 1 and tb.segs[1].border._vertex[1] == 0.25
+    and tb.segs[2].border._vertex[1] == 1 and tb.segs[2].border._vertex[2] == 0.475, "green and red edges")
 tc.slots = { 1, 2, 3, 4 }
 login("ROGUE", 3)
 fire("UNIT_MAXPOWER")
@@ -2713,7 +2741,7 @@ S.targetCast = "Greater Heal"
 fire("UNIT_SPELLCAST_START", "target")
 assert(ns.frames.targetcast.castKind == "heal", "a heal, which is the one to stop")
 assert(ns.frames.targetcast.segs[1]._sbc[2] > 0.5, "drawn in the healing color")
-S.hb = ns.frames.targetcast.segs[1].border._color -- a lighter heal green: 0.2, 0.9, 0.3 lifted
+S.hb = ns.frames.targetcast.segs[1].border._vertex -- a lighter heal green: 0.2, 0.9, 0.3 lifted
 assert(math.abs(S.hb[1] - 0.4) < 1e-9 and math.abs(S.hb[2] - 0.925) < 1e-9, "its border follows the kind")
 S.targetLocked = true
 fire("UNIT_SPELLCAST_START", "target")

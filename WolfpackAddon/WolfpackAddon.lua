@@ -17,6 +17,10 @@ local TEXTURES = {
     { "Raid Resource", "Interface\\RaidFrame\\Raid-Bar-Resource-Fill" },
     { "Skills", "Interface\\PaperDollInfoFrame\\UI-Character-Skills-Bar" },
 }
+-- our own, grayscale so the bar's color tints them (Media/Bar)
+for _, n in ipairs({ "Smooth", "Gloss", "Soft", "Inset", "Stripes", "Grain" }) do
+    TEXTURES[#TEXTURES + 1] = { n, "Interface\\AddOns\\" .. ADDON .. "\\Media\\Bar\\" .. n }
+end
 
 -- Bundled fonts are free (SIL Open Font License, see Fonts/OFL-*.txt). Static TTFs: WoW only
 -- renders the default instance of variable fonts.
@@ -108,6 +112,7 @@ local function barDefaults(show, width, height, r, g, b, text)
         colorMode = "custom", -- "custom", "class" or "power" (power bar only)
         borderSize = 0, borderColor = { 0, 0, 0, 1 }, borderMode = "bar", radius = 0, -- border: or "class", "custom"
         borderFrom = "shared", -- width and corner radius: the profile's shared ones, or "own" (the two above)
+        borderTexture = "Interface\\Buttons\\WHITE8X8", -- with "own": the border's texture
         textureFrom = "shared", -- the profile's shared texture, or "own" (texture above)
     }
 end
@@ -477,6 +482,11 @@ do
     p.borderSize, p.radius = 0, 0 -- every bar's border width and corner radius, unless it has its own
     p.bordersSet = false -- useProfile has given bars with a border or corners of their own "own" (once)
     p.texture = TEXTURES[1][2] -- every bar's texture, unless it has its own
+    p.borderTexture = TEXTURES[2][2] -- every border's (flat), tinted by its color, unless the bar has its own
+    -- a gradient laid over every bar's fill, and one over every border: from one color to the
+    -- other (opacity included), top to bottom ("down") or left to right ("right")
+    p.barShine = { show = false, dir = "down", from = { 1, 1, 1, 0.25 }, to = { 1, 1, 1, 0 } }
+    p.borderShine = { show = false, dir = "down", from = { 1, 1, 1, 0.35 }, to = { 0, 0, 0, 0.35 } }
     p.texturesSet = false -- ... and bars with a texture of their own "own" (once)
     p.moved = false -- useProfile has moved the per-bar power and cast colors in here (once)
     DEFAULTS.colors = p
@@ -926,6 +936,19 @@ function ns.reactionRGB(unit)
     return c[1], c[2], c[3]
 end
 
+-- A gradient overlay from the palette (o: show, dir, from, to) on a white texture.
+function ns.shine(tex, o, allowed)
+    local on = o.show and allowed ~= false
+    tex:SetShown(on and true or false)
+    if not on then return end
+    tex:SetColorTexture(1, 1, 1, 1)
+    if o.dir == "right" then
+        tex:SetGradient("HORIZONTAL", CreateColor(unpack(o.from)), CreateColor(unpack(o.to)))
+    else -- VERTICAL runs bottom to top: the "to" color is the bottom one
+        tex:SetGradient("VERTICAL", CreateColor(unpack(o.to)), CreateColor(unpack(o.from)))
+    end
+end
+
 -- A "same as bar" border: the bar's color, lighter or darker by the palette's border shade.
 function ns.shade(r, g, b)
     local s = (db.colors.borderShade or 0) / 100
@@ -988,7 +1011,7 @@ function ns.wearColor(f, c)
     s:SetStatusBarColor(r, g, b, c.color[4] or 1)
     if c.borderMode ~= "custom" then
         local br, bg, bb = ns.shade(r, g, b)
-        s.border:SetColorTexture(br, bg, bb, c.borderColor[4])
+        s.border:SetVertexColor(br, bg, bb, c.borderColor[4]) -- tints its texture
     end
 end
 
@@ -998,7 +1021,10 @@ local function layoutBar(f, n, width, over)
     local c = db[f.mode].bars[f.key]
     if c.borderFrom ~= "own" or c.textureFrom ~= "own" then -- the profile's shared border and texture
         local shared = {}
-        if c.borderFrom ~= "own" then shared.borderSize, shared.radius = db.colors.borderSize, db.colors.radius end
+        if c.borderFrom ~= "own" then
+            shared.borderSize, shared.radius, shared.borderTexture = db.colors.borderSize, db.colors.radius,
+                db.colors.borderTexture
+        end
         if c.textureFrom ~= "own" then shared.texture = db.colors.texture end
         c = setmetatable(shared, { __index = c })
     end
@@ -1062,9 +1088,20 @@ local function layoutBar(f, n, width, over)
             s.border:SetShown(t > 0)
             s.border:SetPoint("TOPLEFT", s, "TOPLEFT", -t, t)
             s.border:SetPoint("BOTTOMRIGHT", s, "BOTTOMRIGHT", t, -t)
-            s.border:SetColorTexture(sr, sg, sb, ba)
+            s.border:SetTexture(c.borderTexture or "Interface\\Buttons\\WHITE8X8")
+            s.border:SetVertexColor(sr, sg, sb, ba)
             local radius = c.radius == "pill" and math.huge or c.radius
             round(s.border, s.borderMask, radius, w, c.height)
+            -- the palette's gradient overlays: over the fill (it follows the fill), over the border
+            local inner0 = math.max(radius - t, 0)
+            s.shine = s.shine or s:CreateTexture(nil, "ARTWORK", nil, 3)
+            s.shine:SetAllPoints(s:GetStatusBarTexture())
+            ns.shine(s.shine, db.colors.barShine)
+            round(s.shine, s.mask, inner0, iw, ih)
+            s.edgeShine = s.edgeShine or s:CreateTexture(nil, "BACKGROUND", nil, -7) -- over the border, under the bar
+            s.edgeShine:SetAllPoints(s.border)
+            ns.shine(s.edgeShine, db.colors.borderShine, t > 0)
+            round(s.edgeShine, s.borderMask, radius, w, c.height)
             s.hl:SetColorTexture(unpack(db.regular.highlight.color))
             s.hl:SetShown((f.mode == "regular" and hovered) or false)
             round(s.hl, s.borderMask, radius, w, c.height)
@@ -6594,9 +6631,13 @@ local function buildConfig()
     })
     local corners = dropdown(barsPage, "Corner radius", bord.x, bord:row(DROP), RADII,
         function() return cur().radius end, function(v) cur().radius = v end, textPreview)
+    local edgeTex = dropdown(barsPage, "Border texture", bord.x, bord:row(DROP), TEXTURES,
+        function() return cur().borderTexture end, function(v) cur().borderTexture = v end, texturePreview)
+    ns.ownBorderTexMenu = edgeTex
     onRefresh(function()
         thick:SetShown(cur().borderFrom == "own")
         corners:SetShown(cur().borderFrom == "own")
+        edgeTex:SetShown(cur().borderFrom == "own")
     end)
     bord:close()
 
@@ -7312,8 +7353,11 @@ local function buildConfig()
     local tcard = group(colorPage, COL[1], ccard.cursor - 20, 202, "Texture")
     ns.sharedTextureMenu = dropdown(colorPage, "Bar texture", tcard.x, tcard:row(DROP), TEXTURES,
         function() return P().texture end, function(v) P().texture = v end, texturePreview)
-    local tnote2 = label(colorPage, "Every bar set to \"Shared\" under Colors takes it.", "GameFontDisableSmall")
-    tnote2:SetPoint("TOPLEFT", tcard.x, tcard:row(30))
+    ns.sharedBorderTexMenu = dropdown(colorPage, "Border texture", tcard.x, tcard:row(DROP), TEXTURES,
+        function() return P().borderTexture end, function(v) P().borderTexture = v end, texturePreview)
+    local tnote2 = label(colorPage, "Every bar set to \"Shared\" takes them: the bar texture under Colors, "
+        .. "the border's under Border.", "GameFontDisableSmall")
+    tnote2:SetPoint("TOPLEFT", tcard.x, tcard:row(44))
     tnote2:SetWidth(182)
     tnote2:SetJustifyH("LEFT")
     tcard:close()
@@ -7335,6 +7379,25 @@ local function buildConfig()
     bnote:SetWidth(182)
     bnote:SetJustifyH("LEFT")
     bcard:close()
+    -- a gradient over every bar's fill, and one over every border
+    local ocard = group(colorPage, COL[3], TOP, 202, "Gradient overlay")
+    for _, o in ipairs({ { "barShine", "On every bar", "Bar" }, { "borderShine", "On every border", "Border" } }) do
+        local O = function() return P()[o[1]] end
+        check(colorPage, o[2], ocard.x, ocard:row(ROW), function() return O().show end, function(v) O().show = v end)
+        ns.shineMenus = ns.shineMenus or {}
+        ns.shineMenus[#ns.shineMenus + 1] = dropdown(colorPage, "Direction", ocard.x, ocard:row(DROP),
+            { { "Top to bottom", "down" }, { "Left to right", "right" } }, function() return O().dir end,
+            function(v) O().dir = v end, textPreview)
+        swatch(colorPage, o[3] .. " overlay: from", ocard.x, ocard:row(SWATCH), function() return O().from end)
+        swatch(colorPage, o[3] .. " overlay: to", ocard.x, ocard:row(SWATCH), function() return O().to end)
+        ocard:row(8)
+    end
+    local onote = label(colorPage, "Laid over the bar's own color or gradient. Opacity is in each color.",
+        "GameFontDisableSmall")
+    onote:SetPoint("TOPLEFT", ocard.x, ocard:row(30))
+    onote:SetWidth(182)
+    onote:SetJustifyH("LEFT")
+    ocard:close()
     local pcard = group(colorPage, COL[2], TOP, 202, "Power")
     swatches(pcard, ns.POWER_ORDER, function() return P().power end)
     pcard:close()
