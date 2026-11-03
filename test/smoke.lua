@@ -2183,7 +2183,7 @@ nameBox._text = "PvP"; nameBox._scripts.OnEnterPressed(nameBox)
 assert(store.profiles["PvP 2"] and prof() == store.profiles["PvP 2"], "same name again: PvP 2")
 store.profiles["PvP 2"], store.chars[S.name .. " - Realm"] = nil, "PvP"
 local dds = {} -- profile, texture, bar color, border color, radius, font, kill icon, loot icon, combat icon, attach
-for _, f in ipairs(created) do if f._gen and f ~= ns.copyFromMenu and f ~= ns.countSpotMenus[1] and f ~= ns.countSpotMenus[2] and f ~= ns.sharedBorderTexMenu and f ~= ns.ownBorderTexMenu and f ~= ns.shineMenus[1] and f ~= ns.shineMenus[2] and f ~= ns.resPlaceMenu and f ~= ns.resPointMenu and f ~= ns.sitsMenu and f ~= ns.xpMenu and f ~= ns.borderFromMenu and f ~= ns.sharedRadiusMenu and f ~= ns.textureFromMenu and f ~= ns.sharedTextureMenu and not (f._parent == ns.pages.actionbars) then dds[#dds + 1] = f end end
+for _, f in ipairs(created) do if f._gen and f ~= ns.copyFromMenu and f ~= ns.parentMenu and f ~= ns.countSpotMenus[1] and f ~= ns.countSpotMenus[2] and f ~= ns.sharedBorderTexMenu and f ~= ns.ownBorderTexMenu and f ~= ns.shineMenus[1] and f ~= ns.shineMenus[2] and f ~= ns.resPlaceMenu and f ~= ns.resPointMenu and f ~= ns.sitsMenu and f ~= ns.xpMenu and f ~= ns.borderFromMenu and f ~= ns.sharedRadiusMenu and f ~= ns.textureFromMenu and f ~= ns.sharedTextureMenu and not (f._parent == ns.pages.actionbars) then dds[#dds + 1] = f end end
 local dd = dds[1]
 dd:GenerateMenu()
 local names = {}
@@ -2195,6 +2195,53 @@ dd._items[2].set()
 byText("Delete profile")._scripts.OnClick(byText("Delete profile"), "LeftButton")
 assert(not store.profiles.PvP and prof() == store.profiles.Alpha, "delete falls back to Alpha")
 ns.useProfile("Rogue") -- back on the test rogue's own profile
+
+-- A profile that follows another, like a child theme: it keeps only what it changes itself, and
+-- the parent's later changes reach it
+nameBox._text = "Mom"; nameBox._scripts.OnEnterPressed(nameBox)
+local mom = prof()
+mom.regular.gap, mom.regular.bars.health.height = 4, 20
+nameBox._text = "Kid"; nameBox._scripts.OnEnterPressed(nameBox)
+ns.parentMenu:GenerateMenu()
+local follow
+for _, it in ipairs(ns.parentMenu._items) do if it.text == "Mom" then follow = it end end
+assert(follow and not follow.sel(), "Mom is on the list")
+follow.set()
+assert(store.parents.Kid == "Mom" and ns.inh.count("Kid") == 0, "a copy that follows: nothing of its own yet")
+for _, it in ipairs(ns.parentMenu._items) do assert(it.text ~= "Kid", "not itself") end
+prof().regular.bars.health.height = 33 -- its own change
+assert(ns.inh.count("Kid") == 1, "one change of its own")
+ns.useProfile("Mom")
+assert(store.overrides.Kid.regular.bars.health.height == 33 and store.overrides.Kid.regular.gap == nil,
+    "left: only the change is kept")
+mom.regular.gap, mom.regular.bars.health.height = 9, 50 -- Mom is updated
+ns.useProfile("Kid")
+assert(prof().regular.gap == 9 and prof().regular.bars.health.height == 33, "the update reaches it; its own stays")
+ns.parentMenu:GenerateMenu()
+local loops = false
+ns.useProfile("Mom")
+ns.parentMenu:GenerateMenu()
+for _, it in ipairs(ns.parentMenu._items) do loops = loops or it.text == "Kid" end
+assert(not loops, "Mom can't follow her own child")
+ns.useProfile("Kid")
+-- saved at logout too
+prof().regular.bars.health.width = 111
+fire("PLAYER_LOGOUT")
+assert(store.overrides.Kid.regular.bars.health.width == 111, "written down before the game saves")
+-- a setting the child removed stays removed
+local d = ns.inh.diff({ a = 1 }, { a = 1, b = 2 })
+assert(d.b == ns.inh.NIL and ns.inh.apply({ a = 1, b = 2 }, d).b == nil, "a removal is kept")
+assert(ns.resetButton._text == "Reset to Mom", "reset goes back to the parent")
+StaticPopupDialogs.WOLFPACKADDON_RESET.OnAccept()
+assert(prof().regular.bars.health.height == 50 and ns.inh.count("Kid") == 0, "reset: Mom's in full again")
+prof().regular.bars.health.height = 44
+-- the parent deleted: the child keeps what it had and stands alone
+ns.useProfile("Mom")
+byText("Delete profile")._scripts.OnClick(byText("Delete profile"), "LeftButton")
+assert(not store.parents.Kid and store.profiles.Kid.regular.bars.health.height == 44
+    and store.profiles.Kid.regular.gap == 9, "Mom gone: Kid stands alone, as it was")
+store.profiles.Kid = nil
+ns.useProfile("Rogue")
 
 -- Texture and font dropdowns: pick sets the selected bar (Health), previews render
 local texDD, fontDD = dds[2], dds[6]

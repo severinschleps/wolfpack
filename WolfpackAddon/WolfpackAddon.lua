@@ -6681,7 +6681,112 @@ function ns.repairOrder(layout, default)
     layout.order = kept
 end
 
+------------------------------------------------------------------------------------------
+-- Profile inheritance, like a child theme: a profile can follow another (store.parents[child] =
+-- parent) and keep only what it does differently (store.overrides[child]). Each time it loads it
+-- is built again from its parent plus those, so the parent's later changes reach it; its own
+-- changes are written back as overrides when it is left and at logout. In between it is a whole
+-- profile like any other. Lists (colors, orders) count as one setting; ns.inh.NIL marks a
+-- setting the child removed.
+------------------------------------------------------------------------------------------
+ns.inh = { NIL = "\0nil" }
+local function isList(t) return t[1] ~= nil end
+local function same(a, b)
+    if type(a) ~= "table" or type(b) ~= "table" then return a == b end
+    for k, v in pairs(a) do if not same(v, b[k]) then return false end end
+    for k in pairs(b) do if a[k] == nil then return false end end
+    return true
+end
+function ns.inh.diff(cur, base)
+    local out
+    for k, v in pairs(cur) do
+        local b = base[k]
+        if type(v) == "table" and type(b) == "table" and not isList(v) and not isList(b) then
+            local d = ns.inh.diff(v, b)
+            if d then out = out or {}; out[k] = d end
+        elseif not same(v, b) then
+            out = out or {}
+            out[k] = type(v) == "table" and merge({}, v) or v
+        end
+    end
+    for k in pairs(base) do
+        if cur[k] == nil then out = out or {}; out[k] = ns.inh.NIL end
+    end
+    return out
+end
+function ns.inh.apply(dst, o)
+    for k, v in pairs(o) do
+        if v == ns.inh.NIL then dst[k] = nil
+        elseif type(v) == "table" and not isList(v) and type(dst[k]) == "table" and not isList(dst[k]) then
+            ns.inh.apply(dst[k], v)
+        else
+            dst[k] = type(v) == "table" and merge({}, v) or v
+        end
+    end
+    return dst
+end
+-- a parent's settings as its child sees them: a fresh copy, itself built from its own parent
+function ns.inh.base(name, depth)
+    depth = (depth or 0) + 1
+    local p = store.parents[name]
+    local t
+    if p and store.profiles[p] and depth < 10 then
+        t = ns.inh.apply(ns.inh.base(p, depth), store.overrides[name] or {})
+    else
+        t = merge({}, store.profiles[name] or {})
+    end
+    return merge(t, DEFAULTS)
+end
+function ns.inh.parentOf(name)
+    local p = store.parents and store.parents[name]
+    return p and store.profiles[p] and p or nil
+end
+-- the child's own settings, as they stand now, written down as what differs from its parent
+function ns.inh.save(name)
+    local p = ns.inh.parentOf(name)
+    if p and store.profiles[name] then
+        store.overrides[name] = ns.inh.diff(store.profiles[name], ns.inh.base(p)) or {}
+    end
+end
+-- the child built again from its parent and its own settings, in its own table
+function ns.inh.rebuild(name)
+    local p = ns.inh.parentOf(name)
+    local t = store.profiles[name]
+    if not (p and t) then return end
+    local full = ns.inh.apply(ns.inh.base(p), store.overrides[name] or {})
+    wipe(t)
+    for k, v in pairs(full) do t[k] = v end
+end
+-- follow a parent from now on (nil: stand alone); what it already has of its own stays
+function ns.inh.link(name, parent)
+    store.parents[name], store.overrides[name] = parent, nil
+    ns.inh.save(name)
+end
+-- whether `name` would end up following itself through `parent`
+function ns.inh.loops(name, parent)
+    local n = 0
+    while parent and n < 10 do
+        if parent == name then return true end
+        parent, n = store.parents[parent], n + 1
+    end
+    return false
+end
+-- how many settings a child has of its own
+function ns.inh.count(name)
+    local p = ns.inh.parentOf(name)
+    if not p then return 0 end
+    local function leaves(t)
+        local n = 0
+        for _, v in pairs(t) do n = n + ((type(v) == "table" and not isList(v)) and leaves(v) or 1) end
+        return n
+    end
+    return leaves(ns.inh.diff(store.profiles[name], ns.inh.base(p)) or {})
+end
+
 useProfile = function(name)
+    local was = store.chars[charKey]
+    if was and db and db == store.profiles[was] then ns.inh.save(was) end -- leaving a child
+    if name ~= was or db ~= store.profiles[name] then ns.inh.rebuild(name) end
     if store.profiles[name] then store.profiles[name].buffs = nil end -- the Buff check is gone
     local had = store.profiles[name]
     if had and type(had.plates) == "table" and had.platesTarget == nil then -- saved before the targeted look
@@ -6808,8 +6913,16 @@ local function createProfile(name)
     useProfile(name)
 end
 
--- Characters on the deleted profile fall back to Alpha (recreated if needed).
+-- Characters on the deleted profile fall back to Alpha (recreated if needed). Profiles that
+-- followed it keep what they had and stand alone.
 local function deleteProfile(name)
+    for child, p in pairs(store.parents) do
+        if p == name then
+            ns.inh.rebuild(child)
+            store.parents[child], store.overrides[child] = nil, nil
+        end
+    end
+    store.parents[name], store.overrides[name] = nil, nil
     store.profiles[name] = nil
     for char, p in pairs(store.chars) do
         if p == name then store.chars[char] = nil end
@@ -7008,6 +7121,7 @@ local function importString(text)
             local clean = type(pname) == "string" and strtrim(pname):sub(1, 32) or ""
             if clean ~= "" and type(prof) == "table" then
                 store.profiles[clean] = sanitize(prof, DEFAULTS)
+                store.parents[clean], store.overrides[clean] = nil, nil -- the import is the whole of it
                 first, count = first or clean, count + 1
             end
         end
@@ -7065,11 +7179,18 @@ StaticPopupDialogs.WOLFPACKADDON_COPY = {
 }
 
 StaticPopupDialogs.WOLFPACKADDON_RESET = {
-    text = "Reset profile \"%s\" to its defaults?\nEvery page but Bar Stack starts over.",
+    text = "Reset profile \"%s\"?\nEvery page but Bar Stack starts over (one that follows another: its own changes go).",
     button1 = YES, button2 = NO,
     OnAccept = function()
+        local name = store.chars[charKey]
+        if ns.inh.parentOf(name) then -- a child: back to just following its parent
+            store.overrides[name] = {}
+            ns.inh.rebuild(name)
+            place()
+            return changed()
+        end
         wipe(db)
-        merge(db, ns.freshProfile(store.chars[charKey]))
+        merge(db, ns.freshProfile(name))
         place()
         changed()
     end,
@@ -7364,13 +7485,52 @@ local function buildConfig()
     share:close()
 
     local edit = group(profilePage, COL[2], TOP, 202, "Change this profile")
+    -- follow another profile (like a child theme): only what is changed here stays this one's own
+    do
+        label(profilePage, "Follows", "GameFontNormalSmall"):SetPoint("TOPLEFT", edit.x, edit:row(16))
+        local dd = ns.ui.Dropdown(CreateFrame("DropdownButton", nil, profilePage, "WowStyle1DropdownTemplate"))
+        dd:SetPoint("TOPLEFT", edit.x, edit:row(32))
+        dd:SetSize(178, 26)
+        dd:SetupMenu(function(_, root)
+            local me = store.chars[charKey]
+            root:CreateRadio("Nothing: stands alone", function() return not ns.inh.parentOf(me) end,
+                function() ns.inh.link(me, nil); changed() end)
+            for _, name in ipairs(profileNames()) do
+                if name ~= me and not ns.inh.loops(me, name) then
+                    root:CreateRadio(name, function() return ns.inh.parentOf(me) == name end, function()
+                        store.profiles[name] = store.profiles[name] or merge(ns.freshProfile(name), DEFAULTS)
+                        ns.inh.link(me, name)
+                        changed()
+                    end)
+                end
+            end
+        end)
+        onRefresh(function() dd:GenerateMenu() end)
+        ns.parentMenu = dd
+        local n = label(profilePage, "", "GameFontDisableSmall")
+        n:SetPoint("TOPLEFT", edit.x, edit:row(58))
+        n:SetWidth(178)
+        n:SetJustifyH("LEFT")
+        onRefresh(function()
+            if section ~= "profile" then return end
+            local me = store.chars[charKey]
+            local p = ns.inh.parentOf(me)
+            n:SetText(p and ("Takes everything from %s but its own %d change%s. Later changes to %s reach it too.")
+                :format(p, ns.inh.count(me), ns.inh.count(me) == 1 and "" or "s", p)
+                or "Stands alone. Pick a profile to follow it and keep only what you change here.")
+        end)
+    end
     ns.copyFromMenu = profileMenu(edit, function(name)
         StaticPopup_Show("WOLFPACKADDON_COPY", name, store.chars[charKey], name)
     end, true)
     ns.copyFromMenu:SetDefaultText("Copy from...")
-    danger(button(profilePage, "Reset to defaults", 178, edit.x, edit:row(BUTTON), function()
+    ns.resetButton = danger(button(profilePage, "Reset to defaults", 178, edit.x, edit:row(BUTTON), function()
         StaticPopup_Show("WOLFPACKADDON_RESET", store.chars[charKey])
     end))
+    onRefresh(function() -- a child resets to its parent
+        local p = store and charKey and ns.inh.parentOf(store.chars[charKey])
+        ns.resetButton:SetText(p and ("Reset to " .. p) or "Reset to defaults")
+    end)
     danger(button(profilePage, "Delete profile", 178, edit.x, edit:row(BUTTON), function()
         local name = store.chars[charKey]
         StaticPopup_Show("WOLFPACKADDON_DELETE", name, nil, name)
@@ -9959,6 +10119,7 @@ ev:SetScript("OnEvent", function(_, event, unit, arg2, arg3)
         WolfpackAddonDB = store
         store.minimapAngle = store.minimapAngle or 220
         store.classProfiles = store.classProfiles or {} -- [class token] = profile name
+        store.parents, store.overrides = store.parents or {}, store.overrides or {} -- see ns.inh
         -- every profile, not just the one in use: a bar added since it was saved belongs on all
         -- of them, and switching to one later should not be the first time it appears
         for _, prof in pairs(store.profiles) do
@@ -10000,7 +10161,7 @@ ev:SetScript("OnEvent", function(_, event, unit, arg2, arg3)
             "QUEST_DETAIL", "QUEST_ACCEPT_CONFIRM", "QUEST_PROGRESS", "QUEST_COMPLETE", "GOSSIP_SHOW", "QUEST_GREETING",
             "PLAYER_REGEN_DISABLED", "PLAYER_UPDATE_RESTING", "PLAYER_XP_UPDATE", "PLAYER_LEVEL_UP", "UPDATE_FACTION", "HONOR_XP_UPDATE", "ACTIONBAR_SHOWGRID",
             "ACTIONBAR_HIDEGRID", "CURSOR_CHANGED", "ACTIONBAR_SLOT_CHANGED", "PLAYER_SWING", "PLAYER_TOTEM_UPDATE", "MERCHANT_SHOW", "MERCHANT_CLOSED",
-            "GOSSIP_CLOSED" }) do
+            "GOSSIP_CLOSED", "PLAYER_LOGOUT" }) do
             listen(e)
         end
         if ns.swingLog then listen("COMBAT_LOG_EVENT_UNFILTERED") end -- swings, where no PLAYER_SWING
@@ -10111,6 +10272,8 @@ ev:SetScript("OnEvent", function(_, event, unit, arg2, arg3)
         end)
     elseif event == "QUEST_LOG_UPDATE" or event == "UNIT_QUEST_LOG_CHANGED" then
         safe(questLogChanged)
+    elseif event == "PLAYER_LOGOUT" then -- a child's own settings, written down before they are saved
+        ns.inh.save(store.chars[charKey])
     elseif event == "PLAYER_REGEN_DISABLED" then
         inCombat, ns.inCombat = true, true
         safe(Refresh)
