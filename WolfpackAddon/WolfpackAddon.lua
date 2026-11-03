@@ -304,6 +304,13 @@ local function layoutDefaults(show, x, y, gap, width, h1, h2, h3, h4, h5, h6, h7
     l.bars.swing.main, l.bars.swing.off, l.bars.swing.ranged = true, false, false
     l.bars.health.heal, l.bars.health.healColor = false, { 0.4, 1, 0.5, 0.45 } -- incoming heals
     l.bars.power.cost, l.bars.power.costColor = false, { 1, 1, 1, 0.35 } -- what the cast will take
+    -- combo points as circles (on): per point a background disc, the fill disc over it while the
+    -- point is yours, a ring on top. size: px across; ring.width: its thickness; gap: between
+    -- points. from "bar": the bar's background / bar / border color, "custom": color
+    l.bars.combo.circles = { on = false, gap = 4,
+        bg = { size = 16, from = "bar", color = { 0.1, 0.1, 0.1, 0.8 } },
+        fill = { size = 12, from = "bar", color = { 1, 0.3, 0.1, 1 } },
+        ring = { size = 16, width = 2, from = "bar", color = { 0, 0, 0, 1 } } }
     l.bars.totems.slots = { 1, 2, 3, 4 } -- left to right: which totem slot each segment shows
     l.bars.totems.slotColors = { { 1, 0.3, 0.1, 1 }, { 0.5, 0.35, 0.2, 1 }, -- by slot, so a color
         { 0.2, 0.5, 1, 1 }, { 0.6, 0.5, 0.9, 1 } }                          -- sticks to its element
@@ -1343,6 +1350,75 @@ local function layoutBar(f, n, width, over)
         ns.layoutTexts(f, c, n)
     end
     f.n = n
+    if f.key == "combo" then ns.comboCircles(f, c, n, { r, g, b, c.color[4] or 1 }, { br, bg, bb, ba }) end
+end
+
+-- Combo points as circles, drawn over the (hidden) pips: per point a background disc, the fill
+-- (a StatusBar of range i-1..i, so a secret count still lights it), a ring on top (a disc with
+-- a hole cut out: Media/Hole2 for thin rings, Hole8 for thick ones). The frame shrinks to the
+-- row; f.circleH tells the stack how tall it is.
+ns.DOT = "Interface\\AddOns\\WolfpackAddon\\Media\\Dot"
+function ns.comboCircles(f, c, n, barRGB, borderRGB)
+    local o = c.circles
+    f.circleH = nil
+    for _, p in ipairs(f.circles or {}) do p:Hide() end
+    if not (o and o.on) then return end
+    local slot = math.max(o.bg.size, o.fill.size, o.ring.size)
+    f.circleH = slot
+    f:SetSize(n * slot + (n - 1) * o.gap, slot)
+    for _, sg in ipairs(f.segs) do sg:Hide() end
+    f.circles = f.circles or {}
+    local function col(e, bar) return e.from == "custom" and e.color or bar end
+    local bgc, fc, rc = col(o.bg, c.bgColor), col(o.fill, barRGB), col(o.ring, borderRGB)
+    for i = 1, n do
+        local p = f.circles[i]
+        if not p then
+            p = CreateFrame("Frame", nil, f)
+            p.bg = p:CreateTexture(nil, "BACKGROUND")
+            p.bg:SetTexture(ns.DOT)
+            p.bg:SetPoint("CENTER")
+            p.fill = CreateFrame("StatusBar", nil, p)
+            p.fill:SetStatusBarTexture(ns.DOT)
+            p.fill:SetPoint("CENTER")
+            p.top = CreateFrame("Frame", nil, p)
+            p.top:SetAllPoints()
+            p.ring = p.top:CreateTexture(nil, "ARTWORK")
+            p.ring:SetPoint("CENTER")
+            p.disc, p.hole = newMask(p.top), newMask(p.top)
+            p.disc:SetTexture(ns.DOT, "CLAMPTOBLACKADDITIVE", "CLAMPTOBLACKADDITIVE")
+            p.disc:SetAllPoints(p.ring)
+            p.ring:AddMaskTexture(p.disc)
+            p.hole:SetPoint("CENTER", p.ring)
+            f.circles[i] = p
+        end
+        p:SetFrameLevel(f:GetFrameLevel() + 1)
+        p.fill:SetFrameLevel(p:GetFrameLevel() + 1)
+        p.top:SetFrameLevel(p:GetFrameLevel() + 2)
+        p:SetSize(slot, slot)
+        p:ClearAllPoints()
+        p:SetPoint("LEFT", f, "LEFT", (i - 1) * (slot + o.gap), 0)
+        p.bg:SetSize(o.bg.size, o.bg.size)
+        p.bg:SetVertexColor(unpack(bgc))
+        p.fill:SetSize(o.fill.size, o.fill.size)
+        p.fill:SetStatusBarColor(unpack(fc))
+        p.fill:SetMinMaxValues(i - 1, i)
+        local r = o.ring.size / 2
+        local hole = r - math.min(o.ring.width, r)
+        local K = (hole > 0 and r / hole > 2) and 8 or 2
+        p.ring:SetSize(o.ring.size, o.ring.size)
+        p.ring:SetColorTexture(unpack(rc))
+        p.ring:SetShown(o.ring.width > 0)
+        local cut = hole > r / 8 -- thinner than that, it is all but a disc: drawn as one
+        if cut then
+            p.hole:SetTexture(ns.uf.MEDIA .. "Hole" .. K, "CLAMPTOBLACKADDITIVE", "CLAMPTOBLACKADDITIVE")
+            p.hole:SetSize(2 * K * hole, 2 * K * hole)
+        end
+        if cut ~= (p.holeOn or false) then
+            if cut then p.ring:AddMaskTexture(p.hole) else p.ring:RemoveMaskTexture(p.hole) end
+            p.holeOn = cut
+        end
+        p:Show()
+    end
 end
 
 local function setText(fs, v) fs:SetText(AbbreviateNumbers(v)) end
@@ -1605,6 +1681,7 @@ function ns.fill(f)
         if f.texts and not f.res then ns.fillTexts(f, v, max) end
     else
         for i = 1, f.n do f.segs[i]:SetValue(v) end
+        if f.circleH then for i = 1, f.n do f.circles[i].fill:SetValue(v) end end
     end
 end
 
@@ -2721,7 +2798,7 @@ local function stack(container, set, L, on, swings)
             if ns.BADGES[key] then ns.layoutBadges(f) end
             if key == "pethealth" then ns.layoutHappy(f) end
             if ns.MEAL_TEXTS[key] then ns.layoutMealText(f) end
-            h = h + c.height
+            h = h + (f.circleH or c.height)
             if key == "health" and L == db.regular then h = h + ns.petUnder(f) end -- your pet below it
             h = h + c.padBottom
             w = math.max(w, c.width)
@@ -7425,7 +7502,8 @@ end
 function ns.toggleDialog(d)
     local show = not d:IsShown()
     for _, o in ipairs({ ns.resDialog, ns.tagDialog, ns.auraDialog, ns.textDialog, ns.iconDialog,
-        ns.statusDialog, ns.fsrDialog, ns.happyDialog, ns.drinkDialog, ns.eatDialog, ns.wbDialog }) do o:Hide() end
+        ns.statusDialog, ns.fsrDialog, ns.happyDialog, ns.drinkDialog, ns.eatDialog, ns.wbDialog,
+        ns.circleDialog }) do o:Hide() end
     d:SetShown(show)
 end
 
@@ -7882,6 +7960,8 @@ local function buildConfig()
     -- the weapon enchant and durability bars: their icon and flash, in a window of their own
     local wbButton = button(barsPage, "Icon and flash", 186, only.x, only:row(0),
         function() ns.toggleDialog(ns.wbDialog) end)
+    ns.circleButton = button(barsPage, "Circles", 186, only.x, only:row(0),
+        function() ns.toggleDialog(ns.circleDialog) end)
     local castIcon = check(barsPage, "Show spell icon", only.x, only:row(ROW),
         function() return cur().icon end, function(v) cur().icon = v end)
     local castSide = button(barsPage, "", 186, only.x, only:row(BUTTON), function()
@@ -7940,12 +8020,14 @@ local function buildConfig()
             for _, w in ipairs(row) do w:SetShown(selected == "totems") end
         end
         wbButton:SetShown(ns.wb.KEYS[selected] and mode == "regular" and true or false)
+        ns.circleButton:SetShown(selected == "combo" and mode == "regular")
+        if not (selected == "combo" and section == "combat") then ns.circleDialog:Hide() end
         if not (ns.wb.KEYS[selected] and section == "combat") then ns.wbDialog:Hide() end
         castIcon:SetShown(selected == "castbar" or selected == "targetcast")
         castSide:SetShown((selected == "castbar" or selected == "targetcast")
             and cur().icon or false)
         castSide:SetText("Icon side: " .. (cur().iconSide == "right" and "Right" or "Left"))
-        local none = not (selected == "castbar" or selected == "swing" or selected == "power"
+        local none = not (selected == "castbar" or selected == "swing" or selected == "power" or selected == "combo"
             or selected == "health" or selected == "targetcast" or selected == "enemyhealth")
         if selected == "range" then
             onlyNote:SetText("Asks your own spells whether they would reach. The whole bar takes "
@@ -9525,6 +9607,50 @@ local function buildConfig()
         n:SetWidth(198)
         n:SetJustifyH("LEFT")
     end
+
+    -- Combo points as circles: on or off, the gap, and per layer its size and color (a function
+    -- of its own: buildConfig is at Lua's limit of 200 locals)
+    ;(function()
+        local d = ns.ui.Window(nil, 440, 500, "Combo point circles")
+        d:SetParent(cfg)
+        d:ClearAllPoints()
+        d:SetPoint("TOPLEFT", cfg, "TOPRIGHT", 12, 0)
+        d:Hide()
+        ns.circleDialog = d
+        local O = function() return (selected == "combo" and cur() or DEFAULTS.regular.bars.combo).circles end
+        ry = -48
+        check(d, "Draw as circles", 16, rrow(ROW), function() return O().on end, function(v) O().on = v end)
+        slider(d, "Gap between points", 16, rrow(SLIDER), 0, 40, function() return O().gap end,
+            function(v) O().gap = v end)
+        local top, below = ry, ry
+        ns.circleMenus = {}
+        for i, e in ipairs({ { "ring", "Border ring (on top)", "Same as the bar's border" },
+            { "fill", "Fill (a point you have)", "Same as the bar" },
+            { "bg", "Background (underneath)", "Same as the bar's background" } }) do
+            local E = function() return O()[e[1]] end
+            local x = i == 2 and 230 or 16
+            if i == 3 then ry = below else ry = top end
+            label(d, e[2], "GameFontNormal"):SetPoint("TOPLEFT", x, rrow(20))
+            slider(d, "Size (px)", x, rrow(SLIDER), 2, 64, function() return E().size end,
+                function(v) E().size = v end)
+            if e[1] == "ring" then
+                slider(d, "Ring width (px)", x, rrow(SLIDER), 0, 32, function() return E().width end,
+                    function(v) E().width = v end)
+            end
+            ns.circleMenus[i] = dropdown(d, "Color", x, rrow(DROP), { { e[3], "bar" }, { "Custom", "custom" } },
+                function() return E().from end, function(v) E().from = v end, textPreview)
+            swatch(d, ({ ring = "Ring color", fill = "Fill color", bg = "Background color" })[e[1]], x,
+                rrow(SWATCH), function() return E().color end)
+            ry = ry - 10
+            if i == 1 then below = ry end
+            if i == 2 then top = ry end -- the note goes under the fill
+        end
+        local n = label(d, "\"Same as the bar\" follows the combo bar's own colors, from its Colors card. "
+            .. "Point size: the biggest layer.", "GameFontDisableSmall")
+        n:SetPoint("TOPLEFT", 230, top)
+        n:SetWidth(194)
+        n:SetJustifyH("LEFT")
+    end)()
 
     for _, page in pairs(ns.pages) do ns.foldColumns(page, COL, TOP) end
     ns.configHeight = math.max(-(ns.sidebarBottom or 0) + 24, 640)

@@ -534,6 +534,36 @@ end
 assert(not fr.druidmana:IsShown(), "rogue has no druid mana")
 assert(WolfpackAddonFrame._h == 48, "stack height " .. tostring(WolfpackAddonFrame._h))
 
+-- Combo points as circles: per point a background disc, the fill over it (lit like a pip, so
+-- a secret count still works), a ring on top; the row as tall as the biggest layer
+do
+    local CB = prof().regular.bars.combo
+    local o = CB.circles
+    o.on, o.gap = true, 4
+    o.bg.size, o.fill.size, o.ring.size, o.ring.width = 20, 12, 18, 2
+    o.bg.from, o.fill.from, o.ring.from = "bar", "custom", "bar"
+    o.fill.color = { 0, 1, 0, 1 }
+    fire("UNIT_MAXPOWER")
+    local f = fr.combo
+    local p1, p3 = f.circles[1], f.circles[3]
+    assert(not f.segs[1]:IsShown() and p1:IsShown() and f._w == 5 * 20 + 4 * 4 and f._h == 20, "five circles in a row")
+    assert(p3._point[4] == 2 * 24 and p1.bg._w == 20 and p1.fill._w == 12 and p1.ring._w == 18, "each layer its size")
+    assert(p1.fill._min == 0 and p1.fill._max == 1 and p3.fill._min == 2 and p3.fill._value == SECRET,
+        "the fill lights like a pip")
+    assert(p1.fill._sbc[2] == 1 and p1.bg._vertex[1] == CB.bgColor[1], "custom fill, the bar's background")
+    assert(p1.ring._masks[p1.disc] and p1.ring._masks[p1.hole] and p1.hole._w == 2 * 2 * 7, "a ring: a disc, holed")
+    assert(WolfpackAddonFrame._h == 48 + 20 - CB.height, "the stack makes room for the row")
+    assert(p1.top:GetFrameLevel() > p1.fill:GetFrameLevel() and p1.fill:GetFrameLevel() > p1:GetFrameLevel(),
+        "ring over fill over background")
+    o.ring.width = 9 -- all but solid: a plain disc
+    fire("UNIT_MAXPOWER")
+    assert(not p1.ring._masks[p1.hole], "too thick for a hole")
+    o.on = false
+    fire("UNIT_MAXPOWER")
+    assert(f.segs[1]:IsShown() and not p1:IsShown() and WolfpackAddonFrame._h == 48, "back to pips")
+    o.ring.width, o.fill.from = 2, "bar"
+end
+
 -- Extra space above / below a bar pushes the rest of the stack
 local hp = prof().regular.bars.health
 hp.padBottom = 10
