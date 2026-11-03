@@ -356,9 +356,13 @@ end
 
 -- Bags: show = our window replaces Blizzard's. The look is the action bars' (size, gap, border,
 -- corners, zoom); x / y: its bottom-right corner from the screen's. sort: shown sorted.
+-- keyring: where the game has one, its button joins the bag bar and its keys show in our look
+-- above it. side: the custom bags' strip left of the window; custom = { { name, preset, items =
+-- { [itemID] = true (in) / false (kept out of the preset) } } }, a group each, in this order.
 DEFAULTS.bags = { show = false, cols = 10, size = 36, gap = 4, sectionGap = 12, borderSize = 1,
     borderColor = { 0, 0, 0, 1 }, radius = 0, zoom = 8, quality = true, junk = true, sort = false,
-    countSize = 11, font = FONTS[1][2], bg = { 0.05, 0.05, 0.06, 0.6 }, x = -60, y = 110 }
+    countSize = 11, font = FONTS[1][2], bg = { 0.05, 0.05, 0.06, 0.6 }, x = -60, y = 110,
+    keyring = true, side = true, custom = {} }
 
 -- Rogue and shaman: what is on each weapon, and when it is nearly gone.
 -- (a local would put this file over Lua's limit of 200 of them, so it hangs off ns)
@@ -4012,6 +4016,195 @@ function ns.bags.section(bag)
     return "trade"
 end
 
+-- the keyring's bag id, where the game has a keyring and it is ours to show
+function ns.bags.keys()
+    return db.bags.keyring and KeyRingButton and (KEYRING_CONTAINER or -2) or nil
+end
+
+-- Class presets for custom bags: item ids, plus name patterns for the many ranks.
+-- ponytail: the patterns are English names; other locales go by the ids alone
+ns.bags.presets = {
+    ROGUE = { { key = "poisons", name = "Poisons", ids = { 6947, 6949, 6950, 8926, 8927, 8928, 21927, 2892, 2893,
+        8984, 8985, 20844, 22053, 22054, 3775, 3776, 5237, 6951, 9186, 10918, 10920, 10921, 10922, 22055, 21835,
+        3371, 3372, 8925, 18256, 2928, 2930, 5173, 8923, 8924 }, match = { "Poison$", "Poison [IVX]+$" } },
+        { key = "tools", name = "Tools and powders", ids = { 5060, 5140, 5530 } } },
+    SHAMAN = { { key = "totems", name = "Totems", ids = { 5175, 5176, 5177, 5178 } },
+        { key = "reagents", name = "Reagents", ids = { 17030, 17057, 17058 } } },
+    WARLOCK = { { key = "shards", name = "Shards and stones", ids = { 6265, 5565, 16583 },
+        match = { "Healthstone$", "Soulstone$", "Spellstone$", "Firestone$" } } },
+    MAGE = { { key = "reagents", name = "Reagents", ids = { 17020, 17031, 17032, 17056 } },
+        { key = "conjured", name = "Conjured", ids = { 5514, 5513, 8007, 8008, 22044 }, match = { "^Conjured " } } },
+    PRIEST = { { key = "reagents", name = "Reagents", ids = { 17028, 17029, 17056 } } },
+    PALADIN = { { key = "reagents", name = "Reagents", ids = { 17033, 21177 } } },
+    DRUID = { { key = "reagents", name = "Reagents", ids = { 17021, 17026, 22148, 17034, 17035, 17036, 17037,
+        17038, 22147 } } },
+}
+function ns.bags.classPresets() return ns.bags.presets[select(2, UnitClass("player")) or ""] or {} end
+function ns.bags.preset(key)
+    for _, p in ipairs(ns.bags.classPresets()) do if p.key == key then return p end end
+end
+
+function ns.bags.itemName(id)
+    local ok, name = pcall((C_Item and C_Item.GetItemInfo) or GetItemInfo, id)
+    return ok and name or nil
+end
+
+-- does custom bag `c` hold this item: put there, or its preset's and not taken out
+function ns.bags.holds(c, id)
+    local v = c.items[id]
+    if v ~= nil then return v end
+    local p = c.preset and ns.bags.preset(c.preset)
+    if not p then return false end
+    if tContains(p.ids, id) then return true end
+    local name = p.match and ns.bags.itemName(id)
+    for _, pat in ipairs(name and p.match or {}) do if name:find(pat) then return true end end
+    return false
+end
+function ns.bags.customOf(id)
+    for i, c in ipairs(db.bags.custom) do if ns.bags.holds(c, id) then return i end end
+end
+
+-- an item dropped on custom bag i goes there (and out of the others); dropped again, it goes back
+function ns.bags.drop(i)
+    local ok, kind, id = pcall(GetCursorInfo)
+    local c = db.bags.custom[i]
+    if not (ok and kind == "item" and id and c) then return end
+    ClearCursor()
+    local here = ns.bags.holds(c, id)
+    for _, o in ipairs(db.bags.custom) do
+        o.items[id] = nil
+        if ns.bags.holds(o, id) then o.items[id] = false end
+    end
+    if not here then c.items[id] = true end
+    ns.bags.layout()
+end
+
+function ns.bags.addBag(name, preset, id)
+    local c = { name = name, preset = preset, items = {} }
+    table.insert(db.bags.custom, c)
+    if id then
+        for _, o in ipairs(db.bags.custom) do if o ~= c and ns.bags.holds(o, id) then o.items[id] = false end end
+        c.items[id] = true
+    end
+    if ns.bags.frame and ns.bags.frame:IsShown() then ns.bags.layout() end
+end
+
+-- the icon: the preset's first item, else the first item put in, else a bag
+function ns.bags.icon(c)
+    local p, id = c.preset and ns.bags.preset(c.preset), nil
+    id = p and p.ids[1]
+    if not id then for k, v in pairs(c.items) do if v then id = k break end end end
+    local ok, icon = pcall(function() return select(5, GetItemInfoInstant(id)) end)
+    return ok and icon or "Interface\\Icons\\INV_Misc_Bag_08"
+end
+
+StaticPopupDialogs.WOLFPACKADDON_NEWBAG = {
+    text = "Name the new bag:",
+    button1 = OKAY or "OK", button2 = CANCEL or "Cancel",
+    hasEditBox = true,
+    OnAccept = function(self, id)
+        local e = self and (self.editBox or self.EditBox or (self.GetEditBox and self:GetEditBox()))
+        local name = e and strtrim(e:GetText() or "") or ""
+        safe(ns.bags.addBag, name ~= "" and name or ("Bag " .. (#db.bags.custom + 1)), nil, id)
+    end,
+    EditBoxOnEnterPressed = function(e)
+        local p = e:GetParent()
+        StaticPopupDialogs.WOLFPACKADDON_NEWBAG.OnAccept(p, p.data)
+        p:Hide()
+    end,
+    EditBoxOnEscapePressed = function(e) e:GetParent():Hide() end,
+    timeout = 0, whileDead = true, hideOnEscape = true,
+}
+StaticPopupDialogs.WOLFPACKADDON_DELBAG = {
+    text = "Remove the bag \"%s\"? Its items go back into the bags.",
+    button1 = YES, button2 = NO,
+    OnAccept = function(_, i)
+        table.remove(db.bags.custom, i)
+        if ns.bags.frame and ns.bags.frame:IsShown() then safe(ns.bags.layout) end
+    end,
+    timeout = 0, whileDead = true, hideOnEscape = true,
+}
+
+-- the strip left of the window: a button per custom bag (drop items on it), one to make a bag,
+-- and your class's presets not yet made, faded
+function ns.bags.sideButton(i)
+    local s = ns.bags.frame.side
+    if s.btns[i] then return s.btns[i] end
+    local b = CreateFrame("Button", nil, s)
+    b.icon = b:CreateTexture(nil, "ARTWORK")
+    b.icon:SetAllPoints()
+    b.count = b:CreateFontString(nil, "OVERLAY", "NumberFontNormal")
+    b.count:SetPoint("BOTTOMRIGHT", -2, 2)
+    b:SetHighlightTexture("Interface\\Buttons\\ButtonHilight-Square", "ADD")
+    b:RegisterForClicks("LeftButtonUp", "RightButtonUp")
+    b:SetScript("OnReceiveDrag", function(self) if self.wpBag then safe(ns.bags.drop, self.wpBag) end end)
+    b:SetScript("OnClick", function(self, button)
+        local ok, kind, id = pcall(GetCursorInfo)
+        local item = ok and kind == "item" and id or nil
+        if self.wpBag then
+            if item then safe(ns.bags.drop, self.wpBag)
+            elseif button == "RightButton" then
+                StaticPopup_Show("WOLFPACKADDON_DELBAG", db.bags.custom[self.wpBag].name, nil, self.wpBag)
+            end
+        elseif self.wpPreset then
+            safe(ns.bags.addBag, self.wpPreset.name, self.wpPreset.key)
+        else -- the new bag button; an item held on it goes in the new bag
+            if item then ClearCursor() end
+            StaticPopup_Show("WOLFPACKADDON_NEWBAG", nil, nil, item)
+        end
+    end)
+    b:SetScript("OnEnter", function(self)
+        GameTooltip:SetOwner(self, "ANCHOR_LEFT")
+        if self.wpBag then
+            GameTooltip:SetText(db.bags.custom[self.wpBag].name)
+            GameTooltip:AddLine("Drop an item here to keep it in this bag; drop it again to take it out.", 1, 1, 1, true)
+            GameTooltip:AddLine("Right-click to remove the bag.", 0.6, 0.6, 0.6, true)
+        elseif self.wpPreset then
+            GameTooltip:SetText(self.wpPreset.name)
+            GameTooltip:AddLine("Class preset: click to add this bag.", 1, 1, 1, true)
+        else
+            GameTooltip:SetText("New bag")
+            GameTooltip:AddLine("Click to make a custom bag, then drop items on its icon.", 1, 1, 1, true)
+        end
+        GameTooltip:Show()
+    end)
+    b:SetScript("OnLeave", function() GameTooltip:Hide() end)
+    s.btns[i] = b
+    return b
+end
+
+function ns.bags.layoutSide(counts)
+    local o, B = db.bags, ns.bags
+    local s = B.frame.side
+    s:SetShown(o.side)
+    if not o.side then return end
+    local list, have = {}, {}
+    for i, c in ipairs(o.custom) do
+        list[#list + 1] = { bag = i, icon = B.icon(c), count = counts[i] or 0 }
+        if c.preset then have[c.preset] = true end
+    end
+    list[#list + 1] = { icon = "Interface\\PaperDollInfoFrame\\Character-Plus" }
+    for _, p in ipairs(B.classPresets()) do
+        if not have[p.key] then list[#list + 1] = { preset = p, icon = B.icon({ preset = p.key, items = {} }) } end
+    end
+    local pad, size = 6, math.floor(o.size * 0.9)
+    for i, e in ipairs(list) do
+        local b = B.sideButton(i)
+        b.wpBag, b.wpPreset = e.bag, e.preset
+        b:SetSize(size, size)
+        b.icon:SetTexture(e.icon)
+        b.icon:SetDesaturated(e.preset and true or false)
+        b:SetAlpha(e.preset and 0.5 or 1)
+        b.count:SetText(e.bag and e.count or "")
+        b:ClearAllPoints()
+        b:SetPoint("TOPLEFT", s, "TOPLEFT", pad, -pad - (i - 1) * (size + o.gap))
+        b:Show()
+    end
+    for i = #list + 1, #s.btns do s.btns[i]:Hide() end
+    s:SetSize(size + pad * 2, pad * 2 + #list * (size + o.gap) - o.gap)
+    s.bg:SetColorTexture(unpack(o.bg))
+end
+
 function ns.bags.isQuest(bag, slot, info)
     local ok, q = pcall(ns.bags.api("GetContainerItemQuestInfo"), bag, slot)
     if ok and type(q) == "table" and (q.isQuestItem or q.questID) then return true end
@@ -4024,7 +4217,7 @@ end
 function ns.bags.button(bag, slot)
     local h = ns.bags.holders[bag]
     if not h then
-        h = CreateFrame("Frame", nil, ns.bags.frame)
+        h = CreateFrame("Frame", nil, bag == ns.bags.keys() and ns.bags.frame.keys or ns.bags.frame)
         h:SetID(bag)
         h.buttons = {}
         ns.bags.holders[bag] = h
@@ -4119,40 +4312,72 @@ function ns.bags.sorted(list)
     end)
 end
 
+-- one bag's slots onto buttons; each button goes to the group `pick` names
+function ns.bags.slots(bag, pick)
+    local o, B = db.bags, ns.bags
+    local ok, n = pcall(B.api("GetContainerNumSlots"), bag)
+    n = ok and type(n) == "number" and n or 0
+    for slot = 1, n do
+        local b = B.button(bag, slot)
+        local okI, info = pcall(B.api("GetContainerItemInfo"), bag, slot)
+        info = okI and type(info) == "table" and info or nil
+        b.wpInfo, b.wpBag = info, bag
+        local k, quest = pick(slot, info)
+        b.wpScale = ns.abScale(b, o.size)
+        B.fill(b, bag, slot, info)
+        B.look(b, o, info, quest)
+        b:Show()
+        k[#k + 1] = b
+    end
+    local h = B.holders[bag]
+    for slot = n + 1, h and #h.buttons or 0 do h.buttons[slot]:Hide() end
+end
+
+-- buttons in rows of o.cols on `f`, from y down; returns where the rows end
+function ns.bags.grid(f, list, y, pad)
+    local o = db.bags
+    local step = o.size + o.gap
+    for i, b in ipairs(list) do
+        local col, row = (i - 1) % o.cols, math.floor((i - 1) / o.cols)
+        b:ClearAllPoints()
+        b:SetPoint("TOPLEFT", f, "TOPLEFT", (pad + col * step) / b.wpScale, (y - row * step) / b.wpScale)
+    end
+    return y - math.ceil(#list / o.cols) * step + o.gap
+end
+
 function ns.bags.layout()
     local o, B = db.bags, ns.bags
     local f = B.frame
-    local groups = {}
-    for _, k in ipairs(B.order) do groups[k] = {} end
-    local free = 0
-    for _, bag in ipairs(B.list()) do
-        local ok, n = pcall(B.api("GetContainerNumSlots"), bag)
-        n = ok and type(n) == "number" and n or 0
-        local sec = B.section(bag)
-        for slot = 1, n do
-            local b = B.button(bag, slot)
-            local okI, info = pcall(B.api("GetContainerItemInfo"), bag, slot)
-            info = okI and type(info) == "table" and info or nil
-            b.wpInfo, b.wpBag = info, bag
-            local quest = sec == "main" and info and B.isQuest(bag, slot, info) or false
-            b.wpScale = ns.abScale(b, o.size)
-            B.fill(b, bag, slot, info)
-            B.look(b, o, info, quest)
-            local list = groups[quest and "quest" or sec]
-            list[#list + 1] = b
-            b:Show()
-            if not info then free = free + 1 end
-        end
-        local h = B.holders[bag]
-        for slot = n + 1, h and #h.buttons or 0 do h.buttons[slot]:Hide() end
+    -- the custom bags' groups come right after the quest items
+    local order, groups, free = {}, {}, 0
+    for _, k in ipairs(B.order) do
+        order[#order + 1] = k
+        if k == "quest" then for i in ipairs(o.custom) do order[#order + 1] = "c" .. i end end
     end
-    if o.sort then for _, k in ipairs(B.order) do B.sorted(groups[k]) end end
+    for _, k in ipairs(order) do groups[k] = {} end
+    for _, bag in ipairs(B.list()) do
+        local sec = B.section(bag)
+        B.slots(bag, function(slot, info)
+            if not info then free = free + 1 end
+            local c = sec == "main" and info and info.itemID and B.customOf(info.itemID)
+            if c then return groups["c" .. c] end
+            local quest = sec == "main" and info and B.isQuest(bag, slot, info) or false
+            return groups[quest and "quest" or sec], quest
+        end)
+    end
+    if o.sort then for _, k in ipairs(order) do B.sorted(groups[k]) end end
     local pad, step = 8, o.size + o.gap
     local y, first = -pad, true
-    for _, k in ipairs(B.order) do
+    for _, tag in pairs(f.tags) do tag:Hide() end
+    for _, k in ipairs(order) do
         local list = groups[k]
-        local tag = B.labels[k] and f.tags[k]
-        if tag then tag:Hide() end
+        local c = k:match("^c(%d+)$") and o.custom[tonumber(k:sub(2))]
+        local tag = (B.labels[k] or c) and f.tags[k]
+        if c and not tag then
+            tag = f:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
+            f.tags[k] = tag
+        end
+        if c then tag:SetText(c.name) end
         if #list > 0 then
             if not first then y = y - o.sectionGap end
             if tag then
@@ -4162,12 +4387,7 @@ function ns.bags.layout()
                 y = y - 14
             end
             first = false
-            for i, b in ipairs(list) do
-                local col, row = (i - 1) % o.cols, math.floor((i - 1) / o.cols)
-                b:ClearAllPoints()
-                b:SetPoint("TOPLEFT", f, "TOPLEFT", (pad + col * step) / b.wpScale, (y - row * step) / b.wpScale)
-            end
-            y = y - math.ceil(#list / o.cols) * step + o.gap
+            y = B.grid(f, list, y, pad)
         end
     end
     f.money:SetText(ns.money(GetMoney()))
@@ -4177,6 +4397,26 @@ function ns.bags.layout()
     f:ClearAllPoints()
     f:SetPoint("BOTTOMRIGHT", UIParent, "BOTTOMRIGHT", o.x, o.y)
     f.sort:SetShown(B.api("SortBags") ~= nil)
+    local counts = {}
+    for i in ipairs(o.custom) do counts[i] = #groups["c" .. i] end
+    B.layoutSide(counts)
+end
+
+-- the keyring's keys, in a panel of their own above the bag bar
+function ns.bags.layoutKeys()
+    local o, B = db.bags, ns.bags
+    local k, list = B.frame.keys, {}
+    B.slots(B.keys(), function() return list end)
+    if o.sort then B.sorted(list) end
+    local pad = 6
+    local y = B.grid(k, list, -pad, pad)
+    k:SetSize(pad * 2 + math.max(1, math.min(#list, o.cols)) * (o.size + o.gap) - o.gap, -y + pad)
+    k.bg:SetColorTexture(unpack(o.bg))
+    k:ClearAllPoints()
+    -- above the backpack on the bag bar (or the window's top, the bar being elsewhere)
+    local top = B.barOn and (BagsBar or MainMenuBarBackpackButton)
+    if top then k:SetPoint("BOTTOMRIGHT", top, "TOPRIGHT", 0, 6)
+    else k:SetPoint("BOTTOMRIGHT", B.frame, "TOPRIGHT", 0, 4) end
 end
 
 -- The bag bar rides on top of our window: Blizzard's whole bar where there is one, else the
@@ -4192,7 +4432,10 @@ function ns.bags.bar(on)
             if _G[n] then list[#list + 1] = _G[n] end
         end
     end
+    -- the keyring button at the bar's left end while ours shows the keys, else back home
+    if KeyRingButton then list[#list + 1] = KeyRingButton end
     for i, w in ipairs(list) do
+        if on and w == KeyRingButton and not B.keys() then on = false end
         if on then
             if not w.wpHome then
                 w.wpHome = { parent = w:GetParent() }
@@ -4225,9 +4468,10 @@ function ns.bags.mine(f)
 end
 
 function ns.bags.sync()
-    local B, on, open = ns.bags, ns.bags.on(), false
+    local B, on, open, keys = ns.bags, ns.bags.on(), false, false
     if not B.frame and not on then return end
     B.make()
+    local keyBag = B.keys()
     for _, f in ipairs(B.blizz()) do
         if not f.wpBagsHooked then
             f.wpBagsHooked = true
@@ -4239,10 +4483,11 @@ function ns.bags.sync()
                 hooksecurefunc(f, m, function() safe(ns.bags.sync) end)
             end
         end
-        if on and f:IsShown() and B.mine(f) then
+        local key = keyBag and f ~= ContainerFrameCombinedBags and f:GetID() == keyBag
+        if on and f:IsShown() and (key or B.mine(f)) then
             if not f.wpHome then f.wpHome = f:GetParent() end
             f:SetParent(hider)
-            open = true
+            if key then keys = true else open = true end
         elseif f.wpHome then
             f:SetParent(f.wpHome)
             f.wpHome = nil
@@ -4251,10 +4496,13 @@ function ns.bags.sync()
     open = open or (on and B.wantPreview and B.wantPreview()) or false
     B.frame:SetShown(open)
     if open then B.layout() end
-    if on ~= (B.barOn or false) or B.barPending then
-        B.barOn = on
+    local barKeys = on and keyBag ~= nil
+    if on ~= (B.barOn or false) or B.barPending or barKeys ~= (B.barKeys or false) then
+        B.barOn, B.barKeys = on, barKeys
         B.bar(on)
     end
+    B.frame.keys:SetShown(keys)
+    if keys then B.layoutKeys() end
 end
 
 function ns.bags.make()
@@ -4289,6 +4537,19 @@ function ns.bags.make()
     f.sort:SetHeight(16)
     f.sort:SetPoint("BOTTOM", 0, 3)
     f.sort:SetScript("OnClick", function() pcall(ns.bags.api("SortBags")) end)
+    f.side = CreateFrame("Frame", nil, f)
+    f.side:SetPoint("TOPRIGHT", f, "TOPLEFT", -4, 0)
+    f.side:EnableMouse(true)
+    f.side.bg = f.side:CreateTexture(nil, "BACKGROUND", nil, -8)
+    f.side.bg:SetAllPoints()
+    f.side.btns = {}
+    -- the keys' panel is the screen's: the keyring opens without the bags too
+    f.keys = CreateFrame("Frame", "WolfpackKeys", UIParent)
+    f.keys:SetFrameStrata("HIGH")
+    f.keys:EnableMouse(true)
+    f.keys:Hide()
+    f.keys.bg = f.keys:CreateTexture(nil, "BACKGROUND", nil, -8)
+    f.keys.bg:SetAllPoints()
     B.frame = f
 end
 
@@ -4304,11 +4565,12 @@ ns.bags.ev:SetScript("OnEvent", function(_, event)
         if B.barPending then safe(B.bar, B.barOn) end
         return
     end
-    if not (B.frame and B.frame:IsShown()) or B.pending then return end
+    if not (B.frame and (B.frame:IsShown() or B.frame.keys:IsShown())) or B.pending then return end
     B.pending = true
     C_Timer.After(0.05, function()
         B.pending = false
         if B.frame:IsShown() then safe(B.layout) end
+        if B.frame.keys:IsShown() then safe(B.layoutKeys) end
     end)
 end)
 
@@ -7349,9 +7611,10 @@ local function buildConfig()
         check(pg, "Replace Blizzard's bags", c1.x, c1:row(ROW), function() return G().show end,
             function(v) G().show = v end)
         local n = label(pg, "Opens and closes like Blizzard's bags (B, a vendor). Quest items always group apart "
-            .. "under the bags; ammo, soul and profession bags get a group each. Drag the window to move it.",
+            .. "under the bags; ammo, soul and profession bags get a group each. Drag the window to move it. "
+            .. "The strip on its left holds custom bags: drop an item on one to group it there.",
             "GameFontDisableSmall")
-        n:SetPoint("TOPLEFT", c1.x, c1:row(70))
+        n:SetPoint("TOPLEFT", c1.x, c1:row(96))
         n:SetWidth(178)
         n:SetJustifyH("LEFT")
         check(pg, "Keep sorted", c1.x, c1:row(ROW), function() return G().sort end, function(v) G().sort = v end)
@@ -7359,6 +7622,12 @@ local function buildConfig()
             function(v) G().quality = v end)
         check(pg, "Mark junk (gray items)", c1.x, c1:row(ROW), function() return G().junk end,
             function(v) G().junk = v end)
+        check(pg, "Custom bags sidebar", c1.x, c1:row(ROW), function() return G().side end,
+            function(v) G().side = v end)
+        if KeyRingButton then -- only clients with a keyring
+            check(pg, "Keyring above the bag bar", c1.x, c1:row(ROW), function() return G().keyring end,
+                function(v) G().keyring = v end)
+        end
         local sortNow = button(pg, "Sort the bags now", 178, c1.x, c1:row(BUTTON), function()
             pcall(ns.bags.api("SortBags"))
         end)
