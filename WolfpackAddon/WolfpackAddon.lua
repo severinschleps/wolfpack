@@ -551,6 +551,9 @@ do
     -- drop shadow is the fill's, between border and bar; the border's is behind the border
     p.dropShadow = { show = false, color = { 0, 0, 0, 0.6 }, size = 4, x = 2, y = -2, spread = 0 }
     p.barShadow = { show = false, color = { 0, 0, 0, 0.6 }, size = 3, x = 1, y = -1, spread = 0 }
+    -- a painted frame over every bar (ns.frameArt): its edges `size` px thick, `offset` px out
+    -- from the border (negative: in), tinted by `color` (white: as painted)
+    p.frameArt = { show = false, size = 6, offset = 2, color = { 1, 1, 1, 1 } }
     p.texturesSet = false -- ... and bars with a texture of their own "own" (once)
     p.moved = false -- useProfile has moved the per-bar power and cast colors in here (once)
     DEFAULTS.colors = p
@@ -1119,6 +1122,78 @@ function ns.dropShadow(tex, o, box)
     tex:SetPoint("BOTTOMRIGHT", box, "BOTTOMRIGHT", o.x + e, o.y - e)
 end
 
+-- The palette's frame art: a painted frame over a bar, stitched from the pieces in Media/Frame
+-- (tools/frameart.py). Each piece: its size, then the power-of-two size it is padded to. The
+-- edges are `edge` px thick as painted; `cap` px at each end of a straight piece is its rounded
+-- tip, left out so pieces laid end to end join. `curve`: px from a corner its bend needs.
+ns.ART = { dir = "Interface\\AddOns\\" .. ADDON .. "\\Media\\Frame\\Bronze\\", edge = 9, cap = 3, curve = 20,
+    tl = { 50, 45, 64, 64 }, tr = { 46, 50, 64, 64 }, bl = { 47, 52, 64, 64 }, br = { 52, 47, 64, 64 },
+    top = { 341, 9, 512, 16 }, bottom = { 360, 9, 512, 16 }, side = { 9, 130, 16, 256 } }
+
+-- On `box` (w x h), grown by the offset: a straight run along each side, cut where it is longer
+-- than needed and laid end to end where shorter; the corners over the runs. Everything scales by
+-- k so the edges are `size` px thick, less on a bar too small for two bends side by side; a
+-- corner bigger than half the bar is cut down to its outer half.
+function ns.frameArt(s, box, w, h)
+    local o, A = db.colors.frameArt, ns.ART
+    s.art = s.art or {}
+    local used = 0
+    local function piece(name, sub)
+        used = used + 1
+        local t = s.art[used] or s:CreateTexture()
+        s.art[used] = t
+        t:SetDrawLayer("OVERLAY", sub) -- over the fill, under the bar's text
+        t:SetTexture(A.dir .. name .. ".tga")
+        t:SetVertexColor(unpack(o.color))
+        t:ClearAllPoints()
+        t:Show()
+        return t
+    end
+    local e = o.offset
+    local W, H = w + 2 * e, h + 2 * e
+    if o.show and W > 0 and H > 0 then
+        local k = math.min(o.size / A.edge, W / (2 * A.curve), H / (2 * A.curve))
+        local T = A.edge * k
+        for _, r in ipairs({ { "top", "TOPLEFT", 1, 0 }, { "bottom", "BOTTOMLEFT", 1, 0 },
+            { "side", "TOPLEFT", 0, -1 }, { "side", "TOPRIGHT", 0, -1 } }) do
+            local p, along, dx, dy = A[r[1]], r[2], r[3], r[4]
+            -- from bend to bend: past them it would show outside the corners' rounding
+            local bend = A.curve * k
+            local long, len = dx ~= 0 and 1 or 2, (dx ~= 0 and W or H) - 2 * bend
+            local seg = (p[long] - 2 * A.cap) * k -- one piece without its tips
+            local x0, y0 = along:find("LEFT") and -e or e, along:find("TOP") and e or -e
+            local at = 0
+            while at < len do
+                local n = math.min(seg, len - at) -- the last one cut to what is left
+                local t = piece(r[1], -2)
+                t:SetPoint(along, box, along, x0 + dx * (bend + at), y0 + dy * (bend + at))
+                local a, b = A.cap / p[long + 2], (A.cap + n / k) / p[long + 2]
+                if dx ~= 0 then
+                    t:SetSize(n, T)
+                    t:SetTexCoord(a, b, 0, p[2] / p[4])
+                else
+                    t:SetSize(T, n)
+                    local u = p[1] / p[3]
+                    if along == "TOPRIGHT" then t:SetTexCoord(u, 0, a, b) else t:SetTexCoord(0, u, a, b) end -- mirrored
+                end
+                at = at + n
+            end
+        end
+        for _, c in ipairs({ { "tl", "TOPLEFT" }, { "tr", "TOPRIGHT" }, { "bl", "BOTTOMLEFT" }, { "br", "BOTTOMRIGHT" } }) do
+            local p, at = A[c[1]], c[2]
+            local cw, ch = math.min(p[1] * k, W / 2), math.min(p[2] * k, H / 2)
+            local t = piece(c[1], -1)
+            t:SetSize(cw, ch)
+            t:SetPoint(at, box, at, at:find("LEFT") and -e or e, at:find("TOP") and e or -e)
+            -- the part at the bar's corner: from the outer edges in
+            local l = at:find("LEFT") and 0 or p[1] - cw / k
+            local tp = at:find("TOP") and 0 or p[2] - ch / k
+            t:SetTexCoord(l / p[3], (l + cw / k) / p[3], tp / p[4], (tp + ch / k) / p[4])
+        end
+    end
+    for i = used + 1, #s.art do s.art[i]:Hide() end
+end
+
 -- A "same as bar" border: the bar's color, lighter or darker by the palette's border shade.
 function ns.shade(r, g, b)
     local s = (db.colors.borderShade or 0) / 100
@@ -1295,6 +1370,7 @@ local function layoutBar(f, n, width, over)
             ns.dropShadow(s.drop, db.colors.dropShadow, s.border)
             s.barDrop = s.barDrop or s:CreateTexture(nil, "BACKGROUND", nil, -5)
             ns.dropShadow(s.barDrop, db.colors.barShadow, s)
+            ns.frameArt(s, s.border, w, c.height)
             s.hl:SetColorTexture(unpack(db.regular.highlight.color))
             s.hl:SetShown((f.mode == "regular" and hovered) or false)
             round(s.hl, s.borderMask, radius, w, c.height)
@@ -8672,6 +8748,18 @@ local function buildConfig()
     shadow(drop, "dropShadow", "Shadow")
     note(drop, "Behind the border, on every bar.", 20)
     drop:close()
+    local art = group(colorPage, COL[2], drop.cursor - 20, 202, "Borders: frame art")
+    local FA = function() return P().frameArt end
+    check(colorPage, "Bronze frame over every bar", art.x, art:row(ROW), function() return FA().show end,
+        function(v) FA().show = v end)
+    slider(colorPage, "Thickness (px)", art.x, art:row(SLIDER), 2, 20, function() return FA().size end,
+        function(v) FA().size = v end)
+    slider(colorPage, "Out from the border (px)", art.x, art:row(SLIDER), -10, 10, function() return FA().offset end,
+        function(v) FA().offset = v end)
+    swatch(colorPage, "Frame tint", art.x, art:row(SWATCH), function() return FA().color end)
+    note(art, "Painted corners and edges, stitched to each bar's size. On a small bar it gets "
+        .. "thinner, so both corners fit. White tint: as painted.", 44)
+    art:close()
 
     local hcard = group(colorPage, COL[3], TOP, 202, "Colors: health and standing")
     swatch(colorPage, "Health", hcard.x, hcard:row(SWATCH), function() return P().health end)

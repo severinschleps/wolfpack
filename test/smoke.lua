@@ -1468,6 +1468,33 @@ hc.borderSize, hc.borderMode = 0, "custom"
     P.barShine.show, P.borderShine.show, P.barShine.dir = false, false, "down"
     hc.borderFrom, P.borderSize, P.borderTexture = keptFrom, keptSize, flat
     fire("UNIT_MAXPOWER")
+    -- frame art: edges laid end to end and cut to the bar, corners over them, cut to half the bar
+    local keptW, keptH = hc.width, hc.height
+    hc.width, hc.height, P.frameArt.show, P.frameArt.size, P.frameArt.offset = 400, 40, true, 9, 2
+    fire("UNIT_MAXPOWER")
+    local by = {}
+    for _, t in ipairs(hs.art) do
+        if t:IsShown() then local n = t._tex:match("(%w+)%.tga$"); by[n] = by[n] or {}; table.insert(by[n], t) end
+    end
+    local function near(a, b) return math.abs(a - b) < 1e-9 end
+    assert(#by.top == 2 and by.top[1]._w == 335 and near(by.top[2]._w, 29) and by.top[1]._points[1][4] == 18
+        and by.top[2]._points[1][4] == 353 and near(by.top[1]._coords[2], 338 / 512) and by.top[1]._h == 9,
+        "404 px, 364 between the bends: the top edge twice, the second cut")
+    assert(#by.side == 2 and by.side[1]._h == 4 and by.side[1]._points[1][5] == -18 and by.side[2]._coords[1] == 9 / 16
+        and by.side[2]._coords[2] == 0 and near(by.side[1]._coords[4], 7 / 256),
+        "44 px high: one side piece each, cut, the right one mirrored")
+    local br = by.br[1]
+    assert(br._w == 52 and br._h == 22 and br._layer[2] == -1 and by.top[1]._layer[2] == -2
+        and near(br._coords[3], 25 / 64) and near(br._coords[4], 47 / 64) and br._points[1][4] == 2
+        and br._points[1][5] == -2, "a corner over the edges, cut to half the bar from its outer edge")
+    hc.height = 10
+    fire("UNIT_MAXPOWER")
+    assert(near(by.top[1]._h, 9 * 14 / 40), "a small bar: thinner, so both bends fit")
+    P.frameArt.show = false
+    fire("UNIT_MAXPOWER")
+    for _, t in ipairs(hs.art) do assert(not t:IsShown(), "off: no frame") end
+    hc.width, hc.height = keptW, keptH
+    fire("UNIT_MAXPOWER")
 end)()
 -- a color per power: rage, energy, mana, focus and more, all on the Colors page
 assert(PAL.power.RAGE and PAL.power.ENERGY and PAL.power.MANA and PAL.power.FOCUS and PAL.power.RUNIC_POWER,
