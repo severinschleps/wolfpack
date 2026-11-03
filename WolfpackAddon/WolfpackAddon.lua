@@ -5208,7 +5208,7 @@ StaticPopupDialogs.WOLFPACKADDON_COPY = {
 }
 
 StaticPopupDialogs.WOLFPACKADDON_RESET = {
-    text = "Reset profile \"%s\" to its defaults?",
+    text = "Reset profile \"%s\" to its defaults?\nEvery page but Bar Stack starts over.",
     button1 = YES, button2 = NO,
     OnAccept = function()
         wipe(db)
@@ -5227,7 +5227,7 @@ StaticPopupDialogs.WOLFPACKADDON_DELBAR = {
 }
 
 StaticPopupDialogs.WOLFPACKADDON_DELETE = {
-    text = "Delete Wolfpack Addon profile \"%s\"?",
+    text = "Delete Wolfpack Addon profile \"%s\"?\nCharacters on it go back to their class profile.",
     button1 = YES, button2 = NO,
     OnAccept = function(_, name) deleteProfile(name) end,
     timeout = 0, whileDead = true, hideOnEscape = true,
@@ -5476,29 +5476,15 @@ local function buildConfig()
         return b
     end
 
-    local use = group(profilePage, COL[1], TOP, 202, "In use")
+    -- column 1: which profile this character uses, or a new one; column 2: what changes it
+    local use = group(profilePage, COL[1], TOP, 202, "Profile")
     profileMenu(use, useProfile)
-    note(use, "Every page of this window is saved to it, except Bar Stack, which loads per character. Any character can use it.", 46)
-    danger(button(profilePage, "Delete profile", 178, use.x, use:row(BUTTON), function()
-        local name = store.chars[charKey]
-        StaticPopup_Show("WOLFPACKADDON_DELETE", name, nil, name)
-    end))
-    note(use, "Characters on it go back to their class profile.", 22)
-    use:close()
-
-    local copy = group(profilePage, COL[1], use.cursor - 20, 202, "Copy settings")
-    ns.copyFromMenu = profileMenu(copy, function(name)
-        StaticPopup_Show("WOLFPACKADDON_COPY", name, store.chars[charKey], name)
-    end, true)
-    ns.copyFromMenu:SetDefaultText("Copy from...")
-    note(copy, "Another profile's settings replace this one's. Bar Stack is not touched. Asks first.", 34)
-    copy:close()
-
-    local new = group(profilePage, COL[2], TOP, 202, "New profile")
-    local nameBox = ns.ui.Input(profilePage, 178)
-    nameBox:SetPoint("TOPLEFT", new.x, new:row(32))
+    note(use, "Holds every page but Bar Stack. Any character can use it.", 34)
+    local at = use:row(32)
+    local nameBox = ns.ui.Input(profilePage, 122)
+    nameBox:SetPoint("TOPLEFT", use.x, at)
     nameBox:SetMaxLetters(32)
-    local hint = label(nameBox, "Name", "GameFontDisableSmall")
+    local hint = label(nameBox, "New profile", "GameFontDisableSmall")
     hint:SetPoint("LEFT", 8, 0)
     nameBox:HookScript("OnTextChanged", function(self) hint:SetShown(self:GetText() == "") end)
     local function create()
@@ -5508,23 +5494,31 @@ local function buildConfig()
     end
     nameBox:SetScript("OnEnterPressed", create)
     nameBox:SetScript("OnEscapePressed", function() nameBox:ClearFocus() end)
-    button(profilePage, "Create", 178, new.x, new:row(BUTTON), create)
-    note(new, "Starts as a copy of the profile in use, and switches to it.", 34)
-    new:close()
+    button(profilePage, "Create", 52, use.x + 126, at, create)
+    note(use, "Starts as a copy of this one.", 22)
+    use:close()
 
-    local share = group(profilePage, COL[2], new.cursor - 20, 202, "Share or back up")
-    local at = share:row(BUTTON)
+    local share = group(profilePage, COL[1], use.cursor - 20, 202, "Share or back up")
+    at = share:row(BUTTON)
     button(profilePage, "Export", 87, share.x, at, function() openIO("export") end)
     button(profilePage, "Import", 87, share.x + 91, at, function() openIO("import") end)
-    note(share, "One text string holds the profile. Keep a copy: the beta forgets addon settings on restart.", 46)
+    note(share, "One text string holds the profile. Keep a copy: the beta can forget addon settings.", 34)
     share:close()
 
-    local reset = group(profilePage, COL[2], share.cursor - 20, 202, "Start over")
-    danger(button(profilePage, "Reset to defaults", 178, reset.x, reset:row(BUTTON), function()
+    local edit = group(profilePage, COL[2], TOP, 202, "Change this profile")
+    ns.copyFromMenu = profileMenu(edit, function(name)
+        StaticPopup_Show("WOLFPACKADDON_COPY", name, store.chars[charKey], name)
+    end, true)
+    ns.copyFromMenu:SetDefaultText("Copy from...")
+    danger(button(profilePage, "Reset to defaults", 178, edit.x, edit:row(BUTTON), function()
         StaticPopup_Show("WOLFPACKADDON_RESET", store.chars[charKey])
     end))
-    note(reset, "Puts this profile back to how it started. Asks first.", 34)
-    reset:close()
+    danger(button(profilePage, "Delete profile", 178, edit.x, edit:row(BUTTON), function()
+        local name = store.chars[charKey]
+        StaticPopup_Show("WOLFPACKADDON_DELETE", name, nil, name)
+    end))
+    note(edit, "Each one asks first.", 22)
+    edit:close()
 
     -- Sidebar: what dresses the screen, then your classes
     local y = -64

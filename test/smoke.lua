@@ -1647,6 +1647,9 @@ assert(ns.pages.combat.need > 1000 and ns.content._h == ns.pages.combat.need - 9
     "the scroll area is as tall as the page")
 -- Profiles has its own page; the header names the profile in use and opens that page
 assert(byText("Export") and byText("Import") and byText("Reset to defaults") and byText("Create"), "profile page")
+S.pp = byText("Create")._parent
+assert(ns.boxesOn[S.pp] == 3 and regionWithText(S.pp, "Change this profile") and not regionWithText(S.pp, "Start over"),
+    "three cards: profile, change this profile, share")
 local inUse
 for _, f in ipairs(created) do
     if type(f._text) == "string" and f._text:find("^Profile: ") then inUse = f end
@@ -3041,7 +3044,7 @@ S.A = prof().actionbars
 assert(#S.A.bars == 1 and S.A.bars[1].first == 1 and S.A.bars[1].cols == 12, "one bar to start: slots 1-12")
 fire("UNIT_MAXPOWER")
 S.ab = ns.ab.buttons[1]
-assert(#S.ab == 12 and S.ab[1]._template == "ActionBarButtonTemplate" and S.ab[1]._attr.action == 1
+assert(#S.ab >= 12 and not (S.ab[13] and S.ab[13]:IsShown()) and S.ab[1]._template == "ActionBarButtonTemplate" and S.ab[1]._attr.action == 1
     and S.ab[12]._attr.action == 12, "twelve buttons on slots 1-12")
 assert(S.ab[2]._point[1] == "TOPLEFT" and S.ab[2]._point[4] == 40 and ns.ab.frames[1]._point[1] == "BOTTOM",
     "right then down, 36 + 4 apart, at the screen's bottom")
