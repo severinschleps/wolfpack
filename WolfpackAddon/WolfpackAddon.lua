@@ -1654,6 +1654,17 @@ function ns.layoutTag(f)
             round(t.bg, t.mask, bg.radius == "pill" and math.huge or bg.radius, h * 2, h)
         end
     end
+    -- the level left or right of a centered name: the two are one unit, centered together. The
+    -- name moves over by half of what the level adds (its gap, its box).
+    if side and side[4] == 0 and c.tagLevel and ns.justify(c.nameAnchor) == "CENTER" then
+        local lw = f.tag_level:GetStringWidth()
+        if readable(lw) then
+            local adds = c.tagX + lw + 2 * c.tagBg.pad
+            local n = f.tag_name
+            n:ClearAllPoints()
+            n:SetPoint(c.nameAnchor, f, c.nameAnchor, c.nameX - side[3] * adds / 2, c.nameY)
+        end
+    end
 end
 
 ------------------------------------------------------------------------------------------

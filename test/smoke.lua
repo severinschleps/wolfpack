@@ -1683,6 +1683,17 @@ ns.configOpen = S.wasOpen
     assert(f.tag_level._point[1] == "BOTTOMRIGHT" and f.tag_level._point[2] == f, "level beside it, on its side: takes its spot")
     P.nameAnchor, P.nameX, P.nameY = "TOP", 0, 12
     ns.np.all()
+    -- the level right of a centered name: the two centered as one (gap 4 + level 8 + its padding 4)
+    assert(f.tag_name._point[1] == "TOP" and f.tag_name._point[4] == -8 and f.tag_level._point[2] == f.tag_name.box,
+        "name and level centered together")
+    P.tagAttach = "left"
+    ns.np.all()
+    assert(f.tag_name._point[4] == 8, "the level on the left: the name moves right")
+    P.nameAnchor, P.tagAttach = "LEFT", "right"
+    ns.np.all()
+    assert(f.tag_name._point[2] == f and f.tag_name._point[4] == P.nameX, "a name on the left keeps its spot")
+    P.nameAnchor, P.tagAttach = "TOP", "right"
+    ns.np.all()
     local r = f.resFrame
     assert(r:IsShown() and r._point[1] == "TOP" and r._point[2] == f and r._point[3] == "BOTTOM", "power underneath")
     P.resPlace = "inside"; ns.np.all()
