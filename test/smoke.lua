@@ -27,7 +27,20 @@ function M:SetChecked(v) self._checked = v end
 function M:GetChecked() return self._checked end
 function M:SetSize(w, h) self._w, self._h = w, h end
 function M:SetParent(p) self._parent = p end
+-- does `r` hang (through its anchors) on `target`? The game refuses a loop (seen in game)
+local function dependsOn(r, target, seen)
+    if r == target then return true end
+    seen = seen or {}
+    if type(r) ~= "table" or seen[r] then return false end
+    seen[r] = true
+    for _, p in ipairs(rawget(r, "_points") or {}) do
+        if dependsOn(p[2], target, seen) then return true end
+    end
+    return false
+end
 function M:SetPoint(...)
+    local rel = select(2, ...)
+    if type(rel) == "table" and dependsOn(rel, self) then error("Cannot anchor to a region dependent on it\n" .. debug.traceback(), 2) end
     self._point = { ... }
     self._points = self._points or {}
     self._points[#self._points + 1] = { ... }

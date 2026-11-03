@@ -1594,6 +1594,10 @@ function ns.layoutTag(f)
     local side = nameOn and ns.TAG_SIDES[c.tagAttach]
     local leads = side and c.tagLevel and ((c.tagAttach == "left" and ns.justify(c.nameAnchor) == "LEFT")
         or (c.tagAttach == "right" and ns.justify(c.nameAnchor) == "RIGHT"))
+    -- both loose first: last pass one may hang on the other, and this pass the other way round,
+    -- which the game refuses as a loop (seen in game)
+    f.tag_name:ClearAllPoints()
+    f.tag_level:ClearAllPoints()
     for _, which in ipairs({ "name", "level" }) do
         local lvl = which == "level"
         local t = f["tag_" .. which]
@@ -1871,6 +1875,9 @@ function ns.layoutAuras(f)
             box.n = n
         end
     end
+    -- both loose first: either may still hang on the other from last time (a loop, refused)
+    f.auraBoxes.buffs:ClearAllPoints()
+    f.auraBoxes.debuffs:ClearAllPoints()
     for _, k in ipairs({ "buffs", "debuffs" }) do -- now that both know how many they hold
         local o, box = c[k], f.auraBoxes[k]
         local other = k == "buffs" and "debuffs" or "buffs"
@@ -1878,7 +1885,6 @@ function ns.layoutAuras(f)
         local toOther = o.anchorTo == "other" and not (k == "buffs" and c.debuffs.anchorTo == "other")
         local into = f.auraBoxes[other]
         local alone = (into.n or 0) == 0
-        box:ClearAllPoints()
         if o.anchorTo == "line" then -- on the center line; alone on it, centered
             local gp, hp, x, y = ns.linePlace(o, alone, c.auraLineGap or 0)
             box:SetPoint(gp, host, hp, x, y)
