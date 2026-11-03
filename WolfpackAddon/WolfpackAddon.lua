@@ -2371,7 +2371,7 @@ end
 function ns.abKeyText(slot)
     local key = db.actionbars.binds[tostring(slot)]
     if not key then return "" end
-    return (key:gsub("ALT%-", "A"):gsub("CTRL%-", "C"):gsub("SHIFT%-", "S"):gsub("NUMPAD", "N")
+    return (key:gsub("ALT%-", "A"):gsub("CTRL%-", "C"):gsub("SHIFT%-", "S"):gsub("META%-", "Cm"):gsub("NUMPAD", "N")
         :gsub("MOUSEWHEELUP", "WU"):gsub("MOUSEWHEELDOWN", "WD"):gsub("BUTTON", "M"))
 end
 function ns.abHotkey(b)
@@ -2630,7 +2630,8 @@ end
 
 -- Quick keybind mode: hover a button and press a key to bind it there, Escape to unbind; Escape
 -- off the buttons (or Done) ends it. A key already on another of these buttons moves here.
-ns.AB_MODIFIERS = { LSHIFT = true, RSHIFT = true, LCTRL = true, RCTRL = true, LALT = true, RALT = true }
+ns.AB_MODIFIERS = { LSHIFT = true, RSHIFT = true, LCTRL = true, RCTRL = true, LALT = true, RALT = true,
+    LMETA = true, RMETA = true } -- META: the Mac's Command key
 function ns.abKey(key)
     if ns.AB_MODIFIERS[key] then return end
     local t, binds = ns.ab.target, db.actionbars.binds
@@ -2640,8 +2641,13 @@ function ns.abKey(key)
     if key == "ESCAPE" then
         binds[slot] = nil
     else
-        local full = (IsAltKeyDown() and "ALT-" or "") .. (IsControlKeyDown() and "CTRL-" or "")
-            .. (IsShiftKeyDown() and "SHIFT-" or "") .. key
+        -- the game's own chord builder where there is one (it knows Command); else the same by hand
+        local ok, full = pcall(CreateKeyChordStringUsingMetaKeyState, key)
+        if not (ok and type(full) == "string") then
+            local meta = IsMetaKeyDown and IsMetaKeyDown()
+            full = (IsAltKeyDown() and "ALT-" or "") .. (IsControlKeyDown() and "CTRL-" or "")
+                .. (IsShiftKeyDown() and "SHIFT-" or "") .. (meta and "META-" or "") .. key
+        end
         for s, k in pairs(binds) do if k == full then binds[s] = nil end end
         binds[slot] = full
     end

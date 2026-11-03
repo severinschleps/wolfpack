@@ -3013,6 +3013,10 @@ assert(S.A.binds["3"] == "SHIFT-3" and S.binds["SHIFT-3"] == "WolfpackActionBar1
 assert(S.bindPrio == true, "over other addons' bindings on the same key")
 ns.abBindMode(true); S.ab[3]._scripts.OnEnter(S.ab[3]); ns.abKey("Q")
 assert(S.A.binds["3"] == "Q" and S.binds.Q == "WolfpackActionBar1Button3", "a plain key binds too")
+-- the Mac's Command key: never bound by itself, and part of the chord
+IsMetaKeyDown = function() return S.meta end
+S.meta = true; ns.abKey("LMETA"); ns.abKey("E"); S.meta = false
+assert(S.A.binds["3"] == "META-E" and S.binds["META-E"] and S.ab[3].wpKey._text == "CmE", "Command+E")
 S.A.binds["3"] = "SHIFT-3"; ns.abBinds()
 SlashCmdList.WOLFPACKADDON("binds") -- the report runs
 S.ab[3]._scripts.OnLeave(S.ab[3]); ns.ab.buttons[2][1]._scripts.OnEnter(ns.ab.buttons[2][1])
