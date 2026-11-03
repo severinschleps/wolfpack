@@ -6757,8 +6757,10 @@ function ns.inh.rebuild(name)
     wipe(t)
     for k, v in pairs(full) do t[k] = v end
 end
--- follow a parent from now on (nil: stand alone); what it already has of its own stays
+-- follow a parent from now on (nil: stand alone); what it already has of its own stays. Alpha is
+-- the base the others build on: it is never a child.
 function ns.inh.link(name, parent)
+    if parent and name == ns.DEFAULT_NAME then return end
     store.parents[name], store.overrides[name] = parent, nil
     ns.inh.save(name)
 end
@@ -7506,7 +7508,8 @@ local function buildConfig()
         local lines = {}
         if p then lines[#lines + 1] = "Child of |cffffd100" .. p .. "|r" end
         if #kids > 0 then lines[#lines + 1] = "Parent of |cffffd100" .. table.concat(kids, ", ") .. "|r" end
-        family:SetText(#lines > 0 and table.concat(lines, "\n") or "Not linked to another profile")
+        family:SetText(#lines > 0 and table.concat(lines, "\n")
+            or me() == ns.DEFAULT_NAME and "The base profile" or "No parent, no children")
     end)
     note(use, "This character uses it. It holds every page except Bar Stack, and other characters "
         .. "can use it too.", 44)
@@ -7539,10 +7542,10 @@ local function buildConfig()
     newNote:SetJustifyH("LEFT")
     onRefresh(function()
         if not (store and charKey) then return end
-        linkCheck.Text:SetText("Based on " .. (me() or "this one"))
-        newNote:SetText(ns.linkNew and ("A copy of " .. me() .. " that keeps getting its updates. "
-            .. "Only what you change in the copy stays different.")
-            or ("A copy of " .. me() .. ". After that the two are separate."))
+        linkCheck.Text:SetText("A child of " .. (me() or "this one"))
+        newNote:SetText(ns.linkNew and ("Starts as " .. me() .. " and keeps getting " .. me() .. "'s updates. "
+            .. "Only what you change in the new one stays its own.")
+            or ("Starts as a copy of " .. me() .. ". After that the two are separate."))
     end)
     new:close()
 
@@ -7553,14 +7556,20 @@ local function buildConfig()
     note(share, "One text string holds the profile. Keep a copy: the beta can forget addon settings.", 34)
     share:close()
 
-    -- column 2: what the profile in use takes its settings from
-    local based = group(profilePage, COL[2], TOP, 202, "Based on")
+    -- column 2: parent and child. A child (like a child theme) takes everything from its parent
+    -- but what is changed in it; the parent is the one you keep up to date. Alpha is always a
+    -- parent, and a profile with children is not given a parent of its own here.
+    local based = group(profilePage, COL[2], TOP, 202, "Parent and child")
     do
+        local ask = label(profilePage, "", "GameFontNormalSmall")
+        ask:SetPoint("TOPLEFT", based.x, based:row(16))
+        ask:SetWidth(178)
+        ask:SetJustifyH("LEFT")
         local dd = ns.ui.Dropdown(CreateFrame("DropdownButton", nil, profilePage, "WowStyle1DropdownTemplate"))
         dd:SetPoint("TOPLEFT", based.x, based:row(32))
         dd:SetSize(178, 26)
         dd:SetupMenu(function(_, root)
-            root:CreateRadio("Nothing", function() return not ns.inh.parentOf(me()) end,
+            root:CreateRadio("No parent", function() return not ns.inh.parentOf(me()) end,
                 function() ns.inh.link(me(), nil); changed() end)
             for _, name in ipairs(profileNames()) do
                 if name ~= me() and not ns.inh.loops(me(), name) then
@@ -7575,7 +7584,7 @@ local function buildConfig()
         onRefresh(function() dd:GenerateMenu() end)
         ns.parentMenu = dd
         local n = label(profilePage, "", "GameFontDisableSmall")
-        n:SetPoint("TOPLEFT", based.x, based:row(58))
+        n:SetPoint("TOPLEFT", based.x, based:row(72))
         n:SetWidth(178)
         n:SetJustifyH("LEFT")
         ns.undoButton = button(profilePage, "Undo changes made here", 178, based.x, based:row(BUTTON), function()
@@ -7583,13 +7592,28 @@ local function buildConfig()
         end)
         onRefresh(function()
             if section ~= "profile" or not (store and charKey) then return end
-            local p = ns.inh.parentOf(me())
-            local k = p and ns.inh.count(me()) or 0
-            n:SetText(p and ("Uses %s's settings, and its updates. %s"):format(p,
-                k == 0 and "Nothing is changed here yet." or (k .. (k == 1 and " setting is" or " settings are")
-                .. " changed here and stay this profile's own."))
-                or "Nothing: this profile has all its settings to itself. Pick another profile to use its "
-                .. "settings and get its updates.")
+            local name, p, kids = me(), ns.inh.parentOf(me()), ns.inh.children(me())
+            local base = name == ns.DEFAULT_NAME or #kids > 0 -- a parent: nothing to pick here
+            ask:SetText(base and "" or (name .. "'s parent"))
+            dd:SetShown(not base)
+            local k = p and ns.inh.count(name) or 0
+            local text
+            if p then
+                text = ("%s is a child of %s: it takes everything from %s, and %s's updates. %s"):format(name, p, p, p,
+                    k == 0 and "Nothing is changed here yet." or (k .. (k == 1 and " setting is" or " settings are")
+                    .. " changed here and stay " .. name .. "'s own."))
+            elseif #kids > 0 then
+                text = ("%s is the parent of %s. What you change here reaches %s too, except what %s changed itself.")
+                    :format(name, table.concat(kids, ", "), #kids == 1 and kids[1] or "them",
+                        #kids == 1 and kids[1] or "each")
+            elseif name == ns.DEFAULT_NAME then
+                text = name .. " is the base profile. Make a child of it with New profile: the child keeps only "
+                    .. "its own changes and gets " .. name .. "'s updates."
+            else
+                text = name .. " has no parent: all its settings are its own. Pick one above to make " .. name
+                    .. " its child."
+            end
+            n:SetText(text)
             ns.undoButton:SetShown(p ~= nil)
             ns.undoButton:SetEnabled(k > 0)
         end)
@@ -10193,6 +10217,16 @@ ev:SetScript("OnEvent", function(_, event, unit, arg2, arg3)
         store.minimapAngle = store.minimapAngle or 220
         store.classProfiles = store.classProfiles or {} -- [class token] = profile name
         store.parents, store.overrides = store.parents or {}, store.overrides or {} -- see ns.inh
+        -- Alpha set to follow another (picked the wrong way round, before Alpha became the base):
+        -- turned round, so that one becomes Alpha's child, keeping what differs from Alpha
+        local wrong = store.parents[ns.DEFAULT_NAME]
+        if wrong then
+            store.parents[ns.DEFAULT_NAME], store.overrides[ns.DEFAULT_NAME] = nil, nil
+            if store.profiles[wrong] and store.profiles[ns.DEFAULT_NAME] and not store.parents[wrong] then
+                store.parents[wrong] = ns.DEFAULT_NAME
+                ns.inh.save(wrong)
+            end
+        end
         -- every profile, not just the one in use: a bar added since it was saved belongs on all
         -- of them, and switching to one later should not be the first time it appears
         for _, prof in pairs(store.profiles) do

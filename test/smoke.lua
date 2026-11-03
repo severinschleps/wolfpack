@@ -2085,8 +2085,8 @@ assert(ns.pages.combat.need > 1000 and ns.content._h == ns.pages.combat.need - 9
 -- Profiles has its own page; the header names the profile in use and opens that page
 assert(byText("Export") and byText("Import") and byText("Reset to defaults") and byText("Create"), "profile page")
 S.pp = byText("Create")._parent
-assert(ns.boxesOn[S.pp] == 5 and regionWithText(S.pp, "New profile") and regionWithText(S.pp, "Based on")
-    and regionWithText(S.pp, "Manage"), "five cards: profile, new profile, share, based on, manage")
+assert(ns.boxesOn[S.pp] == 5 and regionWithText(S.pp, "New profile") and regionWithText(S.pp, "Parent and child")
+    and regionWithText(S.pp, "Manage"), "five cards: profile, new profile, share, parent and child, manage")
 local inUse
 for _, f in ipairs(created) do
     if type(f._text) == "string" and f._text:find("^Profile: ") then inUse = f end
@@ -2251,6 +2251,17 @@ byText("Delete profile")._scripts.OnClick(byText("Delete profile"), "LeftButton"
 assert(not store.parents.Kid and store.profiles.Kid.regular.bars.health.height == 44
     and store.profiles.Kid.regular.gap == 9, "Mom gone: Kid stands alone, as it was")
 store.profiles.Kid = nil
+-- Alpha is the base: never a child. A link made the wrong way round (Alpha set to follow
+-- Rogue) is turned round at login: Rogue becomes Alpha's child, keeping what differs
+ns.useProfile("Alpha")
+ns.inh.link("Alpha", "Rogue")
+assert(not store.parents.Alpha, "Alpha can't be given a parent")
+store.profiles.Rogue.regular.bars.health.height = 61
+store.parents.Alpha, store.overrides.Alpha = "Rogue", {}
+login("ROGUE", 3)
+assert(not store.parents.Alpha and store.parents.Rogue == "Alpha"
+    and store.overrides.Rogue.regular.bars.health.height == 61, "turned round: Rogue is Alpha's child")
+store.parents.Rogue, store.overrides.Rogue = nil, nil
 ns.useProfile("Rogue")
 
 -- Texture and font dropdowns: pick sets the selected bar (Health), previews render
