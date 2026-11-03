@@ -1590,8 +1590,8 @@ function ns.layoutTag(f)
     local meal = drinking or eating -- the name's place says so, flashing
     local nameOn = c.tagName or meal
     local side = nameOn and ns.TAG_SIDES[c.tagAttach]
-    local leads = side and c.tagLevel and ((c.tagAttach == "left" and c.nameAnchor == "LEFT")
-        or (c.tagAttach == "right" and c.nameAnchor == "RIGHT"))
+    local leads = side and c.tagLevel and ((c.tagAttach == "left" and ns.justify(c.nameAnchor) == "LEFT")
+        or (c.tagAttach == "right" and ns.justify(c.nameAnchor) == "RIGHT"))
     for _, which in ipairs({ "name", "level" }) do
         local lvl = which == "level"
         local t = f["tag_" .. which]
@@ -7481,7 +7481,10 @@ local function buildConfig()
     tnote:SetPoint("TOPLEFT", 16, rrow(34))
     tnote:SetWidth(408)
     tnote:SetJustifyH("LEFT")
-    local SIDES = { { "Left", "LEFT" }, { "Center", "CENTER" }, { "Right", "RIGHT" } }
+    -- the point of the bar the text sits on (the text's own same point), nudged by X / Y
+    local SIDES = { { "Left", "LEFT" }, { "Center", "CENTER" }, { "Right", "RIGHT" }, { "Top", "TOP" },
+        { "Bottom", "BOTTOM" }, { "Top left", "TOPLEFT" }, { "Top right", "TOPRIGHT" },
+        { "Bottom left", "BOTTOMLEFT" }, { "Bottom right", "BOTTOMRIGHT" } }
     local RADII = { { "None", 0 }, { "2 px", 2 }, { "4 px", 4 }, { "8 px", 8 }, { "Pill (50% of height)", "pill" } }
     local top = ry
     for i, w in ipairs({ { "Level", "tag", "tagLevel" }, { "Name", "name", "tagName" } }) do
@@ -7508,14 +7511,16 @@ local function buildConfig()
                 { "Right of the name", "right" }, { "Above the name", "top" }, { "Below the name", "bottom" } },
                 function() return cur().tagAttach end, function(v) cur().tagAttach = v end, textPreview)
         end
-        local pos = dropdown(td, "Position", x, rrow(DROP), SIDES, function() return cur()[p .. "Anchor"] end,
+        local pos = dropdown(td, "Anchor", x, rrow(DROP), SIDES, function() return cur()[p .. "Anchor"] end,
             function(v) cur()[p .. "Anchor"] = v end, textPreview)
+        ns.tagAnchorMenus = ns.tagAnchorMenus or {}
+        ns.tagAnchorMenus[p] = pos
         if p == "tag" then -- beside the name, the name decides where it is
             onRefresh(function() pos:SetShown(not (cur().tagName and ns.TAG_SIDES[cur().tagAttach or ""])) end)
         end
-        slider(td, "X", x, rrow(SLIDER), -100, 100, function() return cur()[p .. "X"] end,
+        slider(td, "X offset", x, rrow(SLIDER), -200, 200, function() return cur()[p .. "X"] end,
             function(v) cur()[p .. "X"] = v end)
-        slider(td, "Y", x, rrow(SLIDER), -50, 50, function() return cur()[p .. "Y"] end,
+        slider(td, "Y offset", x, rrow(SLIDER), -100, 100, function() return cur()[p .. "Y"] end,
             function(v) cur()[p .. "Y"] = v end)
         check(td, "Background", x, rrow(ROW), function() return B().show end, function(v) B().show = v end)
         swatch(td, w[1] .. " background", x, rrow(SWATCH), function() return B().color end)

@@ -1658,6 +1658,17 @@ ns.configOpen = S.wasOpen
     S.combat = true; ns.np.all(); S.combat = nil
     assert(not dummies(), "and none left after")
     assert(f.tag_name._justify == "CENTER", "a name on the TOP anchor centers (the game takes no TOP)")
+    -- the name sits on any of the bar's nine points, nudged by X / Y
+    P.nameAnchor, P.nameX, P.nameY, P.tagAttach = "BOTTOMRIGHT", 3, -4, "free"
+    ns.np.all()
+    local np = f.tag_name._point
+    assert(np[1] == "BOTTOMRIGHT" and np[2] == f and np[3] == "BOTTOMRIGHT" and np[4] == 3 and np[5] == -4
+        and f.tag_name._justify == "RIGHT", "bottom right, 3 right and 4 down")
+    P.tagAttach = "right"
+    ns.np.all()
+    assert(f.tag_level._point[1] == "BOTTOMRIGHT" and f.tag_level._point[2] == f, "level beside it, on its side: takes its spot")
+    P.nameAnchor, P.nameX, P.nameY = "TOP", 0, 12
+    ns.np.all()
     local r = f.resFrame
     assert(r:IsShown() and r._point[1] == "TOP" and r._point[2] == f and r._point[3] == "BOTTOM", "power underneath")
     P.resPlace = "inside"; ns.np.all()
@@ -1764,6 +1775,8 @@ assert(prof().plates.gap == 4 and prof().plates.bars.enemyhealth.width == 130, "
 assert(ns.np.preview:IsShown() and ns.np.preview.width == 130 and ns.np.preview._point[2] == ns.cfg,
     "a preview plate beside the window while the page is open")
 assert(not byText("Target bars") and byText("Health"), "one nameplate: no second bar stack")
+ns.tagAnchorMenus.name:GenerateMenu()
+assert(#ns.tagAnchorMenus.name._items == 9 and ns.tagAnchorMenus.name._items[4].sel(), "nine anchor points, Top picked")
 byText("Cast bar")._scripts.OnClick(byText("Cast bar"), "LeftButton")
 boxes[5]._text = "100"; boxes[5]._scripts.OnEnterPressed(boxes[5])
 assert(prof().plates.bars.targetcast.width == 100 and prof().plates.bars.enemyhealth.width == 130, "its cast bar")
