@@ -2515,6 +2515,18 @@ function ns.abLook(b, bar, slot, blizz)
     b.wpIcon:SetPoint("BOTTOMRIGHT", b, "BOTTOMRIGHT", -t, t)
     ns.iconCorners(b.wpIcon, b.wpMask, bar.radius, { z, 1 - z, z, 1 - z })
     ns.iconCorners(b.wpEdge, b.wpEdgeMask, bar.radius, { 0, 1, 0, 1 })
+    -- the red auto-attack / Auto Shot flash: the template fits it to its frame art, which is
+    -- hidden here, so it goes over the icon instead, rounded like it (its own atlas coords kept)
+    local fl = rawget(b, "Flash") or _G[(b:GetName() or "") .. "Flash"]
+    if fl then
+        fl:ClearAllPoints()
+        fl:SetAllPoints(b.wpIcon)
+        local round = ns.ICON_MASKS[bar.radius] and true or false
+        if round ~= (fl.wpMasked or false) then
+            if round then fl:AddMaskTexture(b.wpMask) else fl:RemoveMaskTexture(b.wpMask) end
+            fl.wpMasked = round
+        end
+    end
     if not b.wpKey:SetFont(bar.keyFont, bar.keySize / sc, "OUTLINE") then
         b.wpKey:SetFont(FONTS[1][2], bar.keySize / sc, "OUTLINE")
     end

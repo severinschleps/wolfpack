@@ -3044,6 +3044,16 @@ S.A = prof().actionbars
 assert(#S.A.bars == 1 and S.A.bars[1].first == 1 and S.A.bars[1].cols == 12, "one bar to start: slots 1-12")
 fire("UNIT_MAXPOWER")
 S.ab = ns.ab.buttons[1]
+-- the template's red Auto Shot flash sits over the icon, not the hidden frame art, rounded with it
+S.fl = new("Texture")
+S.fl.SetAllPoints = function(self, to) self._all = to end
+rawset(S.ab[1], "Flash", S.fl)
+S.A.bars[1].radius = 25
+ns.abLook(S.ab[1], S.A.bars[1], 1)
+assert(S.fl._all == S.ab[1].wpIcon and S.fl._masks[S.ab[1].wpMask], "flash over the icon, rounded")
+S.A.bars[1].radius = 0
+ns.abLook(S.ab[1], S.A.bars[1], 1)
+assert(not S.fl._masks[S.ab[1].wpMask], "square again")
 assert(#S.ab >= 12 and not (S.ab[13] and S.ab[13]:IsShown()) and S.ab[1]._template == "ActionBarButtonTemplate" and S.ab[1]._attr.action == 1
     and S.ab[12]._attr.action == 12, "twelve buttons on slots 1-12")
 assert(S.ab[2]._point[1] == "TOPLEFT" and S.ab[2]._point[4] == 40 and ns.ab.frames[1]._point[1] == "BOTTOM",
