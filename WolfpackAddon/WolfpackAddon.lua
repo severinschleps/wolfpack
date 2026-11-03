@@ -1661,14 +1661,18 @@ function ns.layoutTag(f)
     ns.centerTag(f)
 end
 
--- A centered name and what hangs beside it (the level, the PvP tag on the name or on that
--- level) are one row, centered as a whole: the name moves by half of what each side adds.
+-- The name and what hangs beside it (the level, the PvP tag on the name or on that level) are
+-- one row, aligned as a whole on the name's anchor: centered, or ending at the bar's right or
+-- left edge. The name moves by what the other side adds (half of each, centered).
 function ns.centerTag(f)
     local c, n = db[f.mode].bars[f.key], f.tag_name
-    if not (n and n:IsShown()) or ns.justify(c.nameAnchor) ~= "CENTER" then return end
+    if not (n and n:IsShown()) then return end
+    local j = ns.justify(c.nameAnchor)
     local left, right = 0, 0
     local side = ns.TAG_SIDES[c.tagAttach]
     local beside = side and side[4] == 0 and c.tagLevel and f.tag_level:IsShown() and side[3] or nil
+    -- the level on the anchor's side takes the name's spot and starts the row itself
+    if (beside == -1 and j == "LEFT") or (beside == 1 and j == "RIGHT") then return end
     if beside then
         local lw = f.tag_level:GetStringWidth()
         if not readable(lw) then return end
@@ -1684,8 +1688,9 @@ function ns.centerTag(f)
         if on and dir > 0 then right = right + b:GetWidth() + pv.x end
         if on and dir < 0 then left = left + b:GetWidth() - pv.x end
     end
+    local dx = j == "CENTER" and (left - right) / 2 or j == "RIGHT" and -right or left
     n:ClearAllPoints()
-    n:SetPoint(ns.FLIP_V[c.nameAnchor] or c.nameAnchor, f, c.nameAnchor, c.nameX + (left - right) / 2, c.nameY)
+    n:SetPoint(ns.FLIP_V[c.nameAnchor] or c.nameAnchor, f, c.nameAnchor, c.nameX + dx, c.nameY)
 end
 -- a text on a top point sits on the bar (its bottom on the bar's top), on a bottom point under it
 ns.FLIP_V = { TOP = "BOTTOM", TOPLEFT = "BOTTOMLEFT", TOPRIGHT = "BOTTOMRIGHT",

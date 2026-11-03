@@ -1721,6 +1721,16 @@ ns.configOpen = S.wasOpen
     P.tagAttach, P.pvpIcon.anchorTo, P.pvpIcon.point, P.pvpIcon.x = "left", "name", "RIGHT", 0
     ns.np.all()
     assert(f.tag_name._point[4] == (8 - 20) / 2, "level left, PvP right (as in game): centered as a row")
+    -- on a right anchor the row ends at the bar's right edge, PvP tag and all (seen in game)
+    P.nameAnchor = "TOPRIGHT"
+    ns.np.all()
+    assert(f.tag_name._point[1] == "BOTTOMRIGHT" and f.tag_name._point[4] == P.nameX - 20,
+        "top right: the name moves left by the tag right of it")
+    -- on a left anchor it starts at the left edge, with a tag left of the name
+    P.nameAnchor, P.tagAttach, P.pvpIcon.point = "TOPLEFT", "right", "LEFT"
+    ns.np.all()
+    assert(f.tag_name._point[4] == P.nameX + 20, "top left: the name moves right by the tag left of it")
+    P.nameAnchor, P.pvpIcon.point = "TOP", "RIGHT"
     P.tagAttach = "right"
     P.pvpIcon, ns.configOpen = S.pvpKept, S.openKept
     P.nameAnchor, P.tagAttach = "LEFT", "right"
