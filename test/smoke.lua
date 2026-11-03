@@ -510,6 +510,7 @@ for _, v in ipairs({ "11509", "16001", "20506", "50504", "120105" }) do
     assert(S.toc:match("## Interface:[^\n]*" .. v), "the toc names interface " .. v)
 end
 assert(loadfile("WolfpackAddon/WolfpackAddon.lua"))("WolfpackAddon", ns)
+assert(loadfile("WolfpackAddon/Macros.lua"))("WolfpackAddon", ns) -- next in the toc
 local function fire(e, ...) evFrame._scripts.OnEvent(evFrame, e, ...) end
 -- each class logs in as its own character; once S.perClass is set, on a profile of its own (named
 -- after the class, as the tests below were written for), else on Alpha like a real first login
@@ -2173,8 +2174,8 @@ byText("Combat Display")._scripts.OnClick(byText("Combat Display"), "LeftButton"
 ns.ShowBarStack()
 assert(ns.cfg:IsShown() and S.bsPage:IsShown(), "/bs opens it on Bar Stack")
 ns.bs = nil
-for section, page in pairs(ns.pages) do
-    assert((ns.boxesOn[page] or 0) > 0, "nothing on the " .. section .. " page")
+for section, page in pairs(ns.pages) do -- Macros builds its own page (Macros.lua), when first opened
+    assert(section == "macros" or (ns.boxesOn[page] or 0) > 0, "nothing on the " .. section .. " page")
 end
 byText("Combat Display")._scripts.OnClick(byText("Combat Display"), "LeftButton")
 byText("Combat Display")._scripts.OnClick(byText("Combat Display"), "LeftButton")
@@ -3933,5 +3934,90 @@ assert(MultiBarBottomLeft._parent == UIParent, "and back")
     o.roles, o.g5.buffs.mode, o.g10.buffs.x = { "TANK", "HEALER", "DAMAGER" }, "mine", -2
     o.g10.fixed, o.g10.grow, o.g10.size = "width", "down", 400
 end)()
+
+-- Macros: one library for every character, a General tab and one per class, written into the
+-- game's own slots (General: the account's, your class's: this character's); sorted by name
+-- there, as the game does
+do
+    local game = { account = {}, char = {} }
+    MAX_ACCOUNT_MACROS, MAX_CHARACTER_MACROS = 120, 18
+    local function at(i) return i > 120 and game.char[i - 120] or game.account[i] end
+    local function sorted(l) table.sort(l, function(a, b) return a.name < b.name end) end
+    local function names(l) local o = {}; for _, m in ipairs(l) do o[#o + 1] = m.name end; return table.concat(o, ",") end
+    GetNumMacros = function() return #game.account, #game.char end
+    GetMacroInfo = function(i) local m = at(i); if m then return m.name, m.icon, m.body end end
+    CreateMacro = function(name, icon, body, per)
+        local l = per and game.char or game.account
+        l[#l + 1] = { name = name, icon = icon, body = body }
+        sorted(l)
+    end
+    EditMacro = function(i, name, icon, body) local m = at(i); m.name, m.icon, m.body = name, icon, body end
+    DeleteMacro = function(i) if i > 120 then table.remove(game.char, i - 120) else table.remove(game.account, i) end end
+    PickupMacro = function(i) S.pickedMacro = i end
+    GetMacroIcons = function(l) l[1], l[2] = 111, 222 end
+    login("ROGUE", 3)
+    local mac = ns.mac
+    game.account = { { name = "Mount", icon = 5, body = "/use Horse" } }
+    game.char = { { name = "Poison", icon = 6, body = "/use Poison" } }
+    WolfpackAddonDB.macros = nil
+    mac.sync()
+    assert(names(mac.tab("general")) == "Mount" and names(mac.tab("ROGUE")) == "Poison",
+        "the first time: the ones there are taken in")
+    -- the page: tabs, a grid, the editor
+    mac.P.tab, mac.P.pick, mac.P.picking = "general", 1, false -- the controls were all poked above
+    ns.cfg:Show(); byText("Macros")._scripts.OnClick(byText("Macros"), "LeftButton")
+    local f = mac.f
+    assert(f and ns.pages.macros:IsShown() and f.tabs[1].key == "general", "the Macros page, General first")
+    local mine
+    for _, b in ipairs(f.tabs) do if b.key == "ROGUE" then mine = b end end
+    assert(mine._text == "Rogue (you)", "your class's tab says so")
+    -- a new one on General, renamed and written into the account's slots
+    f.cells[2]._scripts.OnClick(f.cells[2]) -- the +
+    assert(names(game.account) == "Mount,New macro" and mac.P.pick == 2, "+ makes one, in the game too")
+    f.name._text, f.body._text = "Taunt", "/cast Taunt"
+    f.save._scripts.OnClick(f.save)
+    assert(names(game.account) == "Mount,Taunt" and game.account[2].body == "/cast Taunt", "saved: renamed, its text in")
+    -- the icon picker
+    f.iconBtn._scripts.OnClick(f.iconBtn)
+    assert(mac.P.picking and f.iconCells[2]:IsShown() and f.iconCells[2].icon == 111, "icons to pick")
+    f.iconCells[2]._scripts.OnClick(f.iconCells[2])
+    f.save._scripts.OnClick(f.save)
+    assert(game.account[2].icon == 111, "the icon picked")
+    -- dragged to a bar: the macro on the cursor
+    f.drag._scripts.OnClick(f.drag)
+    assert(S.pickedMacro == 2, "picked up for a bar")
+    -- the rogue tab: into this character's slots
+    mine._scripts.OnClick(mine)
+    local k = mac.new("ROGUE")
+    mac.save("ROGUE", k, "Kick", nil, "/cast Kick")
+    assert(names(game.char) == "Kick,Poison", "a class macro in the character's slots")
+    -- another rogue: its own slots get the class's macros; a mage gets General only
+    game.char = {}
+    mac.sync()
+    assert(names(game.char) == "Kick,Poison" and names(game.account) == "Mount,Taunt", "another rogue: the same")
+    login("MAGE", 0)
+    game.char = {}
+    mac.sync()
+    assert(#game.char == 0 and names(mac.tab("MAGE")) == "", "a mage: none of the rogue's")
+    -- deleted on one rogue: gone from the next rogue's slots too
+    login("ROGUE", 3)
+    mac.delete("ROGUE", mac.find(mac.tab("ROGUE"), "Kick"))
+    game.char = { { name = "Kick", icon = 1, body = "/cast Kick" }, { name = "Poison", icon = 6, body = "/use Poison" } }
+    mac.sync()
+    assert(names(game.char) == "Poison", "deleted everywhere")
+    -- one made in Blizzard's window is left alone
+    CreateMacro("Mine", 1, "/wave", true)
+    mac.sync()
+    assert(names(game.char) == "Mine,Poison", "a macro of the game's own stays")
+    -- in combat nothing is written; once it ends, it is
+    S.combat = true
+    mac.save("general", 1, "Mount", nil, "/use Bigger Horse")
+    assert(game.account[1].body == "/use Horse" and mac.pending, "in combat: waits")
+    S.combat = false
+    fire("PLAYER_REGEN_ENABLED")
+    assert(game.account[1].body == "/use Bigger Horse" and not mac.pending, "written once combat ends")
+    byText("Combat Display")._scripts.OnClick(byText("Combat Display"), "LeftButton")
+    ns.cfg:Hide()
+end
 
 realPrint("smoke ok")

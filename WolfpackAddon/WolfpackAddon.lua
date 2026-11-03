@@ -7174,7 +7174,7 @@ local function buildConfig()
     shelf("Interface")
     for _, e in ipairs({ { "combat", "Combat Display" }, { "actionbars", "Action bars" }, { "bags", "Bags" },
         { "nameplates", "Nameplates" }, { "unitframes", "Unit frames" },
-        { "other", "Other" }, { "barstack", "Bar Stack" } }) do
+        { "macros", "Macros" }, { "other", "Other" }, { "barstack", "Bar Stack" } }) do
         entry(e[1], e[2], e[3])
     end
 
@@ -7204,7 +7204,9 @@ local function buildConfig()
     bsPage:SetAllPoints(barsPage)
     bsPage.need = 100 + ns.ui.BS_H
     ns.pages = { combat = barsPage, nameplates = questPage, other = otherPage, profile = profilePage, colors = colorPage, actionbars = actionPage,
-        bags = CreateFrame("Frame", nil, content), unitframes = CreateFrame("Frame", nil, content) }
+        bags = CreateFrame("Frame", nil, content), unitframes = CreateFrame("Frame", nil, content),
+        macros = CreateFrame("Frame", nil, content) }
+    ns.pages.macros:SetAllPoints(barsPage)
     ns.pages.bags:SetAllPoints(barsPage)
     ns.pages.unitframes:SetAllPoints(barsPage)
 
@@ -7244,6 +7246,7 @@ local function buildConfig()
             or section == "bags" and "Bags"
             or section == "unitframes" and "Unit frames"
             or section == "barstack" and "Bar Stack"
+            or section == "macros" and "Macros"
             or "Combat Display")
         for _, t in ipairs(tabs) do t:SetShown(np) end
         local trail = np and sub == "targeted" and ns.npTrail
@@ -7256,6 +7259,7 @@ local function buildConfig()
         colorPage:SetShown(section == "colors")
         actionPage:SetShown(section == "actionbars")
         ns.pages.bags:SetShown(section == "bags")
+        ns.pages.macros:SetShown(section == "macros")
         ns.pages.unitframes:SetShown(uf and ns.ufTab == "general")
         local page = section == "barstack" and bsPage or ns.pages[section]
         if uf and ns.ufTab ~= "general" then page = ns.pages["uf" .. ns.ufTab] end
@@ -7267,6 +7271,7 @@ local function buildConfig()
             scroller:SetVerticalScroll(0)
         end
         if section == "barstack" and ns.bs then safe(ns.bs.ShowConfig, bsPage) end
+        if section == "macros" and ns.mac then safe(ns.mac.ShowConfig, ns.pages.macros) end
     end)
 
     local tabNote = label(barsPage, "", "GameFontDisableSmall")
@@ -9657,7 +9662,9 @@ ev:SetScript("OnEvent", function(_, event, unit, arg2, arg3)
         inCombat, ns.inCombat = false, false
         safe(questLogChanged) -- tooltips may have been secret during combat
         safe(Refresh)         -- and protected frames couldn't change
+        if ns.mac and ns.mac.pending then safe(ns.mac.sync) end -- macros changed in the fight
     else
+        if event == "PLAYER_ENTERING_WORLD" and ns.mac then safe(ns.mac.sync) end -- the macro library
         if event == "NAME_PLATE_UNIT_ADDED" then safe(plateAdded, unit) end
         if event == "NAME_PLATE_UNIT_REMOVED" then safe(plateRemoved, unit) end
         -- form, max, target or nameplate changes: re-layout (target change moves the nameplate bars)

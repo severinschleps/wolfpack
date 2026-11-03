@@ -9,6 +9,7 @@
 
 UI.lua
 WolfpackAddon.lua
+Macros.lua
 BarStack\Core.lua
 BarStack\Stack.lua
 BarStack\Config.lua
