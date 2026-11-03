@@ -3719,7 +3719,7 @@ assert(MultiBarBottomLeft._parent == UIParent, "and back")
     CompactRaidFrameContainer = new()
     CompactRaidFrameContainer._parent = UIParent
     -- the options pages have been clicked through above: start from known settings
-    o.show, o.replace, o.dummy = true, true, 10
+    o.show, o.replace, U.preview = true, true, 10
     o.pets, o.petHeight, o.power, o.roleIcon, o.marker = true, 14, true, true, true
     for _, g in ipairs({ o.g5, o.g10 }) do -- a party and a raid of ten, set alike
         g.fixed, g.grow, g.size, g.per, g.gap, g.frameHeight, g.frameWidth = "width", "down", 400, 5, 4, 40, 90
@@ -3802,7 +3802,7 @@ assert(MultiBarBottomLeft._parent == UIParent, "and back")
     o.res.width = 0
     o.res.place, o.res.y = "below", 0
     o.hover.show, o.g10.buffs.border = true, 1
-    o.dummy = 4
+    U.preview = 4
     U.sync()
     assert(U.cur == o.g5 and ic[1]._point[4] == -2 and not B[6]:IsShown(), "four: the 5's spot, the rest hidden")
     -- dragged while the options are open: the block's corner lands where it was dropped (mock: left
@@ -3816,7 +3816,7 @@ assert(MultiBarBottomLeft._parent == UIParent, "and back")
     U.preview = 20
     U.sync()
     assert(U.cur == o.g20 and B[20].entry and B[20].entry.dummy == 20, "the 20's tab: twenty stand-ins")
-    U.preview = nil
+    U.preview = 4
     U.sync()
     -- the 20 man tab, clicked on the Unit frames page: its page, and the stand-ins follow
     assert(ns.ufTabs and ns.pages.uf20, "a tab and a page per group size")
@@ -3824,7 +3824,8 @@ assert(MultiBarBottomLeft._parent == UIParent, "and back")
     assert(ns.ufTab == 20 and (U.preview == 20) == (ns.pages.unitframes:IsShown() or ns.pages.uf20:IsShown()),
         "20 man tab")
     ns.ufTabs[1]._scripts.OnClick(ns.ufTabs[1])
-    assert(ns.ufTab == "general" and U.preview == nil, "back to General")
+    assert(ns.ufTab == "general" and (U.preview == 5) == ns.pages.unitframes:IsShown(), "General: five")
+    U.preview = 4
     U.sync()
     o.g5.buffs.mode = "hide"
     U.sync()
@@ -3835,17 +3836,21 @@ assert(MultiBarBottomLeft._parent == UIParent, "and back")
     assert(B[1].entry.role == "DAMAGER", "role order")
     -- fixed height 300, five a column, growing left: frames 56.8 high, 90 wide (set)
     o.g10.fixed, o.g10.grow, o.g10.size = "height", "left", 300
-    o.dummy = 6
+    U.preview = 6
     U.sync()
     assert(B[1]._point[1] == "TOPRIGHT" and near(B[6]._point[4], -94) and near(B[2]._point[5], -60.8)
         and B[2]._w == 90 and near(B[2]._h, 56.8), "columns of five, growing left")
     -- a real party: you and party1 (a healer); clicks target and open the menu, the game shows them
-    ns.configOpen, o.dummy = false, 10
+    ns.configOpen, U.preview = false, nil
     o.roles = { "TANK", "HEALER", "DAMAGER" } -- you have no role: damage, after the healer
     S.members, S.units = 2, { party1 = "HEALER" }; S.keptRaid, S.raid = S.raid, false
     U.sync()
     assert(B[1].unit == "party1" and B[2].unit == "player" and B[1]._watched and B[1]._attr.unit == "party1"
         and B[1]._attr.type1 == "target" and B[1]._attr.type2 == "togglemenu" and not B[3]._watched, "the party, by role")
+    ns.configOpen = true -- the options on another page: still the real group
+    U.sync()
+    assert(B[1].unit == "party1" and not B[1].entry.dummy, "stand-ins only on the Unit frames page")
+    ns.configOpen = false
     -- in combat nothing secure moves: once it ends, the new roster
     S.combat, S.members, S.units = true, 0, {} -- left the group: solo
     ns.uf.ev._scripts.OnEvent(ns.uf.ev, "GROUP_ROSTER_UPDATE")

@@ -394,7 +394,7 @@ function ns.ufGroupDefaults(size, per, frameHeight)
         debuffs = ns.ufAuraDefaults("dispel", "BOTTOMLEFT", 2, 2, { 0.8, 0.1, 0.1, 1 }) }
 end
 DEFAULTS.unitframes = { show = false, replace = true, fontSize = 10, power = true, powerHeight = 4,
-    pets = true, petHeight = 14, roleIcon = true, marker = true, dummy = 10,
+    pets = true, petHeight = 14, roleIcon = true, marker = true,
     roles = { "TANK", "HEALER", "DAMAGER" },
     g5 = ns.ufGroupDefaults(400, 5, 36), g10 = ns.ufGroupDefaults(400, 5, 36),
     g20 = ns.ufGroupDefaults(400, 5, 30), g40 = ns.ufGroupDefaults(640, 8, 26),
@@ -4914,7 +4914,8 @@ end)
 -- click opens the menu) with a health bar, a power bar under it, the name, role and raid marker
 -- icons, buffs and debuffs. Which unit sits where, sizes and spots are set out of combat only;
 -- in combat the game's unit watch shows and hides them, and bars and auras keep filling.
--- While the options are open, a stand-in group of `dummy` members shows instead.
+-- While the options show the Unit frames page, a stand-in group shows instead: as many as the
+-- group size tab open (General: 5), to set that size up and drag it into place.
 ------------------------------------------------------------------------------------------
 ns.uf = { buttons = {}, byUnit = {} }
 ns.uf.ROLE_ICON = "Interface\\LFGFrame\\UI-LFG-ICON-PORTRAITROLES"
@@ -4925,7 +4926,7 @@ ns.uf.DUMMY_CLASSES = { "WARRIOR", "PRIEST", "MAGE", "ROGUE", "DRUID", "PALADIN"
 ns.uf.BLIZZ = { "PartyFrame", "CompactPartyFrame", "CompactRaidFrameContainer", "CompactRaidFrameManager",
     "PartyMemberFrame1", "PartyMemberFrame2", "PartyMemberFrame3", "PartyMemberFrame4" }
 function ns.uf.on() return db and db.unitframes.show and true or false end
-function ns.uf.dummy() return ns.uf.on() and ns.configOpen and true or false end
+function ns.uf.dummy() return ns.uf.on() and ns.configOpen and ns.uf.preview and true or false end
 -- the settings for a group of n players: the smallest size it fits in
 ns.uf.SIZES = { 5, 10, 20, 40 }
 function ns.uf.group(n)
@@ -4944,7 +4945,7 @@ function ns.uf.roster()
     local o, list = db.unitframes, {}
     if ns.uf.dummy() then
         local roles = { "TANK", "HEALER", "HEALER", "DAMAGER", "DAMAGER" }
-        for i = 1, ns.uf.preview or o.dummy do -- preview: a group size's tab in the options
+        for i = 1, ns.uf.preview do
             list[i] = { dummy = i, role = i <= 2 and roles[i] or roles[(i % 3) + 3] or "DAMAGER",
                 class = ns.uf.DUMMY_CLASSES[(i - 1) % #ns.uf.DUMMY_CLASSES + 1] }
             if i % 8 == 1 then list[i].role = "TANK" elseif i % 5 == 2 then list[i].role = "HEALER" end
@@ -7383,8 +7384,8 @@ local function buildConfig()
     end
     onRefresh(function()
         local np, uf = section == "nameplates", section == "unitframes"
-        -- the stand-ins on a group size's tab: a group of that size
-        ns.uf.preview = uf and tonumber(ns.ufTab) or nil
+        -- stand-ins on this page only: a group of the tab's size (General: 5)
+        ns.uf.preview = uf and (tonumber(ns.ufTab) or 5) or nil
         for _, t in ipairs(ns.ufTabs) do t:SetShown(uf) end
         for _, size in ipairs(ns.uf.SIZES) do
             local gp = ns.pages["uf" .. size]
@@ -8549,9 +8550,8 @@ local function buildConfig()
         check(pg, "Show", c1.x, c1:row(ROW), function() return U().show end, function(v) U().show = v end)
         check(pg, "Hide Blizzard's party and raid", c1.x, c1:row(ROW), function() return U().replace end,
             function(v) U().replace = v end)
-        note(c1, "Left click targets, right click opens the menu. While this window is open a "
-            .. "stand-in group shows (on a group size's tab, one of that size): drag it to move it.", 58)
-        sliders(c1, U, { { "dummy", "Stand-in group size", 1, 40 } })
+        note(c1, "Left click targets, right click opens the menu. On this page a 5 man stand-in group "
+            .. "shows; on a group size's tab, one of that size. Drag it to move it.", 58)
         c1:close()
 
         local c2 = group(pg, COL[2], TOP, 202, "Frames")
@@ -8630,6 +8630,7 @@ local function buildConfig()
             local c = group(gp, COL[1], TOP, 202, size .. " players")
             note(c, n == 1 and "Your party, up to 5." or n == #ns.uf.SIZES and "A raid of more than "
                 .. ns.uf.SIZES[n - 1] .. "." or "A raid of " .. (ns.uf.SIZES[n - 1] + 1) .. " to " .. size .. ".", 16, gp)
+            note(c, "A stand-in group of " .. size .. " shows: drag it into place.", 30, gp)
             dropdown(gp, "Fixed side", c.x, c:row(DROP), { { "Width: grows up or down", "width" },
                 { "Height: grows left or right", "height" } }, function() return G().fixed end, function(v)
                 G().fixed = v
