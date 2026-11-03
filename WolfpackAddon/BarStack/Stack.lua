@@ -443,15 +443,15 @@ function BS.Layout()
   BS.gates = {}
   BS.placed = {} -- what the last pass did with every icon, for /bs check
   for _, g in ipairs(BS.profile.groups) do
-    local st, s = stackFor(g), g.stack
-    liveStacks[st] = true
+    local st, s, bars = stackFor(g), g.stack, BS.LoadedBars(g)
+    liveStacks[st] = #bars > 0 -- a group with nothing loaded on this character stays hidden
     st:ClearAllPoints()
     st:SetPoint(s.point, UIParent, s.point, s.x, s.y)
     st:SetScale(s.scale)
     st:SetAlpha(s.alpha)
     st.edit.label:SetText(g.name)
-    local n, sw, sh = #g.bars, 40, 40
-    for i, b in ipairs(g.bars) do
+    local n, sw, sh = #bars, 40, 40
+    for i, b in ipairs(bars) do
       b.layer = n - i + 1 -- top of the list = top layer
       local c = container(b.id)
       live[c] = true
@@ -579,10 +579,11 @@ function BS.UpdateVisibility()
   local placing = BS.preview or BS.editing
   for _, g in ipairs(BS.profile.groups) do
     local st, s = stacks[g.id], g.stack
+    local bars = BS.LoadedBars(g)
     if st then
-      st:SetShown(placing or (BS.inCombat and s.showInCombat) or (not BS.inCombat and s.showOutOfCombat))
+      st:SetShown(#bars > 0 and (placing or (BS.inCombat and s.showInCombat) or (not BS.inCombat and s.showOutOfCombat)))
     end
-    for _, b in ipairs(g.bars) do
+    for _, b in ipairs(bars) do
       if containers[b.id] then containers[b.id]:Show() end
     end
   end

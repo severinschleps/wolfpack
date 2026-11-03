@@ -97,48 +97,82 @@ assert(BS.cvFound and not BS.svFound)
 assert(BS.profile.groups[1].bars[1].name == "Proc", "profile restored from CVars")
 
 -- newest backend wins
-BarStackDB = { updated = 1, profiles = {} }
+BarStackDB = { updated = 1, library = { groups = {} } }
 BS.LoadDB()
-assert(BS.db.profiles["Tester-Realm:1"], "CVar copy is newer than the stale SavedVariables")
+assert(BS.db.library.groups[1].bars[1].name == "Proc", "CVar copy is newer than the stale SavedVariables")
+BS.LoadProfile()
 
--- a profile handed back by Wolfpack's profile string: junk refused, a profile taken
+-- one library for the account; a new bar loads on the character that made it
+local proc = BS.profile.groups[1].bars[1]
+assert(BS.Loaded(proc) and BS.db.loads["Tester-Realm"][proc.id], "made here, loaded here")
+UnitName = function() return "Alt" end
+assert(not BS.Loaded(proc), "another character has it in its list, not loaded")
+assert(#BS.LoadedBars(BS.profile.groups[1]) == 0)
+BS.SetLoaded(proc, true)
+assert(BS.Loaded(proc), "ticked on the alt")
+BS.SetLoaded(proc, false)
+assert(not BS.Loaded(proc) and BS.db.loads["Alt-Realm"][proc.id] == nil, "and unticked")
+UnitName = function() return "Tester" end
+assert(BS.Loaded(proc), "the first character's tick is its own")
+
+-- the string carries only what this character loads; importing adds to the library, loads it
+-- here, and never makes a second copy of a bar the library has
+local other = BS.NewBar(BS.profile.groups[1])
+other.name = "Not mine"
+BS.SetLoaded(other, false)
+local sent = BS.ExportSet()
+assert(#sent.groups[1].bars == 1 and sent.groups[1].bars[1].name == "Proc", "only loaded bars go out")
+assert(#BS.profile.groups[1].bars == 2, "the library keeps both")
 assert(not BS.ImportProfile("garbage") and not BS.ImportProfile({}))
-local saved = CopyTable(BS.profile)
-BS.profile.groups[1].bars = {}
-assert(BS.ImportProfile(saved) and BS.profile.groups[1].bars[1].name == "Proc")
+assert(BS.ImportProfile(sent) and #BS.profile.groups[1].bars == 2, "a bar already there is not added twice")
+UnitName = function() return "Alt" end
+assert(BS.ImportProfile(sent) and BS.Loaded(proc), "importing on the alt loads it there")
+UnitName = function() return "Tester" end
+local g1 = BS.profile.groups[1]
+table.remove(g1.bars, tIndexOf(g1.bars, other))
 
 -- a version 1 profile (one stack, one list of bars) becomes the first group, nothing lost
 local old = BS.NormalizeProfile({ version = 1, stack = { x = 50, y = 60 }, bars = { { name = "Old" } } })
 assert(old.version == 2 and #old.groups == 1 and old.stack == nil and old.bars == nil, "migrated to groups")
 assert(old.groups[1].stack.x == 50 and old.groups[1].bars[1].name == "Old", "position and bars kept")
--- and an old profile still imports
-BS.db.profiles["Tester-Realm:1"] = nil
+-- and an old profile still imports, as a new group
 assert(BS.ImportProfile({ version = 1, bars = { { name = "Imported" } } }), "an old profile imports")
-assert(BS.profile.groups[1].bars[1].name == "Imported")
+local imp = BS.profile.groups[#BS.profile.groups]
+assert(imp.bars[1].name == "Imported" and BS.Loaded(imp.bars[1]), "added and loaded here")
+table.remove(BS.profile.groups)
 
--- groups, bars and icons belong to the Wolfpack profile in use: this character's set moves to
--- the first one picked, another profile starts empty, and switching back brings the set back
-ns.profileName = "Warrior"
+-- before the library: one set per character, then per Wolfpack profile, and per spec. Every set
+-- moves into the library once, and each bar stays loaded on the characters that used it
+WolfpackAddonDB = { chars = { ["Tester - Realm"] = "Warrior", ["Twin - Realm"] = "Warrior", ["Mage - Realm"] = "Mage" } }
+local function set(name, id, updated)
+  return { updated = updated, groups = { { id = "g" .. id, name = name, bars = { { id = "b" .. id, name = name } } },
+    { id = "gEmpty" .. id, bars = {} } } }
+end
+local shared = set("Shared", 3, 5)
+BS.db = { profiles = {
+  ["Badguy-Realm:1"] = set("Old char", 1, 1),
+  ["wp:Warrior:1"] = set("Warrior", 2, 9),
+  ["wp:Mage:0"] = shared,
+  ["wp:Gone:0"] = CopyTable(shared), -- a Copy from: same ids, kept once
+} }
 BS.LoadProfile()
-assert(BS.profile.groups[1].bars[1].name == "Imported", "the character's set moved to the profile")
-assert(BS.db.profiles["wp:Warrior:1"] and not BS.db.profiles["Tester-Realm:1"], "stored under the profile")
-ns.profileName = "Alpha"
+local order, got = {}, {}
+for _, g in ipairs(BS.profile.groups) do
+  order[#order + 1] = g.name
+  for _, b in ipairs(g.bars) do got[b.id] = b end
+end
+assert(table.concat(order, ",") == "Warrior,Shared,Old char", "newest first, empty groups left out, a copy once")
+assert(BS.db.profiles == nil and BS.db.library == BS.profile, "moved, once")
+local L = BS.db.loads
+assert(L["Badguy-Realm"].b1 and not L["Tester-Realm"].b1, "a character's own set stays its own")
+assert(L["Tester-Realm"].b2 and L["Twin-Realm"].b2 and not (L["Mage-Realm"] or {}).b2, "a profile's set loads on everyone on it")
+assert(L["Mage-Realm"].b3 and BS.Loaded(got.b2) and not BS.Loaded(got.b3), "the Mage's set is the Mage's")
 BS.LoadProfile()
-assert(#BS.profile.groups[1].bars == 0, "another profile has its own, empty set")
-ns.profileName = "Warrior"
+assert(#BS.profile.groups == 3, "a second load changes nothing")
+WolfpackAddonDB = nil
+BS.db = { library = { groups = { { bars = { { name = "Proc" } } } } }, loads = {} }
 BS.LoadProfile()
-assert(BS.profile.groups[1].bars[1].name == "Imported", "switching back restores the set")
--- copying a Wolfpack profile brings its sets along, and a spec the source lacks ends up empty
-BS.db.profiles["wp:Alpha:3"] = { groups = {} }
-ns.profileName = "Alpha"
-BS.CopyFrom("Warrior")
-assert(BS.profile.groups[1].bars[1].name == "Imported", "the copied set is in use")
-assert(BS.profile ~= BS.db.profiles["wp:Warrior:1"], "a copy, not the same table")
-assert(not BS.db.profiles["wp:Alpha:3"], "a spec the source has no set for is cleared")
-BS.db.profiles["wp:Alpha:1"] = nil
-ns.profileName = nil
-BS.db.profiles["Tester-Realm:1"] = BS.db.profiles["wp:Warrior:1"]
-BS.LoadProfile()
+BS.SetLoaded(BS.profile.groups[1].bars[1], true)
 
 -- moving a bar up and down the stack, and not past either end
 local g1 = BS.profile.groups[1]
@@ -279,6 +313,13 @@ realLayout()
 assert(BS.stacks[gA.id] and BS.stacks[gB.id] and BS.stacks[gA.id] ~= BS.stacks[gB.id], "a stack frame per group")
 assert(#BS.placed == 2 and BS.placed[1].frame == cdFrame and BS.placed[1].group == "Stack 1", "Charge placed in Stack 1")
 assert(BS.placed[2].frame == nil and BS.placed[2].look == "aura", "Avatar has no buff frame, so nothing is borrowed")
+-- a bar this character does not load is not laid out, and a group with none loaded hides
+BS.SetLoaded(gB.bars[1], false)
+realLayout()
+assert(#BS.placed == 1 and rawget(BS.stacks[gB.id], "_shown") == false, "Avatar's bar is not loaded here")
+BS.SetLoaded(gB.bars[1], true)
+realLayout()
+assert(#BS.placed == 2 and rawget(BS.stacks[gB.id], "_shown") == true, "ticked again, it is back")
 
 -- an aura icon's frame has Blizzard's Show / Hide / SetAlpha counted, for /bs check
 hooksecurefunc = function(t, m, fn)
@@ -616,6 +657,15 @@ BS.cfg.listRows[2].up._onOnClick()
 assert(gA.bars[1] == secondBar and gA.bars[2] == topBar, "a bar's up arrow takes it a layer higher")
 BS.cfg.listRows[1].down._onOnClick()
 assert(gA.bars[1] == topBar, "and its down arrow back")
+-- each row's tick loads its bar on this character
+local tick = BS.cfg.listRows[1].load
+local checked = false
+tick.GetChecked = function() return checked end
+tick._onOnClick(tick)
+assert(not BS.Loaded(topBar) and BS.Loaded(secondBar), "unticked: not loaded here")
+checked = true
+tick._onOnClick(tick)
+assert(BS.Loaded(topBar), "ticked again")
 assert(rawget(BS.cfg, "up") == nil and rawget(BS.cfg, "down") == nil, "no Move up / Move down buttons under the list")
 
 -- the picker for an aura offers Tracked Buffs only

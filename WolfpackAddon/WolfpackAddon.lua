@@ -4917,13 +4917,6 @@ useProfile = function(name)
     applyCombatFont() -- the font travels with the profile
     place()
     changed()
-    ns.profileName = name -- Bar Stack keeps its groups, bars and icons per Wolfpack profile
-    local bs = ns.bs
-    if bs and bs.db and bs.LoadProfile then
-        bs.LoadProfile()
-        bs.Apply()
-        if bs.RefreshConfig then safe(bs.RefreshConfig) end
-    end
 end
 
 -- Your profiles plus the ready-made ones you haven't used yet.
@@ -4970,7 +4963,7 @@ end
 ------------------------------------------------------------------------------------------
 -- Export / import. Two separate strings:
 --  * the addon profile: "WPA1:" + base64(deflate(CBOR{ name, profile, combatFont, barStack })),
---    imported here; barStack is Bar Stack's profile, which has no string of its own
+--    imported here; barStack is the Bar Stack bars this character loads, which have no string of their own
 --  * the WoW UI layout: Blizzard's own Edit Mode string, imported in Edit Mode itself, because
 --    writing Edit Mode layouts from an addon would get overwritten or taint Edit Mode
 ------------------------------------------------------------------------------------------
@@ -4992,7 +4985,7 @@ end
 -- `all` packs every profile you have into the one string, instead of only the one in use.
 local function exportString(all)
     local data = { name = store.chars[charKey], profile = db, combatFont = db.other.combatFont,
-        barStack = ns.bs and ns.bs.profile }
+        barStack = ns.bs and ns.bs.profile and ns.bs.ExportSet() }
     if all then
         data.profiles, data.classes = {}, {}
         for name, prof in pairs(store.profiles) do
@@ -5187,7 +5180,7 @@ local function importString(text)
     ns.importBarStack(data)
     return name, type(data.editMode) == "string" and data.editMode or nil
 end
--- Bar Stack's profile rides along: it goes to the profile just switched to, for this spec
+-- The Bar Stack bars the string carries join the library and load on this character
 function ns.importBarStack(data)
     if type(data.barStack) == "table" and ns.bs and ns.bs.ImportProfile then
         pcall(ns.bs.ImportProfile, data.barStack)
@@ -5197,13 +5190,13 @@ ns.exportString, ns.editModeString, ns.importString = exportString, editModeStri
 ns.seedFromBaked = function() return seedFromBaked() end
 ns.useProfile = useProfile
 
--- Another profile's settings (Bar Stack's too) replace the current one's; the name stays.
+-- Another profile's settings replace the current one's; the name stays. Bar Stack is not part
+-- of a profile: its bars are one library, loaded per character.
 function ns.copyProfile(from)
     local into = store.chars[charKey]
     if from == into then return end
     wipe(db)
     merge(db, store.profiles[from] or ns.freshProfile(from))
-    if ns.bs and ns.bs.CopyFrom then pcall(ns.bs.CopyFrom, from) end
     useProfile(into)
 end
 
@@ -5485,7 +5478,7 @@ local function buildConfig()
 
     local use = group(profilePage, COL[1], TOP, 202, "In use")
     profileMenu(use, useProfile)
-    note(use, "Every page of this window is saved to it, Bar Stack included. Any character can use it.", 46)
+    note(use, "Every page of this window is saved to it, except Bar Stack, which loads per character. Any character can use it.", 46)
     danger(button(profilePage, "Delete profile", 178, use.x, use:row(BUTTON), function()
         local name = store.chars[charKey]
         StaticPopup_Show("WOLFPACKADDON_DELETE", name, nil, name)
@@ -5498,7 +5491,7 @@ local function buildConfig()
         StaticPopup_Show("WOLFPACKADDON_COPY", name, store.chars[charKey], name)
     end, true)
     ns.copyFromMenu:SetDefaultText("Copy from...")
-    note(copy, "Another profile's settings replace this one's, Bar Stack included. Asks first.", 34)
+    note(copy, "Another profile's settings replace this one's. Bar Stack is not touched. Asks first.", 34)
     copy:close()
 
     local new = group(profilePage, COL[2], TOP, 202, "New profile")

@@ -187,6 +187,7 @@ end
 function BS.NewBar(group, index)
   local b = BS.NormalizeBar({})
   table.insert(group.bars, index or 1, b)
+  BS.SetLoaded(b, true)
   return b
 end
 
@@ -292,7 +293,6 @@ function BS.LoadDB()
   local db = sv
   if cv and (not sv or (tonumber(cv.updated) or 0) > (tonumber(sv.updated) or 0)) then db = cv end
   db = db or {}
-  if type(db.profiles) ~= "table" then db.profiles = {} end
   BS.db, BarStackDB = db, db
 end
 
@@ -304,51 +304,103 @@ function BS.Save()
   if s then writeCVars(s) end
 end
 
--- Bar Stack's groups, bars and icons belong to the Wolfpack profile in use, one set per spec.
-local function charKey(spec)
-  return ("%s-%s:%d"):format(UnitName("player"), GetRealmName(), spec)
+-- One library of groups, bars and icons for the whole account, apart from Wolfpack's profiles.
+-- Each character picks the bars it loads (BS.db.loads[char][bar id]); a new bar loads on the
+-- character that made it, and on no other until ticked there.
+function BS.Me() return ("%s-%s"):format(UnitName("player"), GetRealmName()) end
+
+local function loads(char)
+  local all = BS.db.loads
+  all[char] = type(all[char]) == "table" and all[char] or {}
+  return all[char]
 end
 
-local function profileKey()
-  local spec = BS.try(GetSpecialization) or 0
-  if type(ns.profileName) ~= "string" then return charKey(spec) end
-  return ("wp:%s:%d"):format(ns.profileName, spec)
+function BS.Loaded(b) return loads(BS.Me())[b.id] == true end
+function BS.SetLoaded(b, on) loads(BS.Me())[b.id] = on or nil end
+function BS.LoadedBars(g)
+  local out = {}
+  for _, b in ipairs(g.bars) do
+    if BS.Loaded(b) then out[#out + 1] = b end
+  end
+  return out
+end
+
+-- Pour `set` into the library: a group or bar already there (same id) is not added twice, a
+-- group with no bars is left out, and every bar of the set loads on `chars`.
+function BS.Merge(lib, set, chars)
+  local have = {}
+  for _, g in ipairs(lib.groups) do
+    have[g.id] = g
+    for _, b in ipairs(g.bars) do have[b.id] = b end
+  end
+  for _, g in ipairs(set.groups) do
+    if #g.bars > 0 then
+      local into = have[g.id]
+      if not into then
+        into = CopyTable(g)
+        into.bars = {}
+        lib.groups[#lib.groups + 1], have[g.id] = into, into
+      end
+      for _, b in ipairs(g.bars) do
+        if not have[b.id] then
+          into.bars[#into.bars + 1], have[b.id] = b, b
+        end
+        for _, c in ipairs(chars) do loads(c)[b.id] = true end
+      end
+    end
+  end
+end
+
+-- Who used an old set: "Name-Realm:spec" was one character's, "wp:Profile:spec" belonged to
+-- every character on that Wolfpack profile.
+local function ownersOf(key)
+  local prof = key:match("^wp:(.*):%d+$")
+  if not prof then return { key:match("^(.-):%d+$") } end
+  local chars, who = type(WolfpackAddonDB) == "table" and WolfpackAddonDB.chars, {}
+  for c, p in pairs(type(chars) == "table" and chars or {}) do
+    if p == prof then who[#who + 1] = (c:gsub(" %- ", "-")) end
+  end
+  return who
 end
 
 function BS.LoadProfile()
-  local key = profileKey()
-  local p = BS.db.profiles[key]
-  if type(p) ~= "table" then
-    -- saved before Bar Stack followed Wolfpack's profile: this character's set moves over once
-    local old = charKey(BS.try(GetSpecialization) or 0)
-    p = old ~= key and BS.db.profiles[old]
-    if type(p) == "table" then BS.db.profiles[old] = nil else p = {} end
+  local db = BS.db
+  if type(db.loads) ~= "table" then db.loads = {} end
+  if type(db.library) ~= "table" then
+    -- before the library: one set per character (or Wolfpack profile) and spec. All of them
+    -- move in once, newest first; the newest one's icon style and Blizzard setting come along.
+    local lib, keys = { groups = {} }, {}
+    for k, p in pairs(type(db.profiles) == "table" and db.profiles or {}) do
+      if type(p) == "table" then keys[#keys + 1] = k end
+    end
+    table.sort(keys, function(x, y)
+      return (tonumber(db.profiles[x].updated) or 0) > (tonumber(db.profiles[y].updated) or 0)
+    end)
+    for i, k in ipairs(keys) do
+      local p = BS.NormalizeProfile(db.profiles[k])
+      if i == 1 then lib.icons, lib.hideBlizzard = p.icons, p.hideBlizzard end
+      BS.Merge(lib, p, ownersOf(k))
+    end
+    db.library, db.profiles = lib, nil
   end
-  BS.profile = BS.NormalizeProfile(p)
-  BS.db.profiles[key] = BS.profile
+  BS.profile = BS.NormalizeProfile(db.library)
 end
 
--- Wolfpack copied profile `from` onto the one in use: every spec's set comes along, and a spec
--- the source has no set for ends up empty here too.
-function BS.CopyFrom(from)
-  local pre, into, sets = ("wp:%s:"):format(from), ("wp:%s:"):format(ns.profileName), {}
-  for key, p in pairs(BS.db.profiles) do
-    local spec = key:sub(1, #pre) == pre and tonumber(key:sub(#pre + 1))
-    if spec then sets[spec] = CopyTable(p) end
-    if key:sub(1, #into) == into and tonumber(key:sub(#into + 1)) then BS.db.profiles[key] = nil end
+-- Wolfpack's profile string carries the bars this character loads; importing adds them to the
+-- library and loads them here. Nothing already in the library is replaced.
+function BS.ExportSet()
+  local set = CopyTable(BS.profile)
+  for _, g in ipairs(set.groups) do
+    for i = #g.bars, 1, -1 do
+      if not BS.Loaded(g.bars[i]) then table.remove(g.bars, i) end
+    end
   end
-  for spec, p in pairs(sets) do BS.db.profiles[into .. spec] = p end
-  BS.LoadProfile()
-  BS.Save()
-  BS.Apply()
+  return set
 end
 
--- Bar Stack has no export string of its own: its profile travels inside Wolfpack's profile
--- string, which hands it back here on import (for the profile in use and this spec).
 function BS.ImportProfile(p)
   if type(p) ~= "table" or not (type(p.groups) == "table" or type(p.bars) == "table") then return false end
-  BS.db.profiles[profileKey()] = p
-  BS.LoadProfile()
+  BS.Merge(BS.profile, BS.NormalizeProfile(CopyTable(p)), { BS.Me() })
   BS.Save()
   BS.Apply()
   return true
@@ -503,7 +555,6 @@ ev:SetScript("OnEvent", function(_, event, arg)
     if BS.RefreshConfig then BS.RefreshConfig() end
   elseif event == "PLAYER_SPECIALIZATION_CHANGED" then
     if arg == "player" and BS.profile then
-      BS.LoadProfile()
       BS.Apply()
       if BS.RefreshConfig then BS.RefreshConfig() end
     end

@@ -1690,8 +1690,8 @@ WolfpackAddonDB.profiles.OldColors = nil
 -- Copy from: another profile's settings (and Bar Stack's) land on the current one, name kept
 local here = WolfpackAddonDB.chars[S.name .. " - Realm"]
 WolfpackAddonDB.profiles.Source = { regular = { bars = { health = { width = 321 } } } }
-local bsFrom
-ns.bs = { CopyFrom = function(n) bsFrom = n end }
+local bsTouched
+ns.bs = { CopyFrom = function() bsTouched = true end, LoadProfile = function() bsTouched = true end }
 ns.copyFromMenu:GenerateMenu()
 local pick
 for _, it in ipairs(ns.copyFromMenu._items) do
@@ -1702,7 +1702,7 @@ pick.set()
 assert(WolfpackAddonDB.chars[S.name .. " - Realm"] == here and prof().regular.bars.health.width == 321,
     "copied onto the current profile")
 assert(prof() ~= WolfpackAddonDB.profiles.Source, "a copy, not the same table")
-assert(bsFrom == "Source", "Bar Stack's sets come along")
+assert(not bsTouched, "Bar Stack is not part of a profile: copying leaves it alone")
 ns.bs, WolfpackAddonDB.profiles.Source = nil, nil
 ns.useProfile(home)
 WolfpackAddonDB.profiles.Scratch = nil
@@ -2223,9 +2223,10 @@ assert(store.profiles["Alpha Warrior"].regular.gap == 11, "and the warrior one")
 assert(store.classProfiles.PRIEST == "Alpha Priest" and store.classProfiles.WARRIOR == "Alpha Warrior",
     "each class knows its own")
 assert(got == store.chars[S.name .. " - Realm"], "and this character is on one of them")
--- Bar Stack has no string of its own: its profile rides in this one and comes back on import
+-- Bar Stack has no string of its own: the bars this character loads ride in this one
 local bsGot
-ns.bs = { profile = { groups = { { name = "Mine" } } }, ImportProfile = function(p) bsGot = p; return true end }
+ns.bs = { profile = {}, ExportSet = function() return { groups = { { name = "Mine" } } } end,
+    ImportProfile = function(p) bsGot = p; return true end }
 local withBS = ns.exportString()
 ns.bs.profile = nil
 ns.importString(withBS)

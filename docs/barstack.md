@@ -60,12 +60,14 @@ It used to be its own addon, github.com/severinschleps/bar-stack; that repo is n
 
 Other commands:
 - `/bs check` shows which APIs and storage backends work on this client. Run it after a relog to see which saved settings survived.
-- Groups, bars and icons are saved to the Wolfpack profile you have chosen, one set per spec.
-  Switching profile switches them; a character's older set moves to the first profile it uses.
-  **Copy from...** on the Profiles page copies another profile onto the current one, Bar Stack sets included.
-- Bar Stack has no export string of its own: Wolfpack's profile string (Export / Import on the Profiles page
-  of the options window) carries Bar Stack's profile too, and importing it restores it into the
-  profile the import switches to, for the spec you are on.
+- Groups, bars and icons are one library for the whole account, apart from Wolfpack's profiles.
+  Each bar in the Bars list has a tick: ticked bars load on the character you are playing. A new
+  bar loads on the character that made it and nowhere else until ticked there. Older sets (per
+  character, then per Wolfpack profile, per spec) moved into the library once, each bar staying
+  loaded on the characters that had it. Spec no longer matters.
+- Bar Stack has no export string of its own: Wolfpack's profile string carries the bars this
+  character loads. Importing adds them to the library (a bar already there is not doubled) and
+  loads them on the importing character.
 
 ## Status
 

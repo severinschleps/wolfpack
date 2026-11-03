@@ -176,6 +176,15 @@ local function listRow(i)
   local r = ui.Button(f.list, "", 196, true)
   r:SetPoint("TOPLEFT", 0, -(i - 1) * 26)
   r:GetFontString():SetPoint("RIGHT", -50, 0)
+  r:GetFontString():SetPoint("LEFT", 28, 0)
+  -- ticked: this character loads the bar; every bar is in every character's list
+  r.load = ui.Check(r)
+  r.load:SetPoint("LEFT", 6, 0)
+  r.load:SetHitRectInsets(0, 0, -4, -4)
+  r.load:SetScript("OnClick", function(self)
+    BS.SetLoaded(G().bars[r.index], self:GetChecked())
+    changed()
+  end)
   -- a layer up or down; the top of the list draws over the rest
   local function move(d)
     return function() if BS.MoveBar(G().bars[i], d) then changed() end end
@@ -579,7 +588,10 @@ local function build(parent)
   x = C2 + 12
   text(f, "Bars", x, -12, "GameFontNormal")
   f.settings = button(f, "Settings", 90, C2 + W12 - 102, -8, BS.ShowBarSettings)
-  f.list = scroll(f, x, -40, 196, 420)
+  f.list = scroll(f, x, -40, 196, 390)
+  f.loadNote = text(f, "", x, -440, "GameFontDisableSmall")
+  f.loadNote:SetWidth(206)
+  f.loadNote:SetJustifyH("LEFT")
   button(f, "New", 64, x, -472, function()
     selected = BS.NewBar(G())
     changed()
@@ -589,6 +601,7 @@ local function build(parent)
     local copy = CopyTable(selected)
     copy.id, copy.name = nil, selected.name .. " copy"
     table.insert(G().bars, tIndexOf(G().bars, selected), BS.NormalizeBar(copy))
+    BS.SetLoaded(copy, true)
     selected = copy
     changed()
   end)
@@ -656,13 +669,17 @@ function BS.RefreshConfig()
   for i, b in ipairs(bars) do
     local row = listRow(i)
     row.index = i
-    row:SetText(("|cff71717a%d|r   %s"):format(#bars - i + 1, b.name))
+    local on = BS.Loaded(b)
+    row:SetText(("|cff71717a%d|r   %s%s"):format(#bars - i + 1, on and "" or "|cff71717a", b.name))
+    row.load:SetChecked(on)
     if b == selected then row:LockHighlight() else row:UnlockHighlight() end
     row.up:SetEnabled(i > 1)
     row.down:SetEnabled(i < #bars)
     row:Show()
   end
   for i = #bars + 1, #listRows do listRows[i]:Hide() end
+  f.loadNote:SetText(("Ticked bars load on %s. The library is shared by all your characters."):format(
+    UnitName("player")))
 
   local s = G().stack
   for _, sl in ipairs(groupSliders) do sl.sync() end
