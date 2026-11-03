@@ -530,7 +530,7 @@ local fr = ns.frames
 -- Rogue, secret values: 5 pips, each lit when points >= i; stack = health 18, power 14, combo 12,
 -- cast bar and swing rows only join the stack while they run
 -- the panels hear about the world before a profile exists, and must sit that out quietly
-for _, evf in ipairs({ ns.mgEv, ns.hnEv, ns.bfEv }) do
+for _, evf in ipairs({ ns.mgEv, ns.hnEv }) do
     evf._scripts.OnEvent(evf, "PLAYER_ENTERING_WORLD")
 end
 
@@ -2063,7 +2063,7 @@ assert(ns.pages.combat:IsShown() and not ns.trailPage:IsShown() and ns.np.previe
 byText("Combat Display")._scripts.OnClick(byText("Combat Display"), "LeftButton")
 assert(not ns.np.preview:IsShown() and boxes[5]._text == "220", "back on Combat Display's health bar")
 -- every sidebar entry is really there, opens its page, and that page has settings on it
-for _, name in ipairs({ "Combat Display", "Nameplates", "Buff check", "Other",
+for _, name in ipairs({ "Combat Display", "Nameplates", "Other",
     "Mage", "Rogue", "Shaman", "Warlock" }) do
     local b = byText(name)
     assert(b, "sidebar entry missing: " .. name)
@@ -3223,37 +3223,6 @@ prof().regular.bars.health.heal, prof().regular.bars.power.cost = false, false
 fire("UNIT_MAXPOWER")
 assert(not hb.over:IsShown() and not pb.over:IsShown(), "switched off: both overlays gone")
 
--- Buff check: who in the group is missing a buff somebody here can give
-login("PRIEST", 0)
-local bo = prof().buffs
-bo.show, bo.locked, bo.onlyMissing, bo.skip = true, true, false, {}
-prof().locked, ns.configOpen = true, false
-S.group, S.members, S.raid = true, 3, false
-S.units = { party1 = "DAMAGER", party2 = "DAMAGER" }
-S.unitClasses = { player = "PRIEST", party1 = "PALADIN", party2 = "MAGE" }
-S.auras = {} -- nobody is buffed yet
-ns.bfEv._scripts.OnEvent(ns.bfEv, "GROUP_ROSTER_UPDATE")
-local rows, texts = ns.bf.rows, {}
-for i, r in ipairs(rows) do if r:IsShown() then texts[#texts + 1] = r.text._text end end
-assert(#texts >= 3, "a row per buff this group can hand out")
-assert(table.concat(texts, "|"):find("Stamina"), "the priest's stamina is checked")
-assert(table.concat(texts, "|"):find("A blessing"), "and the paladin's blessing")
-assert(not table.concat(texts, "|"):find("Thorns"), "no druid here, no thorns row")
--- one blessing is enough, whichever it is
-S.auras = { { name = "Blessing of Kings" } }
-ns.bfEv._scripts.OnEvent(ns.bfEv, "UNIT_AURA")
-local blessing
-for _, r in ipairs(rows) do
-    if r:IsShown() and r.text._text:find("A blessing") then blessing = r.text._text end
-end
-assert(blessing == "A blessing: all set", "any single blessing satisfies it")
--- in combat the list steps aside rather than guessing
-S.combat = true
-ns.bfEv._scripts.OnEvent(ns.bfEv, "PLAYER_REGEN_DISABLED")
-assert(not ns.bf.panel:IsShown(), "combat: out of the way")
-S.combat = false
-ns.bfEv._scripts.OnEvent(ns.bfEv, "PLAYER_REGEN_ENABLED")
-assert(ns.bf.panel:IsShown(), "and back afterwards")
 
 S.group, S.members = false, 0
 login("ROGUE", 3)

@@ -470,13 +470,6 @@ DEFAULTS.mage = {
     color = { 1, 1, 1, 1 }, lowColor = { 1, 0.4, 0.4, 1 },
 }
 
--- Buff check: who in the group is missing a buff somebody here can hand out.
-DEFAULTS.buffs = {
-    show = false, locked = true, x = -300, y = 0, size = 18, fontSize = 12, outline = true,
-    font = FONTS[1][2], color = { 1, 0.5, 0.5, 1 }, onlyMissing = false, lowCount = 5,
-    skip = {}, -- [check key] = true: leave that one out
-}
-
 -- the old "Target health beside it" switch; useProfile turns it into Enemy Health beside you
 DEFAULTS.regular.bars.health.target = false
 DEFAULTS.regular.hidePlayerFrame = false -- hide Blizzard's player unit frame
@@ -600,7 +593,7 @@ DEFAULTS.platesTarget.bars.enemyhealth.show = true -- show here: use this look o
 ------------------------------------------------------------------------------------------
 -- store = WolfpackAddonDB, account-wide: { profiles = { [name] = settings }, chars = { [char] = name } }
 -- db = the active profile's settings.
-local changed, placeMini, useProfile, bf, mg, hn, wl, we, lt, mc, ft, seedFromBaked
+local changed, placeMini, useProfile, mg, hn, wl, we, lt, mc, ft, seedFromBaked
 
 -- Bars that only show while they are doing something (cast, swing) stay visible while the bars
 -- are unlocked or the options are open, so they can be placed.
@@ -4102,7 +4095,6 @@ local function Refresh()
     moverHint:SetFormattedText(HINT, db.regular.x, db.regular.y)
     syncProtected()
     syncGryphons()
-    bf.refresh()
     mg.refresh()
     hn.refresh()
     wl.refresh()
@@ -5572,241 +5564,6 @@ ns.uf.ev:SetScript("OnEvent", function(_, event, unit)
     elseif b.power:IsShown() then safe(ns.fill, b.power) end
 end)
 
-bf = { rows = {} }
-ns.bf = bf
-
-------------------------------------------------------------------------------------------
--- Buff check: out of combat, who in the group is missing a buff that somebody here can give.
--- Only out of combat, because that is the only time this client answers aura questions -- and
--- it is the only time the answer is any use, since you buff before the pull.
-------------------------------------------------------------------------------------------
--- One entry per buff a class hands out. `names` are all the spellings that satisfy it, so a
--- greater blessing counts as a blessing and Prayer of Fortitude counts as stamina. A paladin
--- can only keep one blessing on someone, so any single one satisfies the row.
-bf.checks = {
-    { key = "stamina", from = "PRIEST", label = "Stamina", icon = 1243,
-        names = { "Power Word: Fortitude", "Prayer of Fortitude" } },
-    { key = "spirit", from = "PRIEST", label = "Spirit", icon = 14752,
-        names = { "Divine Spirit", "Prayer of Spirit" } },
-    { key = "shadow", from = "PRIEST", label = "Shadow Protection", icon = 976,
-        names = { "Shadow Protection", "Prayer of Shadow Protection" } },
-    { key = "wild", from = "DRUID", label = "Mark of the Wild", icon = 1126,
-        names = { "Mark of the Wild", "Gift of the Wild" } },
-    { key = "thorns", from = "DRUID", label = "Thorns", icon = 467, names = { "Thorns" }, off = true },
-    { key = "intellect", from = "MAGE", label = "Intellect", icon = 1459,
-        names = { "Arcane Intellect", "Arcane Brilliance" } },
-    { key = "blessing", from = "PALADIN", label = "A blessing", icon = 19740,
-        names = { "Blessing of Might", "Blessing of Wisdom", "Blessing of Kings",
-            "Blessing of Salvation", "Blessing of Sanctuary", "Blessing of Light",
-            "Greater Blessing of Might", "Greater Blessing of Wisdom", "Greater Blessing of Kings",
-            "Greater Blessing of Salvation", "Greater Blessing of Sanctuary",
-            "Greater Blessing of Light" } },
-    { key = "shout", from = "WARRIOR", label = "Battle Shout", icon = 6673,
-        names = { "Battle Shout" }, off = true },
-}
-
--- Classes that should have something on their weapon: a rogue's poison, a shaman's enchant.
-bf.weaponClasses = { ROGUE = true, SHAMAN = true }
-
-
-bf.panel = CreateFrame("Frame", "WolfpackAddonBuffCheck", UIParent)
-bf.panel:SetSize(200, 20)
-bf.panel:SetMovable(true)
-bf.panel:SetClampedToScreen(true)
-bf.panel:RegisterForDrag("LeftButton")
-bf.panel:SetScript("OnDragStart", function(a) a:StartMoving() end)
-bf.panel:SetScript("OnDragStop", function(a)
-    a:StopMovingOrSizing()
-    local ux, uy = UIParent:GetCenter()
-    db.buffs.x = math.floor(a:GetCenter() - ux + 0.5)
-    db.buffs.y = math.floor(select(2, a:GetCenter()) - uy + 0.5)
-    changed()
-end)
-
-function bf.icon(id)
-    if not id then return 134400 end -- a question mark, for anything the client won't name
-    bf.textures = bf.textures or {}
-    if bf.textures[id] == nil then
-        local ok, tex = pcall(function()
-            return (C_Spell and C_Spell.GetSpellTexture and C_Spell.GetSpellTexture(id))
-                or GetSpellTexture(id)
-        end)
-        bf.textures[id] = (ok and tex) or 134400
-    end
-    return bf.textures[id]
-end
-
--- The units to check, and which classes are here to hand buffs out.
-function bf.roster()
-    local units, classes = { "player" }, {}
-    if IsInRaid() then
-        units = {}
-        for i = 1, GetNumGroupMembers() or 0 do units[#units + 1] = "raid" .. i end
-    else
-        for i = 1, (GetNumGroupMembers() or 1) - 1 do units[#units + 1] = "party" .. i end
-    end
-    for _, u in ipairs(units) do
-        if UnitExists(u) then
-            local _, token = UnitClass(u)
-            if token then classes[token] = true end
-        end
-    end
-    return units, classes
-end
-
--- Does this unit have any of these auras? Out of combat the game answers by name.
-function bf.unitHas(unit, names)
-    for _, name in ipairs(names) do
-        local ok, data = pcall(function()
-            local d = C_UnitAuras.GetAuraDataBySpellName(unit, name, "HELPFUL")
-            if d then return d end
-        end)
-        if ok and data then return true, data end
-    end
-    return false
-end
-
--- Minutes left on one of your own buffs, or nil when it cannot be worked out.
-function bf.left(data)
-    local ok, left = pcall(function()
-        local exp = data.expirationTime
-        if readable(exp) and exp and exp > 0 then return exp - GetTime() end
-    end)
-    return ok and left or nil
-end
-
-function bf.short(sec)
-    if not sec or sec <= 0 then return "" end
-    if sec >= 3600 then return math.floor(sec / 3600 + 0.5) .. "h" end
-    if sec >= 60 then return math.floor(sec / 60 + 0.5) .. "m" end
-    return math.floor(sec) .. "s"
-end
-
--- A name for the list of who is missing something: first name, shortened.
-function bf.who(unit)
-    local n = UnitName(unit) or "?"
-    n = n:match("^[^%s%-]+") or n
-    return n:sub(1, 10)
-end
-
-function bf.row(i)
-    local o = db.buffs
-    local r = bf.rows[i]
-    if not r then
-        r = CreateFrame("Frame", nil, bf.panel)
-        r.icon = r:CreateTexture(nil, "ARTWORK")
-        r.icon:SetTexCoord(0.08, 0.92, 0.08, 0.92)
-        r.icon:SetPoint("LEFT")
-        r.text = r:CreateFontString(nil, "OVERLAY")
-        r.text:SetPoint("LEFT", r.icon, "RIGHT", 4, 0)
-        r.text:SetJustifyH("LEFT")
-        bf.rows[i] = r
-    end
-    r:SetSize(260, o.size)
-    r.icon:SetSize(o.size, o.size)
-    r:ClearAllPoints()
-    r:SetPoint("TOPLEFT", bf.panel, "TOPLEFT", 0, -(i - 1) * (o.size + 2))
-    local flags = o.outline and "OUTLINE" or ""
-    if not r.text:SetFont(o.font, o.fontSize, flags) then r.text:SetFont(FONTS[1][2], o.fontSize, flags) end
-    r:Show()
-    return r
-end
-
--- Builds the list: one row per buff somebody here can give, plus your weapon and your timers.
-function bf.check()
-    local o, lines = db.buffs, {}
-    local units, classes = bf.roster()
-    for _, chk in ipairs(bf.checks) do
-        if classes[chk.from] and not o.skip[chk.key] and not (chk.off and o.skip[chk.key] ~= false) then
-            local missing, mineLeft = {}, nil
-            for _, u in ipairs(units) do
-                if UnitExists(u) and not UnitIsDeadOrGhost(u) then
-                    local has, data = bf.unitHas(u, chk.names)
-                    if not has then
-                        missing[#missing + 1] = bf.who(u)
-                    elseif u == "player" then
-                        mineLeft = bf.left(data)
-                    end
-                end
-            end
-            local text
-            if #missing == 0 then
-                text = chk.label .. ": all set" .. (mineLeft and (" (you " .. bf.short(mineLeft) .. ")") or "")
-            elseif #missing > 4 then
-                text = chk.label .. ": " .. #missing .. " missing"
-            else
-                text = chk.label .. ": " .. table.concat(missing, ", ")
-            end
-            lines[#lines + 1] = { icon = chk.icon, text = text, ok = #missing == 0 }
-        end
-    end
-    -- Your weapon: a rogue's poison or a shaman's enchant, with what is left on it.
-    if bf.weaponClasses[class or ""] and not o.skip.weapon then
-        local ok, hasMain, mainMs, _, _, hasOff, offMs = pcall(GetWeaponEnchantInfo)
-        if ok then
-            local text = "Weapon: "
-            if hasMain then text = text .. "main " .. bf.short((mainMs or 0) / 1000) else text = text .. "main missing" end
-            if hasOff then
-                text = text .. ", off " .. bf.short((offMs or 0) / 1000)
-            elseif OffhandHasWeapon and OffhandHasWeapon() then
-                text = text .. ", off missing"
-            end
-            lines[#lines + 1] = { icon = 135795, text = text, ok = hasMain and true or false }
-        end
-    end
-    return lines
-end
-
-function bf.refresh()
-    if not db then return end
-    local o = db.buffs
-    bf.panel:ClearAllPoints()
-    bf.panel:SetPoint("CENTER", UIParent, "CENTER", o.x, o.y)
-    bf.panel:EnableMouse(not o.locked)
-    -- In combat the game answers nothing, so the list would be a guess: it steps aside instead.
-    if not o.show or (InCombatLockdown() and not ns.previewing()) then
-        bf.panel:Hide()
-        return
-    end
-    bf.panel:Show()
-    local lines = bf.check()
-    local n = 0
-    for _, line in ipairs(lines) do
-        if not (line.ok and o.onlyMissing) then
-            n = n + 1
-            local r = bf.row(n)
-            r.icon:SetTexture(bf.icon(line.icon))
-            r.icon:SetDesaturated(line.ok and true or false)
-            r.text:SetText(line.text)
-            if line.ok then
-                r.text:SetTextColor(0.5, 0.8, 0.5, 1)
-            else
-                r.text:SetTextColor(unpack(o.color))
-            end
-        end
-    end
-    if n == 0 and ns.previewing() then -- something to grab while placing it
-        n = 1
-        local r = bf.row(1)
-        r.icon:SetTexture(bf.icon(1243))
-        r.text:SetText("Buff check: all set")
-        r.text:SetTextColor(0.5, 0.8, 0.5, 1)
-    end
-    for i = n + 1, #bf.rows do bf.rows[i]:Hide() end
-    bf.panel:SetSize(260, math.max(n * (o.size + 2), 20))
-end
-
-ns.BUFF_CHECKS = bf.checks
-
-local bfEv = CreateFrame("Frame")
-ns.bfEv = bfEv
-bfEv:SetScript("OnEvent", function() safe(bf.refresh) end)
-for _, e in ipairs({ "UNIT_AURA", "PLAYER_ENTERING_WORLD", "PLAYER_REGEN_ENABLED",
-    "PLAYER_REGEN_DISABLED", "PLAYER_ALIVE", "GROUP_ROSTER_UPDATE", "PLAYER_DEAD",
-    "UNIT_INVENTORY_CHANGED" }) do
-    pcall(bfEv.RegisterEvent, bfEv, e)
-end
-
 ------------------------------------------------------------------------------------------
 -- Mage: how much conjured food and water is in the bags, always the best rank you carry.
 ------------------------------------------------------------------------------------------
@@ -6925,6 +6682,7 @@ function ns.repairOrder(layout, default)
 end
 
 useProfile = function(name)
+    if store.profiles[name] then store.profiles[name].buffs = nil end -- the Buff check is gone
     local had = store.profiles[name]
     if had and type(had.plates) == "table" and had.platesTarget == nil then -- saved before the targeted look
         had.platesTarget = merge({}, had.plates)
@@ -7643,7 +7401,7 @@ local function buildConfig()
     shelf("Interface")
     for _, e in ipairs({ { "combat", "Combat Display" }, { "actionbars", "Action bars" }, { "bags", "Bags" },
         { "nameplates", "Nameplates" }, { "unitframes", "Unit frames" },
-        { "buffs", "Buff check" }, { "other", "Other" }, { "barstack", "Bar Stack" } }) do
+        { "other", "Other" }, { "barstack", "Bar Stack" } }) do
         entry(e[1], e[2], e[3])
     end
     y = y - 12
@@ -7672,8 +7430,6 @@ local function buildConfig()
     ns.trailPage = trailPage
     local otherPage = CreateFrame("Frame", nil, content)
     otherPage:SetAllPoints(barsPage)
-    local buffPage = CreateFrame("Frame", nil, content)
-    buffPage:SetAllPoints(barsPage)
     local magePage = CreateFrame("Frame", nil, content)
     magePage:SetAllPoints(barsPage)
     local lockPage = CreateFrame("Frame", nil, content)
@@ -7690,7 +7446,7 @@ local function buildConfig()
     local bsPage = CreateFrame("Frame", nil, content)
     bsPage:SetAllPoints(barsPage)
     bsPage.need = 100 + ns.ui.BS_H
-    ns.pages = { combat = barsPage, nameplates = questPage, buffs = buffPage, mage = magePage,
+    ns.pages = { combat = barsPage, nameplates = questPage, mage = magePage,
         warlock = lockPage, rogue = roguePage, shaman = shamanPage,
         other = otherPage, profile = profilePage, colors = colorPage, actionbars = actionPage,
         bags = CreateFrame("Frame", nil, content), unitframes = CreateFrame("Frame", nil, content) }
@@ -7732,7 +7488,6 @@ local function buildConfig()
             or section == "actionbars" and "Action bars"
             or section == "bags" and "Bags"
             or section == "unitframes" and "Unit frames"
-            or section == "buffs" and "Buff check"
             or section == "mage" and "Mage: food and water"
             or section == "warlock" and "Warlock: soul shards"
             or section == "rogue" and "Rogue: weapon poisons"
@@ -7745,7 +7500,6 @@ local function buildConfig()
         questPage:SetShown(np and sub == "quest")
         trailPage:SetShown(trail and true or false)
         otherPage:SetShown(section == "other")
-        buffPage:SetShown(section == "buffs")
         magePage:SetShown(section == "mage")
         lockPage:SetShown(section == "warlock")
         roguePage:SetShown(section == "rogue")
@@ -8648,60 +8402,6 @@ local function buildConfig()
         wgt:close()
     end
 
-    ----------------------------------------------------------------------------------
-    -- Buffs page: the out-of-combat check of who is missing what
-    ----------------------------------------------------------------------------------
-    local B = function() return db.buffs end
-    local bset = group(buffPage, COL[1], TOP, 202, "Buff check")
-    check(buffPage, "Show it", bset.x, bset:row(ROW), function() return B().show end,
-        function(v) B().show = v end)
-    check(buffPage, "Only what is missing", bset.x, bset:row(ROW), function() return B().onlyMissing end,
-        function(v) B().onlyMissing = v end)
-    local blk = button(buffPage, "", 186, bset.x, bset:row(BUTTON), function()
-        B().locked = not B().locked
-        changed()
-    end)
-    onRefresh(function() blk:SetText(B().locked and "Locked (click to unlock)" or "Unlocked - drag it") end)
-    slider(buffPage, "X (left / right)", bset.x, bset:row(SLIDER), -1200, 1200,
-        function() return B().x end, function(v) B().x = v end)
-    slider(buffPage, "Y (down / up)", bset.x, bset:row(SLIDER), -800, 800,
-        function() return B().y end, function(v) B().y = v end)
-    local bsetNote = label(buffPage, "Checks everyone in the group against the buffs somebody here "
-        .. "can give, and shows who is missing one. Out of combat only: in a fight the game "
-        .. "answers nothing, so any list would be a guess.", "GameFontDisableSmall")
-    bsetNote:SetPoint("TOPLEFT", bset.x, bset:row(52))
-    bsetNote:SetWidth(182)
-    bsetNote:SetJustifyH("LEFT")
-    bset:close()
-
-    local blook = group(buffPage, COL[2], TOP, 202, "Look")
-    slider(buffPage, "Icon size", blook.x, blook:row(SLIDER), 8, 40, function() return B().size end,
-        function(v) B().size = v end)
-    dropdown(buffPage, "Font", blook.x, blook:row(DROP), FONTS, function() return B().font end,
-        function(v) B().font = v end, fontPreview)
-    slider(buffPage, "Font size", blook.x, blook:row(SLIDER), 6, 24, function() return B().fontSize end,
-        function(v) B().fontSize = v end)
-    check(buffPage, "Outline", blook.x, blook:row(ROW), function() return B().outline end,
-        function(v) B().outline = v end)
-    swatch(buffPage, "Missing color", blook.x, blook:row(SWATCH), function() return B().color end)
-    blook:close()
-
-    local bwhat = group(buffPage, COL[3], TOP, 202, "What to check")
-    for _, chk in ipairs(ns.BUFF_CHECKS) do
-        check(buffPage, chk.label .. " (" .. chk.from:sub(1, 1) .. chk.from:sub(2):lower() .. ")",
-            bwhat.x, bwhat:row(ROW), function() return not B().skip[chk.key] end,
-            function(v) B().skip[chk.key] = (not v) or nil end)
-    end
-    check(buffPage, "Weapon (rogue, shaman)", bwhat.x, bwhat:row(ROW),
-        function() return not B().skip.weapon end,
-        function(v) B().skip.weapon = (not v) or nil end)
-    local bwhatNote = label(buffPage, "A row shows only when somebody in the group can actually "
-        .. "give that buff. A paladin keeps one blessing per person, so any one of them counts.",
-        "GameFontDisableSmall")
-    bwhatNote:SetPoint("TOPLEFT", bwhat.x, bwhat:row(46))
-    bwhatNote:SetWidth(182)
-    bwhatNote:SetJustifyH("LEFT")
-    bwhat:close()
 
 
     -- Four columns of cards are built; the window holds two. Columns 3 and 4 move under 1 and 2:
