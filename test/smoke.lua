@@ -21,7 +21,7 @@ function M:SetText(t) self._text = t end
 function M:HasFocus() return self._focus == true end
 function M:Insert(t) self._text = (self._text or "") .. t end
 function M:SetMinMaxValues(a, b) self._min, self._max = a, b end
-function M:SetValue(v) self._value = v end
+function M:SetValue(v) assert(v ~= nil, "bad argument #1 to 'SetValue'"); self._value = v end -- the game refuses nil
 function M:GetValue() return type(self._value) == "number" and self._value or 0 end
 function M:SetChecked(v) self._checked = v end
 function M:GetChecked() return self._checked end

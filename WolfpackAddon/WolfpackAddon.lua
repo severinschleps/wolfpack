@@ -3430,11 +3430,14 @@ local function slider(parent, text, x, y, min, max, get, set, step)
     end)
 
     onRefresh(function()
+        -- a dialog's sliders refresh while it is hidden too, against whatever bar is picked;
+        -- one that bar has no setting for just rests at its minimum
+        local v = tonumber(get()) or num(min)
         syncing = true
         s:SetMinMaxValues(num(min), num(max))
-        s:SetValue(get())
+        s:SetValue(v)
         syncing = false
-        if not box:HasFocus() then box:SetText(tostring(get())) end
+        if not box:HasFocus() then box:SetText(tostring(v)) end
     end)
     return s
 end
