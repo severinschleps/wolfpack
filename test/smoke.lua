@@ -36,6 +36,7 @@ function M:ClearAllPoints() self._points = {} end
 function M:SetGradient(orient, c1, c2) self._grad = { orient, c1, c2 } end
 function M:SetTexture(t) self._tex = t end
 function M:SetScale(v) self._scale = v end
+function M:GetScale() return self._scale or 1 end
 function M:SetTextureSliceMargins(...) self._slice = { ... } end
 function M:SetAlpha(v) self._alpha, self._alphaSets = v, (self._alphaSets or 0) + 1 end
 function M:SetDesaturated(v) self._desat = v end
@@ -2994,6 +2995,12 @@ assert(#S.ab == 12 and S.ab[1]._template == "ActionBarButtonTemplate" and S.ab[1
     and S.ab[12]._attr.action == 12, "twelve buttons on slots 1-12")
 assert(S.ab[2]._point[1] == "TOPLEFT" and S.ab[2]._point[4] == 40 and ns.ab.frames[1]._point[1] == "BOTTOM",
     "right then down, 36 + 4 apart, at the screen's bottom")
+-- smaller buttons are scaled, not resized (the template's art has fixed sizes); gaps stay true
+S.A.bars[1].size = 18; fire("UNIT_MAXPOWER")
+assert(S.ab[1]._scale == 0.5 and S.ab[1]._w == nil and S.ab[2]._point[4] * 0.5 == 22,
+    "half scale; the next one 18 + 4 on, in the bar's units")
+assert(S.ab[1].wpKey._font[2] == 22 and S.ab[1].wpIcon._points[1][4] == 2, "text and border keep their size")
+S.A.bars[1].size = 36; fire("UNIT_MAXPOWER")
 S.A.bars[1].grow, S.A.bars[1].cols, S.A.bars[1].rows = "leftup", 6, 2; fire("UNIT_MAXPOWER")
 assert(S.ab[7]._point[1] == "BOTTOMRIGHT" and S.ab[7]._point[4] == 0 and S.ab[7]._point[5] == 40
     and S.ab[2]._point[4] == -40, "left, then up: the seventh starts a row above")
@@ -3069,8 +3076,9 @@ end)()
 S.SB, S.PT = prof().actionbars.stance, prof().actionbars.pet
 S.SB.show = true; fire("UNIT_MAXPOWER")
 S.sf = ns.ab.special.stance.frame
-assert(StanceButton1._parent == S.sf and StanceButton2._point[2] == S.sf and StanceButton2._point[4] == 34
-    and StanceButton1._w == 30, "the stance buttons in a bar of yours, 30 + 4 apart")
+assert(StanceButton1._parent == S.sf and StanceButton2._point[2] == S.sf
+    and math.abs(StanceButton2._point[4] * StanceButton2._scale - 34) < 1e-9
+    and math.abs(StanceButton1._scale * 36 - 30) < 1e-9, "the stance buttons in a bar of yours, 30 + 4 apart")
 assert(S.sf._point[1] == "BOTTOM" and S.sf._point[2] == ns.ab.frames[1] and S.sf._point[3] == "TOP"
     and S.sf._point[5] == S.SB.gap, "on top of bar 1, centered")
 S.SB.align = "start"; fire("UNIT_MAXPOWER")
@@ -3088,8 +3096,8 @@ ns.abBindMode(true); StanceButton1._scripts.OnEnter(StanceButton1); ns.abKey("F1
 assert(prof().actionbars.binds["stance:1"] == "F1" and S.binds.F1 == "StanceButton1", "F1 on the first stance")
 StanceButton1._scripts.OnLeave(StanceButton1); ns.abBindMode(false)
 S.SB.show, S.SB.cols = false, 10; fire("UNIT_MAXPOWER")
-assert(StanceButton1._parent == StanceBar and StanceButton2._point[2] == StanceBar and StanceButton2._point[4] == 30,
-    "off: given back where they were")
+assert(StanceButton1._parent == StanceBar and StanceButton2._point[2] == StanceBar and StanceButton2._point[4] == 30
+    and StanceButton1._scale == 1, "off: given back where they were, at their own scale")
 assert(S.pf2._point[1] == "BOTTOM" and S.pf2._point[2] == UIParent, "its anchor gone: the pet bar on the screen")
 S.PT.show = false; fire("UNIT_MAXPOWER")
 assert(not S.pf2._driver and PetActionButton1._parent == UIParent, "pet bar off too")

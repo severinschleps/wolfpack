@@ -2426,10 +2426,24 @@ function ns.abButton(f, i, j)
     return b
 end
 
+-- Buttons are scaled to size, never resized: the game's template draws its highlight, glow,
+-- cooldown and slot art at fixed sizes, which spilled into the gap on a smaller button (seen in
+-- game). So a button keeps its own size, and offsets, border and text are divided by the scale.
+function ns.abScale(b, size)
+    if not b.wpNative then
+        local w = b:GetWidth()
+        b.wpNative = (type(w) == "number" and w > 1 and w < 100) and w or 36
+    end
+    local s = size / b.wpNative
+    b:SetScale(s)
+    return s
+end
+
 function ns.abLook(b, bar, slot, blizz)
     local nt = b:GetNormalTexture()
     if nt then nt:SetAlpha(0) end -- the game's frame art: the border is ours
-    local t, z = bar.borderSize, bar.zoom / 100
+    local sc = b.wpScale or 1
+    local t, z = bar.borderSize / sc, bar.zoom / 100
     b.wpEdge:SetColorTexture(unpack(bar.borderColor))
     b.wpEdge:SetShown(t > 0)
     b.wpIcon:ClearAllPoints()
@@ -2437,10 +2451,12 @@ function ns.abLook(b, bar, slot, blizz)
     b.wpIcon:SetPoint("BOTTOMRIGHT", b, "BOTTOMRIGHT", -t, t)
     ns.iconCorners(b.wpIcon, b.wpMask, bar.radius, { z, 1 - z, z, 1 - z })
     ns.iconCorners(b.wpEdge, b.wpEdgeMask, bar.radius, { 0, 1, 0, 1 })
-    if not b.wpKey:SetFont(bar.keyFont, bar.keySize, "OUTLINE") then b.wpKey:SetFont(FONTS[1][2], bar.keySize, "OUTLINE") end
+    if not b.wpKey:SetFont(bar.keyFont, bar.keySize / sc, "OUTLINE") then
+        b.wpKey:SetFont(FONTS[1][2], bar.keySize / sc, "OUTLINE")
+    end
     if blizz then return ns.abHotkey(b) end -- the game keeps its own buttons up to date
-    if not b.wpName:SetFont(bar.macroFont, bar.macroSize, "OUTLINE") then
-        b.wpName:SetFont(FONTS[1][2], bar.macroSize, "OUTLINE")
+    if not b.wpName:SetFont(bar.macroFont, bar.macroSize / sc, "OUTLINE") then
+        b.wpName:SetFont(FONTS[1][2], bar.macroSize / sc, "OUTLINE")
     end
     b.wpName:SetShown(bar.macroText and true or false)
     if not (pcall(b.UpdateAction, b, true)) then pcall(ActionButton_UpdateAction, b) end
@@ -2480,10 +2496,10 @@ function ns.syncActionBars()
                 if j <= n then
                     b:SetAttribute("action", slot)
                     b.wpSlot = slot
-                    b:SetSize(bar.size, bar.size)
+                    b.wpScale = ns.abScale(b, bar.size)
                     b:ClearAllPoints()
-                    b:SetPoint(corner, f, corner, g[1] * ((j - 1) % bar.cols) * step,
-                        g[2] * math.floor((j - 1) / bar.cols) * step)
+                    b:SetPoint(corner, f, corner, g[1] * ((j - 1) % bar.cols) * step / b.wpScale,
+                        g[2] * math.floor((j - 1) / bar.cols) * step / b.wpScale)
                     ns.abLook(b, bar, slot)
                 end
             end
@@ -2551,7 +2567,7 @@ function ns.syncSpecialBars()
                     if not st.saved[i] then
                         local pts = {}
                         for p = 1, b:GetNumPoints() do pts[p] = { b:GetPoint(p) } end
-                        st.saved[i] = { parent = b:GetParent(), points = pts }
+                        st.saved[i] = { parent = b:GetParent(), points = pts, scale = b:GetScale() }
                         if not b.wpBlizz then -- once per button: what ours have too
                             local name = b:GetName() or ""
                             b.wpBlizz, b.wpSlot = true, key .. ":" .. i
@@ -2567,10 +2583,10 @@ function ns.syncSpecialBars()
                     end
                     b:SetParent(i <= n and f or hider)
                     if i <= n then
-                        b:SetSize(o.size, o.size)
+                        b.wpScale = ns.abScale(b, o.size)
                         b:ClearAllPoints()
-                        b:SetPoint(corner, f, corner, g[1] * ((i - 1) % o.cols) * step,
-                            g[2] * math.floor((i - 1) / o.cols) * step)
+                        b:SetPoint(corner, f, corner, g[1] * ((i - 1) % o.cols) * step / b.wpScale,
+                            g[2] * math.floor((i - 1) / o.cols) * step / b.wpScale)
                         ns.abLook(b, o, nil, true)
                     end
                 end
@@ -2591,6 +2607,7 @@ function ns.syncSpecialBars()
             for i, sv in pairs(st.saved) do
                 local b = ns.abBlizzButton(key, i)
                 b:SetParent(sv.parent)
+                b:SetScale(sv.scale or 1)
                 b:ClearAllPoints()
                 for _, pt in ipairs(sv.points) do b:SetPoint(unpack(pt)) end
             end
