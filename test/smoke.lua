@@ -100,6 +100,8 @@ function M:IsMouseEnabled() return true end
 function M:GetWidth() return self._w or 140 end
 function M:GetHeight() return self._h or 100 end
 function M:SetHeight(h) self._h = h end
+function M:SetWidth(w) self._w = w end
+function M:SetDrawLayer(l, sub) self._layer = { l, sub } end
 function M:SetAttribute(k, v) self._attr = self._attr or {}; self._attr[k] = v end
 function M:GetUnboundedStringWidth() return 50 end
 function M:GetStringWidth() return 8 end
@@ -1357,6 +1359,30 @@ hc.borderSize, hc.borderMode = 0, "custom"
     P.borderSize = 0
     fire("UNIT_MAXPOWER")
     assert(not hs.edgeShine:IsShown(), "no border, no border overlay")
+    -- inner shadow: strips fading in from the edges, the offset thickening the far side; over
+    -- the fill or between border and bar. Drop shadow: behind the border, offset
+    P.borderSize = 2
+    fire("UNIT_MAXPOWER")
+    assert(not hs.inner[1]:IsShown() and not hs.drop:IsShown(), "no shadows to start")
+    P.innerShadow.show, P.dropShadow.show = true, true
+    fire("UNIT_MAXPOWER")
+    local top, bottom, left = hs.inner[1], hs.inner[2], hs.inner[3]
+    assert(top._h == 6 and bottom._h == 2 and left._w == 4 and top._layer[1] == "ARTWORK"
+        and top._grad[3][4] == 0.6 and top._grad[2][4] == 0 and top._point[2] == hs, "inner: over the fill, top darker")
+    P.innerShadow.on, P.innerShadow.y = "border", 2
+    fire("UNIT_MAXPOWER")
+    assert(top._h == 2 and bottom._h == 6 and top._layer[1] == "BACKGROUND" and top._layer[2] == -6
+        and top._point[2] == hs.border, "or between border and bar")
+    P.innerShadow.size, P.innerShadow.y = 0, 0
+    fire("UNIT_MAXPOWER")
+    assert(not top:IsShown(), "size 0: none")
+    local d = hs.drop
+    assert(d:IsShown() and d._tex:find("Shadow\\s4.tga") and d._points[1][2] == hs.border and d._points[1][4] == -2
+        and d._points[1][5] == 2 and d._points[2][4] == 6 and d._points[2][5] == -6, "drop shadow: soft, offset")
+    P.innerShadow.show, P.innerShadow.on, P.innerShadow.size, P.innerShadow.y = false, "bar", 4, -2
+    P.dropShadow.show = false
+    fire("UNIT_MAXPOWER")
+    assert(not d:IsShown() and not left:IsShown(), "both off again")
     P.barShine.show, P.borderShine.show, P.barShine.dir = false, false, "down"
     hc.borderFrom, P.borderSize, P.borderTexture = keptFrom, keptSize, flat
     fire("UNIT_MAXPOWER")

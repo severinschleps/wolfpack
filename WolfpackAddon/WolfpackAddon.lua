@@ -494,6 +494,10 @@ do
     -- other (opacity included), top to bottom ("down") or left to right ("right")
     p.barShine = { show = false, dir = "down", from = { 1, 1, 1, 0.25 }, to = { 1, 1, 1, 0 } }
     p.borderShine = { show = false, dir = "down", from = { 1, 1, 1, 0.35 }, to = { 0, 0, 0, 0.35 } }
+    -- every bar's shadows. Inner: fading in from the edges, over the fill ("bar") or between the
+    -- border and the bar ("border"). Drop: behind the border. size: how far they fade; x / y: offset (y up)
+    p.innerShadow = { show = false, on = "bar", color = { 0, 0, 0, 0.6 }, size = 4, x = 0, y = -2 }
+    p.dropShadow = { show = false, color = { 0, 0, 0, 0.6 }, size = 4, x = 2, y = -2 }
     p.texturesSet = false -- ... and bars with a texture of their own "own" (once)
     p.moved = false -- useProfile has moved the per-bar power and cast colors in here (once)
     DEFAULTS.colors = p
@@ -956,6 +960,63 @@ function ns.shine(tex, o, allowed)
     end
 end
 
+-- The palette's inner shadow on a bar segment: four strips fading in from the edges, masked to its
+-- corners. Over the fill, or over the border and under the bar. An offset thickens the edges it
+-- moves away from (y up: a negative y darkens the top).
+function ns.innerShadow(s, w, h, iw, ih, radius, inner)
+    local o = db.colors.innerShadow
+    s.inner = s.inner or { s:CreateTexture(), s:CreateTexture(), s:CreateTexture(), s:CreateTexture() }
+    local onBar = o.on ~= "border"
+    local box, mask = onBar and s or s.border, onBar and s.mask or s.borderMask
+    local bw, bh = onBar and iw or w, onBar and ih or h
+    local r, g, b, a = unpack(o.color)
+    local solid, clear = CreateColor(r, g, b, a), CreateColor(r, g, b, 0)
+    local sizes = { o.size - o.y, o.size + o.y, o.size + o.x, o.size - o.x } -- top, bottom, left, right
+    for i, tex in ipairs(s.inner) do
+        local n = math.min(math.max(sizes[i], 0), i <= 2 and bh or bw)
+        local on = o.show and n > 0
+        tex:SetShown(on and true or false)
+        if on then
+            tex:SetDrawLayer(onBar and "ARTWORK" or "BACKGROUND", onBar and 4 or -6)
+            tex:SetColorTexture(1, 1, 1, 1)
+            tex:ClearAllPoints()
+            local side = ({ "TOP", "BOTTOM", "LEFT", "RIGHT" })[i]
+            if i <= 2 then
+                tex:SetPoint(side .. "LEFT", box, side .. "LEFT")
+                tex:SetPoint(side .. "RIGHT", box, side .. "RIGHT")
+                tex:SetHeight(n)
+                tex:SetGradient("VERTICAL", i == 1 and clear or solid, i == 1 and solid or clear)
+            else
+                tex:SetPoint("TOP" .. side, box, "TOP" .. side)
+                tex:SetPoint("BOTTOM" .. side, box, "BOTTOM" .. side)
+                tex:SetWidth(n)
+                tex:SetGradient("HORIZONTAL", i == 3 and solid or clear, i == 3 and clear or solid)
+            end
+            if tex.cpdMask and tex.cpdMask ~= mask then -- moved between bar and border
+                tex:RemoveMaskTexture(tex.cpdMask)
+                tex.cpdMask = nil
+            end
+            round(tex, mask, onBar and inner or radius, bw, bh)
+        end
+    end
+end
+
+-- The palette's drop shadow: a soft copy of the border behind it (on the bar's frame, so under
+-- every segment), offset and fading out over `size`.
+function ns.dropShadow(f, s)
+    local o = db.colors.dropShadow
+    s.drop = s.drop or f:CreateTexture(nil, "BACKGROUND", nil, -8)
+    local n = math.max(1, math.min(math.floor(o.size), 20))
+    s.drop:SetShown(o.show and true or false)
+    if not o.show then return end
+    s.drop:SetTexture("Interface\\AddOns\\" .. ADDON .. "\\Media\\Shadow\\s" .. n .. ".tga")
+    pcall(s.drop.SetTextureSliceMargins, s.drop, n, n, n, n)
+    s.drop:SetVertexColor(unpack(o.color))
+    s.drop:ClearAllPoints()
+    s.drop:SetPoint("TOPLEFT", s.border, "TOPLEFT", o.x - n, o.y + n)
+    s.drop:SetPoint("BOTTOMRIGHT", s.border, "BOTTOMRIGHT", o.x + n, o.y - n)
+end
+
 -- A "same as bar" border: the bar's color, lighter or darker by the palette's border shade.
 function ns.shade(r, g, b)
     local s = (db.colors.borderShade or 0) / 100
@@ -1109,6 +1170,8 @@ local function layoutBar(f, n, width, over)
             s.edgeShine:SetAllPoints(s.border)
             ns.shine(s.edgeShine, db.colors.borderShine, t > 0)
             round(s.edgeShine, s.borderMask, radius, w, c.height)
+            ns.innerShadow(s, w, c.height, iw, ih, radius, inner0)
+            ns.dropShadow(f, s)
             s.hl:SetColorTexture(unpack(db.regular.highlight.color))
             s.hl:SetShown((f.mode == "regular" and hovered) or false)
             round(s.hl, s.borderMask, radius, w, c.height)
@@ -7669,7 +7732,73 @@ local function buildConfig()
     local function swatches(g, list, get)
         for _, e in ipairs(list) do swatch(colorPage, e[2], g.x, g:row(SWATCH), function() return get()[e[1]] end) end
     end
-    local hcard = group(colorPage, COL[1], TOP, 202, "Health and standing")
+    -- Bars on the left, borders on the right, each with its texture, overlay and shadow; the
+    -- palette's colors below them
+    local function overlay(g, key, what)
+        local O = function() return P()[key] end
+        check(colorPage, "Gradient overlay", g.x, g:row(ROW), function() return O().show end, function(v) O().show = v end)
+        ns.shineMenus = ns.shineMenus or {}
+        ns.shineMenus[#ns.shineMenus + 1] = dropdown(colorPage, "Direction", g.x, g:row(DROP),
+            { { "Top to bottom", "down" }, { "Left to right", "right" } }, function() return O().dir end,
+            function(v) O().dir = v end, textPreview)
+        swatch(colorPage, what .. " overlay: from", g.x, g:row(SWATCH), function() return O().from end)
+        swatch(colorPage, what .. " overlay: to", g.x, g:row(SWATCH), function() return O().to end)
+    end
+    local function shadow(g, key, what)
+        local O = function() return P()[key] end
+        check(colorPage, "Show", g.x, g:row(ROW), function() return O().show end, function(v) O().show = v end)
+        if key == "innerShadow" then
+            dropdown(colorPage, "Where", g.x, g:row(DROP), { { "On the bar (over the fill)", "bar" },
+                { "Between border and bar", "border" } }, function() return O().on end,
+                function(v) O().on = v end, textPreview)
+        end
+        swatch(colorPage, what .. " color", g.x, g:row(SWATCH), function() return O().color end)
+        for _, r in ipairs({ { "size", "Size (how far it fades)", key == "dropShadow" and 1 or 0, 20 },
+            { "x", "X offset", -10, 10 }, { "y", "Y offset (up)", -10, 10 } }) do
+            slider(colorPage, r[2], g.x, g:row(SLIDER), r[3], r[4], function() return O()[r[1]] end,
+                function(v) O()[r[1]] = v end)
+        end
+    end
+    local function note(g, text, h)
+        local n = label(colorPage, text, "GameFontDisableSmall")
+        n:SetPoint("TOPLEFT", g.x, g:row(h))
+        n:SetWidth(182)
+        n:SetJustifyH("LEFT")
+    end
+
+    local bars = group(colorPage, COL[1], TOP, 202, "Bars")
+    ns.sharedTextureMenu = dropdown(colorPage, "Texture", bars.x, bars:row(DROP), TEXTURES,
+        function() return P().texture end, function(v) P().texture = v end, texturePreview)
+    note(bars, "Every bar set to \"Shared\" under Colors takes it.", 30)
+    overlay(bars, "barShine", "Bar")
+    note(bars, "Laid over the bar's own color or gradient. Opacity is in each color.", 30)
+    bars:close()
+    local inner = group(colorPage, COL[1], bars.cursor - 20, 202, "Bars: inner shadow")
+    shadow(inner, "innerShadow", "Shadow")
+    note(inner, "Fades in from the edges. Opacity is in the color.", 30)
+    inner:close()
+
+    local bcard = group(colorPage, COL[2], TOP, 202, "Borders")
+    ns.sharedBorderTexMenu = dropdown(colorPage, "Texture", bcard.x, bcard:row(DROP), TEXTURES,
+        function() return P().borderTexture end, function(v) P().borderTexture = v end, texturePreview)
+    slider(colorPage, "Width", bcard.x, bcard:row(SLIDER), 0, 10,
+        function() return P().borderSize end, function(v) P().borderSize = v end)
+    ns.sharedRadiusMenu = dropdown(colorPage, "Corner radius", bcard.x, bcard:row(DROP), { { "None", 0 }, { "2 px", 2 }, { "4 px", 4 },
+        { "8 px", 8 }, { "16 px", 16 }, { "32 px", 32 }, { "Pill (50% of height)", "pill" } },
+        function() return P().radius end, function(v) P().radius = v end, textPreview)
+    note(bcard, "Every bar set to \"Shared\" under Border takes these.", 30)
+    slider(colorPage, "\"Same as bar\" shade", bcard.x, bcard:row(SLIDER), -100, 100,
+        function() return P().borderShade end, function(v) P().borderShade = v end)
+    note(bcard, "How a border that follows its bar differs from it: up to 100 "
+        .. "lighter (white), down to -100 darker (black), 0 the same.", 44)
+    overlay(bcard, "borderShine", "Border")
+    bcard:close()
+    local drop = group(colorPage, COL[2], bcard.cursor - 20, 202, "Borders: drop shadow")
+    shadow(drop, "dropShadow", "Shadow")
+    note(drop, "Behind the border, on every bar.", 20)
+    drop:close()
+
+    local hcard = group(colorPage, COL[3], TOP, 202, "Colors: health and standing")
     swatch(colorPage, "Health", hcard.x, hcard:row(SWATCH), function() return P().health end)
     swatch(colorPage, "Experience", hcard.x, hcard:row(SWATCH), function() return P().experience end)
     swatch(colorPage, "Honor", hcard.x, hcard:row(SWATCH), function() return P().honor end)
@@ -7678,62 +7807,14 @@ local function buildConfig()
     swatches(hcard, { { "hostile", "Hostile" }, { "neutral", "Neutral" }, { "friendly", "Friendly" } },
         function() return P().reaction end)
     hcard:close()
-    local ccard = group(colorPage, COL[1], hcard.cursor - 20, 202, "Cast bars")
+    local ccard = group(colorPage, COL[3], hcard.cursor - 20, 202, "Colors: cast bars")
     swatches(ccard, { { "cast", "Casting" }, { "channel", "Channeling" }, { "harm", "Enemy: damage" },
         { "heal", "Enemy: healing" }, { "locked", "Enemy: can't be stopped" } }, function() return P().cast end)
     ccard:close()
-    local tcard = group(colorPage, COL[1], ccard.cursor - 20, 202, "Texture")
-    ns.sharedTextureMenu = dropdown(colorPage, "Bar texture", tcard.x, tcard:row(DROP), TEXTURES,
-        function() return P().texture end, function(v) P().texture = v end, texturePreview)
-    ns.sharedBorderTexMenu = dropdown(colorPage, "Border texture", tcard.x, tcard:row(DROP), TEXTURES,
-        function() return P().borderTexture end, function(v) P().borderTexture = v end, texturePreview)
-    local tnote2 = label(colorPage, "Every bar set to \"Shared\" takes them: the bar texture under Colors, "
-        .. "the border's under Border.", "GameFontDisableSmall")
-    tnote2:SetPoint("TOPLEFT", tcard.x, tcard:row(44))
-    tnote2:SetWidth(182)
-    tnote2:SetJustifyH("LEFT")
-    tcard:close()
-    local bcard = group(colorPage, COL[1], tcard.cursor - 20, 202, "Borders")
-    slider(colorPage, "Width", bcard.x, bcard:row(SLIDER), 0, 10,
-        function() return P().borderSize end, function(v) P().borderSize = v end)
-    ns.sharedRadiusMenu = dropdown(colorPage, "Corner radius", bcard.x, bcard:row(DROP), { { "None", 0 }, { "2 px", 2 }, { "4 px", 4 },
-        { "8 px", 8 }, { "16 px", 16 }, { "32 px", 32 }, { "Pill (50% of height)", "pill" } },
-        function() return P().radius end, function(v) P().radius = v end, textPreview)
-    local snote = label(colorPage, "Every bar set to \"Shared\" under Border takes these.", "GameFontDisableSmall")
-    snote:SetPoint("TOPLEFT", bcard.x, bcard:row(30))
-    snote:SetWidth(182)
-    snote:SetJustifyH("LEFT")
-    slider(colorPage, "\"Same as bar\" shade", bcard.x, bcard:row(SLIDER), -100, 100,
-        function() return P().borderShade end, function(v) P().borderShade = v end)
-    local bnote = label(colorPage, "How a border that follows its bar differs from it: up to 100 "
-        .. "lighter (white), down to -100 darker (black), 0 the same.", "GameFontDisableSmall")
-    bnote:SetPoint("TOPLEFT", bcard.x, bcard:row(44))
-    bnote:SetWidth(182)
-    bnote:SetJustifyH("LEFT")
-    bcard:close()
-    -- a gradient over every bar's fill, and one over every border
-    local ocard = group(colorPage, COL[3], TOP, 202, "Gradient overlay")
-    for _, o in ipairs({ { "barShine", "On every bar", "Bar" }, { "borderShine", "On every border", "Border" } }) do
-        local O = function() return P()[o[1]] end
-        check(colorPage, o[2], ocard.x, ocard:row(ROW), function() return O().show end, function(v) O().show = v end)
-        ns.shineMenus = ns.shineMenus or {}
-        ns.shineMenus[#ns.shineMenus + 1] = dropdown(colorPage, "Direction", ocard.x, ocard:row(DROP),
-            { { "Top to bottom", "down" }, { "Left to right", "right" } }, function() return O().dir end,
-            function(v) O().dir = v end, textPreview)
-        swatch(colorPage, o[3] .. " overlay: from", ocard.x, ocard:row(SWATCH), function() return O().from end)
-        swatch(colorPage, o[3] .. " overlay: to", ocard.x, ocard:row(SWATCH), function() return O().to end)
-        ocard:row(8)
-    end
-    local onote = label(colorPage, "Laid over the bar's own color or gradient. Opacity is in each color.",
-        "GameFontDisableSmall")
-    onote:SetPoint("TOPLEFT", ocard.x, ocard:row(30))
-    onote:SetWidth(182)
-    onote:SetJustifyH("LEFT")
-    ocard:close()
-    local pcard = group(colorPage, COL[2], TOP, 202, "Power")
+    local pcard = group(colorPage, COL[4], TOP, 202, "Colors: power")
     swatches(pcard, ns.POWER_ORDER, function() return P().power end)
     pcard:close()
-    local klass = group(colorPage, COL[2], pcard.cursor - 20, 202, "Classes")
+    local klass = group(colorPage, COL[4], pcard.cursor - 20, 202, "Colors: classes")
     swatches(klass, ns.CLASS_ORDER, function() return P().class end)
     klass:close()
 
