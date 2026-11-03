@@ -2085,8 +2085,9 @@ assert(ns.pages.combat.need > 1000 and ns.content._h == ns.pages.combat.need - 9
 -- Profiles has its own page; the header names the profile in use and opens that page
 assert(byText("Export") and byText("Import") and byText("Reset to defaults") and byText("Create"), "profile page")
 S.pp = byText("Create")._parent
-assert(ns.boxesOn[S.pp] == 5 and regionWithText(S.pp, "New profile") and regionWithText(S.pp, "Parent and child")
-    and regionWithText(S.pp, "Manage"), "five cards: profile, new profile, share, parent and child, manage")
+assert(ns.boxesOn[S.pp] == 5 and regionWithText(S.pp, "|cffffd1001|r   Pick the parent")
+    and regionWithText(S.pp, "Loaded now") and regionWithText(S.pp, "Manage"),
+    "five cards: 1 the parent, 2 it or a child, loaded now, manage, share")
 local inUse
 for _, f in ipairs(created) do
     if type(f._text) == "string" and f._text:find("^Profile: ") then inUse = f end
@@ -2177,42 +2178,52 @@ byText("Combat Display")._scripts.OnClick(byText("Combat Display"), "LeftButton"
 byText("Combat Display")._scripts.OnClick(byText("Combat Display"), "LeftButton")
 assert(gapBox._text == "30", "back on Combat Display")
 
--- Profiles: create copies the current one, dropdown switches, delete falls back to Alpha
+-- Profiles, in two steps: 1 picks the parent (and loads it), 2 uses it as it is or a child of
+-- it. Create makes a plain child of the parent; a name taken gets a number; delete falls back
+-- to Alpha
+local function pick(menu, text)
+    menu:GenerateMenu()
+    for _, it in ipairs(menu._items) do if it.text == text then return it.set() end end
+    error("no menu entry " .. text)
+end
 nameBox._text = "  PvP "; nameBox._scripts.OnEnterPressed(nameBox)
-assert(store.profiles.PvP and store.profiles.PvP.regular.gap == 30 and prof() == store.profiles.PvP, "create copies + switches")
+assert(store.profiles.PvP and store.parents.PvP == "Rogue" and prof() == store.profiles.PvP
+    and prof().regular.gap == 30, "create: a child of the parent, loaded")
 prof().regular.gap = 5
-assert(store.profiles.Rogue.regular.gap == 30, "profiles are independent")
--- a name that is taken gets a number instead of switching to the old one
+assert(store.profiles.Rogue.regular.gap == 30, "the child's change stays its own")
 nameBox._text = "PvP"; nameBox._scripts.OnEnterPressed(nameBox)
 assert(store.profiles["PvP 2"] and prof() == store.profiles["PvP 2"], "same name again: PvP 2")
-store.profiles["PvP 2"], store.chars[S.name .. " - Realm"] = nil, "PvP"
-local dds = {} -- profile, texture, bar color, border color, radius, font, kill icon, loot icon, combat icon, attach
-for _, f in ipairs(created) do if f._gen and f ~= ns.copyFromMenu and f ~= ns.parentMenu and f ~= ns.countSpotMenus[1] and f ~= ns.countSpotMenus[2] and f ~= ns.sharedBorderTexMenu and f ~= ns.ownBorderTexMenu and f ~= ns.shineMenus[1] and f ~= ns.shineMenus[2] and f ~= ns.resPlaceMenu and f ~= ns.resPointMenu and f ~= ns.sitsMenu and f ~= ns.xpMenu and f ~= ns.borderFromMenu and f ~= ns.sharedRadiusMenu and f ~= ns.textureFromMenu and f ~= ns.sharedTextureMenu and not (f._parent == ns.pages.actionbars) then dds[#dds + 1] = f end end
-local dd = dds[1]
-dd:GenerateMenu()
-local names = {}
-for _, it in ipairs(dd._items) do names[#names + 1] = it.text .. (it.sel() and "*" or "") end
-assert(table.concat(names, ",") == "Alpha,PvP*,Rogue,Warrior", table.concat(names, ","))
-dd._items[3].set()
-assert(prof() == store.profiles.Rogue, "dropdown switches")
-dd._items[2].set()
+store.profiles["PvP 2"], store.parents["PvP 2"] = nil, nil
+ns.useProfile("PvP")
+local dds = {} -- step 1's parent, texture, bar color, border color, radius, font, kill icon, loot icon, combat icon, attach
+for _, f in ipairs(created) do if f._gen and f ~= ns.copyFromMenu and f ~= ns.childPick and f ~= ns.countSpotMenus[1] and f ~= ns.countSpotMenus[2] and f ~= ns.sharedBorderTexMenu and f ~= ns.ownBorderTexMenu and f ~= ns.shineMenus[1] and f ~= ns.shineMenus[2] and f ~= ns.resPlaceMenu and f ~= ns.resPointMenu and f ~= ns.sitsMenu and f ~= ns.xpMenu and f ~= ns.borderFromMenu and f ~= ns.sharedRadiusMenu and f ~= ns.textureFromMenu and f ~= ns.sharedTextureMenu and not (f._parent == ns.pages.actionbars) then dds[#dds + 1] = f end end
+assert(dds[1] == ns.parentPick, "step 1 comes first")
+do
+    local names = {}
+    ns.parentPick:GenerateMenu()
+    for _, it in ipairs(ns.parentPick._items) do names[#names + 1] = it.text .. (it.sel() and "*" or "") end
+    assert(table.concat(names, ",") == "Alpha,Rogue*,Warrior", "step 1: parents only, PvP's picked: "
+        .. table.concat(names, ","))
+    names = {}
+    ns.childPick:GenerateMenu()
+    for _, it in ipairs(ns.childPick._items) do names[#names + 1] = it.text .. (it.sel() and "*" or "") end
+    assert(table.concat(names, ","):find("^Rogue itself,PvP |cff888888%(child%)|r%*"), "step 2: " .. table.concat(names, ","))
+end
+pick(ns.parentPick, "Alpha")
+assert(prof() == store.profiles.Alpha, "step 1 loads the parent")
+pick(ns.parentPick, "Rogue")
+pick(ns.childPick, "PvP |cff888888(child)|r")
+assert(prof() == store.profiles.PvP, "step 2 loads the child")
 byText("Delete profile")._scripts.OnClick(byText("Delete profile"), "LeftButton")
 assert(not store.profiles.PvP and prof() == store.profiles.Alpha, "delete falls back to Alpha")
 ns.useProfile("Rogue") -- back on the test rogue's own profile
 
--- A profile that follows another, like a child theme: it keeps only what it changes itself, and
--- the parent's later changes reach it
-nameBox._text = "Mom"; nameBox._scripts.OnEnterPressed(nameBox)
+-- The child keeps only what it changes itself, and the parent's later changes reach it
+ns.useProfile("Mom")
 local mom = prof()
 mom.regular.gap, mom.regular.bars.health.height = 4, 20
 nameBox._text = "Kid"; nameBox._scripts.OnEnterPressed(nameBox)
-ns.parentMenu:GenerateMenu()
-local follow
-for _, it in ipairs(ns.parentMenu._items) do if it.text == "Mom" then follow = it end end
-assert(follow and not follow.sel(), "Mom is on the list")
-follow.set()
-assert(store.parents.Kid == "Mom" and ns.inh.count("Kid") == 0, "a copy that follows: nothing of its own yet")
-for _, it in ipairs(ns.parentMenu._items) do assert(it.text ~= "Kid", "not itself") end
+assert(store.parents.Kid == "Mom" and ns.inh.count("Kid") == 0, "a new child: nothing of its own yet")
 prof().regular.bars.health.height = 33 -- its own change
 assert(ns.inh.count("Kid") == 1, "one change of its own")
 ns.useProfile("Mom")
@@ -2221,13 +2232,10 @@ assert(store.overrides.Kid.regular.bars.health.height == 33 and store.overrides.
 mom.regular.gap, mom.regular.bars.health.height = 9, 50 -- Mom is updated
 ns.useProfile("Kid")
 assert(prof().regular.gap == 9 and prof().regular.bars.health.height == 33, "the update reaches it; its own stays")
-ns.parentMenu:GenerateMenu()
-local loops = false
-ns.useProfile("Mom")
-ns.parentMenu:GenerateMenu()
-for _, it in ipairs(ns.parentMenu._items) do loops = loops or it.text == "Kid" end
-assert(not loops, "Mom can't follow her own child")
-ns.useProfile("Kid")
+do
+    ns.parentPick:GenerateMenu()
+    for _, it in ipairs(ns.parentPick._items) do assert(it.text ~= "Kid", "a child is no parent to pick") end
+end
 -- saved at logout too
 prof().regular.bars.health.width = 111
 fire("PLAYER_LOGOUT")
@@ -2235,20 +2243,13 @@ assert(store.overrides.Kid.regular.bars.health.width == 111, "written down befor
 -- a setting the child removed stays removed
 local d = ns.inh.diff({ a = 1 }, { a = 1, b = 2 })
 assert(d.b == ns.inh.NIL and ns.inh.apply({ a = 1, b = 2 }, d).b == nil, "a removal is kept")
--- the family shows: on the Profile card, and in the list each child under its parent
+-- what is loaded says whose child it is, and so does the header
 ns.cfg:Show(); byText("Profiles")._scripts.OnClick(byText("Profiles"), "LeftButton")
-assert(regionWithText(S.pp, "Child of |cffffd100Mom|r"), "the child says whose it is")
+assert(regionWithText(S.pp, "Child of |cffffd100Mom|r\n2 changes of its own; the rest is Mom's"), "loaded now: Kid, Mom's child")
 assert(inUse._text == "Profile: |cffffffffKid|r |cff888888(child of|r Mom|cff888888)|r", "the header says so too")
-do
-    dds[1]:GenerateMenu()
-    local order = {}
-    for _, it in ipairs(dds[1]._items) do order[#order + 1] = it.text end
-    local joined = table.concat(order, "|")
-    assert(joined:find("Mom|    Kid |cff888888%(child of Mom%)|r", 1, false), "Kid listed under Mom: " .. joined)
-end
-assert(ns.undoButton:IsShown(), "a child can undo its own changes")
+assert(ns.undoButton:IsShown() and ns.detachButton._text == "Detach from Mom", "undo and detach")
 ns.undoButton._scripts.OnClick(ns.undoButton)
-assert(prof().regular.bars.health.height == 50 and ns.inh.count("Kid") == 0, "reset: Mom's in full again")
+assert(prof().regular.bars.health.height == 50 and ns.inh.count("Kid") == 0, "undo: Mom's in full again")
 prof().regular.bars.health.height = 44
 -- the parent deleted: the child keeps what it had and stands alone
 ns.useProfile("Mom")
@@ -2257,7 +2258,7 @@ assert(not store.parents.Kid and store.profiles.Kid.regular.bars.health.height =
     and store.profiles.Kid.regular.gap == 9, "Mom gone: Kid stands alone, as it was")
 store.profiles.Kid = nil
 -- Alpha is the base: never a child. A link made the wrong way round (Alpha set to follow
--- Rogue) is turned round at login: Rogue becomes Alpha's child, keeping what differs
+-- Rogue) is turned round at login: Rogue becomes a plain child of Alpha
 ns.useProfile("Alpha")
 ns.inh.link("Alpha", "Rogue")
 assert(not store.parents.Alpha, "Alpha can't be given a parent")
@@ -2267,13 +2268,12 @@ login("ROGUE", 3)
 assert(not store.parents.Alpha and store.parents.Rogue == "Alpha" and next(store.overrides.Rogue) == nil
     and prof().regular.bars.health.height == store.profiles.Alpha.regular.bars.health.height,
     "turned round: Rogue is a plain child of Alpha")
--- picking a parent for a profile that differs from it asks: a plain child, or keep its own
+-- step 2 can make a standalone profile a child: when it differs it asks, plain or keep its own
 store.parents.Rogue, store.overrides.Rogue = nil, nil
 prof().regular.bars.health.height = 62
-ns.cfg:Show(); byText("Profiles")._scripts.OnClick(byText("Profiles"), "LeftButton")
-ns.parentMenu:GenerateMenu()
-for _, it in ipairs(ns.parentMenu._items) do if it.text == "Alpha" then it.set() end end -- the popup: Plain child
-assert(store.parents.Rogue == "Alpha" and next(store.overrides.Rogue) == nil
+ns.useProfile("Alpha")
+pick(ns.childPick, "|cff888888Make|r Rogue |cff888888a child|r") -- the popup: Plain child
+assert(store.parents.Rogue == "Alpha" and next(store.overrides.Rogue) == nil and prof() == store.profiles.Rogue
     and prof().regular.bars.health.height == store.profiles.Alpha.regular.bars.health.height, "plain child")
 store.parents.Rogue, store.overrides.Rogue = nil, nil
 prof().regular.bars.health.height = 62
