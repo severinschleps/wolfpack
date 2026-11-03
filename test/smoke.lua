@@ -885,8 +885,15 @@ S.units.targettarget, S.TT.show, S.TT.anchor = nil, false, "right"
 S.PB.anchor = "left"; fire("UNIT_PET", "player")
 assert(S.pf._point[1] == "TOPRIGHT" and S.pf._point[3] == "TOPLEFT" and S.pf._point[4] == -prof().regular.gap and S.pf._h == fr.health._h,
     "left of your health, its height")
+assert(fr.health.span and fr.health.auraBoxes.buffs._point[2] == fr.health.span
+    and fr.health.span._points[1][2] == S.pf and fr.health.span._points[2][2] == fr.health,
+    "your buffs hang on pet and health together, the pet starting the block")
+S.PB.anchor = "below"; fire("UNIT_PET", "player")
+assert(fr.health.span._points[1][2] == fr.health and fr.health.span._points[2][2] == S.pf, "below: health starts it")
+S.PB.anchor = "left"
 S.petHP = nil; fire("UNIT_PET", "player")
 assert(not S.pf:IsShown(), "no pet: gone")
+assert(fr.health.auraBoxes.buffs._point[2] == fr.health, "no pet: back on your health")
 S.PB.anchor = "stack"
 eh.beside, eh.show = S.saved[1], S.saved[2]
 fire("PLAYER_TARGET_CHANGED")

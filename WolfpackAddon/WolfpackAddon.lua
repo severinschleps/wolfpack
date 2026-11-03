@@ -1525,13 +1525,17 @@ function ns.layoutAuras(f)
     local unit = f.key == "health" and "player" or (UnitExists(f.unit) and f.unit)
     f.auraIcons = f.auraIcons or { buffs = {}, debuffs = {} }
     f.auraBoxes = f.auraBoxes or { buffs = CreateFrame("Frame", nil, f), debuffs = CreateFrame("Frame", nil, f) }
-    -- with target of target hung on enemy health, "the bar" is the two together
-    local host = f
-    if f.key == "enemyhealth" and f.mode == "regular" and ns.totPlaced() then
+    -- with target of target hung on enemy health, or your pet on your health, "the bar" is the
+    -- two together (a pet on the left starts the block)
+    local host, other = f, nil
+    if f.mode == "regular" and f.key == "enemyhealth" and ns.totPlaced() then other = frames.tothealth end
+    if f.mode == "regular" and f.key == "health" and ns.petPlaced() then other = frames.pethealth end
+    if other then
+        local first = (other == frames.pethealth and db.regular.bars.pethealth.anchor == "left") and other or f
         f.span = f.span or CreateFrame("Frame", nil, f)
         f.span:ClearAllPoints()
-        f.span:SetPoint("TOPLEFT", f, "TOPLEFT")
-        f.span:SetPoint("BOTTOMRIGHT", frames.tothealth, "BOTTOMRIGHT")
+        f.span:SetPoint("TOPLEFT", first, "TOPLEFT")
+        f.span:SetPoint("BOTTOMRIGHT", first == f and other or f, "BOTTOMRIGHT")
         host = f.span
     end
     for _, k in ipairs({ "buffs", "debuffs" }) do
