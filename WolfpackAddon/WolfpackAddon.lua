@@ -303,16 +303,19 @@ local function readable(v)
     return true
 end
 
--- Quest mob icons on nameplates: a row (kill, then loot) whose top-right sits at the nameplate's
--- top-right corner plus x/y. Icons are file IDs.
+-- Quest mob icons on nameplates, each on its own: anchorTo, an element of the nameplate (a key
+-- of ns.questElement's list, or "other": the other quest icon); spot, a key of ns.QUEST_SPOTS;
+-- then x/y. Icons are file IDs. The "how many left" number has a font, a color and a plate
+-- behind it (bg color, radius, padding).
+function ns.questIcon(icon, to, spot, x)
+    return { show = true, icon = icon, size = 20, count = false, anchorTo = to, spot = spot, x = x, y = 0,
+        font = FONTS[1][2], fontSize = 10, textColor = { 1, 1, 1, 1 }, bg = { 0, 0, 0, 0.8 }, radius = 0, pad = 2 }
+end
 local DEFAULTS = {
     locked = true,
     regular = layoutDefaults(true, 0, -120, 2, 220, 18, 14, 12, 6, 14, 10, 10, 10, 10),
-    quest = {
-        x = 0, y = 0, spacing = 2, anchor = "inside", -- anchor: a key of ns.QUEST_SPOTS
-        kill = { show = true, icon = 131013, size = 20, count = false },
-        loot = { show = true, icon = 131023, size = 20, count = false },
-    },
+    -- the bag in the bar's top right corner, the sword left of it (alone, in the bag's place)
+    quest = { kill = ns.questIcon(131013, "other", "left", -2), loot = ns.questIcon(131023, "bar", "inside", 0) },
     other = {
         hideGryphons = false, autoAccept = false, autoComplete = false, sellJunk = false,
         autoRepair = false,
@@ -2201,57 +2204,83 @@ local function questKinds(unit)
         mine.loot and "mine" or party.loot and "party" or nil, left
 end
 
--- Where the quest icon row sits: { label, its point, the plate's (or our bar's) point }
+-- Where a quest icon sits on what it hangs on: { label, its point, that element's point }
 ns.QUEST_SPOTS = { inside = { "Inside, top right", "TOPRIGHT", "TOPRIGHT" },
+    insideleft = { "Inside, top left", "TOPLEFT", "TOPLEFT" }, center = { "Centered on it", "CENTER", "CENTER" },
     above = { "Above, right end", "BOTTOMRIGHT", "TOPRIGHT" }, aboveleft = { "Above, left end", "BOTTOMLEFT", "TOPLEFT" },
+    abovecenter = { "Above, centered", "BOTTOM", "TOP" },
     right = { "Right of it", "LEFT", "RIGHT" }, left = { "Left of it", "RIGHT", "LEFT" },
-    below = { "Below, right end", "TOPRIGHT", "BOTTOMRIGHT" } }
-ns.QUEST_SPOT_ORDER = { "inside", "above", "aboveleft", "right", "left", "below" }
+    below = { "Below, right end", "TOPRIGHT", "BOTTOMRIGHT" }, belowleft = { "Below, left end", "TOPLEFT", "BOTTOMLEFT" },
+    belowcenter = { "Below, centered", "TOP", "BOTTOM" } }
+ns.QUEST_SPOT_ORDER = { "inside", "insideleft", "center", "above", "aboveleft", "abovecenter", "right", "left",
+    "below", "belowleft", "belowcenter" }
+-- what a quest icon can hang on (besides the other quest icon)
+ns.QUEST_ANCHORS = { { "Health bar", "bar" }, { "Power bar", "res" }, { "Cast bar", "cast" }, { "Name", "name" },
+    { "Level", "level" }, { "Buffs", "buffs" }, { "Debuffs", "debuffs" }, { "PvP icon", "pvp" } }
+
+-- The element `to` of our nameplate under holder h; our bar itself when that one is hidden or
+-- empty (the cast bar between casts), and Blizzard's whole plate when ours is off.
+function ns.questElement(h, to)
+    local f = h.ownBar or (ns.np and ns.np.bars[h.plate])
+    if not (f and f:IsShown()) then return h end
+    local boxes = f.auraBoxes or {}
+    local e = ({ res = f.resFrame, cast = f.castBar, name = f.tag_name and f.tag_name.box,
+        level = f.tag_level and f.tag_level.box, pvp = f.pvpIcon, buffs = boxes.buffs, debuffs = boxes.debuffs })[to]
+    if e and (to == "buffs" or to == "debuffs") and (e.n or 0) == 0 then e = nil end
+    return (e and e:IsShown()) and e or f
+end
 
 -- Nameplates are recycled, so each plate keeps one icon holder; plateUnits maps the units
 -- currently on screen to their holder.
 local questHolders, plateUnits = {}, {}
 ns.plateUnits = plateUnits
 
--- The row's box always has room for every enabled icon type; the icons a mob needs fill it from
--- the left, so a lone icon sits at the box's left edge.
+-- Each icon hangs on its own element. One hung on the other icon while that one isn't shown
+-- takes the other's place; both on each other would hang in the air, so then the sword takes
+-- the bar.
 local function styleQuest(h)
-    local q, w, ht = db.quest, 0, 0
-    for _, kind in ipairs(QUEST_ORDER) do
-        local c = q[kind]
-        if c.show then
-            w = w + (w > 0 and q.spacing or 0) + c.size
-            ht = math.max(ht, c.size)
-        end
-    end
-    h.box:SetSize(math.max(w, 1), math.max(ht, 1))
-    h.box:ClearAllPoints()
-    -- settings open: every row shows both icons (and counts), to place them by
+    local q = db.quest
+    -- settings open: every plate shows both icons (and counts), to place them by
     local want, left = h.want, h.left
     if ns.configOpen then want, left = ns.QUEST_DUMMY.want, ns.QUEST_DUMMY.left end
-    -- on our own nameplate the row hangs on its bar; on Blizzard's, on the whole plate
-    local ours = ns.np and ns.np.bars[h.plate]
-    local spot = ns.QUEST_SPOTS[q.anchor] or ns.QUEST_SPOTS.inside
-    h.box:SetPoint(spot[2], (ours and ours:IsShown()) and ours or h, spot[3], q.x, q.y)
-    local x = 0
     for _, kind in ipairs(QUEST_ORDER) do
         local c, t = q[kind], h[kind]
-        local on = (want[kind] and c.show) and true or false
         t:SetTexture(c.icon)
         t:SetDesaturated(want[kind] == "party") -- groupmates need it, you don't: grayscale
         t:SetSize(c.size, c.size)
+        t:SetShown((want[kind] and c.show) and true or false)
+    end
+    for _, kind in ipairs(QUEST_ORDER) do
+        local c, t = q[kind], h[kind]
+        local other = kind == "kill" and "loot" or "kill"
+        local o = q[other]
+        local toOther = c.anchorTo == "other" and not (kind == "kill" and o.anchorTo == "other")
+        local spot = ns.QUEST_SPOTS[c.spot] or ns.QUEST_SPOTS.inside
         t:ClearAllPoints()
-        t:SetPoint("TOPLEFT", h.box, "TOPLEFT", x, 0)
-        t:SetShown(on)
+        if toOther and h[other]:IsShown() then
+            t:SetPoint(spot[2], h[other], spot[3], c.x, c.y)
+        elseif toOther then
+            local os = ns.QUEST_SPOTS[o.spot] or ns.QUEST_SPOTS.inside
+            t:SetPoint(os[2], ns.questElement(h, o.anchorTo), os[3], o.x, o.y)
+        else
+            t:SetPoint(spot[2], ns.questElement(h, c.anchorTo), spot[3], c.x, c.y)
+        end
         local badge, count = h.badge[kind], left[kind]
-        local showCount = (on and c.count and count and count > 0) and true or false
+        local showCount = (t:IsShown() and c.count and count and count > 0) and true or false
         badge.text:SetShown(showCount)
         badge.bg:SetShown(showCount)
         if showCount then
-            badge.text:SetText(count)
-            badge.bg:SetSize(badge.text:GetStringWidth() + 4, badge.text:GetStringHeight() + 2)
+            local text = badge.text
+            if not text:SetFont(c.font, c.fontSize, "OUTLINE") then text:SetFont(FONTS[1][2], c.fontSize, "OUTLINE") end
+            text:SetTextColor(unpack(c.textColor))
+            text:ClearAllPoints()
+            text:SetPoint("BOTTOM", t, "TOP", 0, c.pad + 1) -- its plate clear of the icon
+            text:SetText(count)
+            local w, ht = text:GetStringWidth() + 2 * c.pad, text:GetStringHeight() + 2 * c.pad
+            badge.bg:SetSize(w, ht)
+            badge.bg:SetColorTexture(unpack(c.bg))
+            round(badge.bg, badge.mask, c.radius == "pill" and math.huge or c.radius, w, ht)
         end
-        if on then x = x + c.size + q.spacing end
     end
 end
 
@@ -2281,23 +2310,21 @@ local function plateAdded(unit)
     evalQuest(unit)
 end
 
--- the icon row's frame, over the whole of `parent` (a nameplate, or the preview plate)
+-- the quest icons' frame, over the whole of `parent` (a nameplate, or the preview plate)
 function ns.questHolder(parent)
     local h = CreateFrame("Frame", nil, parent)
     do
         h:SetAllPoints()
         h:SetFrameLevel(parent:GetFrameLevel() + 10)
-        h.box = CreateFrame("Frame", nil, h)
-        h.kill, h.loot, h.want, h.left = h.box:CreateTexture(nil, "OVERLAY"), h.box:CreateTexture(nil, "OVERLAY"), {}, {}
+        h.kill, h.loot, h.want, h.left = h:CreateTexture(nil, "OVERLAY"), h:CreateTexture(nil, "OVERLAY"), {}, {}
         h.badge = {}
         for _, kind in ipairs(QUEST_ORDER) do -- small "how many left" plate above the icon
-            local bg = h.box:CreateTexture(nil, "OVERLAY", nil, 1)
-            bg:SetColorTexture(0, 0, 0, 0.8)
-            local text = h.box:CreateFontString(nil, "OVERLAY", nil, 2)
-            text:SetFont(STANDARD_TEXT_FONT or "Fonts\\FRIZQT__.TTF", 10, "OUTLINE")
-            text:SetPoint("BOTTOM", h[kind], "TOP", 0, 2)
+            local bg = h:CreateTexture(nil, "OVERLAY", nil, 1)
+            local text = h:CreateFontString(nil, "OVERLAY", nil, 2)
+            local mask = h:CreateMaskTexture()
             bg:SetPoint("CENTER", text)
-            h.badge[kind] = { bg = bg, text = text }
+            mask:SetAllPoints(bg)
+            h.badge[kind] = { bg = bg, text = text, mask = mask }
         end
     end
     return h
@@ -3810,6 +3837,7 @@ function ns.np.all()
     if ns.np.wantPreview and ns.np.wantPreview() then
         ns.np.layout(p)
         p.quest = p.quest or ns.questHolder(p)
+        p.quest.ownBar = p
         styleQuest(p.quest)
     else
         p:Hide()
@@ -3851,9 +3879,11 @@ ns.npEv:SetScript("OnEvent", function(_, event, unit)
     elseif event == "UNIT_AURA" then
         safe(ns.layoutAuras, f)
         safe(ns.layoutTag, f) -- eating, drinking
+        if questHolders[f.plate] then safe(styleQuest, questHolders[f.plate]) end -- on buffs that came or went
     elseif event:find("^UNIT_SPELLCAST_") then
         ns.castState(f.castState, event) -- DELAYED / CHANNEL_UPDATE: the same cast, new times
         safe(ns.np.layoutCast, f)
+        if questHolders[f.plate] then safe(styleQuest, questHolders[f.plate]) end -- on the cast bar
     else
         safe(ns.np.layout, f)
     end
@@ -6622,40 +6652,50 @@ local function buildConfig()
     -- Quest mobs page
     local qinfo = group(questPage, COL[1], TOP, 202, "Quest mobs")
     local desc = label(questPage, "Marks enemies you still need for a quest.\n\nSword: you need to kill it.\n"
-        .. "Bag: it drops an item you need.\nGray: only groupmates still need it.\n\nThe icons sit in a row, "
-        .. "where Sits puts it: on the nameplate, or on its bar with Plates on. A lone icon keeps to the "
-        .. "row's left. Needs enemy nameplates on (V key).", "GameFontHighlightSmall")
-    desc:SetPoint("TOPLEFT", qinfo.x, qinfo:row(186))
+        .. "Bag: it drops an item you need.\nGray: only groupmates still need it.\n\nEach icon hangs on "
+        .. "a part of the nameplate (with Plates off: on the whole plate). One that hangs on a part "
+        .. "not shown right now goes to the health bar; one on the other icon, while that is not shown, "
+        .. "takes its place. Needs enemy nameplates on (V key).", "GameFontHighlightSmall")
+    desc:SetPoint("TOPLEFT", qinfo.x, qinfo:row(220))
     desc:SetWidth(182)
     desc:SetJustifyH("LEFT")
     qinfo:close()
 
-    local Q = function() return db.quest end
-    local row = group(questPage, COL[1], qinfo.cursor - 20, 202, "Icon row")
-    -- on Blizzard's plates it hangs on the whole plate, on yours on the bar
-    ns.questSpotMenu = dropdown(questPage, "Sits", row.x, row:row(DROP), function()
-        local out = {}
-        for _, k in ipairs(ns.QUEST_SPOT_ORDER) do out[#out + 1] = { ns.QUEST_SPOTS[k][1], k } end
-        return out
-    end, function() return Q().anchor end, function(v) Q().anchor = v end, textPreview)
-    slider(questPage, "X (left / right)", row.x, row:row(SLIDER), -200, 200, function() return Q().x end,
-        function(v) Q().x = v end)
-    slider(questPage, "Y (down / up)", row.x, row:row(SLIDER), -200, 200, function() return Q().y end,
-        function(v) Q().y = v end)
-    slider(questPage, "Spacing", row.x, row:row(SLIDER), 0, 20, function() return Q().spacing end,
-        function(v) Q().spacing = v end)
-    row:close()
-
-    for i, kind in ipairs({ { "kill", "Kill it (sword)" }, { "loot", "Drops a quest item (bag)" } }) do
+    local QUEST_SPOT_LIST = {}
+    for _, k in ipairs(ns.QUEST_SPOT_ORDER) do QUEST_SPOT_LIST[#QUEST_SPOT_LIST + 1] = { ns.QUEST_SPOTS[k][1], k } end
+    local RADII = { { "None", 0 }, { "2 px", 2 }, { "4 px", 4 }, { "8 px", 8 }, { "Pill (50% of height)", "pill" } }
+    for i, kind in ipairs({ { "kill", "Kill it (sword)", "The bag" }, { "loot", "Drops a quest item (bag)", "The sword" } }) do
         local function q() return db.quest[kind[1]] end
         local g = group(questPage, COL[i + 1], TOP, 202, kind[2])
         check(questPage, "Show", g.x, g:row(ROW), function() return q().show end, function(v) q().show = v end)
         dropdown(questPage, "Icon", g.x, g:row(DROP), QUEST_ICONS[kind[1]], function() return q().icon end,
             function(v) q().icon = v end, iconPreview)
         slider(questPage, "Size", g.x, g:row(SLIDER), 8, 64, function() return q().size end, function(v) q().size = v end)
-        check(questPage, "Show how many are left", g.x, g:row(ROW), function() return q().count end,
-            function(v) q().count = v end)
+        local anchors = { unpack(ns.QUEST_ANCHORS) }
+        anchors[#anchors + 1] = { kind[3], "other" }
+        dropdown(questPage, "Anchor to", g.x, g:row(DROP), anchors, function() return q().anchorTo end,
+            function(v) q().anchorTo = v end, textPreview)
+        dropdown(questPage, "Sits", g.x, g:row(DROP), QUEST_SPOT_LIST, function() return q().spot end,
+            function(v) q().spot = v end, textPreview)
+        slider(questPage, "X (left / right)", g.x, g:row(SLIDER), -200, 200, function() return q().x end,
+            function(v) q().x = v end)
+        slider(questPage, "Y (down / up)", g.x, g:row(SLIDER), -200, 200, function() return q().y end,
+            function(v) q().y = v end)
         g:close()
+        local n = group(questPage, COL[i + 1], g.cursor - 20, 202, "How many are left")
+        check(questPage, "Show the number", n.x, n:row(ROW), function() return q().count end,
+            function(v) q().count = v end)
+        dropdown(questPage, "Font", n.x, n:row(DROP), FONTS, function() return q().font end,
+            function(v) q().font = v end, fontPreview)
+        slider(questPage, "Font size", n.x, n:row(SLIDER), 6, 32, function() return q().fontSize end,
+            function(v) q().fontSize = v end)
+        swatch(questPage, "Number color", n.x, n:row(SWATCH), function() return q().textColor end)
+        swatch(questPage, "Background", n.x, n:row(SWATCH), function() return q().bg end)
+        dropdown(questPage, "Background radius", n.x, n:row(DROP), RADII,
+            function() return q().radius end, function(v) q().radius = v end, textPreview)
+        slider(questPage, "Padding", n.x, n:row(SLIDER), 0, 12, function() return q().pad end,
+            function(v) q().pad = v end)
+        n:close()
     end
 
     -- Other page, column 1: quests and merchants

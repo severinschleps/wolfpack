@@ -1495,10 +1495,11 @@ fire("NAME_PLATE_UNIT_ADDED", "nameplate1")
 local h = ns.plateUnits.nameplate1
 assert(h and h._parent == plate and h.kill:IsShown() and h.loot:IsShown(), "kill + loot")
 assert(not h.kill._desat and not h.loot._desat, "yours: full color")
-local bp, kp, lp = h.box._point, h.kill._point, h.loot._point
-assert(bp[1] == "TOPRIGHT" and bp[2] == h and bp[3] == "TOPRIGHT" and bp[4] == 0 and bp[5] == 0, "row at the top-right corner")
-assert(h.box._w == 42 and h.kill._tex == 131013, "room for both: 20 + 2 + 20")
-assert(kp[1] == "TOPLEFT" and kp[2] == h.box and kp[4] == 0 and lp[4] == 22, "sword left, bag right")
+local kp, lp = h.kill._point, h.loot._point
+assert(lp[1] == "TOPRIGHT" and lp[2] == h and lp[3] == "TOPRIGHT" and lp[4] == 0 and lp[5] == 0,
+    "Blizzard's plate: the bag in its top-right corner")
+assert(kp[1] == "RIGHT" and kp[2] == h.loot and kp[3] == "LEFT" and kp[4] == -2 and h.kill._tex == 131013,
+    "the sword left of the bag")
 -- how many are left, from the tooltip's "3/10" (kill) and "2/6" (item)
 local Q = prof().quest
 assert(not h.badge.kill.text:IsShown(), "no numbers unless asked")
@@ -1507,7 +1508,13 @@ fire("QUEST_LOG_UPDATE")
 assert(h.badge.kill.text:IsShown() and h.badge.kill.text._text == 7, "7 kills left")
 assert(h.badge.loot.text._text == 4 and h.badge.loot.bg._color[1] == 0, "4 items left, black plate")
 assert(h.badge.kill.text._point[1] == "BOTTOM" and h.badge.kill.text._point[2] == h.kill, "centered above the icon")
-assert(h.badge.kill.bg._w == 12 and h.badge.kill.bg._h == 12, "plate hugs the number")
+assert(h.badge.kill.bg._w == 12 and h.badge.kill.bg._h == 14, "plate hugs the number, 2 px padding")
+Q.kill.fontSize, Q.kill.textColor, Q.kill.bg, Q.kill.radius, Q.kill.pad = 14, { 1, 0.8, 0, 1 }, { 0.2, 0, 0, 0.5 }, 4, 3
+fire("QUEST_LOG_UPDATE")
+local kb = h.badge.kill
+assert(kb.text._font[2] == 14 and kb.text._color[2] == 0.8 and kb.bg._color[1] == 0.2 and kb.bg._w == 14
+    and kb.bg._masks[kb.mask] and kb.mask.r == 4 and kb.text._point[5] == 4, "number font, color, plate color, radius, padding")
+Q.kill.fontSize, Q.kill.textColor, Q.kill.bg, Q.kill.radius, Q.kill.pad = 10, { 1, 1, 1, 1 }, { 0, 0, 0, 0.8 }, 0, 2
 -- Anniversary and Classic Era: no C_QuestLog list, the old global calls instead
 S.newLog = C_QuestLog
 C_QuestLog = { UnitIsRelatedToActiveQuest = S.newLog.UnitIsRelatedToActiveQuest }
@@ -1536,7 +1543,7 @@ fire("QUEST_LOG_UPDATE")
 S.tips.nameplate1[2].completed = true
 fire("QUEST_LOG_UPDATE")
 assert(not h.kill:IsShown() and h.loot:IsShown(), "finished kill objective hidden")
-assert(h.loot._point[4] == 0 and h.box._w == 42, "lone bag slides to the row's left edge, row keeps its size")
+assert(h.loot._point[2] == h and h.loot._point[1] == "TOPRIGHT", "the bag stays in its corner")
 -- Groups: quests you have stay in color even when the tooltip credits a groupmate
 S.tips.nameplate1 = { { type = L.QuestTitle, leftText = "Boars", id = 7 },
     { type = L.QuestPlayer, leftText = "Bob" }, { type = L.QuestObjective, leftText = "Boar Flank: 2/6" },
@@ -1561,6 +1568,10 @@ S.related.nameplate1 = true
 S.tips.nameplate1 = {}
 fire("QUEST_LOG_UPDATE")
 assert(h.kill:IsShown() and not h.loot:IsShown(), "related without objective lines: sword")
+assert(h.kill._point[2] == h and h.kill._point[1] == "TOPRIGHT", "the bag not there: the sword takes its place")
+Q.loot.anchorTo = "other"; fire("QUEST_LOG_UPDATE")
+assert(h.kill._point[2] == h, "both on each other: the sword takes the plate")
+Q.loot.anchorTo = "bar"
 S.tips.nameplate1 = { { type = L.QuestObjective, leftText = SECRET } }
 fire("QUEST_LOG_UPDATE")
 assert(h.kill:IsShown(), "secret tooltip keeps the last answer")
@@ -1628,10 +1639,19 @@ ns.configOpen = S.wasOpen
     P.resource = false; ns.np.all()
     assert(not r:IsShown(), "or hidden")
     P.resource, P.resPoint = true, "BOTTOM"
-    -- the quest icon row hangs on our bar, where Sits says
-    local h = ns.plateUnits.nameplate4
-    prof().quest.anchor = "above"; ns.np.all()
-    assert(h.box._point[1] == "BOTTOMRIGHT" and h.box._point[2] == f and h.box._point[3] == "TOPRIGHT", "quest row above the bar")
+    -- each quest icon hangs on a part of our plate, where Sits says; a part not shown: the bar
+    local h, QL = ns.plateUnits.nameplate4, prof().quest.loot
+    QL.spot = "above"; ns.np.all()
+    assert(h.loot._point[1] == "BOTTOMRIGHT" and h.loot._point[2] == f and h.loot._point[3] == "TOPRIGHT", "bag above the bar")
+    QL.anchorTo, QL.spot, QL.x, QL.y = "res", "belowcenter", 3, -1; ns.np.all()
+    assert(h.loot._point[2] == f.resFrame and h.loot._point[1] == "TOP" and h.loot._point[3] == "BOTTOM"
+        and h.loot._point[4] == 3 and h.loot._point[5] == -1, "under the power bar, x / y on top")
+    QL.anchorTo = "name"; ns.np.all()
+    assert(h.loot._point[2] == f.tag_name.box, "on the name")
+    QL.anchorTo = "buffs"; ns.np.all()
+    assert(h.loot._point[2] == f, "buffs off: the bar instead")
+    QL.anchorTo, QL.spot, QL.x, QL.y = "cast", "right", 0, 0; ns.np.all()
+    assert(h.loot._point[2] == f, "no cast going: the bar")
     -- the bar's own settings are enemy health's, of this layout only
     P.width = 150; ns.np.all()
     assert(f.width == 150 and prof().regular.bars.enemyhealth.width ~= 150, "its own width")
@@ -1650,6 +1670,7 @@ ns.configOpen = S.wasOpen
     UnitCastingInfo = function(u) if u == "nameplate4" then return "Fireball", "", 135812, 0, 0 end end
     npFire("UNIT_SPELLCAST_START", "nameplate4")
     assert(cb:IsShown() and cb.text._text == "Fireball" and cb.unit == "nameplate4", "its own unit's cast")
+    assert(h.loot._point[2] == cb, "the bag moves onto the cast bar while it shows")
     assert(cb._point[1] == "TOP" and cb._point[2] == f.resFrame and cb._point[3] == "BOTTOM", "under the power bar")
     assert(not ns.frames.targetcast:IsShown() or ns.targetCasting, "your target's cast bar is not touched")
     npFire("UNIT_SPELLCAST_STOP", "nameplate4")
@@ -1664,7 +1685,7 @@ ns.configOpen = S.wasOpen
     assert(not f:IsShown() and plate.UnitFrame:IsShown(), "turned off: Blizzard's plates again")
     npFire("NAME_PLATE_UNIT_REMOVED", "nameplate4")
     fire("NAME_PLATE_UNIT_REMOVED", "nameplate4")
-    prof().quest.anchor, S.units.nameplate4 = "inside", nil
+    QL.anchorTo, QL.spot, S.units.nameplate4 = "bar", "inside", nil
 end)()
 
 -- Minimap icon: dragging moves it around the minimap
@@ -1843,7 +1864,7 @@ nameBox._text = "PvP"; nameBox._scripts.OnEnterPressed(nameBox)
 assert(store.profiles["PvP 2"] and prof() == store.profiles["PvP 2"], "same name again: PvP 2")
 store.profiles["PvP 2"], store.chars[S.name .. " - Realm"] = nil, "PvP"
 local dds = {} -- profile, texture, bar color, border color, radius, font, kill icon, loot icon, combat icon, attach
-for _, f in ipairs(created) do if f._gen and f ~= ns.copyFromMenu and f ~= ns.questSpotMenu and f ~= ns.resPlaceMenu and f ~= ns.resPointMenu and f ~= ns.sitsMenu and f ~= ns.xpMenu and f ~= ns.borderFromMenu and f ~= ns.sharedRadiusMenu and f ~= ns.textureFromMenu and f ~= ns.sharedTextureMenu and not (f._parent == ns.pages.actionbars) then dds[#dds + 1] = f end end
+for _, f in ipairs(created) do if f._gen and f ~= ns.copyFromMenu and f ~= ns.resPlaceMenu and f ~= ns.resPointMenu and f ~= ns.sitsMenu and f ~= ns.xpMenu and f ~= ns.borderFromMenu and f ~= ns.sharedRadiusMenu and f ~= ns.textureFromMenu and f ~= ns.sharedTextureMenu and not (f._parent == ns.pages.actionbars) then dds[#dds + 1] = f end end
 local dd = dds[1]
 dd:GenerateMenu()
 local names = {}
@@ -1906,15 +1927,41 @@ byText("Nameplates")._scripts.OnClick(byText("Nameplates"), "LeftButton")
 byText("Quest mobs")._scripts.OnClick(byText("Quest mobs"), "LeftButton")
 assert(ns.np.preview:IsShown() and ns.np.preview.quest.kill:IsShown() and ns.np.preview.quest.loot:IsShown(),
     "the Quest mobs tab: a preview plate with dummy icons beside the window")
-dds[7]:GenerateMenu(); dds[8]:GenerateMenu()
-assert(#dds[7]._items == 4 and #dds[8]._items == 4, "icon choices")
-for _, it in ipairs(dds[7]._items) do assert(type(it.init(menuButton())) == "number", "icon preview") end
-dds[7]._items[3].set()
-boxes[16]._text = "32"; boxes[16]._scripts.OnEnterPressed(boxes[16]) -- kill size
-boxes[13]._text = "-5"; boxes[13]._scripts.OnEnterPressed(boxes[13]) -- row X
+-- the n-th control labeled `text` on a page: a dropdown, or a slider's typing box
+local function control(page, text, n)
+    n = n or 1
+    for _, w in ipairs(created) do
+        local labeled = false
+        for _, r in ipairs(w._regions or {}) do if r._text == text then labeled = true end end
+        if labeled and w._parent == page then
+            n = n - 1
+            if n == 0 then
+                for _, b in ipairs(created) do if b._kind == "EditBox" and b._parent == w then return b end end
+                return w
+            end
+        end
+    end
+end
+local qp = ns.pages.nameplates
+local killIcon, lootIcon = control(qp, "Icon", 1), control(qp, "Icon", 2)
+killIcon:GenerateMenu(); lootIcon:GenerateMenu()
+assert(#killIcon._items == 4 and #lootIcon._items == 4, "icon choices")
+for _, it in ipairs(killIcon._items) do assert(type(it.init(menuButton())) == "number", "icon preview") end
+killIcon._items[3].set()
+local function typeIn(b, v) b._text = v; b._scripts.OnEnterPressed(b) end
+typeIn(control(qp, "Size", 1), "32")
+typeIn(control(qp, "X (left / right)", 2), "-5") -- the bag's X
+local anchorTo = control(qp, "Anchor to", 2)
+anchorTo:GenerateMenu()
+assert(#anchorTo._items == 9 and anchorTo._items[9].text == "The sword", "every part of the plate, and the sword")
+anchorTo._items[2].set()
 local Q = prof().quest
-assert(Q.kill.icon == 135274 and Q.kill.size == 32 and Q.loot.size == 20 and Q.x == -5, "quest page edits")
-assert(h.kill._tex == 135274 and h.kill._w == 32 and h.box._w == 54 and h.box._point[4] == -5, "live plate row restyled")
+assert(Q.kill.icon == 135274 and Q.kill.size == 32 and Q.loot.size == 20 and Q.loot.x == -5
+    and Q.loot.anchorTo == "res" and Q.kill.x == -2, "quest page edits")
+assert(h.kill._tex == 135274 and h.kill._w == 32 and h.loot._point[4] == -5, "live plate restyled")
+typeIn(control(qp, "Font size", 1), "13"); typeIn(control(qp, "Padding", 2), "4")
+assert(Q.kill.fontSize == 13 and Q.loot.pad == 4 and Q.loot.fontSize == 10, "number settings, each its own")
+Q.kill.fontSize, Q.loot.pad, Q.loot.x, Q.loot.anchorTo = 10, 2, 0, "bar"
 byText("Combat Display")._scripts.OnClick(byText("Combat Display"), "LeftButton")
 
 -- The options window sizes itself to its tallest column -- now the sidebar, with three shelves
@@ -1929,7 +1976,7 @@ prof().other.hideGryphons = true; fire("UNIT_MAXPOWER")
 assert(caps.LeftEndCap.Texture._alpha == 0 and caps.RightEndCap.Texture._alpha == 0, "hidden")
 prof().other.hideGryphons = false; fire("UNIT_MAXPOWER")
 assert(caps.LeftEndCap.Texture._alpha == 1, "shown again")
-local opBox = boxes[19] -- highlight opacity (%), after the party/raid one
+local opBox = boxes[24] -- highlight opacity (%), after the party/raid one
 opBox._text = "60"; opBox._scripts.OnEnterPressed(opBox)
 assert(math.abs(prof().regular.highlight.color[4] - 0.6) < 1e-9 and opBox._text == "60", "opacity typed")
 -- Enemy health's resource settings open in a window beside the options, only for that bar
@@ -2447,14 +2494,14 @@ assert(iof.note._text:find("Imported as profile") and not iof.area2:IsShown(), "
 
 -- Combat text font: 20 fonts + default; applied on ADDON_LOADED only for known paths
 assert(#ns.COMBAT_FONTS == 21, "20 fonts + WoW default")
-dds[9]:GenerateMenu()
-assert(#dds[9]._items == 21, "combat font dropdown")
-for _, it in ipairs(dds[9]._items) do
+dds[17]:GenerateMenu()
+assert(#dds[17]._items == 21, "combat font dropdown")
+for _, it in ipairs(dds[17]._items) do
     local b = menuButton()
     assert(type(it.init(b)) == "number" and b._attached._text == "123", "combat font preview")
     checkColumn(b, 56)
 end
-dds[9]._items[6].set()
+dds[17]._items[6].set()
 local picked = ns.COMBAT_FONTS[6][2]
 assert(prof().other.combatFont == picked, "stored in the profile")
 assert(DAMAGE_TEXT_FONT == picked and CombatTextFont._font[1] == picked, "applied as soon as it's picked")
@@ -2473,7 +2520,7 @@ ns.useProfile(store.chars[S.name .. " - Realm"] or "Rogue")
 DAMAGE_TEXT_FONT = "Fonts\\FRIZQT__.TTF"
 prof().other.combatFont = "Interface\\evil.ttf"; fire("ADDON_LOADED", "WolfpackAddon")
 assert(DAMAGE_TEXT_FONT == "Fonts\\FRIZQT__.TTF", "unknown path refused")
-dds[9]._items[1].set()
+dds[17]._items[1].set()
 assert(prof().other.combatFont == "", "WoW default is remembered, so the baked font stays off")
 -- the baked-in export string is intact in the file (an edit truncating it would break defaults)
 local src = io.open("WolfpackAddon/WolfpackAddon.lua"):read("*a")
