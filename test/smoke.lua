@@ -1843,6 +1843,36 @@ ns.configOpen = S.wasOpen
     assert(cb:IsShown(), "a plate that comes into view mid-cast shows it")
     UnitCastingInfo = S.keptInfo
     npFire("UNIT_SPELLCAST_STOP", "nameplate4")
+    -- the target trail: a stroke running round the target's health bar, cut into pieces per edge,
+    -- fading from tail to head, joined at the corners, a round dot on each end
+    local T = prof().plates.trail
+    S.keptPlate, S.plate = S.plate, plate
+    T.show = true
+    npFire("PLAYER_TARGET_CHANGED")
+    local tr = ns.np.trailFrame
+    assert(tr:IsShown() and tr._parent == f and tr.bar == f, "on the target's plate")
+    f.edge, T.length = 0, 20
+    tr.head = 0.1 -- the path: 150 x 10, 320 round; the head 32 along the top, the tail 12
+    ns.np.trailDraw(tr)
+    local l1, l2 = tr.lines[1], tr.lines[2]
+    assert(l1:IsShown() and not l2:IsShown() and l1._w == 20 and l1._h == 2 and l1._point[4] == 12
+        and l1._point[5] == 9, "one piece along the top")
+    assert(l1._grad[1] == "HORIZONTAL" and l1._grad[2][4] == 0 and l1._grad[3][4] == 1, "fading in from the tail")
+    assert(tr.glows[1]:IsShown() and tr.glows[1]._w == 32 and tr.caps[1]._point[4] == 32, "glow round it, a cap on the head")
+    tr.head = 0.5 -- the head 160 along: round the top right corner
+    ns.np.trailDraw(tr)
+    assert(l1._w == 11 and l2:IsShown() and l2._w == 2 and l2._h == 11 and l2._point[4] == 149 and l2._point[5] == 0
+        and l2._grad[1] == "VERTICAL" and l2._grad[2][4] == 1 and math.abs(l2._grad[3][4] - 0.5) < 1e-9,
+        "two pieces joined at the corner, the fade running on down the right side")
+    tr._scripts.OnUpdate(tr, T.lap / 4)
+    assert(math.abs(tr.head - 0.75) < 1e-9, "a quarter of the round in a quarter of the lap")
+    T.glow, T.caps = false, false
+    ns.np.trailDraw(tr)
+    assert(not tr.glows[1]:IsShown() and not tr.caps[1]:IsShown(), "glow and caps can go")
+    S.plate = nil
+    npFire("PLAYER_TARGET_CHANGED")
+    assert(not tr:IsShown(), "no target, no trail")
+    T.show, T.glow, T.caps, T.length, S.plate = false, true, true, 15, S.keptPlate
     ns.configOpen, prof().locked = S.npOpen, S.npLocked
     P.show = false; ns.np.all()
     assert(not f:IsShown() and plate.UnitFrame:IsShown(), "turned off: Blizzard's plates again")
@@ -2141,7 +2171,7 @@ prof().other.hideGryphons = true; fire("UNIT_MAXPOWER")
 assert(caps.LeftEndCap.Texture._alpha == 0 and caps.RightEndCap.Texture._alpha == 0, "hidden")
 prof().other.hideGryphons = false; fire("UNIT_MAXPOWER")
 assert(caps.LeftEndCap.Texture._alpha == 1, "shown again")
-local opBox = boxes[28] -- highlight opacity (%), after the party/raid one
+local opBox = boxes[34] -- highlight opacity (%), after the party/raid one and the target trail's six
 opBox._text = "60"; opBox._scripts.OnEnterPressed(opBox)
 assert(math.abs(prof().regular.highlight.color[4] - 0.6) < 1e-9 and opBox._text == "60", "opacity typed")
 -- Enemy health's resource settings open in a window beside the options, only for that bar

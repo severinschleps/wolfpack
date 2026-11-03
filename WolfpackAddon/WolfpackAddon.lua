@@ -351,6 +351,11 @@ do
     e.buffs.show, e.debuffs.anchorTo, e.debuffs.spot, e.debuffs.size, e.debuffs.y = false, "bar", "topleft", 18, 16
     for _, t in pairs(e.texts) do t.show = false end
     l.bars.targetcast.show = true -- while the unit casts
+    -- your target's plate: a stroke running round its health bar, centered on the border's line
+    -- (the bar's edge without one) plus offset. length / thickness / glowSize in px, lap: seconds
+    -- per round; fade: the tail fades out; caps: round ends
+    l.trail = { show = false, color = { 1, 0.82, 0.25, 1 }, length = 15, thickness = 2, lap = 2, offset = 0,
+        caps = true, fade = true, glow = true, glowSize = 6, glowAlpha = 0.6 }
     DEFAULTS.plates = l
 end
 
@@ -1179,6 +1184,7 @@ local function layoutBar(f, n, width, over)
             end
             -- The border sits inside the bar's size (like CSS border-box); the bar is inset by it.
             local t = math.min(c.borderSize, (c.height - 1) / 2, (w - 1) / 2)
+            if i == 1 then f.edge = t end -- the border's width, for what runs along it
             local iw, ih = w - 2 * t, c.height - 2 * t
             f.segWidth = iw
             s:SetSize(iw, ih)
@@ -4047,6 +4053,7 @@ function ns.np.all()
     else
         p:Hide()
     end
+    ns.np.trailSync()
 end
 function ns.np.previewBar()
     if not ns.np.preview then
@@ -4059,21 +4066,140 @@ function ns.np.previewBar()
     return ns.np.preview
 end
 
+-- The target trail: a stroke `length` long running round the target's plate. Each frame it is cut
+-- into straight pieces along the bar's edges (up to five: it can turn two corners), each a
+-- texture with its own stretch of the fade, a soft glow piece behind each, a dot on each end.
+function ns.np.trail()
+    local t = ns.np.trailFrame
+    if t then return t end
+    t = CreateFrame("Frame", nil, UIParent)
+    t.lines, t.glows, t.head = {}, {}, 0
+    for i = 1, 5 do
+        t.lines[i] = t:CreateTexture(nil, "ARTWORK")
+        t.glows[i] = t:CreateTexture(nil, "BACKGROUND")
+        t.glows[i]:SetBlendMode("ADD")
+    end
+    t.caps = { t:CreateTexture(nil, "ARTWORK", nil, 1), t:CreateTexture(nil, "ARTWORK", nil, 1) }
+    for _, d in ipairs(t.caps) do d:SetTexture("Interface\\AddOns\\" .. ADDON .. "\\Media\\Dot") end
+    t:SetScript("OnUpdate", function(self, elapsed)
+        local o = db.plates.trail
+        self.head = (self.head + (elapsed or 0) / math.max(o.lap, 0.1)) % 1
+        safe(ns.np.trailDraw, self)
+    end)
+    t:Hide()
+    ns.np.trailFrame = t
+    return t
+end
+
+-- where on the path (a w x h rectangle from its bottom left) distance d lies, and which way it runs
+function ns.np.trailAt(d, w, h)
+    if d < w then return d, h, 1, 0 end -- top, left to right
+    if d < w + h then return w, h - (d - w), 0, -1 end -- right, down
+    if d < 2 * w + h then return w - (d - w - h), 0, -1, 0 end -- bottom, right to left
+    return 0, d - 2 * w - h, 0, 1 -- left, up
+end
+
+function ns.np.trailDraw(t)
+    local o, f = db.plates.trail, t.bar
+    local out = o.offset - (f.edge or 0) / 2 -- the border's middle, plus the offset outward
+    local w, h = f.width + 2 * out, db.plates.bars.enemyhealth.height + 2 * out
+    local P = 2 * (w + h)
+    local len, th, r, g, b, a = math.min(o.length, P), o.thickness, unpack(o.color)
+    local head = t.head * P
+    local function alpha(d) return o.fade and a * (d - (head - len)) / len or a end
+    local function color(d, k) return CreateColor(r, g, b, alpha(d) * (k or 1)) end
+    -- the corners on the path: piece ends there meet the next piece (extended by half the stroke)
+    local edges = { 0, w, w + h, 2 * w + h, P }
+    local n, d = 0, head - len
+    while d < head - 1e-6 and n < 5 do
+        local m = d % P
+        local stop = P
+        for _, e in ipairs(edges) do if e > m + 1e-6 then stop = e break end end
+        local e = math.min(head, d + stop - m)
+        n = n + 1
+        local x0, y0, dx, dy = ns.np.trailAt(m, w, h)
+        local x1, y1 = x0 + dx * (e - d), y0 + dy * (e - d)
+        local ext0 = (d > head - len + 1e-6) and th / 2 or 0 -- a corner behind: joined
+        local ext1 = (e < head - 1e-6) and th / 2 or 0
+        local lx, ly = math.min(x0 - dx * ext0, x1 + dx * ext1), math.min(y0 - dy * ext0, y1 + dy * ext1)
+        local lw = dx ~= 0 and math.abs(x1 - x0) + ext0 + ext1 or th
+        local lh = dy ~= 0 and math.abs(y1 - y0) + ext0 + ext1 or th
+        if dx == 0 then lx = lx - th / 2 else ly = ly - th / 2 end
+        -- the fade runs from d to e along the piece: which end is which depends on its direction
+        local c0, c1 = color(d), color(e)
+        local g0, g1 = color(d, o.glowAlpha), color(e, o.glowAlpha)
+        local gs = math.max(1, math.min(math.floor(o.glowSize), 20))
+        t.lines[n]:SetColorTexture(1, 1, 1, 1) -- the texture first: the gradient tints it
+        t.glows[n]:SetTexture("Interface\\AddOns\\" .. ADDON .. "\\Media\\Shadow\\s" .. gs .. ".tga")
+        pcall(t.glows[n].SetTextureSliceMargins, t.glows[n], gs, gs, gs, gs)
+        for k, tex in ipairs({ t.lines[n], t.glows[n] }) do
+            local grow = k == 2 and gs or 0
+            tex:ClearAllPoints()
+            tex:SetPoint("BOTTOMLEFT", f, "BOTTOMLEFT", lx - out - grow, ly - out - grow)
+            tex:SetSize(lw + 2 * grow, lh + 2 * grow)
+            local from, to = k == 1 and c0 or g0, k == 1 and c1 or g1
+            if dx > 0 then tex:SetGradient("HORIZONTAL", from, to)
+            elseif dx < 0 then tex:SetGradient("HORIZONTAL", to, from)
+            elseif dy > 0 then tex:SetGradient("VERTICAL", from, to)
+            else tex:SetGradient("VERTICAL", to, from) end
+            tex:SetShown(k == 1 or (o.glow and o.glowSize > 0))
+        end
+        d = e
+    end
+    for i = n + 1, 5 do t.lines[i]:Hide(); t.glows[i]:Hide() end
+    -- round caps: a dot the stroke's width on each end
+    for k, cap in ipairs(t.caps) do
+        local at = k == 1 and head or head - len
+        local x, y = ns.np.trailAt(at % P, w, h)
+        cap:SetShown(o.caps and true or false)
+        cap:SetSize(th, th)
+        cap:ClearAllPoints()
+        cap:SetPoint("CENTER", f, "BOTTOMLEFT", x - out, y - out)
+        cap:SetVertexColor(r, g, b, alpha(at))
+    end
+end
+
+-- on your target's plate (or the preview while the Nameplates page is open), else hidden
+function ns.np.trailSync()
+    local o, f = db.plates.trail, nil
+    if o.show and ns.np.on() then
+        local ok, plate = pcall(C_NamePlate.GetNamePlateForUnit, "target")
+        local okA, foe = pcall(function() return UnitCanAttack("player", "target") and true or false end)
+        f = ok and plate and (not okA or foe) and ns.np.bars[plate] or nil
+        if f and not f.unit then f = nil end
+        if ns.np.wantPreview and ns.np.wantPreview() then f = ns.np.previewBar() end
+    end
+    if not (f or ns.np.trailFrame) then return end
+    local t = ns.np.trail()
+    if not (f and f:IsShown()) then t:Hide() return end
+    t:SetParent(f)
+    t:SetAllPoints(f)
+    t:SetFrameLevel(f:GetFrameLevel() + 6)
+    t.bar = f
+    t:Show()
+    ns.np.trailDraw(t)
+end
+
 ns.npEv = CreateFrame("Frame")
 for _, e in ipairs({ "NAME_PLATE_UNIT_ADDED", "NAME_PLATE_UNIT_REMOVED", "UNIT_HEALTH", "UNIT_MAXHEALTH",
     "UNIT_POWER_FREQUENT", "UNIT_MAXPOWER", "UNIT_DISPLAYPOWER", "UNIT_AURA", "UNIT_NAME_UPDATE", "UNIT_LEVEL",
     "UNIT_FACTION", "UNIT_CLASSIFICATION_CHANGED", "UNIT_SPELLCAST_START", "UNIT_SPELLCAST_STOP",
     "UNIT_SPELLCAST_FAILED", "UNIT_SPELLCAST_INTERRUPTED", "UNIT_SPELLCAST_SUCCEEDED", "UNIT_SPELLCAST_DELAYED",
-    "UNIT_SPELLCAST_CHANNEL_START", "UNIT_SPELLCAST_CHANNEL_STOP", "UNIT_SPELLCAST_CHANNEL_UPDATE" }) do
+    "UNIT_SPELLCAST_CHANNEL_START", "UNIT_SPELLCAST_CHANNEL_STOP", "UNIT_SPELLCAST_CHANNEL_UPDATE",
+    "PLAYER_TARGET_CHANGED" }) do
     pcall(ns.npEv.RegisterEvent, ns.npEv, e)
 end
 ns.npEv:SetScript("OnEvent", function(_, event, unit)
     if event == "NAME_PLATE_UNIT_ADDED" then
         ns.np.seen[unit] = true
-        return safe(ns.np.add, unit)
+        safe(ns.np.add, unit)
+        return safe(ns.np.trailSync)
     elseif event == "NAME_PLATE_UNIT_REMOVED" then
         ns.np.seen[unit] = nil
-        return safe(ns.np.remove, unit)
+        safe(ns.np.remove, unit)
+        return safe(ns.np.trailSync)
+    elseif event == "PLAYER_TARGET_CHANGED" then
+        return safe(ns.np.trailSync)
     end
     local f = ns.np.units[unit]
     if not f then return end
@@ -6652,6 +6778,8 @@ local function buildConfig()
     barsPage:SetSize(524, 700)
     local questPage = CreateFrame("Frame", nil, content)
     questPage:SetAllPoints(barsPage)
+    local trailPage = CreateFrame("Frame", nil, content)
+    trailPage:SetAllPoints(barsPage)
     local otherPage = CreateFrame("Frame", nil, content)
     otherPage:SetAllPoints(barsPage)
     local buffPage = CreateFrame("Frame", nil, content)
@@ -6681,7 +6809,7 @@ local function buildConfig()
     local title = label(cfg, "Combat Display", "GameFontNormalLarge")
     title:SetPoint("TOPLEFT", 150, -72)
     local tabs = {}
-    for i, t in ipairs({ { "plates", "Nameplate" }, { "quest", "Quest mobs" } }) do
+    for i, t in ipairs({ { "plates", "Nameplate" }, { "quest", "Quest mobs" }, { "target", "Target" } }) do
         tabs[i] = button(cfg, t[2], 110, 150 + (i - 1) * 114, -66, function()
             sub = t[1]
             changed()
@@ -6705,8 +6833,9 @@ local function buildConfig()
             or section == "barstack" and "Bar Stack"
             or "Combat Display")
         for _, t in ipairs(tabs) do t:SetShown(np) end
-        barsPage:SetShown(section == "combat" or (np and sub ~= "quest"))
+        barsPage:SetShown(section == "combat" or (np and sub == "plates"))
         questPage:SetShown(np and sub == "quest")
+        trailPage:SetShown(np and sub == "target")
         otherPage:SetShown(section == "other")
         buffPage:SetShown(section == "buffs")
         magePage:SetShown(section == "mage")
@@ -6720,6 +6849,7 @@ local function buildConfig()
         ns.pages.bags:SetShown(section == "bags")
         local page = section == "barstack" and bsPage or ns.pages[section]
         if np and sub == "quest" then page = questPage end
+        if np and sub == "target" then page = trailPage end
         if page and page.need then content:SetHeight(math.max(1, page.need - 90 + 16)) end
         if section ~= ns.shownSection then -- a new page starts at its top
             ns.shownSection = section
@@ -6734,7 +6864,7 @@ local function buildConfig()
         if section == "nameplates" then tabNote:SetPoint("LEFT", tabs[#tabs], "RIGHT", 14, 0)
         else tabNote:SetPoint("LEFT", title, "RIGHT", 14, -1) end
         tabNote:SetText(mode == "regular" and "Health, power and combo bars on your screen."
-            or "Every enemy's nameplate, your way. Nameplates on: V key.")
+            or "Nameplates on: V key.") -- short: three tabs fill the row
     end)
 
     -- Bars page, column 1: which bars, and where the group sits
@@ -7117,6 +7247,37 @@ local function buildConfig()
     txt:close()
 
     -- Quest mobs page
+    -- Nameplates, Target tab: the trail running round your target's plate
+    do
+        local T = function() return db.plates.trail end
+        local g = group(trailPage, COL[1], TOP, 202, "Target trail")
+        check(trailPage, "Show on your target's plate", g.x, g:row(ROW), function() return T().show end,
+            function(v) T().show = v end)
+        swatch(trailPage, "Trail color", g.x, g:row(SWATCH), function() return T().color end)
+        for _, r in ipairs({ { "length", "Length", 2, 200, 1 }, { "thickness", "Thickness", 1, 12, 1 },
+            { "lap", "Seconds per round", 0.3, 10, 0.1 }, { "offset", "Offset (out / in)", -10, 10, 1 } }) do
+            slider(trailPage, r[2], g.x, g:row(SLIDER), r[3], r[4], function() return T()[r[1]] end,
+                function(v) T()[r[1]] = v end, r[5])
+        end
+        check(trailPage, "Rounded caps", g.x, g:row(ROW), function() return T().caps end, function(v) T().caps = v end)
+        check(trailPage, "Fade the tail", g.x, g:row(ROW), function() return T().fade end, function(v) T().fade = v end)
+        g:close()
+        local gl = group(trailPage, COL[2], TOP, 202, "Glow")
+        check(trailPage, "Glow", gl.x, gl:row(ROW), function() return T().glow end, function(v) T().glow = v end)
+        slider(trailPage, "Glow size", gl.x, gl:row(SLIDER), 1, 20, function() return T().glowSize end,
+            function(v) T().glowSize = v end)
+        slider(trailPage, "Glow strength", gl.x, gl:row(SLIDER), 0, 1, function() return T().glowAlpha end,
+            function(v) T().glowAlpha = v end, 0.05)
+        local n = label(trailPage, "Runs along the health bar's border (its edge without one), on enemies "
+            .. "you target. The glow takes the trail's color. While this page is open it shows on the "
+            .. "preview plate.", "GameFontDisableSmall")
+        n:SetPoint("TOPLEFT", gl.x, gl:row(72))
+        n:SetWidth(182)
+        n:SetJustifyH("LEFT")
+        gl:close()
+        trailPage.need = 520
+    end
+
     local qinfo = group(questPage, COL[1], TOP, 202, "Quest mobs")
     local desc = label(questPage, "Marks enemies you still need for a quest.\n\nSword: you need to kill it.\n"
         .. "Bag: it drops an item you need.\nGray: only groupmates still need it.\n\nEach icon hangs on "

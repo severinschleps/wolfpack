@@ -14,3 +14,12 @@ for n in range(1, 21):
             px += bytes((255, 255, 255, round(255 * a * a * (3 - 2 * a))))
     with open(f"{out}/s{n}.tga", "wb") as f:
         f.write(struct.pack("<BBBHHBHHHHBB", 0, 0, 2, 0, 0, 0, 0, 0, t, t, 32, 40) + px)
+
+# Media/Dot.tga: a white disc, its edge smoothed over a pixel; the trail's round caps.
+t, px = 64, bytearray()
+for y in range(t):
+    for x in range(t):
+        a = max(0.0, min(1.0, t / 2 - math.hypot(x + 0.5 - t / 2, y + 0.5 - t / 2)))
+        px += bytes((255, 255, 255, round(255 * a)))
+with open(f"{out}/../Dot.tga", "wb") as f:
+    f.write(struct.pack("<BBBHHBHHHHBB", 0, 0, 2, 0, 0, 0, 0, 0, t, t, 32, 40) + px)
