@@ -1691,6 +1691,28 @@ fire("QUEST_LOG_UPDATE")
 assert(not h.kill:IsShown() and not h.loot:IsShown(), "not a quest mob")
 S.related.nameplate1 = true; S.tips.nameplate1 = {}
 fire("QUEST_LOG_UPDATE")
+-- no quest lines on the tooltip (Classic Era, Anniversary): Questie's list for this creature
+S.related.nameplate1 = false
+Questie = { ICON_TYPE_SLAY = 1, ICON_TYPE_LOOT = 2, ICON_TYPE_OBJECT = 4 }
+local qtips = { lookupByKey = { m_448 = {
+    a = { objective = { Icon = 2, Needed = 6, Collected = 2, Completed = false } },
+    b = { objective = { Icon = 1, Needed = 5, Collected = 5, Completed = true } } } } }
+QuestieLoader = { ImportModule = function(_, name) return name == "QuestieTooltips" and qtips or {} end }
+local keptNpc = S.npc
+S.npc = "Creature-0-1-2-3-448-0000ABCD"
+fire("QUEST_LOG_UPDATE")
+assert(h.loot:IsShown() and not h.loot._desat and not h.kill:IsShown() and h.badge.loot.text._text == 4,
+    "Questie: a drop, 4 left; its done kill objective hidden")
+qtips.lookupByKey.m_448.b.objective.Completed = false
+qtips.lookupByKey.m_448.b.objective.Collected = 1
+fire("QUEST_LOG_UPDATE")
+assert(h.kill:IsShown() and h.badge.kill.text._text == 4, "Questie: a kill, 4 left")
+S.npc = "Creature-0-1-2-3-999-0000ABCD"
+fire("QUEST_LOG_UPDATE")
+assert(not h.kill:IsShown() and not h.loot:IsShown(), "Questie: not one of yours")
+Questie, QuestieLoader, S.npc = nil, nil, keptNpc
+S.related.nameplate1 = true
+fire("QUEST_LOG_UPDATE")
 fire("NAME_PLATE_UNIT_REMOVED", "nameplate1")
 assert(not h.kill:IsShown() and not ns.plateUnits.nameplate1, "removed plate cleared")
 fire("NAME_PLATE_UNIT_ADDED", "nameplate1")
@@ -3820,11 +3842,21 @@ assert(MultiBarBottomLeft._parent == UIParent, "and back")
     U.sync()
     -- the 20 man tab, clicked on the Unit frames page: its page, and the stand-ins follow
     assert(ns.ufTabs and ns.pages.uf20, "a tab and a page per group size")
-    ns.ufTabs[4]._scripts.OnClick(ns.ufTabs[4])
-    assert(ns.ufTab == 20 and (U.preview == 20) == (ns.pages.unitframes:IsShown() or ns.pages.uf20:IsShown()),
-        "20 man tab")
+    local function players() -- stand-ins laid out right now, pets aside
+        local n = 0
+        for _, b in ipairs(B) do if b.entry and b.entry.dummy and not b.entry.pet then n = n + 1 end end
+        return n
+    end
+    byText("Unit frames")._scripts.OnClick(byText("Unit frames"), "LeftButton")
+    -- each click lays out the clicked tab's group, not the one before it
+    for i, size in ipairs({ 5, 10, 20, 40 }) do
+        ns.ufTabs[i + 1]._scripts.OnClick(ns.ufTabs[i + 1])
+        assert(ns.ufTab == size and players() == size and ns.pages["uf" .. size]:IsShown(), size .. " man tab")
+    end
     ns.ufTabs[1]._scripts.OnClick(ns.ufTabs[1])
-    assert(ns.ufTab == "general" and (U.preview == 5) == ns.pages.unitframes:IsShown(), "General: five")
+    assert(ns.ufTab == "general" and players() == 5 and ns.pages.unitframes:IsShown(), "General: five")
+    byText("Combat Display")._scripts.OnClick(byText("Combat Display"), "LeftButton")
+    assert(U.preview == nil and players() == 0, "another page: no stand-ins")
     U.preview = 4
     U.sync()
     o.g5.buffs.mode = "hide"

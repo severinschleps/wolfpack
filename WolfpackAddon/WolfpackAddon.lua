@@ -2405,7 +2405,7 @@ end
 -- objectives only. In a group the tooltip names whose objective follows (QuestPlayer lines); where
 -- it doesn't, the objective counts as yours. ponytail: objective types come from your own quest
 -- log, so a groupmate's item objective for a quest you don't have shows as a kill.
-local function questKinds(unit)
+function ns.tooltipKinds(unit)
     -- the icons are read off the unit's tooltip data, which older clients don't hand to addons
     if not (C_TooltipInfo and LINE and C_QuestLog and C_QuestLog.UnitIsRelatedToActiveQuest) then
         return nil, nil, {}
@@ -2446,6 +2446,35 @@ local function questKinds(unit)
     if not anyObjective and related then mine.kill = true end -- quest mob, but no objective named
     return mine.kill and "mine" or party.kill and "party" or nil,
         mine.loot and "mine" or party.loot and "party" or nil, left
+end
+
+-- Classic Era and Anniversary put no quest lines on unit tooltips; there Questie, if it runs,
+-- knows which creatures your open objectives need: kill ones (slay) and drops (loot). Your own
+-- quests only, so always "mine".
+function ns.questieKinds(unit)
+    local T = QuestieLoader:ImportModule("QuestieTooltips")
+    local guid = UnitGUID(unit)
+    local npc = type(guid) == "string" and guid:match("^%a+%-[^-]*%-[^-]*%-[^-]*%-[^-]*%-(%d+)")
+    local kinds, left = {}, {}
+    for _, tip in pairs(npc and T.lookupByKey and T.lookupByKey["m_" .. npc] or {}) do
+        local o = tip.objective
+        if o and o.Update then pcall(o.Update, o) end -- its latest from the quest log
+        local kind = o and not o.Completed and (o.Icon == Questie.ICON_TYPE_SLAY and "kill"
+            or (o.Icon == Questie.ICON_TYPE_LOOT or o.Icon == Questie.ICON_TYPE_OBJECT) and "loot")
+        if kind then
+            kinds[kind] = "mine"
+            local n = (tonumber(o.Needed) or 0) - (tonumber(o.Collected) or 0)
+            if n > 0 then left[kind] = math.max(left[kind] or 0, n) end
+        end
+    end
+    return kinds.kill, kinds.loot, left
+end
+
+-- the game's tooltip first; where it names nothing, Questie's list
+local function questKinds(unit)
+    local kill, loot, left = ns.tooltipKinds(unit)
+    if kill or loot or not (QuestieLoader and Questie) then return kill, loot, left end
+    return ns.questieKinds(unit)
 end
 
 -- Where a quest icon sits on what it hangs on: { label, its point, that element's point }
@@ -6323,6 +6352,8 @@ changed = function()
     safe(Refresh)
     safe(ns.np.all)
     safe(ns.bags.sync)
+    -- the Unit frames page's stand-ins: as many as its tab says (General: 5), set before they're laid out
+    ns.uf.preview = section == "unitframes" and (tonumber(ns.ufTab) or 5) or nil
     safe(ns.uf.sync)
     for _, fn in ipairs(refreshers) do fn() end
 end
@@ -7384,8 +7415,6 @@ local function buildConfig()
     end
     onRefresh(function()
         local np, uf = section == "nameplates", section == "unitframes"
-        -- stand-ins on this page only: a group of the tab's size (General: 5)
-        ns.uf.preview = uf and (tonumber(ns.ufTab) or 5) or nil
         for _, t in ipairs(ns.ufTabs) do t:SetShown(uf) end
         for _, size in ipairs(ns.uf.SIZES) do
             local gp = ns.pages["uf" .. size]
