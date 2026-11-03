@@ -3718,12 +3718,15 @@ assert(MultiBarBottomLeft._parent == UIParent, "and back")
     CompactRaidFrameContainer = new()
     CompactRaidFrameContainer._parent = UIParent
     -- the options pages have been clicked through above: start from known settings
-    o.show, o.replace, o.fixed, o.grow, o.size, o.per, o.gap, o.dummy = true, true, "width", "down", 400, 5, 4, 10
-    o.frameHeight, o.frameWidth = 40, 90
-    o.pets, o.petHeight, o.power, o.roleIcon, o.marker, o.breakpoint = true, 14, true, true, true, 5
-    o.buffs.mode, o.buffs.max, o.buffs.cols, o.buffs.rows, o.buffs.size = "mine", 3, 3, 1, 14
-    o.buffs.small, o.buffs.large = { point = "TOPRIGHT", x = -2, y = -2 }, { point = "TOPRIGHT", x = -2, y = -2 }
-    o.roles, o.x, o.y, o.bars.tothealth.colorMode = { "TANK", "HEALER", "DAMAGER" }, -500, 200, "class"
+    o.show, o.replace, o.dummy = true, true, 10
+    o.pets, o.petHeight, o.power, o.roleIcon, o.marker = true, 14, true, true, true
+    for _, g in ipairs({ o.g5, o.g10 }) do -- a party and a raid of ten, set alike
+        g.fixed, g.grow, g.size, g.per, g.gap, g.frameHeight, g.frameWidth = "width", "down", 400, 5, 4, 40, 90
+        g.x, g.y = -500, 200
+        g.buffs.mode, g.buffs.max, g.buffs.cols, g.buffs.rows, g.buffs.size = "mine", 3, 3, 1, 14
+        g.buffs.point, g.buffs.x, g.buffs.y = "TOPRIGHT", -2, -2
+    end
+    o.roles, o.bars.tothealth.colorMode = { "TANK", "HEALER", "DAMAGER" }, "class"
     ns.configOpen = true
     U.sync()
     local B = U.buttons
@@ -3741,18 +3744,18 @@ assert(MultiBarBottomLeft._parent == UIParent, "and back")
     assert(B[11].health.segs[1]._sbc[1] == prof().colors.class.HUNTER[1], "a pet in its owner's class color")
     assert(U.frame._point[1] == "TOPLEFT" and U.frame._w == 400 and near(U.frame._h, 102), "the block: as tall as it needs")
     assert(B[1].role:IsShown() and B[1].marker:IsShown() and not B[2].marker:IsShown(), "role icon, a raid marker")
-    -- auras: up to three buffs in a row from the top right; ten members is over the breakpoint (5)
-    o.buffs.large.x = -6
+    -- auras: up to three buffs in a row from the top right; ten members take the 10's settings
+    o.g10.buffs.x = -6
     U.sync()
     local ic = B[1].icons.buffs
-    assert(#ic == 3 and ic[1]._point[1] == "TOPRIGHT" and ic[1]._point[4] == -6 and ic[2]._point[4] == -6 - 15,
-        "buffs: the large group's spot, growing left")
+    assert(U.cur == o.g10 and #ic == 3 and ic[1]._point[1] == "TOPRIGHT" and ic[1]._point[4] == -6
+        and ic[2]._point[4] == -6 - 15, "buffs: the 10's spot, growing left")
     -- icons inset by their border, the edge in the border color
-    o.buffs.border, o.buffs.borderColor = 2, { 0.2, 0.4, 0.6, 1 }
+    o.g10.buffs.border, o.g10.buffs.borderColor = 2, { 0.2, 0.4, 0.6, 1 }
     U.sync()
     assert(ic[1].tex._points[1][2] == 2 and ic[1].tex._points[2][3] == 2 and ic[1].edge:IsShown()
         and ic[1].edge._color[3] == 0.6, "buff border: inset, colored")
-    o.buffs.border = 0
+    o.g10.buffs.border = 0
     U.sync()
     assert(not ic[1].edge:IsShown(), "no border")
     -- hover: a fill and a border over the frame, in its shape
@@ -3768,11 +3771,25 @@ assert(MultiBarBottomLeft._parent == UIParent, "and back")
     o.hover.show = false
     B[1]._scripts.OnEnter(B[1])
     assert(not hv:IsShown(), "turned off")
-    o.hover.show, o.buffs.border = true, 1
+    o.hover.show, o.g10.buffs.border = true, 1
     o.dummy = 4
     U.sync()
-    assert(ic[1]._point[4] == -2 and not B[6]:IsShown(), "four: the small group's spot, the rest hidden")
-    o.buffs.mode = "hide"
+    assert(U.cur == o.g5 and ic[1]._point[4] == -2 and not B[6]:IsShown(), "four: the 5's spot, the rest hidden")
+    -- a group size's tab in the options: stand-ins of that size, in its settings
+    U.preview = 20
+    U.sync()
+    assert(U.cur == o.g20 and B[20].entry and B[20].entry.dummy == 20, "the 20's tab: twenty stand-ins")
+    U.preview = nil
+    U.sync()
+    -- the 20 man tab, clicked on the Unit frames page: its page, and the stand-ins follow
+    assert(ns.ufTabs and ns.pages.uf20, "a tab and a page per group size")
+    ns.ufTabs[4]._scripts.OnClick(ns.ufTabs[4])
+    assert(ns.ufTab == 20 and (U.preview == 20) == (ns.pages.unitframes:IsShown() or ns.pages.uf20:IsShown()),
+        "20 man tab")
+    ns.ufTabs[1]._scripts.OnClick(ns.ufTabs[1])
+    assert(ns.ufTab == "general" and U.preview == nil, "back to General")
+    U.sync()
+    o.g5.buffs.mode = "hide"
     U.sync()
     assert(not ic[1]:IsShown(), "buffs hidden")
     -- role order changed: damage first
@@ -3780,13 +3797,13 @@ assert(MultiBarBottomLeft._parent == UIParent, "and back")
     U.sync()
     assert(B[1].entry.role == "DAMAGER", "role order")
     -- fixed height 300, five a column, growing left: frames 56.8 high, 90 wide (set)
-    o.fixed, o.grow, o.size = "height", "left", 300
+    o.g10.fixed, o.g10.grow, o.g10.size = "height", "left", 300
     o.dummy = 6
     U.sync()
     assert(B[1]._point[1] == "TOPRIGHT" and near(B[6]._point[4], -94) and near(B[2]._point[5], -60.8)
         and B[2]._w == 90 and near(B[2]._h, 56.8), "columns of five, growing left")
     -- a real party: you and party1 (a healer); clicks target and open the menu, the game shows them
-    ns.configOpen, o.fixed, o.grow, o.size, o.dummy = false, "width", "down", 400, 10
+    ns.configOpen, o.dummy = false, 10
     o.roles = { "TANK", "HEALER", "DAMAGER" } -- you have no role: damage, after the healer
     S.members, S.units = 2, { party1 = "HEALER" }; S.keptRaid, S.raid = S.raid, false
     U.sync()
@@ -3803,7 +3820,8 @@ assert(MultiBarBottomLeft._parent == UIParent, "and back")
     U.sync()
     assert(CompactRaidFrameContainer._parent == UIParent and not U.frame:IsShown(), "off: Blizzard's again")
     ns.configOpen, S.units, S.members, CompactRaidFrameContainer, S.raid = keptOpen, keptUnits, nil, nil, S.keptRaid
-    o.roles, o.buffs.mode, o.buffs.large.x = { "TANK", "HEALER", "DAMAGER" }, "mine", -2
+    o.roles, o.g5.buffs.mode, o.g10.buffs.x = { "TANK", "HEALER", "DAMAGER" }, "mine", -2
+    o.g10.fixed, o.g10.grow, o.g10.size = "width", "down", 400
 end)()
 
 realPrint("smoke ok")

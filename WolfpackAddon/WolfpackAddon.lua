@@ -373,25 +373,31 @@ DEFAULTS.bags = { show = false, cols = 10, size = 36, gap = 4, sectionGap = 12, 
     countSize = 11, font = FONTS[1][2], bg = { 0.05, 0.05, 0.06, 0.6 }, x = -60, y = 110,
     keyring = true, side = true, custom = {} }
 
--- Unit frames: your party or raid, a frame each, in a block with one side fixed. fixed "width":
--- `size` px wide, `per` frames a row, rows growing "down" / "up"; fixed "height": `size` px high,
--- `per` a column, columns growing "right" / "left". Frames split the fixed side; their other side
--- is set in px: frameHeight with a fixed width, frameWidth with a fixed height. x / y: the
--- block's start corner from the screen center. roles: the order they come in. Pets come after
--- everyone, `petHeight` high, in their owner's class color. Buffs and debuffs: which (mode), how
--- many in what grid, and where on the frame: `small` up to `breakpoint` members, `large` above.
+-- Unit frames: your party or raid, a frame each, in a block with one side fixed. Each group size
+-- has its own block and auras: g5 up to 5 players, g10 up to 10, g20 up to 20, g40 more. fixed
+-- "width": `size` px wide, `per` frames a row, rows growing "down" / "up"; fixed "height": `size`
+-- px high, `per` a column, columns growing "right" / "left". Frames split the fixed side; their
+-- other side is set in px: frameHeight with a fixed width, frameWidth with a fixed height. x / y:
+-- the block's start corner from the screen center. Buffs and debuffs: which (mode), how many in
+-- what grid, and where on the frame. The rest is for every size: roles, the order they come in;
+-- pets after everyone, `petHeight` high, in their owner's class color; resources; the hover look.
 -- bars: the health and power bars' look (Colors page settings apply as on any bar).
 function ns.ufAuraDefaults(mode, point, x, y, edge)
     return { mode = mode, max = 3, cols = 3, rows = 1, size = 14, radius = 0, hideTimer = true,
         border = 1, borderColor = edge, -- the icon inset by `border` px, the edge in its color
-        small = { point = point, x = x, y = y }, large = { point = point, x = x, y = y } }
+        point = point, x = x, y = y }
 end
-DEFAULTS.unitframes = { show = false, replace = true, fixed = "width", size = 400, per = 5, grow = "down",
-    frameHeight = 36, frameWidth = 100, gap = 4, x = -500, y = 200, fontSize = 10, power = true, powerHeight = 4,
-    pets = true, petHeight = 14, roleIcon = true, marker = true, dummy = 10, breakpoint = 5,
+function ns.ufGroupDefaults(size, per, frameHeight)
+    return { fixed = "width", size = size, per = per, grow = "down", frameHeight = frameHeight, frameWidth = 100,
+        gap = 4, x = -500, y = 200,
+        buffs = ns.ufAuraDefaults("mine", "TOPRIGHT", -2, -2, { 0, 0, 0, 1 }),
+        debuffs = ns.ufAuraDefaults("dispel", "BOTTOMLEFT", 2, 2, { 0.8, 0.1, 0.1, 1 }) }
+end
+DEFAULTS.unitframes = { show = false, replace = true, fontSize = 10, power = true, powerHeight = 4,
+    pets = true, petHeight = 14, roleIcon = true, marker = true, dummy = 10,
     roles = { "TANK", "HEALER", "DAMAGER" },
-    buffs = ns.ufAuraDefaults("mine", "TOPRIGHT", -2, -2, { 0, 0, 0, 1 }),
-    debuffs = ns.ufAuraDefaults("dispel", "BOTTOMLEFT", 2, 2, { 0.8, 0.1, 0.1, 1 }),
+    g5 = ns.ufGroupDefaults(400, 5, 36), g10 = ns.ufGroupDefaults(400, 5, 36),
+    g20 = ns.ufGroupDefaults(400, 5, 30), g40 = ns.ufGroupDefaults(640, 8, 26),
     -- the cursor over a frame: a color over it and a border round it, in the frame's shape
     hover = { show = true, color = { 1, 1, 1, 0.12 }, borderColor = { 1, 1, 1, 0.8 }, borderSize = 1 },
     bars = { tothealth = barDefaults(true, 80, 32, 0.2, 0.8, 0.2, false), power = barDefaults(true, 80, 4, 0.2, 0.4, 1, false) } }
@@ -4914,6 +4920,12 @@ ns.uf.BLIZZ = { "PartyFrame", "CompactPartyFrame", "CompactRaidFrameContainer", 
     "PartyMemberFrame1", "PartyMemberFrame2", "PartyMemberFrame3", "PartyMemberFrame4" }
 function ns.uf.on() return db and db.unitframes.show and true or false end
 function ns.uf.dummy() return ns.uf.on() and ns.configOpen and true or false end
+-- the settings for a group of n players: the smallest size it fits in
+ns.uf.SIZES = { 5, 10, 20, 40 }
+function ns.uf.group(n)
+    for _, g in ipairs(ns.uf.SIZES) do if n <= g then return db.unitframes["g" .. g] end end
+    return db.unitframes.g40
+end
 
 function ns.uf.role(unit)
     local ok, r = pcall(UnitGroupRolesAssigned, unit)
@@ -4926,7 +4938,7 @@ function ns.uf.roster()
     local o, list = db.unitframes, {}
     if ns.uf.dummy() then
         local roles = { "TANK", "HEALER", "HEALER", "DAMAGER", "DAMAGER" }
-        for i = 1, o.dummy do
+        for i = 1, ns.uf.preview or o.dummy do -- preview: a group size's tab in the options
             list[i] = { dummy = i, role = i <= 2 and roles[i] or roles[(i % 3) + 3] or "DAMAGER",
                 class = ns.uf.DUMMY_CLASSES[(i - 1) % #ns.uf.DUMMY_CLASSES + 1] }
             if i % 8 == 1 then list[i].role = "TANK" elseif i % 5 == 2 then list[i].role = "HEALER" end
@@ -4996,38 +5008,39 @@ end
 
 -- the frames' spots: lines of `per`, players first, pets in lines of their own after them
 function ns.uf.layout()
-    local o, U = db.unitframes, ns.uf
+    local U = ns.uf
     local list = U.roster()
-    local wide = o.fixed ~= "height"
-    local per = math.max(1, o.per)
-    local along = (o.size - (per - 1) * o.gap) / per -- a frame's size along the fixed side
     local players = 0
     for _, e in ipairs(list) do if not e.pet then players = players + 1 end end
-    U.count = players
-    local dirX = (o.grow == "left") and -1 or 1
-    local dirY = (o.grow == "up") and 1 or -1
-    local corner = wide and (o.grow == "up" and "BOTTOMLEFT" or "TOPLEFT") or (o.grow == "left" and "TOPRIGHT" or "TOPLEFT")
+    local o, g = db.unitframes, U.group(players) -- everyone's settings, this size's
+    U.cur = g
+    local wide = g.fixed ~= "height"
+    local per = math.max(1, g.per)
+    local along = (g.size - (per - 1) * g.gap) / per -- a frame's size along the fixed side
+    local dirX = (g.grow == "left") and -1 or 1
+    local dirY = (g.grow == "up") and 1 or -1
+    local corner = wide and (g.grow == "up" and "BOTTOMLEFT" or "TOPLEFT") or (g.grow == "left" and "TOPRIGHT" or "TOPLEFT")
     local f = U.frame
     f:ClearAllPoints()
-    f:SetPoint(corner, UIParent, "CENTER", o.x, o.y)
+    f:SetPoint(corner, UIParent, "CENTER", g.x, g.y)
     wipe(U.byUnit)
     local line, inLine, offset, lineSize, petsStarted = 0, 0, 0, 0, false
     for i, e in ipairs(list) do
         if e.pet and not petsStarted then -- pets start a line of their own
             petsStarted = true
-            if inLine > 0 then offset, inLine = offset + lineSize + o.gap, 0 end
+            if inLine > 0 then offset, inLine = offset + lineSize + g.gap, 0 end
         end
-        if inLine == per then offset, inLine = offset + lineSize + o.gap, 0 end
+        if inLine == per then offset, inLine = offset + lineSize + g.gap, 0 end
         local b = U.button(i)
         local w, ht
-        if wide then w, ht = along, e.pet and o.petHeight or o.frameHeight
-        else w, ht = o.frameWidth, e.pet and o.petHeight or along end
+        if wide then w, ht = along, e.pet and o.petHeight or g.frameHeight
+        else w, ht = g.frameWidth, e.pet and o.petHeight or along end
         if inLine == 0 then lineSize = wide and ht or w end
         -- along the line: frames of the same size, except pets in a column (their own height)
-        local pos = wide and inLine * (along + o.gap) or nil
+        local pos = wide and inLine * (along + g.gap) or nil
         if not wide then
             pos = 0
-            for k = 1, inLine do pos = pos + ((list[i - k].pet and o.petHeight or along) + o.gap) end
+            for k = 1, inLine do pos = pos + ((list[i - k].pet and o.petHeight or along) + g.gap) end
         end
         b:ClearAllPoints()
         if wide then b:SetPoint(corner, f, corner, pos, dirY * offset)
@@ -5056,7 +5069,7 @@ function ns.uf.layout()
         b.entry, b.unit = nil, nil
         b:Hide()
     end
-    f:SetSize(wide and o.size or math.max(1, offset + lineSize), wide and math.max(1, offset + lineSize) or o.size)
+    f:SetSize(wide and g.size or math.max(1, offset + lineSize), wide and math.max(1, offset + lineSize) or g.size)
 end
 
 -- a frame's bars, name, icons and auras for its unit (or stand-in)
@@ -5153,12 +5166,12 @@ function ns.uf.update(b)
     ns.uf.auras(b)
 end
 
--- buffs and debuffs: which ones, then a grid of `cols` x `rows` from the spot's corner inward
+-- buffs and debuffs, as the group's size has them: which ones, then a grid of `cols` x `rows`
+-- from the spot's corner inward
 ns.uf.FILTERS = { buffs = { all = "HELPFUL", mine = "HELPFUL|PLAYER" },
     debuffs = { all = "HARMFUL", dispel = "HARMFUL|RAID" } }
 function ns.uf.auras(b)
-    local o = db.unitframes
-    local big = (ns.uf.count or 0) > o.breakpoint
+    local o = ns.uf.cur or db.unitframes.g5
     for _, k in ipairs({ "buffs", "debuffs" }) do
         local a, icons = o[k], b.icons[k]
         local filter = ns.uf.FILTERS[k][a.mode]
@@ -5168,7 +5181,7 @@ function ns.uf.auras(b)
             if b.entry.dummy then list = ns.dummyAuras(k, max)
             else list = ns.auraList(b.unit, filter, max) or {} end
         end
-        local spot = big and a.large or a.small
+        local spot = a
         local gx = spot.point:find("RIGHT") and -1 or 1
         local gy = spot.point:find("TOP") and -1 or 1
         local file = ns.ICON_MASKS[a.radius]
@@ -7278,10 +7291,26 @@ local function buildConfig()
         end)
         onRefresh(function() if sub == t[1] then tabs[i]:LockHighlight() else tabs[i]:UnlockHighlight() end end)
     end
+    -- Unit frames: General, then a tab per group size
+    ns.ufTab, ns.ufTabs = "general", {}
+    for i, t in ipairs({ { "general", "General" }, { 5, "5 man" }, { 10, "10 man" }, { 20, "20 man" }, { 40, "40 man" } }) do
+        ns.ufTabs[i] = button(cfg, t[2], 80, 150 + (i - 1) * 84, -66, function()
+            ns.ufTab = t[1]
+            changed()
+        end)
+        onRefresh(function() if ns.ufTab == t[1] then ns.ufTabs[i]:LockHighlight() else ns.ufTabs[i]:UnlockHighlight() end end)
+    end
     onRefresh(function()
-        local np = section == "nameplates"
+        local np, uf = section == "nameplates", section == "unitframes"
+        -- the stand-ins on a group size's tab: a group of that size
+        ns.uf.preview = uf and tonumber(ns.ufTab) or nil
+        for _, t in ipairs(ns.ufTabs) do t:SetShown(uf) end
+        for _, size in ipairs(ns.uf.SIZES) do
+            local gp = ns.pages["uf" .. size]
+            if gp then gp:SetShown(uf and ns.ufTab == size) end
+        end
         -- the tab row stands where the title would: the tabs are the heading on those pages
-        title:SetShown(not np)
+        title:SetShown(not np and not uf)
         title:SetText(section == "other" and "Other"
             or section == "profile" and "Profiles"
             or section == "colors" and "Colors and borders"
@@ -7310,8 +7339,9 @@ local function buildConfig()
         colorPage:SetShown(section == "colors")
         actionPage:SetShown(section == "actionbars")
         ns.pages.bags:SetShown(section == "bags")
-        ns.pages.unitframes:SetShown(section == "unitframes")
+        ns.pages.unitframes:SetShown(uf and ns.ufTab == "general")
         local page = section == "barstack" and bsPage or ns.pages[section]
+        if uf and ns.ufTab ~= "general" then page = ns.pages["uf" .. ns.ufTab] end
         if np and sub == "quest" then page = questPage end
         if np and sub == "target" then page = trailPage end
         if page and page.need then content:SetHeight(math.max(1, page.need - 90 + 16)) end
@@ -8421,50 +8451,25 @@ local function buildConfig()
     do
         local pg, U = ns.pages.unitframes, function() return db.unitframes end
         local HB = function() return db.unitframes.bars.tothealth end
-        local function note(g, text, h)
-            local n = label(pg, text, "GameFontDisableSmall")
+        local function note(g, text, h, page)
+            local n = label(page or pg, text, "GameFontDisableSmall")
             n:SetPoint("TOPLEFT", g.x, g:row(h))
             n:SetWidth(178)
             n:SetJustifyH("LEFT")
         end
-        local function sliders(g, get, list)
+        local function sliders(g, get, list, page)
             for _, r in ipairs(list) do
-                slider(pg, r[2], g.x, g:row(SLIDER), r[3], r[4], function() return get()[r[1]] end,
+                slider(page or pg, r[2], g.x, g:row(SLIDER), r[3], r[4], function() return get()[r[1]] end,
                     function(v) get()[r[1]] = v end, r[5])
             end
         end
+        -- General: what holds for every group size
         local c1 = group(pg, COL[1], TOP, 202, "Unit frames")
         check(pg, "Show", c1.x, c1:row(ROW), function() return U().show end, function(v) U().show = v end)
         check(pg, "Hide Blizzard's party and raid", c1.x, c1:row(ROW), function() return U().replace end,
             function(v) U().replace = v end)
-        dropdown(pg, "Fixed side", c1.x, c1:row(DROP), { { "Width: grows up or down", "width" },
-            { "Height: grows left or right", "height" } }, function() return U().fixed end, function(v)
-            U().fixed = v
-            U().grow = v == "width" and "down" or "right"
-        end, textPreview)
-        dropdown(pg, "Grows", c1.x, c1:row(DROP), function()
-            return U().fixed == "width" and { { "Down", "down" }, { "Up", "up" } } or { { "Right", "right" }, { "Left", "left" } }
-        end, function() return U().grow end, function(v) U().grow = v end, textPreview)
-        local sizeS = slider(pg, "Fixed width (px)", c1.x, c1:row(SLIDER), 40, 1600, function() return U().size end,
-            function(v) U().size = v end)
-        local perS = slider(pg, "Frames per row", c1.x, c1:row(SLIDER), 1, 40, function() return U().per end,
-            function(v) U().per = v end)
-        -- the frame's other side: its height with a fixed width, its width with a fixed height
-        local crossS = slider(pg, "Frame height (px)", c1.x, c1:row(SLIDER), 6, 300, function()
-            return U().fixed == "width" and U().frameHeight or U().frameWidth
-        end, function(v)
-            if U().fixed == "width" then U().frameHeight = v else U().frameWidth = v end
-        end)
-        onRefresh(function() -- the labels follow the fixed side
-            local wide = U().fixed == "width"
-            sizeS.label:SetText(wide and "Fixed width (px)" or "Fixed height (px)")
-            perS.label:SetText(wide and "Frames per row" or "Frames per column")
-            crossS.label:SetText(wide and "Frame height (px)" or "Frame width (px)")
-        end)
-        sliders(c1, U, { { "gap", "Gap", 0, 20 }, { "x", "X (from the center)", -1500, 1500 },
-            { "y", "Y (from the center)", -1000, 1000 } })
         note(c1, "Left click targets, right click opens the menu. While this window is open a "
-            .. "stand-in group shows.", 44)
+            .. "stand-in group shows; on a group size's tab, one of that size.", 58)
         sliders(c1, U, { { "dummy", "Stand-in group size", 1, 40 } })
         c1:close()
 
@@ -8515,37 +8520,65 @@ local function buildConfig()
         note(hv, "In the frame's shape and corners. Opacity is in each color.", 30)
         hv:close()
 
-        -- buffs and debuffs: which, how many, the grid, and their spot below / above the breakpoint
-        local bp = group(pg, COL[2], c2.cursor - 20, 202, "Buffs and debuffs")
-        sliders(bp, U, { { "breakpoint", "Small group: up to (members)", 1, 39 } })
-        note(bp, "Up to this many in the group, buffs and debuffs sit where \"small group\" says; "
-            .. "with more, where \"large group\" says.", 44)
-        bp:close()
+        -- a page per group size: its block, its buffs and debuffs
         local POINTS = { { "Top left", "TOPLEFT" }, { "Top", "TOP" }, { "Top right", "TOPRIGHT" }, { "Left", "LEFT" },
             { "Center", "CENTER" }, { "Right", "RIGHT" }, { "Bottom left", "BOTTOMLEFT" }, { "Bottom", "BOTTOM" },
             { "Bottom right", "BOTTOMRIGHT" } }
-        for i, k in ipairs({ { "buffs", "Buffs", { { "All", "all" }, { "Only mine", "mine" }, { "Hide", "hide" } } },
-            { "debuffs", "Debuffs", { { "All", "all" }, { "Only ones I can dispel", "dispel" }, { "Hide", "hide" } } } }) do
-            local A = function() return U()[k[1]] end
-            local g = group(pg, COL[i + 2], TOP, 202, k[2])
-            dropdown(pg, "Show", g.x, g:row(DROP), k[3], function() return A().mode end, function(v) A().mode = v end,
-                textPreview)
-            sliders(g, A, { { "max", "At most", 1, 40 }, { "cols", "Columns", 1, 10 }, { "rows", "Rows", 1, 10 },
-                { "size", "Icon size", 6, 40 } })
-            dropdown(pg, "Corner radius", g.x, g:row(DROP), { { "None (square)", 0 }, { "Slightly rounded", 12 },
-                { "Rounded", 25 }, { "Circle", 50 } }, function() return A().radius end,
-                function(v) A().radius = v end, textPreview)
-            check(pg, "Hide timer text", g.x, g:row(ROW), function() return A().hideTimer end,
-                function(v) A().hideTimer = v end)
-            sliders(g, A, { { "border", "Border width", 0, 4 } })
-            swatch(pg, k[2] .. ": border color", g.x, g:row(SWATCH), function() return A().borderColor end)
-            for _, sz in ipairs({ { "small", "Small group" }, { "large", "Large group" } }) do
-                local S = function() return A()[sz[1]] end
-                dropdown(pg, sz[2] .. ": anchor", g.x, g:row(DROP), POINTS, function() return S().point end,
-                    function(v) S().point = v end, textPreview)
-                sliders(g, S, { { "x", sz[2] .. ": X", -100, 100 }, { "y", sz[2] .. ": Y", -100, 100 } })
+        for n, size in ipairs(ns.uf.SIZES) do
+            local gp = CreateFrame("Frame", nil, pg:GetParent())
+            gp:SetAllPoints(pg)
+            ns.pages["uf" .. size] = gp
+            local G = function() return U()["g" .. size] end
+            local c = group(gp, COL[1], TOP, 202, size .. " players")
+            note(c, n == 1 and "Your party, up to 5." or n == #ns.uf.SIZES and "A raid of more than "
+                .. ns.uf.SIZES[n - 1] .. "." or "A raid of " .. (ns.uf.SIZES[n - 1] + 1) .. " to " .. size .. ".", 16, gp)
+            dropdown(gp, "Fixed side", c.x, c:row(DROP), { { "Width: grows up or down", "width" },
+                { "Height: grows left or right", "height" } }, function() return G().fixed end, function(v)
+                G().fixed = v
+                G().grow = v == "width" and "down" or "right"
+            end, textPreview)
+            dropdown(gp, "Grows", c.x, c:row(DROP), function()
+                return G().fixed == "width" and { { "Down", "down" }, { "Up", "up" } } or { { "Right", "right" }, { "Left", "left" } }
+            end, function() return G().grow end, function(v) G().grow = v end, textPreview)
+            local sizeS = slider(gp, "Fixed width (px)", c.x, c:row(SLIDER), 40, 1600, function() return G().size end,
+                function(v) G().size = v end)
+            local perS = slider(gp, "Frames per row", c.x, c:row(SLIDER), 1, 40, function() return G().per end,
+                function(v) G().per = v end)
+            -- the frame's other side: its height with a fixed width, its width with a fixed height
+            local crossS = slider(gp, "Frame height (px)", c.x, c:row(SLIDER), 6, 300, function()
+                return G().fixed == "width" and G().frameHeight or G().frameWidth
+            end, function(v)
+                if G().fixed == "width" then G().frameHeight = v else G().frameWidth = v end
+            end)
+            onRefresh(function() -- the labels follow the fixed side
+                local wide = G().fixed == "width"
+                sizeS.label:SetText(wide and "Fixed width (px)" or "Fixed height (px)")
+                perS.label:SetText(wide and "Frames per row" or "Frames per column")
+                crossS.label:SetText(wide and "Frame height (px)" or "Frame width (px)")
+            end)
+            sliders(c, G, { { "gap", "Gap", 0, 20 }, { "x", "X (from the center)", -1500, 1500 },
+                { "y", "Y (from the center)", -1000, 1000 } }, gp)
+            c:close()
+            for i, k in ipairs({ { "buffs", "Buffs", { { "All", "all" }, { "Only mine", "mine" }, { "Hide", "hide" } } },
+                { "debuffs", "Debuffs", { { "All", "all" }, { "Only ones I can dispel", "dispel" }, { "Hide", "hide" } } } }) do
+                local A = function() return G()[k[1]] end
+                local g = group(gp, COL[i + 1], TOP, 202, k[2])
+                dropdown(gp, "Show", g.x, g:row(DROP), k[3], function() return A().mode end, function(v) A().mode = v end,
+                    textPreview)
+                sliders(g, A, { { "max", "At most", 1, 40 }, { "cols", "Columns", 1, 10 }, { "rows", "Rows", 1, 10 },
+                    { "size", "Icon size", 6, 40 } }, gp)
+                dropdown(gp, "Corner radius", g.x, g:row(DROP), { { "None (square)", 0 }, { "Slightly rounded", 12 },
+                    { "Rounded", 25 }, { "Circle", 50 } }, function() return A().radius end,
+                    function(v) A().radius = v end, textPreview)
+                check(gp, "Hide timer text", g.x, g:row(ROW), function() return A().hideTimer end,
+                    function(v) A().hideTimer = v end)
+                sliders(g, A, { { "border", "Border width", 0, 4 } }, gp)
+                swatch(gp, k[2] .. ": border color", g.x, g:row(SWATCH), function() return A().borderColor end)
+                dropdown(gp, "Anchor", g.x, g:row(DROP), POINTS, function() return A().point end,
+                    function(v) A().point = v end, textPreview)
+                sliders(g, A, { { "x", "X", -100, 100 }, { "y", "Y", -100, 100 } }, gp)
+                g:close()
             end
-            g:close()
         end
     end
 
