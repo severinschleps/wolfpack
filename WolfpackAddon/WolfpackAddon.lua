@@ -435,42 +435,10 @@ DEFAULTS.unitframes = { show = false, replace = true, fontSize = 10, power = tru
 DEFAULTS.unitframes.bars.tothealth.colorMode = "class" -- "tothealth": a bar of another unit's health
 DEFAULTS.unitframes.bars.power.colorMode = "power"
 
--- Rogue and shaman: what is on each weapon, and when it is nearly gone.
--- (a local would put this file over Lua's limit of 200 of them, so it hangs off ns)
-function ns.weaponDefaults(y)
-    return {
-        show = true, locked = true, x = 0, y = y, size = 32, gap = 4, grow = "right", radius = 0,
-        warn = 9, flash = true, countAt = "corner",
-        font = FONTS[1][2], fontSize = 12, outline = true,
-        color = { 1, 1, 1, 1 }, warnColor = { 1, 0.75, 0.2, 1 },
-    }
-end
-DEFAULTS.rogue = ns.weaponDefaults(-260)
-DEFAULTS.shaman = ns.weaponDefaults(-260)
-
--- Warlock: the soul shards in your bags.
-
-DEFAULTS.warlock = {
-    show = true, locked = true, x = 0, y = -220, size = 32, radius = 0,
-    armor = true, armorSize = 32, armorFontSize = 12, armorOnlyMissing = true,
-    flash = true, gap = 4, grow = "right",
-    countAt = "corner", showCount = true, low = 3,
-    font = FONTS[1][2], fontSize = 12, outline = true,
-    color = { 1, 1, 1, 1 }, lowColor = { 1, 0.4, 0.4, 1 },
-}
-
 -- Hunter: ammunition left, and how the pet feels.
 DEFAULTS.hunter = {
     show = true, locked = true, x = 0, y = -180, size = 32, gap = 4, grow = "right", radius = 0,
     ammo = true, pet = true, countAt = "corner", showCount = true, low = 200,
-    font = FONTS[1][2], fontSize = 12, outline = true,
-    color = { 1, 1, 1, 1 }, lowColor = { 1, 0.4, 0.4, 1 },
-}
-
--- Mage: the conjured food and water in your bags, best rank only.
-DEFAULTS.mage = {
-    show = true, locked = true, x = 0, y = -140, size = 32, gap = 4, grow = "right",
-    countAt = "corner", showCount = true, low = 5, radius = 0, waterFirst = false,
     font = FONTS[1][2], fontSize = 12, outline = true,
     color = { 1, 1, 1, 1 }, lowColor = { 1, 0.4, 0.4, 1 },
 }
@@ -598,7 +566,7 @@ DEFAULTS.platesTarget.bars.enemyhealth.show = true -- show here: use this look o
 ------------------------------------------------------------------------------------------
 -- store = WolfpackAddonDB, account-wide: { profiles = { [name] = settings }, chars = { [char] = name } }
 -- db = the active profile's settings.
-local changed, placeMini, useProfile, mg, hn, wl, we, lt, mc, ft, seedFromBaked
+local changed, placeMini, useProfile, hn, lt, mc, ft, seedFromBaked
 
 -- Bars that only show while they are doing something (cast, swing) stay visible while the bars
 -- are unlocked or the options are open, so they can be placed.
@@ -4100,11 +4068,7 @@ local function Refresh()
     moverHint:SetFormattedText(HINT, db.regular.x, db.regular.y)
     syncProtected()
     syncGryphons()
-    mg.refresh()
     hn.refresh()
-    wl.refresh()
-    we.refresh("rogue")
-    we.refresh("shaman")
     fsr:sync()
     syncHover()
     syncBags()
@@ -5589,11 +5553,8 @@ ns.uf.ev:SetScript("OnEvent", function(_, event, unit)
 end)
 
 ------------------------------------------------------------------------------------------
--- Mage: how much conjured food and water is in the bags, always the best rank you carry.
+-- Rounded icons
 ------------------------------------------------------------------------------------------
-mg = { entries = {} }
-ns.mg = mg
-
 -- Rounded icons use a mask of their own, scaled to the icon: the bars' nine-slice masks are
 -- cut for long bars and collapse at icon size, which is what squeezed the art into a corner.
 -- The radius is a share of the icon, so 12 and 25 are gentle and 50 is a circle.
@@ -5618,137 +5579,6 @@ function ns.iconCorners(tex, mask, radius, coords)
         tex:RemoveMaskTexture(mask)
         tex.iconMask = nil
     end
-end
--- Item id and the level it starts at, lowest rank first.
-mg.ranks = {
-    food = { { 5349, 1 }, { 1113, 5 }, { 1114, 15 }, { 1487, 25 }, { 8075, 35 }, { 8076, 45 },
-        { 22895, 55 } },
-    water = { { 5350, 1 }, { 2288, 5 }, { 2136, 15 }, { 3772, 25 }, { 8077, 35 }, { 8078, 45 },
-        { 8079, 55 } },
-}
-
-mg.panel = CreateFrame("Frame", "WolfpackAddonMage", UIParent)
-mg.panel:SetSize(80, 32)
-mg.panel:SetMovable(true)
-mg.panel:SetClampedToScreen(true)
-mg.panel:RegisterForDrag("LeftButton")
-mg.panel:SetScript("OnDragStart", function(a) a:StartMoving() end)
-mg.panel:SetScript("OnDragStop", function(a)
-    a:StopMovingOrSizing()
-    local ux, uy = UIParent:GetCenter()
-    db.mage.x = math.floor(a:GetCenter() - ux + 0.5)
-    db.mage.y = math.floor(select(2, a:GetCenter()) - uy + 0.5)
-    changed()
-end)
-
--- The item's own icon, asked for by id so it is right even with empty bags.
-function mg.icon(id)
-    mg.icons = mg.icons or {}
-    if mg.icons[id] == nil then
-        local ok, tex = pcall(function()
-            return (C_Item and C_Item.GetItemIconByID and C_Item.GetItemIconByID(id))
-                or (GetItemIcon and GetItemIcon(id))
-        end)
-        mg.icons[id] = (ok and tex) or 134062
-    end
-    return mg.icons[id]
-end
-
--- How many of each conjured item are in the bags, by item id.
-function mg.counts()
-    local totals = {}
-    for bag = 0, (NUM_BAG_SLOTS or 4) do
-        for slot = 1, (C_Container.GetContainerNumSlots(bag) or 0) do
-            local info = C_Container.GetContainerItemInfo(bag, slot)
-            local id = info and info.itemID
-            if id then totals[id] = (totals[id] or 0) + (info.stackCount or 1) end
-        end
-    end
-    return totals
-end
-
--- The best rank you carry, or, carrying none, the rank your level can conjure.
-function mg.best(kind, totals)
-    local ranks = mg.ranks[kind]
-    for i = #ranks, 1, -1 do
-        local id = ranks[i][1]
-        if (totals[id] or 0) > 0 then return id, totals[id] end
-    end
-    local level, id = (UnitLevel and UnitLevel("player")) or 1, ranks[1][1]
-    for _, rank in ipairs(ranks) do
-        if level >= rank[2] then id = rank[1] end
-    end
-    return id, 0
-end
-
-function mg.entry(i)
-    local e = mg.entries[i]
-    if not e then
-        e = CreateFrame("Frame", nil, mg.panel)
-        e.icon = e:CreateTexture(nil, "ARTWORK")
-        e.icon:SetAllPoints()
-        e.mask = e:CreateMaskTexture()
-        e.mask:SetAllPoints(e)
-        e.text = e:CreateFontString(nil, "OVERLAY")
-        mg.entries[i] = e
-    end
-    return e
-end
-
-function mg.refresh()
-    if not db then return end -- our events can arrive before the profile is loaded
-    local o = db.mage
-    mg.panel:ClearAllPoints()
-    mg.panel:SetPoint("CENTER", UIParent, "CENTER", o.x, o.y)
-    mg.panel:EnableMouse(not o.locked)
-    if not o.show or class ~= "MAGE" then
-        mg.panel:Hide()
-        return
-    end
-    mg.panel:Show()
-    local totals = mg.counts()
-    local flags = o.outline and "OUTLINE" or ""
-    local order = o.waterFirst and { "water", "food" } or { "food", "water" }
-    for i, kind in ipairs(order) do
-        local id, count = mg.best(kind, totals)
-        local e = mg.entry(i)
-        e:SetSize(o.size, o.size)
-        e:ClearAllPoints()
-        local step = o.size + o.gap
-        if o.grow == "down" then
-            e:SetPoint("TOPLEFT", mg.panel, "TOPLEFT", 0, -(i - 1) * step)
-        else
-            e:SetPoint("TOPLEFT", mg.panel, "TOPLEFT", (i - 1) * step, 0)
-        end
-        e.icon:SetTexture(mg.icon(id))
-        e.icon:SetDesaturated(count == 0)
-        ns.iconCorners(e.icon, e.mask, o.radius)
-        if not e.text:SetFont(o.font, o.fontSize, flags) then
-            e.text:SetFont(FONTS[1][2], o.fontSize, flags)
-        end
-        e.text:ClearAllPoints()
-        e.text:SetPoint(o.countAt == "center" and "CENTER" or "BOTTOMRIGHT", e, 
-            o.countAt == "center" and "CENTER" or "BOTTOMRIGHT", 0, 0)
-        e.text:SetText(count)
-        e.text:SetShown(o.showCount)
-        if count <= o.low then
-            e.text:SetTextColor(unpack(o.lowColor))
-        else
-            e.text:SetTextColor(unpack(o.color))
-        end
-        e:Show()
-    end
-    local step = o.size + o.gap
-    mg.panel:SetSize(o.grow == "down" and o.size or (step + o.size),
-        o.grow == "down" and (step + o.size) or o.size)
-end
-
-local mgEv = CreateFrame("Frame")
-ns.mgEv = mgEv
-mgEv:SetScript("OnEvent", function() safe(mg.refresh) end)
-for _, e in ipairs({ "BAG_UPDATE", "BAG_UPDATE_DELAYED", "PLAYER_ENTERING_WORLD",
-    "PLAYER_LEVEL_UP", "PLAYER_LOGIN" }) do
-    pcall(mgEv.RegisterEvent, mgEv, e)
 end
 
 ------------------------------------------------------------------------------------------
@@ -5925,379 +5755,6 @@ for _, e in ipairs({ "BAG_UPDATE", "BAG_UPDATE_DELAYED", "PLAYER_ENTERING_WORLD"
 end
 
 ------------------------------------------------------------------------------------------
--- Warlock: how many soul shards are in the bags.
-------------------------------------------------------------------------------------------
-wl = { shard = 6265 } -- the item id of a Soul Shard
-ns.wl = wl
-wl.panel = CreateFrame("Frame", "WolfpackAddonWarlock", UIParent)
-wl.panel:SetSize(32, 32)
-wl.panel:SetMovable(true)
-wl.panel:SetClampedToScreen(true)
-wl.panel:RegisterForDrag("LeftButton")
-wl.panel:SetScript("OnDragStart", function(a) a:StartMoving() end)
-wl.panel:SetScript("OnDragStop", function(a)
-    a:StopMovingOrSizing()
-    local ux, uy = UIParent:GetCenter()
-    db.warlock.x = math.floor(a:GetCenter() - ux + 0.5)
-    db.warlock.y = math.floor(select(2, a:GetCenter()) - uy + 0.5)
-    changed()
-end)
-wl.entries = {}
-wl.armors = { { "Demon Armor", 706, 20 }, { "Demon Skin", 696, 4 } } -- best first, and its level
-
-function wl.entry(i)
-    local e = wl.entries[i]
-    if not e then
-        e = CreateFrame("Frame", nil, wl.panel)
-        e.icon = e:CreateTexture(nil, "ARTWORK")
-        e.icon:SetAllPoints()
-        e.mask = e:CreateMaskTexture()
-        e.mask:SetAllPoints(e)
-        e.text = e:CreateFontString(nil, "OVERLAY")
-        wl.entries[i] = e
-    end
-    return e
-end
-
--- Shards stack one to a slot, so this counts slots as well as stack sizes.
-function wl.count()
-    local total = 0
-    for bag = 0, (NUM_BAG_SLOTS or 4) do
-        for slot = 1, (C_Container.GetContainerNumSlots(bag) or 0) do
-            local info = C_Container.GetContainerItemInfo(bag, slot)
-            if info and info.itemID == wl.shard then total = total + (info.stackCount or 1) end
-        end
-    end
-    return total
-end
-
-function wl.icons(id)
-    wl.tex = wl.tex or {}
-    if wl.tex[id] == nil then
-        local ok, tex = pcall(function()
-            if id == wl.shard then
-                return (C_Item and C_Item.GetItemIconByID and C_Item.GetItemIconByID(id))
-                    or (GetItemIcon and GetItemIcon(id))
-            end
-            return (C_Spell and C_Spell.GetSpellTexture and C_Spell.GetSpellTexture(id))
-                or (GetSpellTexture and GetSpellTexture(id))
-        end)
-        wl.tex[id] = (ok and tex) or 134336
-    end
-    return wl.tex[id]
-end
-
--- Is that buff on you? Out of combat the game answers. In a fight it says nothing about any
--- aura -- but Blizzard's own buff buttons are still on screen wearing the icon, and reading a
--- texture off their frame is not an aura call, so it is not cut off. Returns true, false, or
--- nil when nobody will say.
-function wl.iconOnBuffBar(tex)
-    local found = nil
-    pcall(function()
-        for i = 1, 40 do
-            local b = _G["BuffButton" .. i]
-            local art = b and (b.icon or _G["BuffButton" .. i .. "Icon"])
-            if not art then break end
-            found = found or false
-            if art:GetTexture() == tex then found = true end
-        end
-        if found ~= nil or not BuffFrame then return end
-        local holder = BuffFrame.AuraContainer or BuffFrame
-        for _, child in ipairs({ holder:GetChildren() }) do
-            local art = child.icon or child.Icon
-            if art then
-                found = found or false
-                if art:GetTexture() == tex then found = true end
-            end
-        end
-    end)
-    return found
-end
-
--- Which armor should be on you, and whether it is. Either one counts while it is up.
---
--- In a fight nothing will say: the aura calls refuse, and Blizzard's buff icons do not compare
--- reliably either. So what is known out of the fight is remembered, and casting armor during
--- one updates that memory. The buff lasts half an hour; no fight outlives the answer.
-function wl.armor()
-    local combat = InCombatLockdown()
-    local answered = false
-    for _, sp in ipairs(wl.armors) do
-        if not combat then
-            local ok, data = pcall(function()
-                local d = C_UnitAuras.GetAuraDataBySpellName("player", sp[1], "HELPFUL")
-                if d then return d end
-            end)
-            if ok then answered = true end
-            if ok and data then wl.memoUp, wl.memoSp = true, sp return sp, true end
-        end
-        if wl.iconOnBuffBar(wl.icons(sp[2])) == true then
-            wl.memoUp, wl.memoSp = true, sp
-            return sp, true
-        end
-    end
-    -- the one you should be wearing is a question of level -- the spellbook on this client
-    -- often answers nothing at all, the level always answers
-    local lvl, best = UnitLevel("player") or 0, nil
-    for _, sp in ipairs(wl.armors) do
-        if lvl >= sp[3] and not best then best = sp end
-    end
-    if combat then
-        if wl.memoUp then return wl.memoSp or best, true end
-    elseif answered then
-        wl.memoUp, wl.memoSp = false, nil -- out here the game is telling the truth
-    end
-    return best, false
-end
-
--- Casting it in a fight is the one thing we do get told about.
-function wl.sawCast(spellID)
-    local ok, name = pcall(function()
-        if C_Spell and C_Spell.GetSpellName then return C_Spell.GetSpellName(spellID) end
-        local info = C_Spell and C_Spell.GetSpellInfo and C_Spell.GetSpellInfo(spellID)
-        if type(info) == "table" then return info.name end
-        if GetSpellInfo then return (GetSpellInfo(spellID)) end
-    end)
-    if not ok or type(name) ~= "string" then return end
-    for _, sp in ipairs(wl.armors) do
-        if name == sp[1] then wl.memoUp, wl.memoSp = true, sp end
-    end
-end
-
-function wl.refresh()
-    if not db then return end
-    local o = db.warlock
-    wl.panel:ClearAllPoints()
-    wl.panel:SetPoint("CENTER", UIParent, "CENTER", o.x, o.y)
-    wl.panel:EnableMouse(not o.locked)
-    if not o.show or class ~= "WARLOCK" then
-        wl.panel:Hide()
-        return
-    end
-    wl.panel:Show()
-    local flags, n, step = o.outline and "OUTLINE" or "", 0, o.size + o.gap
-    local function place(e, icon, text, colored, size, fontSize)
-        n = n + 1
-        e:SetSize(size, size)
-        e:ClearAllPoints()
-        if o.grow == "down" then
-            e:SetPoint("TOPLEFT", wl.panel, "TOPLEFT", 0, -(n - 1) * step)
-        else
-            e:SetPoint("TOPLEFT", wl.panel, "TOPLEFT", (n - 1) * step, 0)
-        end
-        e.icon:SetTexture(icon)
-        ns.iconCorners(e.icon, e.mask, o.radius)
-        local fs = fontSize or o.fontSize
-        if not e.text:SetFont(o.font, fs, flags) then e.text:SetFont(FONTS[1][2], fs, flags) end
-        e.text:ClearAllPoints()
-        local at = o.countAt == "center" and "CENTER" or "BOTTOMRIGHT"
-        e.text:SetPoint(at, e, at, 0, 0)
-        e.text:SetText(text or "")
-        e.text:SetShown(o.showCount and text ~= nil)
-        e.text:SetTextColor(unpack(colored and o.lowColor or o.color))
-        e:Show()
-    end
-
-    local count = wl.count()
-    place(wl.entry(1), wl.icons(wl.shard), count, count <= o.low, o.size, o.fontSize)
-    wl.entry(1).icon:SetDesaturated(count == 0)
-
-    wl.lit = nil
-    if o.armor then
-        local sp, up = wl.armor()
-        -- With "only when missing" on, a buff that is up needs no reminder at all.
-        if sp and not (up and o.armorOnlyMissing) then
-            local e = wl.entry(2)
-            place(e, wl.icons(sp[2]), nil, false, o.armorSize or o.size,
-                o.armorFontSize or o.fontSize)
-            e.icon:SetDesaturated(false)
-            e.icon:SetAlpha(1)
-            wl.lit = (not up) and e or nil -- missing: it is the one that flashes
-        end
-    end
-    for i = n + 1, #wl.entries do wl.entries[i]:Hide() end
-    wl.panel:SetSize(o.grow == "down" and o.size or math.max(n * step - o.gap, o.size),
-        o.grow == "down" and math.max(n * step - o.gap, o.size) or o.size)
-end
-
--- The armor icon breathes while the buff is missing, and the duration ticks down on its own.
-wl.ticker = CreateFrame("Frame")
-wl.ticker.since = 0
-wl.ticker:SetScript("OnUpdate", function(self, elapsed)
-    if not db or not db.warlock.show or class ~= "WARLOCK" then return end
-    if wl.lit and db.warlock.flash then -- all the way down and back, so it is hard to miss
-        self.t = (self.t or 0) + elapsed
-        wl.lit.icon:SetAlpha(0.1 + 0.9 * math.abs(math.sin(self.t * 2.6)))
-    elseif wl.entries[2] then
-        wl.entries[2].icon:SetAlpha(1)
-    end
-    self.since = self.since + elapsed
-    if self.since < 1 then return end
-    self.since = 0
-    safe(wl.refresh)
-end)
-
-local wlEv = CreateFrame("Frame")
-ns.wlEv = wlEv
-wlEv:SetScript("OnEvent", function(_, ev, unit, _, spellID)
-    if ev == "UNIT_SPELLCAST_SUCCEEDED" then
-        if unit ~= "player" then return end
-        safe(wl.sawCast, spellID)
-    end
-    safe(wl.refresh)
-end)
-for _, e in ipairs({ "BAG_UPDATE", "BAG_UPDATE_DELAYED", "PLAYER_ENTERING_WORLD", "PLAYER_LOGIN",
-    "UNIT_AURA", "PLAYER_REGEN_ENABLED", "UNIT_SPELLCAST_SUCCEEDED" }) do
-    pcall(wlEv.RegisterEvent, wlEv, e)
-end
-
-------------------------------------------------------------------------------------------
--- Weapon enchants: a rogue's poisons, a shaman's imbues. One icon per hand, shown when that
--- weapon has nothing on it, or when what it has is nearly gone. GetWeaponEnchantInfo is
--- inventory, not auras, so it answers in a fight as well as out of one.
-------------------------------------------------------------------------------------------
-we = { panels = {}, classOf = { rogue = "ROGUE", shaman = "SHAMAN" } }
-ns.we = we
-
-function we.panel(key)
-    local p = we.panels[key]
-    if not p then
-        p = { entries = {} }
-        p.frame = CreateFrame("Frame", "WolfpackAddon" .. key, UIParent)
-        p.frame:SetSize(32, 32)
-        p.frame:SetMovable(true)
-        p.frame:SetClampedToScreen(true)
-        p.frame:RegisterForDrag("LeftButton")
-        p.frame:SetScript("OnDragStart", function(a) a:StartMoving() end)
-        p.frame:SetScript("OnDragStop", function(a)
-            a:StopMovingOrSizing()
-            local ux, uy = UIParent:GetCenter()
-            db[key].x = math.floor(a:GetCenter() - ux + 0.5)
-            db[key].y = math.floor(select(2, a:GetCenter()) - uy + 0.5)
-            changed()
-        end)
-        we.panels[key] = p
-    end
-    return p
-end
-
-function we.entry(p, i)
-    local e = p.entries[i]
-    if not e then
-        e = CreateFrame("Frame", nil, p.frame)
-        e.icon = e:CreateTexture(nil, "ARTWORK")
-        e.icon:SetAllPoints()
-        e.mask = e:CreateMaskTexture()
-        e.mask:SetAllPoints(e)
-        e.text = e:CreateFontString(nil, "OVERLAY")
-        p.entries[i] = e
-    end
-    return e
-end
-
--- What is on each hand: the weapon's own icon, whether it is enchanted, and the minutes left.
--- In a fight the answer is not to be trusted, and nothing can be done about it anyway, so the
--- last reading from before the fight stands: you went in bare, and the icon keeps saying so.
-function we.hands()
-    if InCombatLockdown() then return we.cache or {} end
-    local ok, hasMain, mainMs, _, _, hasOff, offMs = pcall(GetWeaponEnchantInfo)
-    if not ok then return {} end
-    local out = {}
-    for i, slot in ipairs({ 16, 17 }) do -- main hand, off hand
-        local gotIcon, icon = pcall(GetInventoryItemTexture, "player", slot)
-        if gotIcon and icon then
-            local has, ms = hasOff, offMs
-            if i == 1 then has, ms = hasMain, mainMs end -- (not `and/or`: a bare main hand is false)
-            out[#out + 1] = { icon = icon, has = has and true or false,
-                minutes = (type(ms) == "number" and ms > 0) and (ms / 60000) or nil }
-        end
-    end
-    we.cache = out
-    return out
-end
-
-function we.refresh(key)
-    if not db then return end
-    local o = db[key]
-    local p = we.panel(key)
-    p.frame:ClearAllPoints()
-    p.frame:SetPoint("CENTER", UIParent, "CENTER", o.x, o.y)
-    p.frame:EnableMouse(not o.locked)
-    if not o.show or class ~= we.classOf[key] then
-        p.frame:Hide()
-        return
-    end
-    p.frame:Show()
-    local flags, n, step = o.outline and "OUTLINE" or "", 0, o.size + o.gap
-    p.lit = {}
-    for _, hand in ipairs(we.hands()) do
-        -- Nothing on it: a reminder. Nearly gone, and out of combat where you can do something
-        -- about it: the same icon with the minutes left. Otherwise nothing at all.
-        local missing = not hand.has
-        local low = hand.has and hand.minutes and hand.minutes <= o.warn
-            and not InCombatLockdown()
-        if missing or low then
-            n = n + 1
-            local e = we.entry(p, n)
-            e:SetSize(o.size, o.size)
-            e:ClearAllPoints()
-            if o.grow == "down" then
-                e:SetPoint("TOPLEFT", p.frame, "TOPLEFT", 0, -(n - 1) * step)
-            else
-                e:SetPoint("TOPLEFT", p.frame, "TOPLEFT", (n - 1) * step, 0)
-            end
-            e.icon:SetTexture(hand.icon)
-            e.icon:SetAlpha(1)
-            ns.iconCorners(e.icon, e.mask, o.radius)
-            if not e.text:SetFont(o.font, o.fontSize, flags) then
-                e.text:SetFont(FONTS[1][2], o.fontSize, flags)
-            end
-            e.text:ClearAllPoints()
-            local at = o.countAt == "center" and "CENTER" or "BOTTOMRIGHT"
-            e.text:SetPoint(at, e, at, 0, 0)
-            e.text:SetText(low and (math.floor(hand.minutes) .. "m") or "")
-            e.text:SetShown(low and true or false)
-            e.text:SetTextColor(unpack(low and o.warnColor or o.color))
-            p.lit[n] = missing -- only a bare weapon flashes
-            e:Show()
-        end
-    end
-    for i = n + 1, #p.entries do p.entries[i]:Hide() end
-    p.frame:SetSize(o.grow == "down" and o.size or math.max(n * step - o.gap, o.size),
-        o.grow == "down" and math.max(n * step - o.gap, o.size) or o.size)
-end
-
-we.ticker = CreateFrame("Frame")
-we.ticker.since = 0
-we.ticker:SetScript("OnUpdate", function(self, elapsed)
-    if not db then return end
-    self.t = (self.t or 0) + elapsed
-    local a = 0.1 + 0.9 * math.abs(math.sin(self.t * 2.6))
-    for key, p in pairs(we.panels) do
-        if db[key] and db[key].flash then
-            for i, lit in pairs(p.lit or {}) do
-                if lit and p.entries[i] then p.entries[i].icon:SetAlpha(a) end
-            end
-        end
-    end
-    self.since = self.since + elapsed
-    if self.since < 1 then return end
-    self.since = 0
-    safe(we.refresh, "rogue")
-    safe(we.refresh, "shaman")
-end)
-
-ns.weEv = CreateFrame("Frame")
-ns.weEv:SetScript("OnEvent", function()
-    safe(we.refresh, "rogue")
-    safe(we.refresh, "shaman")
-end)
-for _, e in ipairs({ "UNIT_INVENTORY_CHANGED", "PLAYER_ENTERING_WORLD", "PLAYER_LOGIN",
-    "PLAYER_REGEN_ENABLED", "PLAYER_REGEN_DISABLED", "BAG_UPDATE" }) do
-    pcall(ns.weEv.RegisterEvent, ns.weEv, e)
-end
-
-------------------------------------------------------------------------------------------
 -- Weapon enchant and durability bars on the Combat Display, out of combat only: what is left
 -- of each hand's poison or imbue (a rogue or shaman sees an empty bar for a bare weapon, anyone
 -- else only while something is on it), and the most worn item you have on. An empty bar flashes.
@@ -6414,10 +5871,6 @@ end)
 ------------------------------------------------------------------------------------------
 -- section = sidebar entry, sub = tab inside Nameplates, mode = which bar layout is being edited
 local cfg, selected, mode, section, sub = nil, "health", "regular", "combat", "plates"
--- Classes the addon has settings of its own for: { section key, label, class token }
-ns.CLASS_SECTIONS = { { "mage", "Mage", "MAGE" },
-    { "rogue", "Rogue", "ROGUE" }, { "shaman", "Shaman", "SHAMAN" },
-    { "warlock", "Warlock", "WARLOCK" } }
 local refreshers = {}
 
 changed = function()
@@ -6843,7 +6296,9 @@ useProfile = function(name)
     local was = store.chars[charKey]
     if was and db and db == store.profiles[was] then ns.inh.save(was) end -- leaving a child
     if name ~= was or db ~= store.profiles[name] then ns.inh.rebuild(name) end
-    if store.profiles[name] then store.profiles[name].buffs = nil end -- the Buff check is gone
+    if store.profiles[name] then -- the Buff check and the class pages are gone
+        for _, k in ipairs({ "buffs", "mage", "warlock", "rogue", "shaman" }) do store.profiles[name][k] = nil end
+    end
     local had = store.profiles[name]
     if had and type(had.plates) == "table" and had.platesTarget == nil then -- saved before the targeted look
         had.platesTarget = merge({}, had.plates)
@@ -7720,14 +7175,6 @@ local function buildConfig()
         { "other", "Other" }, { "barstack", "Bar Stack" } }) do
         entry(e[1], e[2], e[3])
     end
-    y = y - 12
-    shelf("Classes")
-    for _, e in ipairs(ns.CLASS_SECTIONS) do
-        local b = entry(e[1], e[2])
-        if e[3] == class then -- your own class carries a quiet "you"
-            label(b, "you", "GameFontDisableSmall"):SetPoint("RIGHT", -10, 0)
-        end
-    end
 
     ns.sidebarBottom = y
     local divider = cfg:CreateTexture(nil, "ARTWORK")
@@ -7746,14 +7193,6 @@ local function buildConfig()
     ns.trailPage = trailPage
     local otherPage = CreateFrame("Frame", nil, content)
     otherPage:SetAllPoints(barsPage)
-    local magePage = CreateFrame("Frame", nil, content)
-    magePage:SetAllPoints(barsPage)
-    local lockPage = CreateFrame("Frame", nil, content)
-    lockPage:SetAllPoints(barsPage)
-    local roguePage = CreateFrame("Frame", nil, content)
-    roguePage:SetAllPoints(barsPage)
-    local shamanPage = CreateFrame("Frame", nil, content)
-    shamanPage:SetAllPoints(barsPage)
     local colorPage = CreateFrame("Frame", nil, content)
     colorPage:SetAllPoints(barsPage)
     local actionPage = CreateFrame("Frame", nil, content)
@@ -7762,9 +7201,7 @@ local function buildConfig()
     local bsPage = CreateFrame("Frame", nil, content)
     bsPage:SetAllPoints(barsPage)
     bsPage.need = 100 + ns.ui.BS_H
-    ns.pages = { combat = barsPage, nameplates = questPage, mage = magePage,
-        warlock = lockPage, rogue = roguePage, shaman = shamanPage,
-        other = otherPage, profile = profilePage, colors = colorPage, actionbars = actionPage,
+    ns.pages = { combat = barsPage, nameplates = questPage, other = otherPage, profile = profilePage, colors = colorPage, actionbars = actionPage,
         bags = CreateFrame("Frame", nil, content), unitframes = CreateFrame("Frame", nil, content) }
     ns.pages.bags:SetAllPoints(barsPage)
     ns.pages.unitframes:SetAllPoints(barsPage)
@@ -7804,10 +7241,6 @@ local function buildConfig()
             or section == "actionbars" and "Action bars"
             or section == "bags" and "Bags"
             or section == "unitframes" and "Unit frames"
-            or section == "mage" and "Mage: food and water"
-            or section == "warlock" and "Warlock: soul shards"
-            or section == "rogue" and "Rogue: weapon poisons"
-            or section == "shaman" and "Shaman: weapon imbues"
             or section == "barstack" and "Bar Stack"
             or "Combat Display")
         for _, t in ipairs(tabs) do t:SetShown(np) end
@@ -7816,10 +7249,6 @@ local function buildConfig()
         questPage:SetShown(np and sub == "quest")
         trailPage:SetShown(trail and true or false)
         otherPage:SetShown(section == "other")
-        magePage:SetShown(section == "mage")
-        lockPage:SetShown(section == "warlock")
-        roguePage:SetShown(section == "rogue")
-        shamanPage:SetShown(section == "shaman")
         bsPage:SetShown(section == "barstack")
         profilePage:SetShown(section == "profile")
         colorPage:SetShown(section == "colors")
@@ -8519,206 +7948,6 @@ local function buildConfig()
     mmNote:SetWidth(182)
     mmNote:SetJustifyH("LEFT")
     mm:close()
-
-    ----------------------------------------------------------------------------------
-    -- Mage page: the conjured food and water counter
-    ----------------------------------------------------------------------------------
-    local M = function() return db.mage end
-    local mset = group(magePage, COL[1], TOP, 202, "Food and water")
-    check(magePage, "Show it", mset.x, mset:row(ROW), function() return M().show end,
-        function(v) M().show = v end)
-    local mlk = button(magePage, "", 186, mset.x, mset:row(BUTTON), function()
-        M().locked = not M().locked
-        changed()
-    end)
-    onRefresh(function() mlk:SetText(M().locked and "Locked (click to unlock)" or "Unlocked - drag it") end)
-    slider(magePage, "X (left / right)", mset.x, mset:row(SLIDER), -1200, 1200,
-        function() return M().x end, function(v) M().x = v end)
-    slider(magePage, "Y (down / up)", mset.x, mset:row(SLIDER), -800, 800,
-        function() return M().y end, function(v) M().y = v end)
-    local mNote = label(magePage, "Counts the conjured food and water in your bags and shows only "
-        .. "the best rank you carry. With none of it, the icon is the rank your level conjures.",
-        "GameFontDisableSmall")
-    mNote:SetPoint("TOPLEFT", mset.x, mset:row(46))
-    mNote:SetWidth(182)
-    mNote:SetJustifyH("LEFT")
-    mset:close()
-
-    local mlook = group(magePage, COL[2], TOP, 202, "Icons")
-    slider(magePage, "Icon size", mlook.x, mlook:row(SLIDER), 12, 80, function() return M().size end,
-        function(v) M().size = v end)
-    slider(magePage, "Gap", mlook.x, mlook:row(SLIDER), 0, 30, function() return M().gap end,
-        function(v) M().gap = v end)
-    dropdown(magePage, "Side by side or stacked", mlook.x, mlook:row(DROP),
-        { { "Side by side", "right" }, { "Stacked", "down" } },
-        function() return M().grow end, function(v) M().grow = v end, textPreview)
-    dropdown(magePage, "Which comes first", mlook.x, mlook:row(DROP),
-        { { "Food, then water", false }, { "Water, then food", true } },
-        function() return M().waterFirst and true or false end,
-        function(v) M().waterFirst = v end, textPreview)
-    dropdown(magePage, "Corner radius", mlook.x, mlook:row(DROP), { { "None (square)", 0 },
-        { "Slightly rounded", 12 }, { "Rounded", 25 }, { "Circle", 50 } },
-        function() return ns.ICON_MASKS[M().radius] and M().radius or 0 end,
-        function(v) M().radius = v end, textPreview)
-    dropdown(magePage, "Count sits", mlook.x, mlook:row(DROP), { { "In the corner", "corner" },
-        { "In the middle", "center" } }, function() return M().countAt end,
-        function(v) M().countAt = v end, textPreview)
-    check(magePage, "Show the count", mlook.x, mlook:row(ROW), function() return M().showCount end,
-        function(v) M().showCount = v end)
-    mlook:close()
-
-    local mtext = group(magePage, COL[3], TOP, 202, "The count")
-    dropdown(magePage, "Font", mtext.x, mtext:row(DROP), FONTS, function() return M().font end,
-        function(v) M().font = v end, fontPreview)
-    slider(magePage, "Font size", mtext.x, mtext:row(SLIDER), 6, 30, function() return M().fontSize end,
-        function(v) M().fontSize = v end)
-    check(magePage, "Outline", mtext.x, mtext:row(ROW), function() return M().outline end,
-        function(v) M().outline = v end)
-    swatch(magePage, "Color", mtext.x, mtext:row(SWATCH), function() return M().color end)
-    swatch(magePage, "Color when low", mtext.x, mtext:row(SWATCH), function() return M().lowColor end)
-    slider(magePage, "Low is under", mtext.x, mtext:row(SLIDER), 1, 40, function() return M().low end,
-        function(v) M().low = v end)
-    mtext:close()
-
-    ----------------------------------------------------------------------------------
-    -- Warlock page: the soul shards in your bags
-    ----------------------------------------------------------------------------------
-    local W = function() return db.warlock end
-    local wset = group(lockPage, COL[1], TOP, 202, "Soul shards")
-    check(lockPage, "Show it", wset.x, wset:row(ROW), function() return W().show end,
-        function(v) W().show = v end)
-    local wlk = button(lockPage, "", 186, wset.x, wset:row(BUTTON), function()
-        W().locked = not W().locked
-        changed()
-    end)
-    onRefresh(function() wlk:SetText(W().locked and "Locked (click to unlock)" or "Unlocked - drag it") end)
-    slider(lockPage, "X (left / right)", wset.x, wset:row(SLIDER), -1200, 1200,
-        function() return W().x end, function(v) W().x = v end)
-    slider(lockPage, "Y (down / up)", wset.x, wset:row(SLIDER), -800, 800,
-        function() return W().y end, function(v) W().y = v end)
-    local wNote = label(lockPage, "Counts the soul shards in your bags. Warlocks only.",
-        "GameFontDisableSmall")
-    wNote:SetPoint("TOPLEFT", wset.x, wset:row(30))
-    wNote:SetWidth(182)
-    wNote:SetJustifyH("LEFT")
-    wset:close()
-
-    local wlook = group(lockPage, COL[2], TOP, 202, "Icon")
-    slider(lockPage, "Icon size", wlook.x, wlook:row(SLIDER), 12, 80, function() return W().size end,
-        function(v) W().size = v end)
-    dropdown(lockPage, "Corner radius", wlook.x, wlook:row(DROP), { { "None (square)", 0 },
-        { "Slightly rounded", 12 }, { "Rounded", 25 }, { "Circle", 50 } },
-        function() return ns.ICON_MASKS[W().radius] and W().radius or 0 end,
-        function(v) W().radius = v end, textPreview)
-    dropdown(lockPage, "Count sits", wlook.x, wlook:row(DROP), { { "In the corner", "corner" },
-        { "In the middle", "center" } }, function() return W().countAt end,
-        function(v) W().countAt = v end, textPreview)
-    check(lockPage, "Show the count", wlook.x, wlook:row(ROW), function() return W().showCount end,
-        function(v) W().showCount = v end)
-    slider(lockPage, "Gap", wlook.x, wlook:row(SLIDER), 0, 30, function() return W().gap end,
-        function(v) W().gap = v end)
-    dropdown(lockPage, "Side by side or stacked", wlook.x, wlook:row(DROP),
-        { { "Side by side", "right" }, { "Stacked", "down" } },
-        function() return W().grow end, function(v) W().grow = v end, textPreview)
-    wlook:close()
-
-    local warm = group(lockPage, COL[4], TOP, 202, "Demon armor")
-    check(lockPage, "Show it", warm.x, warm:row(ROW), function() return W().armor end,
-        function(v) W().armor = v end)
-    check(lockPage, "Flash when it is gone", warm.x, warm:row(ROW), function() return W().flash end,
-        function(v) W().flash = v end)
-    check(lockPage, "Hide it while you are armored", warm.x, warm:row(ROW),
-        function() return W().armorOnlyMissing end, function(v) W().armorOnlyMissing = v end)
-    slider(lockPage, "Icon size", warm.x, warm:row(SLIDER), 12, 80,
-        function() return W().armorSize or W().size end, function(v) W().armorSize = v end)
-    slider(lockPage, "Font size", warm.x, warm:row(SLIDER), 6, 30,
-        function() return W().armorFontSize or W().fontSize end,
-        function(v) W().armorFontSize = v end)
-    local warmNote = label(lockPage, "The best armor you know -- Demon Armor, or Demon Skin until "
-        .. "you have it, and either one counts while it is on you. Missing, the icon flashes; "
-        .. "armored, it is out of the way. This works in a fight too: when the aura calls go "
-        .. "quiet the icon is looked for on Blizzard's own buff bar instead.",
-        "GameFontDisableSmall")
-    warmNote:SetPoint("TOPLEFT", warm.x, warm:row(56))
-    warmNote:SetWidth(182)
-    warmNote:SetJustifyH("LEFT")
-    warm:close()
-
-    local wtext = group(lockPage, COL[3], TOP, 202, "The count")
-    dropdown(lockPage, "Font", wtext.x, wtext:row(DROP), FONTS, function() return W().font end,
-        function(v) W().font = v end, fontPreview)
-    slider(lockPage, "Font size", wtext.x, wtext:row(SLIDER), 6, 30, function() return W().fontSize end,
-        function(v) W().fontSize = v end)
-    check(lockPage, "Outline", wtext.x, wtext:row(ROW), function() return W().outline end,
-        function(v) W().outline = v end)
-    swatch(lockPage, "Shard color", wtext.x, wtext:row(SWATCH), function() return W().color end)
-    swatch(lockPage, "Shard color when low", wtext.x, wtext:row(SWATCH), function() return W().lowColor end)
-    slider(lockPage, "Low is under", wtext.x, wtext:row(SLIDER), 1, 32, function() return W().low end,
-        function(v) W().low = v end)
-    wtext:close()
-
-    ----------------------------------------------------------------------------------
-    -- Rogue and Shaman pages: what is on each weapon. The same settings, twice over.
-    ----------------------------------------------------------------------------------
-    for _, w in ipairs({ { "rogue", roguePage, "poison" }, { "shaman", shamanPage, "imbue" } }) do
-        local key, page, what = w[1], w[2], w[3]
-        local W = function() return db[key] end
-        local wg = group(page, COL[1], TOP, 202, "Weapon " .. what)
-        check(page, "Show it", wg.x, wg:row(ROW), function() return W().show end,
-            function(v) W().show = v end)
-        check(page, "Flash a bare weapon", wg.x, wg:row(ROW), function() return W().flash end,
-            function(v) W().flash = v end)
-        local wgl = button(page, "", 186, wg.x, wg:row(BUTTON), function()
-            W().locked = not W().locked
-            changed()
-        end)
-        onRefresh(function()
-            wgl:SetText(W().locked and "Locked (click to unlock)" or "Unlocked - drag it")
-        end)
-        slider(page, "X (left / right)", wg.x, wg:row(SLIDER), -1200, 1200,
-            function() return W().x end, function(v) W().x = v end)
-        slider(page, "Y (down / up)", wg.x, wg:row(SLIDER), -800, 800,
-            function() return W().y end, function(v) W().y = v end)
-        slider(page, "Warn under (minutes)", wg.x, wg:row(SLIDER), 1, 60,
-            function() return W().warn end, function(v) W().warn = v end)
-        local wgNote = label(page, "One icon per hand, and only when it needs you: nothing on "
-            .. "that weapon, or -- out of combat, where you can do something about it -- less "
-            .. "than the minutes above left, with the number on the icon.", "GameFontDisableSmall")
-        wgNote:SetPoint("TOPLEFT", wg.x, wg:row(56))
-        wgNote:SetWidth(182)
-        wgNote:SetJustifyH("LEFT")
-        wg:close()
-
-        local wgi = group(page, COL[2], TOP, 202, "Icons")
-        slider(page, "Icon size", wgi.x, wgi:row(SLIDER), 12, 80, function() return W().size end,
-            function(v) W().size = v end)
-        slider(page, "Gap", wgi.x, wgi:row(SLIDER), 0, 30, function() return W().gap end,
-            function(v) W().gap = v end)
-        dropdown(page, "Corner radius", wgi.x, wgi:row(DROP), { { "None (square)", 0 },
-            { "Slightly rounded", 12 }, { "Rounded", 25 }, { "Circle", 50 } },
-            function() return ns.ICON_MASKS[W().radius] and W().radius or 0 end,
-            function(v) W().radius = v end, textPreview)
-        dropdown(page, "Side by side or stacked", wgi.x, wgi:row(DROP),
-            { { "Side by side", "right" }, { "Stacked", "down" } },
-            function() return W().grow end, function(v) W().grow = v end, textPreview)
-        dropdown(page, "Minutes sit", wgi.x, wgi:row(DROP), { { "In the corner", "corner" },
-            { "In the middle", "center" } }, function() return W().countAt end,
-            function(v) W().countAt = v end, textPreview)
-        wgi:close()
-
-        local wgt = group(page, COL[3], TOP, 202, "The minutes")
-        dropdown(page, "Font", wgt.x, wgt:row(DROP), FONTS, function() return W().font end,
-            function(v) W().font = v end, fontPreview)
-        slider(page, "Font size", wgt.x, wgt:row(SLIDER), 6, 30, function() return W().fontSize end,
-            function(v) W().fontSize = v end)
-        check(page, "Outline", wgt.x, wgt:row(ROW), function() return W().outline end,
-            function(v) W().outline = v end)
-        swatch(page, "Color", wgt.x, wgt:row(SWATCH), function() return W().color end)
-        swatch(page, "Running out", wgt.x, wgt:row(SWATCH), function() return W().warnColor end)
-        wgt:close()
-    end
-
-
 
     -- Four columns of cards are built; the window holds two. Columns 3 and 4 move under 1 and 2:
     -- anything placed on the page itself right of column 2 shifts left and down, and whatever
@@ -9803,27 +9032,6 @@ function ns.AuraReport(spellName)
     report("GetAuraDataByIndex(1)", A.GetAuraDataByIndex, "player", 1, "HELPFUL|PLAYER")
 end
 
--- /wp armor -- what the warlock icon thinks it sees, for when it shows up at the wrong time.
-function ns.ArmorReport()
-    local function say(t) print("|cff88ccffWolfpack:|r " .. t) end
-    say(InCombatLockdown() and "in combat -- only the buff bar can answer" or "out of combat")
-    for _, sp in ipairs(wl.armors) do
-        local want = wl.icons(sp[2])
-        local ok, data = pcall(function()
-            return C_UnitAuras.GetAuraDataBySpellName("player", sp[1], "HELPFUL")
-        end)
-        local bar = wl.iconOnBuffBar(want)
-        say(("%s: icon %s | aura %s | buff bar %s"):format(sp[1], tostring(want),
-            ok and (data and "found" or "not on you") or "call refused",
-            bar == nil and "no answer" or tostring(bar)))
-    end
-    say(("remembered: %s%s"):format(tostring(wl.memoUp),
-        wl.memoSp and (" (" .. wl.memoSp[1] .. ")") or ""))
-    local sp, up = wl.armor()
-    say(("level %s -- verdict: %s, buffed = %s"):format(tostring(UnitLevel("player")),
-        sp and sp[1] or "none", tostring(up)))
-end
-
 -- /wp pet -- which of the happiness routes, if any, this build still answers on.
 function ns.PetReport()
     local function say(t) print("|cff88ccffWolfpack:|r " .. t) end
@@ -9970,7 +9178,6 @@ SlashCmdList.WOLFPACKADDON = function(msg)
     msg = (msg or ""):lower()
     if msg:find("aura") then return safe(ns.AuraReport, (msg:gsub("^%s*auras?%s*", ""))) end
     if msg:find("crit") then return safe(ns.CritReport) end
-    if msg:find("armor") then return safe(ns.ArmorReport) end
     if msg:find("pet") then return safe(ns.PetReport) end
     if msg:find("flight") then return safe(ns.FlightReport) end
     if msg:find("heal") then return safe(ns.HealReport) end

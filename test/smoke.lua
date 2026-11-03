@@ -530,7 +530,7 @@ local fr = ns.frames
 -- Rogue, secret values: 5 pips, each lit when points >= i; stack = health 18, power 14, combo 12,
 -- cast bar and swing rows only join the stack while they run
 -- the panels hear about the world before a profile exists, and must sit that out quietly
-for _, evf in ipairs({ ns.mgEv, ns.hnEv }) do
+for _, evf in ipairs({ ns.hnEv }) do
     evf._scripts.OnEvent(evf, "PLAYER_ENTERING_WORLD")
 end
 
@@ -2063,8 +2063,10 @@ assert(ns.pages.combat:IsShown() and not ns.trailPage:IsShown() and ns.np.previe
 byText("Combat Display")._scripts.OnClick(byText("Combat Display"), "LeftButton")
 assert(not ns.np.preview:IsShown() and boxes[5]._text == "220", "back on Combat Display's health bar")
 -- every sidebar entry is really there, opens its page, and that page has settings on it
-for _, name in ipairs({ "Combat Display", "Nameplates", "Other",
-    "Mage", "Rogue", "Shaman", "Warlock" }) do
+-- the class pages are gone: no Mage, Rogue, Shaman or Warlock entry, nor their settings
+for _, name in ipairs({ "Mage", "Warlock", "Shaman" }) do assert(not byText(name), name .. " is gone") end
+assert(prof().mage == nil and prof().warlock == nil and prof().rogue == nil, "and their settings")
+for _, name in ipairs({ "Combat Display", "Nameplates", "Other" }) do
     local b = byText(name)
     assert(b, "sidebar entry missing: " .. name)
     b._scripts.OnClick(b, "LeftButton")
@@ -3321,47 +3323,8 @@ assert(not hb.over:IsShown() and not pb.over:IsShown(), "switched off: both over
 S.group, S.members = false, 0
 login("ROGUE", 3)
 
--- Rogue poisons: one icon per bare weapon, and a warning when one is running out
 S.unitClasses = nil
 login("ROGUE", 3)
-local ro = prof().rogue
-ro.show, ro.locked, ro.size, ro.gap, ro.warn, ro.flash = true, true, 30, 4, 9, true
-S.weapons = { [16] = 501, [17] = 502 } -- a weapon in each hand
-S.mainEnchant, S.offEnchant, S.combat = false, false, false
-ns.weEv._scripts.OnEvent(ns.weEv, "UNIT_INVENTORY_CHANGED")
-local rp = ns.we.panels.rogue
-assert(rp.frame:IsShown() and rp.entries[1]:IsShown() and rp.entries[2]:IsShown(), "both hands bare")
-assert(rp.entries[1].icon._tex == 501 and rp.entries[2].icon._tex == 502, "each weapon's own icon")
-assert(rp.lit[1] and rp.lit[2], "and both flash")
-S.offEnchant, S.offMs = true, 20 * 60000 -- the off hand done first: the main hand still bare
-ns.weEv._scripts.OnEvent(ns.weEv, "UNIT_INVENTORY_CHANGED")
-assert(rp.entries[1]:IsShown() and rp.entries[1].icon._tex == 501 and not rp.entries[2]:IsShown(),
-    "a bare main hand is not taken for the off hand's poison")
-S.offEnchant = false
-S.mainEnchant, S.mainMs = true, 20 * 60000 -- twenty minutes on the main hand
-ns.weEv._scripts.OnEvent(ns.weEv, "UNIT_INVENTORY_CHANGED")
-assert(rp.entries[1].icon._tex == 502 and not rp.entries[2]:IsShown(), "only the bare one is left")
-S.offEnchant, S.offMs = true, 7 * 60000 -- and the off hand is running out
-ns.weEv._scripts.OnEvent(ns.weEv, "UNIT_INVENTORY_CHANGED")
-assert(rp.entries[1]:IsShown() and rp.entries[1].text._text == "7m", "seven minutes, on the icon")
-assert(not rp.lit[1], "a poison that is merely fading does not flash")
-S.combat = true
-ns.weEv._scripts.OnEvent(ns.weEv, "UNIT_INVENTORY_CHANGED")
-assert(not rp.entries[1]:IsShown(), "a fading poison in combat: nothing to be done, so quiet")
--- and in a fight the call is not asked at all: whatever was true at the pull still stands
-S.combat = false
-S.mainEnchant, S.offEnchant = false, false
-ns.weEv._scripts.OnEvent(ns.weEv, "UNIT_INVENTORY_CHANGED")
-assert(rp.entries[1]:IsShown() and rp.lit[1], "bare when the fight starts")
-S.combat = true
-S.mainEnchant, S.offEnchant, S.mainMs, S.offMs = true, true, 60 * 60000, 60 * 60000
-ns.weEv._scripts.OnEvent(ns.weEv, "UNIT_INVENTORY_CHANGED")
-assert(rp.entries[1]:IsShown() and rp.lit[1], "the call says otherwise mid-fight and is ignored")
-S.combat, S.mainEnchant, S.offEnchant = false, true, true
-S.mainMs, S.offMs = 30 * 60000, 30 * 60000
-ns.weEv._scripts.OnEvent(ns.weEv, "UNIT_INVENTORY_CHANGED")
-assert(not rp.entries[1]:IsShown(), "both fresh: nothing shown at all")
-S.weapons, ro.show = nil, false
 
 -- Weapon enchant and durability bars on the Combat Display: out of combat only, the time left
 -- on each hand, your most worn item; an empty bar flashes
@@ -3416,88 +3379,6 @@ do
     fire("UNIT_MAXPOWER")
 end
 
--- Warlock: the soul shards in the bags
-S.unitClasses = nil
-login("WARLOCK", 0)
-local wo = prof().warlock
-wo.show, wo.locked, wo.size, wo.low, wo.showCount = true, true, 30, 3, true
-local keptBags2 = S.bags
-S.bags = { [0] = {
-    { itemID = 6265, stackCount = 1 }, { itemID = 6265, stackCount = 1 },
-    { itemID = 1, stackCount = 5 },
-} }
-wo.armor, wo.flash, wo.gap, wo.grow = true, true, 4, "right"
-assert(prof().warlock.armorOnlyMissing == true, "armored means out of the way, by default")
-wo.armorOnlyMissing, wo.fontSize, wo.armorFontSize = false, 11, 18
-S.book, S.level = nil, 60 -- the spellbook says nothing on this client; the level still does
-S.auras = {}
-ns.wlEv._scripts.OnEvent(ns.wlEv, "BAG_UPDATE")
-local shard, armor = ns.wl.entries[1], ns.wl.entries[2]
-assert(ns.wl.panel:IsShown() and shard.text._text == 2, "two shards, and nothing else counted")
-assert(shard.text._color[1] == 1 and shard.text._color[2] == 0.4, "two is low, so it reads low")
-assert(armor:IsShown() and ns.wl.lit == armor, "no armor: that icon is the one that flashes")
-assert(armor.icon._desat == false, "and it keeps its colors while it does")
-assert(shard.text._font[2] == 11 and armor.text._font[2] == 18, "one font size each")
-S.auras = { { name = "Demon Armor" } }
-ns.wlEv._scripts.OnEvent(ns.wlEv, "UNIT_AURA")
-assert(armor:IsShown() and ns.wl.lit == nil, "armor up: no flashing")
-wo.armorOnlyMissing = true
-ns.wlEv._scripts.OnEvent(ns.wlEv, "UNIT_AURA")
-assert(not armor:IsShown(), "and with only-when-missing it is out of the way entirely")
--- In a fight nothing answers, so what was true on the way in is what is believed.
-S.combat, S.auras = true, {}
-ns.wlEv._scripts.OnEvent(ns.wlEv, "UNIT_AURA")
-assert(not armor:IsShown(), "armored walking in: still armored, whatever the aura calls do")
-S.combat, S.auras = false, {}
-ns.wlEv._scripts.OnEvent(ns.wlEv, "UNIT_AURA")
-assert(armor:IsShown() and ns.wl.lit == armor, "it fell off out here: back to flashing")
-S.combat = true
-S.spellNames = { [706] = "Demon Armor" }
-ns.wlEv._scripts.OnEvent(ns.wlEv, "UNIT_AURA")
-assert(armor:IsShown() and ns.wl.lit == armor, "bare walking in: still bare")
-ns.wlEv._scripts.OnEvent(ns.wlEv, "UNIT_SPELLCAST_SUCCEEDED", "player", "cast-1", 706)
-assert(not armor:IsShown(), "cast it mid-fight and the reminder goes away")
-ns.wlEv._scripts.OnEvent(ns.wlEv, "UNIT_SPELLCAST_SUCCEEDED", "pet", "cast-2", 706)
-assert(not armor:IsShown(), "somebody else's cast changes nothing")
--- Blizzard's buff bar counts too, where it can be read
-S.combat, S.auras = false, {}
-ns.wlEv._scripts.OnEvent(ns.wlEv, "UNIT_AURA")
-BuffButton1 = new()
-BuffButton1.icon = new()
-BuffButton1.icon._tex = 100 + 706 -- the demon armor icon, sitting on the buff bar
-BuffButton1.icon.GetTexture = function(self) return self._tex end
-ns.wlEv._scripts.OnEvent(ns.wlEv, "UNIT_AURA")
-assert(not armor:IsShown(), "the buff bar says it is up, so nothing is shown")
-BuffButton1 = nil
--- a warlock too young for Demon Armor: the aura route must find Demon Skin too
-S.level = 12
-S.combat, S.auras = false, {}
-ns.wlEv._scripts.OnEvent(ns.wlEv, "UNIT_AURA")
-assert(armor:IsShown() and ns.wl.lit == armor, "skin missing: it is the one being asked for")
-assert(armor.icon._tex == 100 + 696, "and it wears Demon Skin's icon, not Armor's")
-S.auras = { { name = "Demon Skin" } }
-ns.wlEv._scripts.OnEvent(ns.wlEv, "UNIT_AURA")
-assert(ns.wl.lit == nil, "skin up out of combat: no flashing")
--- and a warlock buffed with Demon Skin at 60 is armored: the better one is not nagged for
-S.combat, S.auras = false, { { name = "Demon Skin" } }
-S.level = 60
-ns.wlEv._scripts.OnEvent(ns.wlEv, "UNIT_AURA")
-assert(not armor:IsShown(), "any of the two counts as armored")
-S.auras = {}
-ns.wlEv._scripts.OnEvent(ns.wlEv, "UNIT_AURA")
-assert(armor:IsShown() and armor.icon._tex == 100 + 706, "bare at 60: Demon Armor is the ask")
-SlashCmdList.WOLFPACKADDON("armor") -- the probe reads every route without blowing up
-assert(not ns.errored, "the armor probe runs clean")
-S.combat, wo.armorOnlyMissing = false, false
-
-S.bags = { [0] = {} }
-S.auras = {}
-ns.wlEv._scripts.OnEvent(ns.wlEv, "BAG_UPDATE")
-assert(shard.text._text == 0 and shard.icon._desat == true, "none: a grey shard and a zero")
-S.bags = keptBags2
-login("ROGUE", 3)
-ns.wlEv._scripts.OnEvent(ns.wlEv, "BAG_UPDATE")
-assert(not ns.wl.panel:IsShown(), "nothing for anyone else")
 
 -- Flight timer: nobody will say how long a ride takes, so the first one is timed and the next
 -- counts down
@@ -3637,71 +3518,6 @@ login("ROGUE", 3)
 ns.hnEv._scripts.OnEvent(ns.hnEv, "BAG_UPDATE")
 assert(not fr.ammo:IsShown(), "no ammo bar for anyone else")
 
--- Mage: the conjured food and water in the bags, best rank only, on its own panel
-S.unitClasses = nil -- the group test above left everyone else's class behind
-login("MAGE", 0)
-local mo = prof().mage
-mo.show, mo.locked, mo.size, mo.gap, mo.grow, mo.low = true, true, 30, 4, "right", 5
-local keptBags = S.bags
-S.level = 60
-S.bags = { [0] = {
-    { itemID = 5349, stackCount = 20, quality = 1 }, -- Conjured Muffin, the lowest rank
-    { itemID = 8076, stackCount = 12, quality = 1 }, -- Conjured Sweet Roll
-    { itemID = 8076, stackCount = 8, quality = 1 },
-    { itemID = 8079, stackCount = 3, quality = 1 },  -- Conjured Crystal Water
-} }
-ns.mgEv._scripts.OnEvent(ns.mgEv, "BAG_UPDATE")
-local food, water = ns.mg.entries[1], ns.mg.entries[2]
-assert(ns.mg.panel:IsShown() and food:IsShown(), "the panel shows for a mage")
-assert(food.text._text == 20, "the best food, counted across its stacks")
-assert(food.icon._tex == 1000 + 8076, "with the Sweet Roll icon, not the Muffin's")
-assert(water.text._text == 3 and water.icon._tex == 1000 + 8079, "and the best water")
-assert(water.text._color and water.text._color[1] == 1 and water.text._color[2] == 0.4,
-    "three is low, so it is colored that way")
--- and which of the two comes first is yours to choose
-mo.waterFirst = true
-ns.mgEv._scripts.OnEvent(ns.mgEv, "BAG_UPDATE")
-assert(food.icon._tex == 1000 + 8079 and water.icon._tex == 1000 + 8076, "water leads, food follows")
-mo.waterFirst = false
-ns.mgEv._scripts.OnEvent(ns.mgEv, "BAG_UPDATE")
-assert(food.icon._tex == 1000 + 8076, "and back the other way round")
-
--- the number can be put in the middle of the icon, or hidden altogether
-mo.countAt, mo.showCount = "center", true
-ns.mgEv._scripts.OnEvent(ns.mgEv, "BAG_UPDATE")
-assert(food.text._point[1] == "CENTER" and food.text:IsShown(), "the count sits in the icon")
-mo.showCount = false
-ns.mgEv._scripts.OnEvent(ns.mgEv, "BAG_UPDATE")
-assert(not food.text:IsShown(), "or not at all")
-mo.showCount, mo.countAt = true, "corner"
--- stacked instead of side by side
-mo.grow = "down"
-ns.mgEv._scripts.OnEvent(ns.mgEv, "BAG_UPDATE")
-assert(water._point[4] == 0 and water._point[5] == -34, "stacked, one under the other")
-mo.grow = "right"
-ns.mgEv._scripts.OnEvent(ns.mgEv, "BAG_UPDATE")
-assert(water._point[4] == 34 and water._point[5] == 0, "or side by side")
-
--- empty bags still show the rank your level conjures, grayed out
-S.bags = { [0] = {} }
-ns.mgEv._scripts.OnEvent(ns.mgEv, "BAG_UPDATE")
-assert(food.text._text == 0 and food.icon._tex == 1000 + 22895, "level 60 conjures Cinnamon Rolls")
-assert(food.icon._desat == true, "and it is grayed out")
-mo.radius = 50
-ns.mgEv._scripts.OnEvent(ns.mgEv, "BAG_UPDATE")
-assert(food.icon.iconMask and food.mask._tex:find("i50"), "the mage icons round off too")
-assert(food.icon._coords[1] == 0 and food.icon._coords[2] == 1,
-    "and are shown whole, because a mask ignores a crop and shrinks the art")
-mo.radius = 0
-ns.mgEv._scripts.OnEvent(ns.mgEv, "BAG_UPDATE")
-assert(food.icon._coords[1] == 0.08, "square again: the icon border is trimmed as before")
-S.level = 10
-ns.mgEv._scripts.OnEvent(ns.mgEv, "BAG_UPDATE")
-assert(food.icon._tex == 1000 + 1113, "at level 10 it is Conjured Bread")
-S.bags, S.level = keptBags, 60
-login("ROGUE", 3)
-ns.mgEv._scripts.OnEvent(ns.mgEv, "BAG_UPDATE")
-assert(not ns.mg.panel:IsShown(), "and nothing at all for anyone else")
 
 
 -- the crit probe records what a hit looks like, and survives a client that sends nothing
