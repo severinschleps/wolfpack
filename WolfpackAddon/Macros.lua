@@ -15,15 +15,43 @@ ns.mac = M
 M.QUESTION = 134400 -- the question mark: the game shows the spell's icon instead
 M.BODY_MAX, M.NAME_MAX = 255, 16
 
--- WolfpackAddonDB.macros = { tabs = { general = { { name, icon, body } ... }, ROGUE = ... },
--- deleted = { [tab] = { [name] = true } } }
+-- the profile in use's .macros = { tabs = { general = { { name, icon, body } ... }, ROGUE = ... },
+-- deleted = { [tab] = { [name] = true } } }: Alpha's, unless a child changed them
 function M.db()
-    local store = WolfpackAddonDB
-    if type(store) ~= "table" then return end
-    store.macros = store.macros or {}
-    local d = store.macros
+    local p = ns.profile and ns.profile()
+    if type(p) ~= "table" then return end
+    p.macros = p.macros or {}
+    local d = p.macros
     d.tabs, d.deleted = d.tabs or {}, d.deleted or {}
     return d
+end
+
+-- a library from an import string: only tabs of macros with a name, an icon and some text
+function M.clean(v)
+    local out = { tabs = {}, deleted = {} }
+    v = type(v) == "table" and v or {}
+    for key, list in pairs(type(v.tabs) == "table" and v.tabs or {}) do
+        if type(key) == "string" and #key <= 16 and type(list) == "table" then
+            local t = {}
+            for _, m in ipairs(list) do
+                if type(m) == "table" and type(m.name) == "string" and m.name ~= "" and #t < 120 then
+                    t[#t + 1] = { name = m.name:sub(1, M.NAME_MAX),
+                        icon = (type(m.icon) == "number" or type(m.icon) == "string") and m.icon or M.QUESTION,
+                        body = type(m.body) == "string" and m.body:sub(1, M.BODY_MAX) or "" }
+                end
+            end
+            out.tabs[key] = t
+        end
+    end
+    for key, names in pairs(type(v.deleted) == "table" and v.deleted or {}) do
+        if type(key) == "string" and type(names) == "table" then
+            out.deleted[key] = {}
+            for name, on in pairs(names) do
+                if type(name) == "string" and on == true then out.deleted[key][name] = true end
+            end
+        end
+    end
+    return out
 end
 
 function M.myClass() return select(2, UnitClass("player")) end

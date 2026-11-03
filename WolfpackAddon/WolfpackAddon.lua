@@ -429,6 +429,8 @@ DEFAULTS.micro = { show = false, anchor = "screen", point = "BOTTOMRIGHT", side 
 -- Tooltips that open where the game puts them by default: mode "game" (left alone), "screen"
 -- (`point` of the screen, then x / y) or "cursor" (beside the cursor, x / y from it)
 DEFAULTS.tooltip = { mode = "game", point = "BOTTOMRIGHT", x = -100, y = 120 }
+-- the macro library (Macros.lua): in the profile, so it travels in a string and a child inherits it
+DEFAULTS.macros = { tabs = {}, deleted = {} }
 
 DEFAULTS.unitframes = { show = false, replace = true, fontSize = 10, power = true, powerHeight = 4,
     pets = true, petHeight = 14, roleIcon = true, marker = true,
@@ -6648,9 +6650,11 @@ useProfile = function(name)
         db.regular.bars.enemyhealth.show, db.regular.bars.enemyhealth.beside = true, true
     end
     applyCombatFont() -- the font travels with the profile
+    if ns.mac and ns.mac.ready then safe(ns.mac.sync) end -- this profile's macros into the game's slots
     place()
     changed()
 end
+ns.profile = function() return db end
 
 -- Your profiles plus the ready-made ones you haven't used yet.
 local function profileNames()
@@ -6815,6 +6819,8 @@ local function sanitize(src, template)
             for _, key in ipairs(def) do
                 if not seen[key] then out.order[#out.order + 1] = key end
             end
+        elseif k == "macros" then
+            out.macros = ns.mac.clean(v)
         elseif k == "platesTarget" and v == nil then -- from before the targeted look: the standard one
             out[k] = sanitize(src.plates, def)
         elseif type(def) == "table" then
@@ -6968,7 +6974,7 @@ StaticPopupDialogs.WOLFPACKADDON_COPY = {
 }
 
 StaticPopupDialogs.WOLFPACKADDON_RESET = {
-    text = "Reset \"%s\"?\nIts settings on every page but Bar Stack go back to where they started.",
+    text = "Reset \"%s\"?\nIts settings on every page but Bar Stack and Macros go back to where they started.",
     button1 = YES, button2 = NO,
     -- data "defaults": the plain defaults, and no longer based on anything; else a child goes back
     -- to its parent in full
@@ -6981,8 +6987,10 @@ StaticPopupDialogs.WOLFPACKADDON_RESET = {
             place()
             return changed()
         end
+        local macros = db.macros -- the library stays
         wipe(db)
         merge(db, ns.freshProfile(name))
+        db.macros = macros
         place()
         changed()
     end,
@@ -9867,6 +9875,11 @@ ev:SetScript("OnEvent", function(_, event, unit, arg2, arg3)
         store.flights = store.flights or {} -- ["Ironforge > Menethil Harbor"] = seconds
         safe(ft.hook)
         seedFromBaked()
+        -- the macro library lived beside the profiles; now it is Alpha's, and its children inherit it
+        local A = store.profiles[ns.DEFAULT_NAME]
+        if type(store.macros) == "table" and A and not (type(A.macros) == "table" and next(A.macros.tabs or {})) then
+            A.macros, store.macros = store.macros, nil
+        end
         classProfile, class = UnitClass("player")
         playerName = UnitName("player")
         charKey = playerName .. " - " .. GetRealmName()
@@ -10023,7 +10036,7 @@ ev:SetScript("OnEvent", function(_, event, unit, arg2, arg3)
         if ns.mac and ns.mac.pending then safe(ns.mac.sync) end -- macros changed in the fight
         if ns.micro.pending then safe(ns.micro.sync) end
     else
-        if event == "PLAYER_ENTERING_WORLD" and ns.mac then safe(ns.mac.sync) end -- the macro library
+        if event == "PLAYER_ENTERING_WORLD" and ns.mac then ns.mac.ready = true; safe(ns.mac.sync) end -- the macro library
         if event == "PLAYER_ENTERING_WORLD" then safe(ns.micro.sync); safe(ns.tip.sync) end
         if event == "NAME_PLATE_UNIT_ADDED" then safe(plateAdded, unit) end
         if event == "NAME_PLATE_UNIT_REMOVED" then safe(plateRemoved, unit) end

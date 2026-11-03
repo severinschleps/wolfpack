@@ -4086,7 +4086,7 @@ do
     local mac = ns.mac
     game.account = { { name = "Mount", icon = 5, body = "/use Horse" } }
     game.char = { { name = "Poison", icon = 6, body = "/use Poison" } }
-    WolfpackAddonDB.macros = nil
+    prof().macros = nil
     mac.sync()
     assert(names(mac.tab("general")) == "Mount" and names(mac.tab("ROGUE")) == "Poison",
         "the first time: the ones there are taken in")
@@ -4145,6 +4145,26 @@ do
     assert(game.account[1].body == "/use Bigger Horse" and not mac.pending, "written once combat ends")
     byText("Combat Display")._scripts.OnClick(byText("Combat Display"), "LeftButton")
     ns.cfg:Hide()
+    -- the library is the profile's: the rogue's stays on the rogue's profile
+    assert(names(prof().macros.tabs.general) == "Mount,Taunt", "in the profile")
+    -- a library from before, beside the profiles: moved into Alpha, and a child of Alpha inherits it
+    local store = WolfpackAddonDB
+    store.profiles.Alpha = store.profiles.Alpha or {}
+    store.profiles.Alpha.macros = nil
+    store.macros = { tabs = { general = { { name = "Old", icon = 1, body = "/old" } } }, deleted = {} }
+    login("ROGUE", 3)
+    assert(store.macros == nil and names(store.profiles.Alpha.macros.tabs.general) == "Old", "moved into Alpha")
+    ns.useProfile("Alpha")
+    store.parents.Rogue, store.overrides.Rogue = "Alpha", {}
+    ns.useProfile("Rogue")
+    assert(names(mac.tab("general")) == "Old" and names(game.account):find("Old"), "the child gets Alpha's macros")
+    store.parents.Rogue, store.overrides.Rogue = nil, nil
+    -- from an import string: junk dropped, names and text cut to the game's limits
+    local c = mac.clean({ tabs = { general = { { name = ("x"):rep(30), icon = {}, body = 5 }, "junk", { name = "" } },
+        [7] = {} }, deleted = { general = { Gone = true, Bad = 1 } } })
+    assert(#c.tabs.general == 1 and #c.tabs.general[1].name == 16 and c.tabs.general[1].icon == mac.QUESTION
+        and c.tabs.general[1].body == "" and c.tabs[7] == nil, "an imported library, cleaned")
+    assert(c.deleted.general.Gone and c.deleted.general.Bad == nil, "only true tombstones")
 end
 
 realPrint("smoke ok")
