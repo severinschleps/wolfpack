@@ -643,6 +643,11 @@ S.combat = true; S.auras = {}; fire("UNIT_AURA", "target")
 assert(bi[1]:IsShown(), "the game refuses: the icons stay")
 S.combat = false; fire("UNIT_AURA", "target")
 assert(not bi[1]:IsShown() and bb._w == 0, "no buffs, no icons, an empty box")
+assert(di[1]:IsShown() and db_._point[1] == "BOTTOMLEFT" and db_._point[2] == bb and db_._point[3] == "BOTTOMLEFT"
+    and db_._point[4] == 0 and db_._point[5] == 0, "debuffs on empty buffs: right where the buffs would start")
+eh.buffs.show = false; S.auras = { { icon = 111 } }; fire("UNIT_AURA", "target")
+assert(db_._point[3] == "BOTTOMLEFT" and db_._point[5] == 0, "buffs turned off counts as empty")
+eh.buffs.show, S.auras = true, {}
 eh.debuffs.show = false; fire("UNIT_AURA", "target")
 assert(not di[1]:IsShown(), "debuffs off")
 eh.buffs = { show = true, anchorTo = "bar", spot = "above_right", x = 0, y = 2, size = 20, radius = 0,

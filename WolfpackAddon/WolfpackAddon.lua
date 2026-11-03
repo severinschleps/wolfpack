@@ -1273,7 +1273,8 @@ function ns.drawAura(b, unit, a)
 end
 
 -- Each group lives in a box as big as its icons; the box hangs on the bar or on the other
--- group's box. Both on each other would hang in the air, so then buffs take the bar.
+-- group's box. Both on each other would hang in the air, so then buffs take the bar. One that
+-- hangs on an empty group takes that group's place, as if it were the first.
 function ns.layoutAuras(f)
     local c = db[f.mode].bars.enemyhealth
     local unit = UnitExists(f.unit) and f.unit
@@ -1282,12 +1283,6 @@ function ns.layoutAuras(f)
     for _, k in ipairs({ "buffs", "debuffs" }) do
         local o, icons, box = c[k], f.auraIcons[k], f.auraBoxes[k]
         local spot, step = ns.AURA_SPOTS[o.spot] or ns.AURA_SPOTS.above_right, o.size + c.auraGap
-        local toOther = o.anchorTo == "other" and not (k == "buffs" and c.debuffs.anchorTo == "other")
-        local x, y = o.x, o.y
-        if toOther and spot[5] == "h" then x = x + spot[3] * c.auraGroupGap end
-        if toOther and spot[5] == "v" then y = y + spot[4] * c.auraGroupGap end
-        box:ClearAllPoints()
-        box:SetPoint(spot[1], toOther and f.auraBoxes[k == "buffs" and "debuffs" or "buffs"] or f, spot[2], x, y)
         local max = math.min(o.max, o.cols * o.rows)
         local list = {}
         if o.show and unit then
@@ -1333,6 +1328,24 @@ function ns.layoutAuras(f)
             end
             box:SetSize(n > 0 and math.min(n, o.cols) * step - c.auraGap or 0,
                 n > 0 and math.ceil(n / o.cols) * step - c.auraGap or 0)
+            box.n = n
+        end
+    end
+    for _, k in ipairs({ "buffs", "debuffs" }) do -- now that both know how many they hold
+        local o, box = c[k], f.auraBoxes[k]
+        local other = k == "buffs" and "debuffs" or "buffs"
+        local spot = ns.AURA_SPOTS[o.spot] or ns.AURA_SPOTS.above_right
+        local toOther = o.anchorTo == "other" and not (k == "buffs" and c.debuffs.anchorTo == "other")
+        local into = f.auraBoxes[other]
+        box:ClearAllPoints()
+        if toOther and (into.n or 0) == 0 then -- right where the empty group would start
+            local corner = (ns.AURA_SPOTS[c[other].spot] or ns.AURA_SPOTS.above_right)[1]
+            box:SetPoint(corner, into, corner, 0, 0)
+        else
+            local x, y = o.x, o.y
+            if toOther and spot[5] == "h" then x = x + spot[3] * c.auraGroupGap end
+            if toOther and spot[5] == "v" then y = y + spot[4] * c.auraGroupGap end
+            box:SetPoint(spot[1], toOther and into or f, spot[2], x, y)
         end
     end
 end
