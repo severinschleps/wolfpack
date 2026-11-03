@@ -189,6 +189,7 @@ local function layoutDefaults(show, x, y, gap, width, h1, h2, h3, h4, h5, h6, h7
     eh.tagLevel, eh.tagName, eh.tagFont, eh.tagSize, eh.tagOutline = true, false, FONTS[1][2], 10, true
     eh.tagAnchor, eh.tagX, eh.tagY, eh.tagNameColor = "LEFT", 4, 0, { 1, 1, 1, 1 } -- tag*: the level's spot
     eh.nameAnchor, eh.nameX, eh.nameY = "LEFT", 28, 0
+    eh.tagAttach = "free" -- the level: "free" on the bar, or "left"/"right"/"top"/"bottom" of the name
     -- a box behind each: color (with opacity), padding around the text, corner radius
     eh.tagBg = { show = false, color = { 0, 0, 0, 0.6 }, pad = 2, radius = 0 }
     eh.nameBg = { show = false, color = { 0, 0, 0, 0.6 }, pad = 2, radius = 0 }
@@ -1143,13 +1144,17 @@ function ns.levelColor(level)
     return 1, 1, 1
 end
 
+-- the level beside the name: its point, the name box's point, which way its padding pushes
+ns.TAG_SIDES = { left = { "RIGHT", "LEFT", -1, 0 }, right = { "LEFT", "RIGHT", 1, 0 },
+    top = { "BOTTOM", "TOP", 0, 1 }, bottom = { "TOP", "BOTTOM", 0, -1 } }
+
 function ns.layoutTag(f)
     local c = db[f.mode].bars.enemyhealth
     local unit = UnitExists(f.unit) and f.unit
     local flags = c.tagOutline and "OUTLINE" or ""
     -- the level and the name: one font string each, in its own spot, on a frame that wraps it
     -- (padding all round) and wears its background
-    for _, which in ipairs({ "level", "name" }) do
+    for _, which in ipairs({ "name", "level" }) do -- the name first: the level may hang on it
         local key, lvl = "tag_" .. which, which == "level"
         local t = f[key]
         if not t then
@@ -1170,7 +1175,12 @@ function ns.layoutTag(f)
             if not lvl then point, x, y, bg = c.nameAnchor, c.nameX, c.nameY, c.nameBg end
             t.box:SetFrameLevel(f:GetFrameLevel() + 7) -- over the resource bar
             t:ClearAllPoints()
-            t:SetPoint(point, f, point, x, y)
+            local side = lvl and c.tagName and ns.TAG_SIDES[c.tagAttach]
+            if side then -- next to the name's box, its own padding clear of it
+                t:SetPoint(side[1], f.tag_name.box, side[2], x + side[3] * bg.pad, y + side[4] * bg.pad)
+            else
+                t:SetPoint(point, f, point, x, y)
+            end
             t:SetJustifyH(point)
             if lvl then
                 local level = unit and (UnitEffectiveLevel or UnitLevel)(unit) or UnitLevel("player")
@@ -5173,7 +5183,7 @@ local function buildConfig()
         function() return cur().resRadius end, function(v) cur().resRadius = v end, textPreview)
 
     -- Level and name dialog: same place, for the same bar. The font on top, then a column each.
-    local td = ns.ui.Window(nil, 440, 610, "Level and name")
+    local td = ns.ui.Window(nil, 440, 640, "Level and name")
     td:SetParent(cfg)
     td:ClearAllPoints()
     td:SetPoint("TOPLEFT", cfg, "TOPRIGHT", 12, 0)
@@ -5204,8 +5214,16 @@ local function buildConfig()
         if p == "name" then
             swatch(td, "Name color", x, rrow(SWATCH), function() return cur().tagNameColor or { 1, 1, 1, 1 } end)
         end
-        dropdown(td, "Position", x, rrow(DROP), SIDES, function() return cur()[p .. "Anchor"] end,
+        if p == "tag" then
+            dropdown(td, "Sits", x, rrow(DROP), { { "Free, on the bar", "free" }, { "Left of the name", "left" },
+                { "Right of the name", "right" }, { "Above the name", "top" }, { "Below the name", "bottom" } },
+                function() return cur().tagAttach end, function(v) cur().tagAttach = v end, textPreview)
+        end
+        local pos = dropdown(td, "Position", x, rrow(DROP), SIDES, function() return cur()[p .. "Anchor"] end,
             function(v) cur()[p .. "Anchor"] = v end, textPreview)
+        if p == "tag" then -- beside the name, the name decides where it is
+            onRefresh(function() pos:SetShown(not (cur().tagName and ns.TAG_SIDES[cur().tagAttach or ""])) end)
+        end
         slider(td, "X", x, rrow(SLIDER), -100, 100, function() return cur()[p .. "X"] end,
             function(v) cur()[p .. "X"] = v end)
         slider(td, "Y", x, rrow(SLIDER), -50, 50, function() return cur()[p .. "Y"] end,

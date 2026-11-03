@@ -574,6 +574,15 @@ eh.nameAnchor, eh.nameX, eh.nameY, eh.tagAnchor, eh.tagY = "RIGHT", -6, 2, "CENT
 fire("PLAYER_TARGET_CHANGED")
 assert(tn._point[1] == "RIGHT" and tn._point[4] == -6 and tn._point[5] == 2 and tl._point[1] == "CENTER"
     and tl._point[5] == -3, "each in its own spot")
+-- the level beside the name: next to its box, its own padding clear of it; X/Y still nudge it
+eh.tagAttach, eh.tagX, eh.tagY = "right", 1, 0; fire("PLAYER_TARGET_CHANGED")
+assert(tl._point[1] == "LEFT" and tl._point[2] == tn.box and tl._point[3] == "RIGHT"
+    and tl._point[4] == 1 + eh.tagBg.pad, "right of the name")
+eh.tagAttach = "top"; fire("PLAYER_TARGET_CHANGED")
+assert(tl._point[1] == "BOTTOM" and tl._point[3] == "TOP" and tl._point[5] == eh.tagBg.pad, "above the name")
+eh.tagName = false; fire("PLAYER_TARGET_CHANGED")
+assert(tl._point[2] == ef and tl._point[1] == "CENTER", "no name shown: back to its own spot")
+eh.tagName, eh.tagAttach, eh.tagX, eh.tagY = true, "free", 4, -3
 S.tLevel = -1; fire("PLAYER_TARGET_CHANGED")
 assert(tl._text == "??", "a skull reads ??")
 UnitName = function(u) return u == "target" and SECRET or realName(u) end
