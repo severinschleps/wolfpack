@@ -376,7 +376,7 @@ DEFAULTS.bags = { show = false, cols = 10, size = 36, gap = 4, sectionGap = 12, 
 -- Unit frames: your party or raid, a frame each, in a block with one side fixed. fixed "width":
 -- `size` px wide, `per` frames a row, rows growing "down" / "up"; fixed "height": `size` px high,
 -- `per` a column, columns growing "right" / "left". Frames split the fixed side; their other side
--- follows (ns.uf.SHAPE: twice as wide as high). x / y: the
+-- is set in px: frameHeight with a fixed width, frameWidth with a fixed height. x / y: the
 -- block's start corner from the screen center. roles: the order they come in. Pets come after
 -- everyone, `petHeight` high, in their owner's class color. Buffs and debuffs: which (mode), how
 -- many in what grid, and where on the frame: `small` up to `breakpoint` members, `large` above.
@@ -387,7 +387,7 @@ function ns.ufAuraDefaults(mode, point, x, y, edge)
         small = { point = point, x = x, y = y }, large = { point = point, x = x, y = y } }
 end
 DEFAULTS.unitframes = { show = false, replace = true, fixed = "width", size = 400, per = 5, grow = "down",
-    gap = 4, x = -500, y = 200, fontSize = 10, power = true, powerHeight = 4,
+    frameHeight = 36, frameWidth = 100, gap = 4, x = -500, y = 200, fontSize = 10, power = true, powerHeight = 4,
     pets = true, petHeight = 14, roleIcon = true, marker = true, dummy = 10, breakpoint = 5,
     roles = { "TANK", "HEALER", "DAMAGER" },
     buffs = ns.ufAuraDefaults("mine", "TOPRIGHT", -2, -2, { 0, 0, 0, 1 }),
@@ -4906,7 +4906,6 @@ end)
 -- While the options are open, a stand-in group of `dummy` members shows instead.
 ------------------------------------------------------------------------------------------
 ns.uf = { buttons = {}, byUnit = {} }
-ns.uf.SHAPE = 2 -- a frame's width : height; ponytail: fixed, a setting if one shape doesn't suit all
 ns.uf.ROLE_ICON = "Interface\\LFGFrame\\UI-LFG-ICON-PORTRAITROLES"
 ns.uf.ROLE_COORDS = { TANK = { 0, 19 / 64, 22 / 64, 41 / 64 }, HEALER = { 20 / 64, 39 / 64, 1 / 64, 20 / 64 },
     DAMAGER = { 20 / 64, 39 / 64, 22 / 64, 41 / 64 } }
@@ -5021,8 +5020,8 @@ function ns.uf.layout()
         if inLine == per then offset, inLine = offset + lineSize + o.gap, 0 end
         local b = U.button(i)
         local w, ht
-        if wide then w, ht = along, e.pet and o.petHeight or along / U.SHAPE
-        else w, ht = along * U.SHAPE, e.pet and o.petHeight or along end
+        if wide then w, ht = along, e.pet and o.petHeight or o.frameHeight
+        else w, ht = o.frameWidth, e.pet and o.petHeight or along end
         if inLine == 0 then lineSize = wide and ht or w end
         -- along the line: frames of the same size, except pets in a column (their own height)
         local pos = wide and inLine * (along + o.gap) or nil
@@ -8450,10 +8449,17 @@ local function buildConfig()
             function(v) U().size = v end)
         local perS = slider(pg, "Frames per row", c1.x, c1:row(SLIDER), 1, 40, function() return U().per end,
             function(v) U().per = v end)
+        -- the frame's other side: its height with a fixed width, its width with a fixed height
+        local crossS = slider(pg, "Frame height (px)", c1.x, c1:row(SLIDER), 6, 300, function()
+            return U().fixed == "width" and U().frameHeight or U().frameWidth
+        end, function(v)
+            if U().fixed == "width" then U().frameHeight = v else U().frameWidth = v end
+        end)
         onRefresh(function() -- the labels follow the fixed side
             local wide = U().fixed == "width"
             sizeS.label:SetText(wide and "Fixed width (px)" or "Fixed height (px)")
             perS.label:SetText(wide and "Frames per row" or "Frames per column")
+            crossS.label:SetText(wide and "Frame height (px)" or "Frame width (px)")
         end)
         sliders(c1, U, { { "gap", "Gap", 0, 20 }, { "x", "X (from the center)", -1500, 1500 },
             { "y", "Y (from the center)", -1000, 1000 } })
