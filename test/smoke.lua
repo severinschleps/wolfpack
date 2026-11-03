@@ -2693,6 +2693,8 @@ assert(BagsBar._parent == UIParent and BagsBar._point[2] == "MicroButtonAndBagsB
     -- OnHide there (nothing becomes invisible), so ours must hear the call itself (seen in game)
     ContainerFrame1:Hide()
     assert(not f:IsShown() and ContainerFrame1._parent == UIParent, "closed with Blizzard's, theirs given back")
+    assert(BagsBar._parent == UIParent and BagsBar._point[2] == "MicroButtonAndBagsBar",
+        "closed: the bag bar back in its own spot")
     o.show = false
     B.sync()
     assert(BagsBar._parent == UIParent and BagsBar._point[2] == "MicroButtonAndBagsBar", "off: the bag bar goes home")
@@ -3997,6 +3999,13 @@ do
     ns.micro.sync()
     assert(f._point[1] == "BOTTOM" and f._point[2] == MainMenuBarBackpackButton, "above it: the backpack's")
     BagsBar = keptBar
+    -- the bag bar up on the open bag window: the micro menu stays where the bar lives
+    o.side = "left"
+    BagsBar.wpHome = { parent = UIParent, { "TOPRIGHT", "MicroButtonAndBagsBar", "TOPRIGHT", 0, 0 } }
+    ns.micro.sync()
+    assert(f._point[2] == ns.micro.ghost and ns.micro.ghost._point[2] == "MicroButtonAndBagsBar",
+        "on the bar's own spot, not on the bag window")
+    BagsBar.wpHome = nil
     o.hover = true
     ns.micro.sync()
     assert(f._scripts.OnUpdate == ns.abFade, "faded until hovered")
