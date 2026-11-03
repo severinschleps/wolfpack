@@ -582,6 +582,31 @@ eh.tagLevel, eh.tagName = false, false; fire("PLAYER_TARGET_CHANGED")
 assert(not tl:IsShown() and not tn:IsShown(), "both off: nothing")
 eh.tagLevel, S.tLevel, S.tKind = true, nil, nil
 UnitLevel, GetQuestDifficultyColor, UnitClassification = realLevel, nil, nil
+-- buffs and debuffs: above the bar by default, debuffs stacked after the buffs in the same spot
+S.auras = { { icon = 111, duration = 10, expirationTime = 20 }, { icon = 112, applications = 3 } }
+S.debuffs = { { icon = 221 } }
+fire("UNIT_AURA", "target")
+local bi, di = ef.auraIcons.buffs, ef.auraIcons.debuffs
+assert(bi[1]:IsShown() and bi[2]:IsShown() and bi[1].tex._tex == 111 and bi[2].count._text == 3
+    and bi[1].cd._cd[1] == 10 and bi[1].cd._cd[2] == 10, "the target's buffs, with timer and stacks")
+assert(bi[1]._point[1] == "BOTTOMLEFT" and bi[1]._point[3] == "TOPLEFT" and bi[1]._point[5] == 2
+    and bi[2]._point[4] == 22, "above, growing right, 20 + 2 apart")
+assert(di[1].tex._tex == 221 and di[1]._point[5] == 2 + 20 + 4, "debuffs over the buffs, a group gap up")
+eh.debuffs.spot = "below_left"; eh.buffs.cols, eh.buffs.rows = 1, 2; fire("UNIT_AURA", "target")
+assert(di[1]._point[1] == "TOPRIGHT" and di[1]._point[3] == "BOTTOMRIGHT" and di[1]._point[5] == 2,
+    "a spot of its own: no stacking")
+assert(bi[2]._point[4] == 0 and bi[2]._point[5] == 2 + 22, "one column: the second buff goes up a row")
+eh.buffs.max = 1; fire("UNIT_AURA", "target")
+assert(bi[1]:IsShown() and not bi[2]:IsShown(), "most icons caps it")
+S.combat = true; S.auras = {}; fire("UNIT_AURA", "target")
+assert(bi[1]:IsShown(), "the game refuses: the icons stay")
+S.combat = false; fire("UNIT_AURA", "target")
+assert(not bi[1]:IsShown(), "no buffs, no icons")
+eh.debuffs.show = false; fire("UNIT_AURA", "target")
+assert(not di[1]:IsShown(), "debuffs off")
+eh.buffs = { show = true, spot = "above_right", x = 0, y = 2, size = 20, cols = 8, rows = 1, max = 8 }
+eh.debuffs = { show = true, spot = "above_right", x = 0, y = 2, size = 24, cols = 8, rows = 2, max = 16 }
+S.auras, S.debuffs = nil, nil
 eh.resWidth, eh.resHeight, eh.resX, eh.resY = 50, 8, -20, 5
 fire("PLAYER_TARGET_CHANGED")
 assert(rf._w == 110 and rf._h == 8 and rf._point[4] == -20 and rf._point[5] == 5, "sliders size and place it")
@@ -1302,6 +1327,13 @@ assert(ns.tagDialog:IsShown() and not ns.resDialog:IsShown(), "level and name: i
 byText("Health")._scripts.OnClick(byText("Health"), "LeftButton")
 assert(not rb:IsShown() and not ns.resDialog:IsShown(), "another bar picked: closed")
 assert(not tb:IsShown() and not ns.tagDialog:IsShown(), "and that one too")
+local ab = byText("Buffs and debuffs")
+byText("Enemy Health")._scripts.OnClick(byText("Enemy Health"), "LeftButton")
+tb._scripts.OnClick(tb, "LeftButton")
+ab._scripts.OnClick(ab, "LeftButton")
+assert(ns.auraDialog:IsShown() and not ns.tagDialog:IsShown(), "buffs and debuffs: its own window too")
+byText("Health")._scripts.OnClick(byText("Health"), "LeftButton")
+assert(not ab:IsShown() and not ns.auraDialog:IsShown(), "closed with the bar")
 byText("Combat Display")._scripts.OnClick(byText("Combat Display"), "LeftButton")
 
 -- Auto-accept: off by default; Shift skips; item/area-trigger quests left to Blizzard

@@ -189,6 +189,11 @@ local function layoutDefaults(show, x, y, gap, width, h1, h2, h3, h4, h5, h6, h7
     eh.tagLevel, eh.tagName, eh.tagFont, eh.tagSize, eh.tagOutline = true, false, FONTS[1][2], 10, true
     eh.tagAnchor, eh.tagX, eh.tagY, eh.tagNameColor = "LEFT", 4, 0, { 1, 1, 1, 1 } -- tag*: the level's spot
     eh.nameAnchor, eh.nameX, eh.nameY = "LEFT", 28, 0
+    -- buffs and debuffs: each group has its own spot on the bar, nudge, icon size and grid. Two
+    -- groups in the same spot stack, debuffs after buffs, auraGroupGap apart.
+    eh.buffs = { show = true, spot = "above_right", x = 0, y = 2, size = 20, cols = 8, rows = 1, max = 8 }
+    eh.debuffs = { show = true, spot = "above_right", x = 0, y = 2, size = 24, cols = 8, rows = 2, max = 16 }
+    eh.auraGap, eh.auraGroupGap = 2, 4
     l.bars.power.colorMode = "power"
     -- "Power type color": one color per power, Blizzard's own to start with; any other power
     -- (runic power, astral power...) keeps Blizzard's
@@ -1174,6 +1179,114 @@ function ns.layoutTag(f)
     end
 end
 
+------------------------------------------------------------------------------------------
+-- Buffs and debuffs on the enemy health bar: what Blizzard's target frame shows. Every buff;
+-- on an enemy only your own debuffs (on a friend, and on clients before Dragonflight, all of
+-- them). Nothing is compared: what the game hands over goes straight to the icon, secret or not.
+------------------------------------------------------------------------------------------
+-- where a group sits: its corner, the bar's corner, which way columns and rows grow
+ns.AURA_SPOTS = {
+    above_right = { "BOTTOMLEFT", "TOPLEFT", 1, 1 }, above_left = { "BOTTOMRIGHT", "TOPRIGHT", -1, 1 },
+    below_right = { "TOPLEFT", "BOTTOMLEFT", 1, -1 }, below_left = { "TOPRIGHT", "BOTTOMRIGHT", -1, -1 },
+    right = { "TOPLEFT", "TOPRIGHT", 1, -1 }, left = { "TOPRIGHT", "TOPLEFT", -1, -1 },
+}
+
+function ns.debuffFilter(unit)
+    if select(4, GetBuildInfo()) < 100000 then return "HARMFUL" end
+    local ok, enemy = pcall(function() return UnitCanAttack("player", unit) and true or false end)
+    return (ok and enemy) and "HARMFUL|PLAYER" or "HARMFUL"
+end
+
+-- Up to max auras, or nil when the game refuses to say (the icons then stay as they are).
+function ns.auraList(unit, filter, max)
+    local out = {}
+    for i = 1, 40 do
+        if #out >= max then break end
+        local a
+        if C_UnitAuras and C_UnitAuras.GetAuraDataByIndex then
+            local ok, d = pcall(C_UnitAuras.GetAuraDataByIndex, unit, i, filter)
+            if not ok then return nil end
+            a = d
+        elseif UnitAura then -- older clients: plain values
+            local name, icon, count, _, duration, expires = UnitAura(unit, i, filter)
+            a = name and { icon = icon, applications = count, duration = duration, expirationTime = expires }
+        end
+        if type(a) ~= "table" then break end
+        out[#out + 1] = a
+    end
+    return out
+end
+
+-- a = nil: a stand-in while placing the bars
+function ns.drawAura(b, unit, a)
+    pcall(b.tex.SetTexture, b.tex, a and a.icon or 134400)
+    b.count:SetText("")
+    pcall(b.cd.Clear, b.cd)
+    if not a then return end
+    local id = a.auraInstanceID
+    local timed = id and C_UnitAuras.GetAuraDuration and pcall(function()
+        b.cd:SetCooldownFromDurationObject(C_UnitAuras.GetAuraDuration(unit, id))
+    end)
+    if not timed and readable(a.duration) and readable(a.expirationTime) and a.duration > 0 then
+        b.cd:SetCooldown(a.expirationTime - a.duration, a.duration)
+    end
+    if id and C_UnitAuras.GetAuraApplicationDisplayCount then
+        pcall(function() b.count:SetText(C_UnitAuras.GetAuraApplicationDisplayCount(unit, id, 2, 99)) end)
+    elseif readable(a.applications) and a.applications > 1 then
+        b.count:SetText(a.applications)
+    end
+end
+
+function ns.layoutAuras(f)
+    local c = db[f.mode].bars.enemyhealth
+    local unit = UnitExists(f.unit) and f.unit
+    f.auraIcons = f.auraIcons or { buffs = {}, debuffs = {} }
+    local used = {} -- spot -> how far the buffs there reach, for debuffs in the same spot
+    for _, k in ipairs({ "buffs", "debuffs" }) do
+        local o, icons = c[k], f.auraIcons[k]
+        local max = math.min(o.max, o.cols * o.rows)
+        local list = {}
+        if o.show and unit then
+            list = ns.auraList(unit, k == "buffs" and "HELPFUL" or ns.debuffFilter(unit), max)
+        elseif o.show and ns.previewing() then
+            list = { false, false, false } -- three stand-ins to place them by
+        end
+        if list then
+            local spot, step = ns.AURA_SPOTS[o.spot] or ns.AURA_SPOTS.above_right, o.size + c.auraGap
+            local shift = used[o.spot] or 0
+            local n = math.min(#list, max)
+            for i = 1, math.max(n, #icons) do
+                local b = icons[i]
+                if not b and i <= n then
+                    b = CreateFrame("Frame", nil, f)
+                    b.tex = b:CreateTexture(nil, "ARTWORK")
+                    b.tex:SetAllPoints()
+                    b.tex:SetTexCoord(0.08, 0.92, 0.08, 0.92) -- trim the icon's built-in border
+                    b.cd = CreateFrame("Cooldown", nil, b, "CooldownFrameTemplate")
+                    b.cd:SetAllPoints()
+                    b.cd:SetReverse(true)
+                    b.count = b:CreateFontString(nil, "OVERLAY", "NumberFontNormalSmall")
+                    b.count:SetPoint("BOTTOMRIGHT", -1, 1)
+                    icons[i] = b
+                end
+                if b then
+                    b:SetShown(i <= n)
+                    if i <= n then
+                        local col, row = (i - 1) % o.cols, math.floor((i - 1) / o.cols)
+                        b:SetSize(o.size, o.size)
+                        b:SetFrameLevel(f:GetFrameLevel() + 6)
+                        b:ClearAllPoints()
+                        b:SetPoint(spot[1], f, spot[2], o.x + spot[3] * col * step,
+                            o.y + spot[4] * (row * step + shift))
+                        ns.drawAura(b, unit, list[i] or nil)
+                    end
+                end
+            end
+            if n > 0 then used[o.spot] = shift + math.ceil(n / o.cols) * step - c.auraGap + c.auraGroupGap end
+        end
+    end
+end
+
 local function targetPlate()
     local ok, p = pcall(C_NamePlate.GetNamePlateForUnit, "target")
     if ok and p and not (p.IsForbidden and p:IsForbidden()) then return p end
@@ -1426,7 +1539,7 @@ local function stack(container, set, L, on, swings)
             else
                 f:SetPoint("TOP", container, "TOP", c.x, c.y - h)
             end
-            if f.resFrame then ns.layoutRes(f); ns.layoutTag(f) end
+            if f.resFrame then ns.layoutRes(f); ns.layoutTag(f); ns.layoutAuras(f) end
             h = h + c.height + c.padBottom
             w = math.max(w, c.width)
         end
@@ -2183,6 +2296,7 @@ local function Refresh()
         ef:SetPoint("TOPLEFT", health, "TOPRIGHT", db.regular.gap, 0)
         ns.layoutRes(ef)
         ns.layoutTag(ef)
+        ns.layoutAuras(ef)
     end
     local plate = targetPlate()
     plateAnchor:SetParent(plate or anchor)
@@ -4237,11 +4351,18 @@ local function buildConfig()
         function() return cur().resource end, function(v) cur().resource = v end)
     local resButton = button(barsPage, "Resource settings", 186, only.x, only:row(0) - ROW, function()
         ns.tagDialog:Hide()
+        ns.auraDialog:Hide()
         ns.resDialog:SetShown(not ns.resDialog:IsShown())
     end)
     local tagButton = button(barsPage, "Level and name", 186, only.x, only:row(0) - ROW - BUTTON, function()
         ns.resDialog:Hide()
+        ns.auraDialog:Hide()
         ns.tagDialog:SetShown(not ns.tagDialog:IsShown())
+    end)
+    local auraButton = button(barsPage, "Buffs and debuffs", 186, only.x, only:row(0) - ROW - 2 * BUTTON, function()
+        ns.resDialog:Hide()
+        ns.tagDialog:Hide()
+        ns.auraDialog:SetShown(not ns.auraDialog:IsShown())
     end)
     local swingChecks = {}
     for i, kind in ipairs(SWING_TYPES) do
@@ -4312,7 +4433,8 @@ local function buildConfig()
         if not (resOn and (section == "combat" or section == "nameplates")) then ns.resDialog:Hide() end
         local ehOn = selected == "enemyhealth" and (section == "combat" or section == "nameplates")
         tagButton:SetShown(selected == "enemyhealth")
-        if not ehOn then ns.tagDialog:Hide() end
+        auraButton:SetShown(selected == "enemyhealth")
+        if not ehOn then ns.tagDialog:Hide(); ns.auraDialog:Hide() end
         -- beside your health it takes half your health bar's width and all of its height
         local fixed = selected == "enemyhealth" and mode == "regular" and cur().beside or false
         widthSlider:SetShown(not fixed)
@@ -5040,6 +5162,42 @@ local function buildConfig()
             function(v) cur()[w[2] .. "Y"] = v end)
     end
 
+    -- Buffs and debuffs dialog: a column each, the gaps they share underneath
+    local ad = ns.ui.Window(nil, 440, 560, "Buffs and debuffs")
+    ad:SetParent(cfg)
+    ad:ClearAllPoints()
+    ad:SetPoint("TOPLEFT", cfg, "TOPRIGHT", 12, 0)
+    ad:Hide()
+    ns.auraDialog = ad
+    local SPOTS = { { "Above, growing right", "above_right" }, { "Above, growing left", "above_left" },
+        { "Below, growing right", "below_right" }, { "Below, growing left", "below_left" },
+        { "Right of the bar", "right" }, { "Left of the bar", "left" } }
+    for i, k in ipairs({ { "buffs", "Buffs" }, { "debuffs", "Debuffs" } }) do
+        local x = 16 + (i - 1) * 214
+        -- another bar picked: the dialog is hidden, its widgets read enemy health's defaults
+        local A = function() return cur()[k[1]] or DEFAULTS.regular.bars.enemyhealth[k[1]] end
+        ry = -48
+        label(ad, k[2], ns.ui.HEADING):SetPoint("TOPLEFT", x, rrow(22))
+        check(ad, "Show " .. k[2]:lower(), x, rrow(ROW), function() return A().show end, function(v) A().show = v end)
+        dropdown(ad, "Where", x, rrow(DROP), SPOTS, function() return A().spot end,
+            function(v) A().spot = v end, textPreview)
+        for _, r in ipairs({ { "x", "X", -200, 200 }, { "y", "Y", -200, 200 }, { "size", "Icon size", 8, 64 },
+            { "cols", "Columns", 1, 20 }, { "rows", "Rows", 1, 10 }, { "max", "Most icons", 1, 40 } }) do
+            slider(ad, r[2], x, rrow(SLIDER), r[3], r[4], function() return A()[r[1]] end,
+                function(v) A()[r[1]] = v end)
+        end
+    end
+    local shared = ry - 6
+    slider(ad, "Gap between icons", 16, shared, 0, 20, function() return cur().auraGap or 0 end,
+        function(v) cur().auraGap = v end)
+    slider(ad, "Gap between the groups", 230, shared, 0, 40, function() return cur().auraGroupGap or 0 end,
+        function(v) cur().auraGroupGap = v end)
+    local anote = label(ad, "What Blizzard's target frame shows: all buffs, and on an enemy your own "
+        .. "debuffs. Both groups in the same spot: debuffs follow the buffs.", "GameFontDisableSmall")
+    anote:SetPoint("TOPLEFT", 16, shared - SLIDER - 4)
+    anote:SetWidth(408)
+    anote:SetJustifyH("LEFT")
+
     for _, page in pairs(ns.pages) do ns.foldColumns(page, COL, TOP) end
     ns.configHeight = math.max(-(ns.sidebarBottom or 0) + 24, 640)
     cfg:SetHeight(math.min(ns.configHeight, math.floor(UIParent:GetHeight()) - 40))
@@ -5650,6 +5808,7 @@ ev:SetScript("OnEvent", function(_, event, unit, arg2, arg3)
             listen(e, "player", "target") -- target: the enemy resource bar
         end
         listen("UNIT_QUEST_LOG_CHANGED", "player")
+        listen("UNIT_AURA", "target") -- the enemy health bar's buffs and debuffs
         for _, e in ipairs({ "PLAYER_ENTERING_WORLD", "UPDATE_SHAPESHIFT_FORM", "PLAYER_TARGET_CHANGED",
             "NAME_PLATE_UNIT_ADDED", "NAME_PLATE_UNIT_REMOVED", "QUEST_LOG_UPDATE", "PLAYER_REGEN_ENABLED",
             "QUEST_DETAIL", "QUEST_ACCEPT_CONFIRM", "QUEST_PROGRESS", "QUEST_COMPLETE", "GOSSIP_SHOW", "QUEST_GREETING",
@@ -5665,6 +5824,10 @@ ev:SetScript("OnEvent", function(_, event, unit, arg2, arg3)
         end
         useProfile(store.profiles[mine or ""] and mine or classProfile)
         placeMini()
+    elseif event == "UNIT_AURA" then
+        for _, set in ipairs({ frames, plateFrames }) do
+            if set.enemyhealth:IsShown() then safe(ns.layoutAuras, set.enemyhealth) end
+        end
     elseif event == "UNIT_HEAL_PREDICTION" then
         fillShown("health")
     elseif event == "PLAYER_TARGET_CHANGED" then
