@@ -1625,6 +1625,8 @@ ns.AURA_SPOTS = {
     topleft = { "TOPLEFT", 0, 1 }, topright = { "TOPRIGHT", 0, 1 },
     bottomleft = { "BOTTOMLEFT", 0, -1 }, bottomright = { "BOTTOMRIGHT", 0, -1 },
     righttop = { "TOPRIGHT", 1, 0 }, lefttop = { "TOPLEFT", -1, 0 },
+    -- centered: each line sits centered on the edge and grows out both ways at once
+    topcenter = { "TOP", 0, 1 }, bottomcenter = { "BOTTOM", 0, -1 },
 }
 ns.AURA_GROW = { right = { 1, 0 }, left = { -1, 0 }, up = { 0, 1 }, down = { 0, -1 } }
 -- the old one-in-all choices, as a start corner and a direction
@@ -1637,6 +1639,8 @@ function ns.auraDirs(o)
     local old = ns.AURA_OLD_SPOTS[o.spot]
     if old then o.spot, o.grow = old[1], old[2] end
     local sp, g = ns.AURA_SPOTS[o.spot] or ns.AURA_SPOTS.topleft, ns.AURA_GROW[o.grow] or ns.AURA_GROW.right
+    local centered = sp[1] == "TOP" or sp[1] == "BOTTOM"
+    if centered then g = ns.AURA_GROW.right end -- lines run sideways; the spreading is done per line
     local w, wd = { sp[2], sp[3] }, ns.AURA_GROW[o.wrap or ""]
     if wd and wd[1] * g[1] + wd[2] * g[2] == 0 then -- new lines the way asked (across the growing)
         w = { wd[1], wd[2] }
@@ -1644,6 +1648,7 @@ function ns.auraDirs(o)
         w = sp[3] ~= 0 and { sp[1]:find("LEFT") and 1 or -1, 0 } or { 0, -1 }
     end
     local hx, vy = g[1] ~= 0 and g[1] or w[1], g[2] ~= 0 and g[2] or w[2]
+    if centered then return vy > 0 and "BOTTOM" or "TOP", g, w, sp end
     return (vy > 0 and "BOTTOM" or "TOP") .. (hx > 0 and "LEFT" or "RIGHT"), g, w, sp
 end
 
@@ -1715,12 +1720,14 @@ end
 -- A group sits on it with its bottom edge (above it), its center, or its top edge (below it),
 -- gap away; on the side its start corner says. Alone there (the other group empty), centered.
 ns.LINE_SIDES = { righttop = { "LEFT", "RIGHT" }, lefttop = { "RIGHT", "LEFT" }, topleft = { "LEFT", "LEFT" },
-    bottomleft = { "LEFT", "LEFT" }, topright = { "RIGHT", "RIGHT" }, bottomright = { "RIGHT", "RIGHT" } }
+    bottomleft = { "LEFT", "LEFT" }, topright = { "RIGHT", "RIGHT" }, bottomright = { "RIGHT", "RIGHT" },
+    topcenter = { "", "CENTER" }, bottomcenter = { "", "CENTER" } }
 function ns.linePlace(o, alone, gap)
     local side = ns.LINE_SIDES[o.spot] or ns.LINE_SIDES.righttop
     local edge, v, dy = alone and "center" or o.lineEdge, "", 0
     if edge == "top" then v, dy = "TOP", -gap elseif edge == "bottom" then v, dy = "BOTTOM", gap end
-    return v .. side[1], side[2], o.x, o.y + dy
+    local gp = v .. side[1]
+    return gp == "" and "CENTER" or gp, side[2], o.x, o.y + dy
 end
 
 -- Each group lives in a box as big as its icons; the box hangs on the bar or on the other
@@ -1786,6 +1793,9 @@ function ns.layoutAuras(f)
                     b:SetShown(i <= n)
                     if i <= n then
                         local a, l = (i - 1) % per, math.floor((i - 1) / per) -- place in its line, which line
+                        if corner == "TOP" or corner == "BOTTOM" then -- centered: its line spread evenly both ways
+                            a = a - (math.min(per, n - l * per) - 1) / 2
+                        end
                         b:SetSize(o.size, o.size)
                         b:SetFrameLevel(f:GetFrameLevel() + 6)
                         b:ClearAllPoints()
@@ -7412,7 +7422,8 @@ local function buildConfig()
     ns.auraDialog = ad
     local SPOTS = { { "Top, left corner", "topleft" }, { "Top, right corner", "topright" },
         { "Bottom, left corner", "bottomleft" }, { "Bottom, right corner", "bottomright" },
-        { "Right side, at the top", "righttop" }, { "Left side, at the top", "lefttop" } }
+        { "Right side, at the top", "righttop" }, { "Left side, at the top", "lefttop" },
+        { "Top, center (grows both ways)", "topcenter" }, { "Bottom, center (grows both ways)", "bottomcenter" } }
     local auraTab, panes = 1, {}
     for i, k in ipairs({ { "buffs", "Buffs" }, { "debuffs", "Debuffs" } }) do
         local tab = button(ad, k[2], 100, 16 + (i - 1) * 104, -44, function() auraTab = i; changed() end)
@@ -7441,11 +7452,14 @@ local function buildConfig()
             function(v) A().hideTimer = v end)
         dropdown(pane, "Starts at", 16, rrow(DROP), SPOTS, function() return A().spot end,
             function(v) A().spot = v end, textPreview)
-        dropdown(pane, "Grows", 16, rrow(DROP), { { "Right", "right" }, { "Left", "left" }, { "Up", "up" },
-            { "Down", "down" } }, function() return A().grow end, function(v) A().grow = v end, textPreview)
+        local centered = function() return A().spot == "topcenter" or A().spot == "bottomcenter" end
+        local grows = dropdown(pane, "Grows", 16, rrow(DROP), { { "Right", "right" }, { "Left", "left" },
+            { "Up", "up" }, { "Down", "down" } }, function() return A().grow end, function(v) A().grow = v end,
+            textPreview)
+        onRefresh(function() grows:SetShown(not centered()) end) -- centered: out both ways, nothing to pick
         -- then: which way a new row (or column) goes; auto: away from what it hangs on
         dropdown(pane, "Then (new rows / columns)", 16, rrow(DROP), function()
-            local across = A().grow == "left" or A().grow == "right"
+            local across = A().grow == "left" or A().grow == "right" or centered()
             return across and { { "Auto", "auto" }, { "Up", "up" }, { "Down", "down" } }
                 or { { "Auto", "auto" }, { "Left", "left" }, { "Right", "right" } }
         end, function() return A().wrap end, function(v) A().wrap = v end, textPreview)

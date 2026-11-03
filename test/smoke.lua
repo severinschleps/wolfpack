@@ -826,6 +826,14 @@ S.debuffs = nil
 eh.buffs.spot, eh.buffs.grow = "below_left", nil; fire("UNIT_AURA", "target")
 assert(eh.buffs.spot == "bottomright" and eh.buffs.grow == "left" and bb._point[1] == "TOPRIGHT"
     and bb._point[3] == "BOTTOMRIGHT", "below_left: the bottom right corner, growing left")
+-- top center: each line centered on the bar's top edge, spread both ways; new rows go up
+eh.buffs.spot, eh.buffs.grow = "topcenter", "up"; fire("UNIT_AURA", "target")
+assert(bb._point[1] == "BOTTOM" and bb._point[3] == "TOP", "the box sits centered on the top edge")
+assert(bi[1]._point[1] == "BOTTOM" and bi[1]._point[4] == -11 and bi[2]._point[4] == 11
+    and bi[1]._point[5] == 0, "two in a row: one each side of the middle (grow ignored)")
+assert(bi[3]._point[4] == 0 and bi[3]._point[5] == 22, "the lone one on the next row up: centered")
+eh.buffs.spot = "bottomcenter"; fire("UNIT_AURA", "target")
+assert(bb._point[1] == "TOP" and bb._point[3] == "BOTTOM" and bi[3]._point[5] == -22, "bottom center: rows go down")
 eh.buffs = { show = true, anchorTo = "bar", spot = "topleft", grow = "right", wrap = "auto", x = 0, y = 2, size = 20, radius = 0,
     cols = 8, rows = 1, max = 8, hideTimer = false, zoom = 8 }
 eh.debuffs = { show = true, anchorTo = "other", spot = "topleft", grow = "right", x = 0, y = 0, size = 24, radius = 0,
