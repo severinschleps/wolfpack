@@ -1274,7 +1274,8 @@ end
 
 -- Each group lives in a box as big as its icons; the box hangs on the bar or on the other
 -- group's box. Both on each other would hang in the air, so then buffs take the bar. One that
--- hangs on an empty group takes that group's place, as if it were the first.
+-- hangs on an empty group borrows that group's own anchor on the bar while it is empty: the
+-- game draws nothing that hangs on a frame of no size (seen in game).
 function ns.layoutAuras(f)
     local c = db[f.mode].bars.enemyhealth
     local unit = UnitExists(f.unit) and f.unit
@@ -1326,8 +1327,8 @@ function ns.layoutAuras(f)
                     end
                 end
             end
-            box:SetSize(n > 0 and math.min(n, o.cols) * step - c.auraGap or 0,
-                n > 0 and math.ceil(n / o.cols) * step - c.auraGap or 0)
+            box:SetSize(n > 0 and math.min(n, o.cols) * step - c.auraGap or 1,
+                n > 0 and math.ceil(n / o.cols) * step - c.auraGap or 1)
             box.n = n
         end
     end
@@ -1338,9 +1339,9 @@ function ns.layoutAuras(f)
         local toOther = o.anchorTo == "other" and not (k == "buffs" and c.debuffs.anchorTo == "other")
         local into = f.auraBoxes[other]
         box:ClearAllPoints()
-        if toOther and (into.n or 0) == 0 then -- right where the empty group would start
-            local corner = (ns.AURA_SPOTS[c[other].spot] or ns.AURA_SPOTS.above_right)[1]
-            box:SetPoint(corner, into, corner, 0, 0)
+        if toOther and (into.n or 0) == 0 then -- the empty group's anchor (it always hangs on the bar)
+            local os = ns.AURA_SPOTS[c[other].spot] or ns.AURA_SPOTS.above_right
+            box:SetPoint(os[1], f, os[2], c[other].x, c[other].y)
         else
             local x, y = o.x, o.y
             if toOther and spot[5] == "h" then x = x + spot[3] * c.auraGroupGap end

@@ -642,12 +642,16 @@ assert(not bi[1].tex._masks[bi[1].mask] and bi[1].cd._swipeTex:find("WHITE8X8"),
 S.combat = true; S.auras = {}; fire("UNIT_AURA", "target")
 assert(bi[1]:IsShown(), "the game refuses: the icons stay")
 S.combat = false; fire("UNIT_AURA", "target")
-assert(not bi[1]:IsShown() and bb._w == 0, "no buffs, no icons, an empty box")
-assert(di[1]:IsShown() and db_._point[1] == "BOTTOMLEFT" and db_._point[2] == bb and db_._point[3] == "BOTTOMLEFT"
-    and db_._point[4] == 0 and db_._point[5] == 0, "debuffs on empty buffs: right where the buffs would start")
+assert(not bi[1]:IsShown() and bb._w == 1, "no buffs, no icons, a box of 1 px (never none: see below)")
+-- the game draws nothing hung on a frame of no size, so debuffs never hang on empty buffs: they
+-- take the buffs' own anchor on the bar until buffs show up again
+assert(di[1]:IsShown() and db_._point[1] == "BOTTOMLEFT" and db_._point[2] == ef and db_._point[3] == "TOPLEFT"
+    and db_._point[4] == eh.buffs.x and db_._point[5] == eh.buffs.y, "debuffs take the buffs' anchor")
 eh.buffs.show = false; S.auras = { { icon = 111 } }; fire("UNIT_AURA", "target")
-assert(db_._point[3] == "BOTTOMLEFT" and db_._point[5] == 0, "buffs turned off counts as empty")
-eh.buffs.show, S.auras = true, {}
+assert(db_._point[2] == ef and db_._point[3] == "TOPLEFT", "buffs turned off counts as empty")
+eh.buffs.show = true; fire("UNIT_AURA", "target")
+assert(db_._point[2] == bb and db_._point[5] == -4, "buffs back: debuffs hang on them again (below, a gap down)")
+S.auras = {}
 eh.debuffs.show = false; fire("UNIT_AURA", "target")
 assert(not di[1]:IsShown(), "debuffs off")
 eh.buffs = { show = true, anchorTo = "bar", spot = "above_right", x = 0, y = 2, size = 20, radius = 0,
