@@ -189,6 +189,9 @@ local function layoutDefaults(show, x, y, gap, width, h1, h2, h3, h4, h5, h6, h7
     eh.tagLevel, eh.tagName, eh.tagFont, eh.tagSize, eh.tagOutline = true, false, FONTS[1][2], 10, true
     eh.tagAnchor, eh.tagX, eh.tagY, eh.tagNameColor = "LEFT", 4, 0, { 1, 1, 1, 1 } -- tag*: the level's spot
     eh.nameAnchor, eh.nameX, eh.nameY = "LEFT", 28, 0
+    -- a box behind each: color (with opacity), padding around the text, corner radius
+    eh.tagBg = { show = false, color = { 0, 0, 0, 0.6 }, pad = 2, radius = 0 }
+    eh.nameBg = { show = false, color = { 0, 0, 0, 0.6 }, pad = 2, radius = 0 }
     -- buffs and debuffs: each group has its own spot on the bar, nudge, icon size and grid. Two
     -- groups in the same spot stack, debuffs after buffs, auraGroupGap apart.
     eh.buffs = { show = true, spot = "above_right", x = 0, y = 2, size = 20, cols = 8, rows = 1, max = 8 }
@@ -1142,24 +1145,31 @@ function ns.layoutTag(f)
     local c = db[f.mode].bars.enemyhealth
     local unit = UnitExists(f.unit) and f.unit
     local flags = c.tagOutline and "OUTLINE" or ""
-    -- the level and the name: one font string each, each in its own spot
+    -- the level and the name: one font string each, in its own spot, on a frame that wraps it
+    -- (padding all round) and wears its background
     for _, which in ipairs({ "level", "name" }) do
         local key, lvl = "tag_" .. which, which == "level"
         local t = f[key]
         if not t then
-            t = f.segs[1]:CreateFontString(nil, "OVERLAY")
+            local box = CreateFrame("Frame", nil, f)
+            t = box:CreateFontString(nil, "OVERLAY")
             t:SetWordWrap(false)
+            t.box, t.bg, t.mask = box, box:CreateTexture(nil, "BACKGROUND"), box:CreateMaskTexture()
+            t.bg:SetAllPoints()
+            t.mask:SetAllPoints(t.bg)
             f[key] = t
         end
-        t:SetShown((lvl and c.tagLevel or not lvl and c.tagName) and true or false)
-        if t:IsShown() then
+        local on = (lvl and c.tagLevel or not lvl and c.tagName) and true or false
+        t:SetShown(on)
+        t.box:SetShown(on)
+        if on then
             if not t:SetFont(c.tagFont, c.tagSize, flags) then t:SetFont(FONTS[1][2], c.tagSize, flags) end
-            local point, x, y = c.tagAnchor, c.tagX, c.tagY
-            if not lvl then point, x, y = c.nameAnchor, c.nameX, c.nameY end
+            local point, x, y, bg = c.tagAnchor, c.tagX, c.tagY, c.tagBg
+            if not lvl then point, x, y, bg = c.nameAnchor, c.nameX, c.nameY, c.nameBg end
+            t.box:SetFrameLevel(f:GetFrameLevel() + 7) -- over the resource bar
             t:ClearAllPoints()
             t:SetPoint(point, f, point, x, y)
             t:SetJustifyH(point)
-            t:SetWidth(math.max(1, f.width - 2 * math.abs(x))) -- a long name ends in "..."
             if lvl then
                 local level = unit and (UnitEffectiveLevel or UnitLevel)(unit) or UnitLevel("player")
                 local kind = unit and UnitClassification and UnitClassification(unit)
@@ -1175,6 +1185,18 @@ function ns.layoutTag(f)
                 t:SetTextColor(unpack(c.tagNameColor))
                 pcall(t.SetText, t, unit and UnitName(unit) or "Target") -- a secret name still draws
             end
+            -- as wide as its text, up to the bar's width (then "..."); a secret name's width
+            -- can't be read, so that one is never cut
+            t:SetWidth(0)
+            local w, most = t:GetStringWidth(), math.max(1, f.width - 2 * math.abs(x))
+            if readable(w) and w > most then t:SetWidth(most) end
+            t.box:ClearAllPoints()
+            t.box:SetPoint("TOPLEFT", t, "TOPLEFT", -bg.pad, bg.pad)
+            t.box:SetPoint("BOTTOMRIGHT", t, "BOTTOMRIGHT", bg.pad, -bg.pad)
+            t.bg:SetShown(bg.show and true or false)
+            t.bg:SetColorTexture(unpack(bg.color))
+            local h = c.tagSize + 2 * bg.pad -- the box's height, near enough, for the radius cap
+            round(t.bg, t.mask, bg.radius == "pill" and math.huge or bg.radius, h * 2, h)
         end
     end
 end
@@ -5132,34 +5154,49 @@ local function buildConfig()
         { "8 px", 8 }, { "16 px", 16 }, { "Pill (50% of height)", "pill" } },
         function() return cur().resRadius end, function(v) cur().resRadius = v end, textPreview)
 
-    -- Level and name dialog: same place, for the same bar
-    local td = ns.ui.Window(nil, 230, 612, "Level and name")
+    -- Level and name dialog: same place, for the same bar. The font on top, then a column each.
+    local td = ns.ui.Window(nil, 440, 610, "Level and name")
     td:SetParent(cfg)
     td:ClearAllPoints()
     td:SetPoint("TOPLEFT", cfg, "TOPRIGHT", 12, 0)
     td:Hide()
     ns.tagDialog = td
     ry = -48
-    check(td, "Show level", 16, rrow(ROW), function() return cur().tagLevel end, function(v) cur().tagLevel = v end)
-    check(td, "Show name", 16, rrow(ROW), function() return cur().tagName end, function(v) cur().tagName = v end)
+    local fontRow = rrow(DROP)
+    dropdown(td, "Font", 16, fontRow, FONTS, function() return cur().tagFont end,
+        function(v) cur().tagFont = v end, fontPreview)
+    slider(td, "Size", 230, fontRow, 6, 32, function() return cur().tagSize end, function(v) cur().tagSize = v end)
+    check(td, "Outline", 16, rrow(ROW), function() return cur().tagOutline end, function(v) cur().tagOutline = v end)
     local tnote = label(td, "The level takes the game's color: grey gives no experience, red is far "
         .. "above you. \"+\" marks an elite.", "GameFontDisableSmall")
-    tnote:SetPoint("TOPLEFT", 16, rrow(40))
-    tnote:SetWidth(198)
+    tnote:SetPoint("TOPLEFT", 16, rrow(34))
+    tnote:SetWidth(408)
     tnote:SetJustifyH("LEFT")
-    dropdown(td, "Font", 16, rrow(DROP), FONTS, function() return cur().tagFont end,
-        function(v) cur().tagFont = v end, fontPreview)
-    slider(td, "Size", 16, rrow(SLIDER), 6, 32, function() return cur().tagSize end, function(v) cur().tagSize = v end)
-    check(td, "Outline", 16, rrow(ROW), function() return cur().tagOutline end, function(v) cur().tagOutline = v end)
-    swatch(td, "Name color", 16, rrow(SWATCH), function() return cur().tagNameColor or { 1, 1, 1, 1 } end)
     local SIDES = { { "Left", "LEFT" }, { "Center", "CENTER" }, { "Right", "RIGHT" } }
-    for _, w in ipairs({ { "Level", "tag" }, { "Name", "name" } }) do
-        dropdown(td, w[1] .. " position", 16, rrow(DROP), SIDES, function() return cur()[w[2] .. "Anchor"] end,
-            function(v) cur()[w[2] .. "Anchor"] = v end, textPreview)
-        slider(td, w[1] .. " X", 16, rrow(SLIDER), -100, 100, function() return cur()[w[2] .. "X"] end,
-            function(v) cur()[w[2] .. "X"] = v end)
-        slider(td, w[1] .. " Y", 16, rrow(SLIDER), -50, 50, function() return cur()[w[2] .. "Y"] end,
-            function(v) cur()[w[2] .. "Y"] = v end)
+    local RADII = { { "None", 0 }, { "2 px", 2 }, { "4 px", 4 }, { "8 px", 8 }, { "Pill (50% of height)", "pill" } }
+    local top = ry
+    for i, w in ipairs({ { "Level", "tag", "tagLevel" }, { "Name", "name", "tagName" } }) do
+        local x, p = 16 + (i - 1) * 214, w[2]
+        -- another bar picked: the dialog is hidden, its widgets read enemy health's defaults
+        local B = function() return cur()[p .. "Bg"] or DEFAULTS.regular.bars.enemyhealth[p .. "Bg"] end
+        ry = top
+        label(td, w[1], "GameFontNormal"):SetPoint("TOPLEFT", x, rrow(22))
+        check(td, "Show " .. w[1]:lower(), x, rrow(ROW), function() return cur()[w[3]] end,
+            function(v) cur()[w[3]] = v end)
+        if p == "name" then
+            swatch(td, "Name color", x, rrow(SWATCH), function() return cur().tagNameColor or { 1, 1, 1, 1 } end)
+        end
+        dropdown(td, "Position", x, rrow(DROP), SIDES, function() return cur()[p .. "Anchor"] end,
+            function(v) cur()[p .. "Anchor"] = v end, textPreview)
+        slider(td, "X", x, rrow(SLIDER), -100, 100, function() return cur()[p .. "X"] end,
+            function(v) cur()[p .. "X"] = v end)
+        slider(td, "Y", x, rrow(SLIDER), -50, 50, function() return cur()[p .. "Y"] end,
+            function(v) cur()[p .. "Y"] = v end)
+        check(td, "Background", x, rrow(ROW), function() return B().show end, function(v) B().show = v end)
+        swatch(td, w[1] .. " background", x, rrow(SWATCH), function() return B().color end)
+        slider(td, "Padding", x, rrow(SLIDER), 0, 12, function() return B().pad end, function(v) B().pad = v end)
+        dropdown(td, "Corner radius", x, rrow(DROP), RADII, function() return B().radius end,
+            function(v) B().radius = v end, textPreview)
     end
 
     -- Buffs and debuffs dialog: a column each, the gaps they share underneath

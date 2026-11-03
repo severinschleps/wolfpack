@@ -578,6 +578,20 @@ UnitName = function(u) return u == "target" and SECRET or realName(u) end
 fire("PLAYER_TARGET_CHANGED")
 assert(tn._text == SECRET and tl._text == "??", "a secret name still draws, the level too")
 UnitName = realName
+-- a background each: off by default; on, it wraps the text with the padding, rounded if asked
+UnitName = realName
+assert(not tl.bg:IsShown() and not tn.bg:IsShown(), "no backgrounds by default")
+eh.tagBg.show, eh.tagBg.pad, eh.tagBg.radius, eh.tagBg.color = true, 3, 4, { 0.2, 0, 0, 0.5 }
+fire("PLAYER_TARGET_CHANGED")
+assert(tl.bg:IsShown() and not tn.bg:IsShown() and tl.bg._color[1] == 0.2 and tl.bg._color[4] == 0.5,
+    "the level's own background, in its color")
+local p1, p2 = tl.box._points[1], tl.box._points[2]
+assert(p1[2] == tl and p1[4] == -3 and p1[5] == 3 and p2[1] == "BOTTOMRIGHT" and p2[4] == 3 and p2[5] == -3,
+    "padding all round")
+assert(tl.bg._masks and tl.bg._masks[tl.mask] and tl.mask.r == 4, "rounded 4 px")
+eh.tagBg.radius = 0; fire("PLAYER_TARGET_CHANGED")
+assert(not tl.bg._masks[tl.mask], "square again")
+eh.tagBg = { show = false, color = { 0, 0, 0, 0.6 }, pad = 2, radius = 0 }
 eh.tagLevel, eh.tagName = false, false; fire("PLAYER_TARGET_CHANGED")
 assert(not tl:IsShown() and not tn:IsShown(), "both off: nothing")
 eh.tagLevel, S.tLevel, S.tKind = true, nil, nil
