@@ -33,6 +33,10 @@ function M:SetPoint(...)
     self._points[#self._points + 1] = { ... }
 end
 function M:ClearAllPoints() self._points = {} end
+function M:SetJustifyH(j) -- the game refuses anything else (seen in game with "TOP")
+    assert(j == "LEFT" or j == "CENTER" or j == "RIGHT", "SetJustifyH: bad argument " .. tostring(j))
+    self._justify = j
+end
 function M:SetGradient(orient, c1, c2) self._grad = { orient, c1, c2 } end
 function M:SetTexture(t) self._tex = t end
 function M:SetScale(v) self._scale = v end
@@ -1598,6 +1602,7 @@ assert(ns.plateUnits.nameplate1 == h, "recycled plate reuses its holder")
     plate.UnitFrame:SetAlpha(1)
     assert(plate.UnitFrame._alpha == 0, "and kept so when the game sets it")
     assert(f.tag_name:IsShown() and f.tag_level:IsShown(), "name and level")
+    assert(f.tag_name._justify == "CENTER", "a name on the TOP anchor centers (the game takes no TOP)")
     local r = f.resFrame
     assert(r:IsShown() and r._point[1] == "TOP" and r._point[2] == f and r._point[3] == "BOTTOM", "power underneath")
     P.resPlace = "inside"; ns.np.all()

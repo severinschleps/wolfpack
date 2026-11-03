@@ -1424,7 +1424,7 @@ function ns.layoutTexts(f, c, n)
         t:SetTextColor(unpack(o.color))
         t:ClearAllPoints()
         t:SetPoint(o.anchor, f.segs[1], o.anchor, o.x, o.y)
-        t:SetJustifyH(o.anchor)
+        t:SetJustifyH(ns.justify(o.anchor))
     end
 end
 
@@ -1494,6 +1494,11 @@ end
 ns.TAG_SIDES = { left = { "RIGHT", "LEFT", -1, 0 }, right = { "LEFT", "RIGHT", 1, 0 },
     top = { "BOTTOM", "TOP", 0, 1 }, bottom = { "TOP", "BOTTOM", 0, -1 } }
 
+-- a text's justification from its anchor point: SetJustifyH knows only LEFT, CENTER, RIGHT
+function ns.justify(point)
+    return point:find("LEFT") and "LEFT" or point:find("RIGHT") and "RIGHT" or "CENTER"
+end
+
 function ns.layoutTag(f)
     local c = db[f.mode].bars[f.key]
     local unit = UnitExists(f.unit) and f.unit
@@ -1546,7 +1551,7 @@ function ns.layoutTag(f)
             else
                 t:SetPoint(point, f, point, x, y)
             end
-            t:SetJustifyH(point)
+            t:SetJustifyH(ns.justify(point))
             if lvl then
                 local level = unit and (UnitEffectiveLevel or UnitLevel)(unit) or UnitLevel("player")
                 local kind = unit and UnitClassification and UnitClassification(unit)
