@@ -488,6 +488,7 @@ end
 DEFAULTS.regular.hideStanceBar = false
 DEFAULTS.regular.hidePetBar = false
 DEFAULTS.regular.hideBlizzCastbar = false -- hide Blizzard's player cast bar
+DEFAULTS.regular.hideBlizzCombo = false -- hide Blizzard's own combo points (see ns.blizzCombo)
 DEFAULTS.regular.playerMenu = false      -- right-click on the bars opens the player menu
 DEFAULTS.regular.targetMenu = true       -- right-click on the enemy health bar opens the target's menu
 DEFAULTS.regular.petMenu = true          -- ... on the pet bar, your pet's
@@ -2924,6 +2925,32 @@ for _, u in ipairs({ { "StanceBar", "hideStanceBar" }, { "StanceBarFrame", "hide
 end
 ns.unitFrameParents = {}
 local castHidden, castParent, castHooked
+
+-- Blizzard's own combo points (target frame on classic clients, player frame and nameplate on
+-- modern ones): only made see-through, and kept so through Blizzard's own fades, so nothing it
+-- sits in is moved or tainted. Not hooked until asked.
+ns.BLIZZ_COMBO = { "ComboFrame", "ComboPointPlayerFrame", "RogueComboPointBarFrame", "DruidComboPointBarFrame",
+    "ClassNameplateBarRogueFrame", "ClassNameplateBarFeralDruidFrame" }
+ns.comboHooked = {}
+function ns.blizzCombo()
+    local hide = db.regular.hideBlizzCombo and true or false
+    for _, name in ipairs(ns.BLIZZ_COMBO) do
+        local f = _G[name]
+        if f and (hide or ns.comboHooked[f]) then
+            if not ns.comboHooked[f] then
+                hooksecurefunc(f, "SetAlpha", function(self) -- the value is never read: it may be a secret
+                    if db.regular.hideBlizzCombo and not ns.comboBusy then
+                        ns.comboBusy = true
+                        self:SetAlpha(0)
+                        ns.comboBusy = false
+                    end
+                end)
+            end
+            ns.comboHooked[f] = true
+            f:SetAlpha(hide and 0 or 1)
+        end
+    end
+end
 
 -- Blizzard's player cast bar: parked under the hidden frame. Blizzard re-parents it itself when
 -- the "lock to player frame" setting applies, so a secure hook parks it again and remembers where
@@ -6138,6 +6165,7 @@ changed = function()
     safe(ns.bags.sync)
     safe(ns.micro.sync)
     safe(ns.tip.sync)
+    safe(ns.blizzCombo)
     safe(ns.tip.preview, cfg and cfg:IsShown() and section == "tooltip")
     -- the Unit frames page's stand-ins: as many as its tab says (General: 5), set before they're laid out
     ns.uf.preview = section == "unitframes" and (tonumber(ns.ufTab) or 5) or nil
@@ -7756,6 +7784,8 @@ local function buildConfig()
         function() ns.toggleDialog(ns.wbDialog) end)
     ns.circleButton = button(barsPage, "Circles", 186, only.x, only:row(0),
         function() ns.toggleDialog(ns.circleDialog) end)
+    ns.comboHide = check(barsPage, "Hide Blizzard's combo points", only.x, only:row(0) - BUTTON - 4,
+        function() return db.regular.hideBlizzCombo end, function(v) db.regular.hideBlizzCombo = v end)
     local castIcon = check(barsPage, "Show spell icon", only.x, only:row(ROW),
         function() return cur().icon end, function(v) cur().icon = v end)
     local castSide = button(barsPage, "", 186, only.x, only:row(BUTTON), function()
@@ -7815,6 +7845,7 @@ local function buildConfig()
         end
         wbButton:SetShown(ns.wb.KEYS[selected] and mode == "regular" and true or false)
         ns.circleButton:SetShown(selected == "combo" and mode == "regular")
+        ns.comboHide:SetShown(selected == "combo" and mode == "regular")
         if not (selected == "combo" and section == "combat") then ns.circleDialog:Hide() end
         if not (ns.wb.KEYS[selected] and section == "combat") then ns.wbDialog:Hide() end
         castIcon:SetShown(selected == "castbar" or selected == "targetcast")
@@ -10037,7 +10068,7 @@ ev:SetScript("OnEvent", function(_, event, unit, arg2, arg3)
         if ns.micro.pending then safe(ns.micro.sync) end
     else
         if event == "PLAYER_ENTERING_WORLD" and ns.mac then ns.mac.ready = true; safe(ns.mac.sync) end -- the macro library
-        if event == "PLAYER_ENTERING_WORLD" then safe(ns.micro.sync); safe(ns.tip.sync) end
+        if event == "PLAYER_ENTERING_WORLD" then safe(ns.micro.sync); safe(ns.tip.sync); safe(ns.blizzCombo) end
         if event == "NAME_PLATE_UNIT_ADDED" then safe(plateAdded, unit) end
         if event == "NAME_PLATE_UNIT_REMOVED" then safe(plateRemoved, unit) end
         -- form, max, target or nameplate changes: re-layout (target change moves the nameplate bars)

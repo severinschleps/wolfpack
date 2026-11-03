@@ -4186,4 +4186,23 @@ do
     SecureCmdOptionParse, GetMacroSpell, S.shift, S.spellTextures = nil, nil, nil, nil
 end
 
+-- Blizzard's own combo points: see-through when asked, also through its own fades; given back
+do
+    local bf = CreateFrame("Frame")
+    RogueComboPointBarFrame = bf
+    assert(ns.comboHide, "the option, under the combo points")
+    ns.blizzCombo()
+    assert(bf._alphaSets == nil, "untouched until asked")
+    prof().regular.hideBlizzCombo = true
+    ns.blizzCombo()
+    assert(bf:GetAlpha() == 0, "hidden")
+    bf:SetAlpha(1) -- Blizzard fading its points in
+    assert(bf:GetAlpha() == 0, "stays hidden through Blizzard's fades")
+    prof().regular.hideBlizzCombo = false
+    ns.blizzCombo()
+    bf:SetAlpha(0.5)
+    assert(bf:GetAlpha() == 0.5, "given back: Blizzard's again")
+    RogueComboPointBarFrame = nil
+end
+
 realPrint("smoke ok")
