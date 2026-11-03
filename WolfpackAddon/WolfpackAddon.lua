@@ -4615,8 +4615,8 @@ StaticPopupDialogs.WOLFPACKADDON_DELBAG = {
     timeout = 0, whileDead = true, hideOnEscape = true,
 }
 
--- the strip left of the window: a button per bag of ours (your class's, then the hand-made ones;
--- drop items on it), then one to make a bag
+-- the strip left of the window: a button per hand-made bag (drop items on it), then one to make
+-- a bag. Your class's bags fill by themselves and have none.
 function ns.bags.sideButton(i)
     local s = ns.bags.frame.side
     if s.btns[i] then return s.btns[i] end
@@ -4669,7 +4669,9 @@ function ns.bags.layoutSide(counts)
     s:SetShown(o.side)
     if not o.side then return end
     local list = {}
-    for i, c in ipairs(B.all()) do list[#list + 1] = { bag = i, icon = B.icon(c), count = counts[i] or 0 } end
+    for i, c in ipairs(B.all()) do -- the hand-made ones; your class's bags need no button
+        if not c.class then list[#list + 1] = { bag = i, icon = B.icon(c), count = counts[i] or 0 } end
+    end
     list[#list + 1] = { icon = "Interface\\PaperDollInfoFrame\\Character-Plus" }
     local pad, size = 6, math.floor(o.size * 0.9)
     for i, e in ipairs(list) do

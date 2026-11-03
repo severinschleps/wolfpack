@@ -2627,9 +2627,9 @@ assert(BagsBar._parent == UIParent and BagsBar._point[2] == "MicroButtonAndBagsB
     o.quality, o.junk = false, false
     B.layout()
     assert(epic.wpEdge._color[1] == 0 and not junk.wpJunk:IsShown(), "both can be turned off")
-    -- your class's bags are there by themselves (a rogue: poisons, tools), filled by item; a
-    -- dropped item goes out of one and stays out. The + after them makes a bag by hand (an item
-    -- held on it goes in); dropped again, the item goes back.
+    -- your class's bags are there by themselves (a rogue: poisons, tools), filled by item, and
+    -- need no button on the strip. The + makes a bag by hand (an item held on it goes in);
+    -- dropped again, the item goes back.
     o.sort = false
     local cursor, keptCursor = nil, { GetCursorInfo, ClearCursor }
     GetCursorInfo, ClearCursor = function() if cursor then return "item", cursor end end, function() cursor = nil end
@@ -2637,23 +2637,18 @@ assert(BagsBar._parent == UIParent and BagsBar._point[2] == "MicroButtonAndBagsB
     B.layout()
     local side = f.side.btns
     local tools = B.holders[0].buttons[4]
-    assert(side[1].wpBag == 1 and side[2].wpBag == 2 and not side[3].wpBag, "poisons, tools, then the +")
-    assert(#o.custom == 0 and f.tags.c2._text == "Tools and powders" and tools._point[5] == -132
-        and side[2].count._text == 1, "the tools bag holds its item without being made or told")
-    cursor = 5060
-    side[2]._scripts.OnClick(side[2], "LeftButton")
-    assert(o.classItems["ROGUE:tools"][5060] == false and tools._point[5] == -8, "dropped out: stays out")
-    side[2]._scripts.OnClick(side[2], "RightButton")
-    assert(B.all()[2].class, "a class bag can't be removed")
-    o.classItems["ROGUE:tools"] = {}
+    assert(not side[1].wpBag and not (side[2] and side[2]:IsShown()), "the strip: only the +")
+    assert(#o.custom == 0 and f.tags.c2._text == "Tools and powders" and tools._point[5] == -132,
+        "the tools bag holds its item without being made or told")
     cursor = 3
-    side[3]._scripts.OnClick(side[3], "LeftButton")
+    side[1]._scripts.OnClick(side[1], "LeftButton")
     assert(cursor == nil and o.custom[1].name == "Bag 1" and o.custom[1].items[3] == true, "made with the held item")
-    assert(f.tags.c3:IsShown() and f.tags.c3._text == "Bag 1" and side[3].wpBag == 3, "it groups apart, after the class bags")
+    assert(f.tags.c3:IsShown() and f.tags.c3._text == "Bag 1" and side[1].wpBag == 3 and not side[2].wpBag,
+        "it groups apart, after the class bags; its button first on the strip")
     cursor = 3
-    side[3]._scripts.OnReceiveDrag(side[3])
+    side[1]._scripts.OnReceiveDrag(side[1])
     assert(o.custom[1].items[3] == nil and not f.tags.c3:IsShown(), "dropped again: back")
-    side[3]._scripts.OnClick(side[3], "RightButton")
+    side[1]._scripts.OnClick(side[1], "RightButton")
     assert(#o.custom == 0, "a hand-made bag can be removed (the popup says yes here)")
     -- a hand-made bag of a class preset, from before: its items move into the class bag
     o.custom = { { name = "Poisons", preset = "poisons", items = { [777] = true } } }
