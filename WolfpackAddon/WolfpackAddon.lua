@@ -4890,8 +4890,10 @@ function ns.bags.layout()
     f.free:SetText(free .. " free")
     f:SetSize(pad * 2 + o.cols * step - o.gap, -y + pad + 18)
     f.bg:SetColorTexture(unpack(o.bg))
-    f:ClearAllPoints()
-    f:SetPoint("BOTTOMRIGHT", UIParent, "BOTTOMRIGHT", o.x, o.y)
+    if not B.dragged then -- moved by hand: left there until the bags close
+        f:ClearAllPoints()
+        f:SetPoint("BOTTOMRIGHT", UIParent, "BOTTOMRIGHT", o.x, o.y)
+    end
     f.sort:SetShown(B.api("SortBags") ~= nil)
     local counts = {}
     for i in ipairs(all) do counts[i] = #groups["c" .. i] end
@@ -4990,6 +4992,7 @@ function ns.bags.sync()
         end
     end
     open = open or (on and B.wantPreview and B.wantPreview()) or false
+    if not open then B.dragged = nil end -- closed: back to its set spot next time
     B.frame:SetShown(open)
     if open then B.layout() end
     local barKeys = on and keyBag ~= nil
@@ -5011,11 +5014,11 @@ function ns.bags.make()
     f:SetClampedToScreen(true)
     f:RegisterForDrag("LeftButton")
     f:SetScript("OnDragStart", f.StartMoving)
-    f:SetScript("OnDragStop", function(self) -- kept as an offset from the screen's bottom right
+    -- dragged: there for now; once the bags close it goes back to the spot set on the Bags page
+    f:SetScript("OnDragStop", function(self)
         self:StopMovingOrSizing()
-        db.bags.x = math.floor(self:GetRight() - UIParent:GetRight() + 0.5)
-        db.bags.y = math.floor(self:GetBottom() + 0.5)
-        ns.bags.layout()
+        self:SetUserPlaced(false) -- the game would otherwise remember the spot itself
+        ns.bags.dragged = true
     end)
     f:Hide()
     f.bg = f:CreateTexture(nil, "BACKGROUND", nil, -8)

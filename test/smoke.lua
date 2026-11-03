@@ -2691,8 +2691,17 @@ assert(BagsBar._parent == UIParent and BagsBar._point[2] == "MicroButtonAndBagsB
     assert(BagsBar._parent == f and BagsBar._point[1] == "BOTTOMRIGHT" and BagsBar._point[3] == "TOPRIGHT", "bag bar on top")
     -- the key closes Blizzard's window while it sits under the hidden parent: Hide() fires no
     -- OnHide there (nothing becomes invisible), so ours must hear the call itself (seen in game)
+    -- dragged: there for now, the setting untouched; closed, back to the spot set on the page
+    local keptX = o.x
+    f:SetPoint("CENTER", UIParent, "CENTER", 5, 5) -- where the drag left it (the mock's StartMoving moves nothing)
+    f._scripts.OnDragStop(f)
+    B.layout()
+    assert(f._point[1] == "CENTER" and o.x == keptX, "dragged: left there, the setting kept")
     ContainerFrame1:Hide()
     assert(not f:IsShown() and ContainerFrame1._parent == UIParent, "closed with Blizzard's, theirs given back")
+    ContainerFrame1:Show()
+    assert(f:IsShown() and f._point[1] == "BOTTOMRIGHT" and f._point[4] == o.x, "opened again: at the set spot")
+    ContainerFrame1:Hide()
     o.show = false
     B.sync()
     assert(BagsBar._parent == UIParent and BagsBar._point[2] == "MicroButtonAndBagsBar", "off: the bag bar goes home")
