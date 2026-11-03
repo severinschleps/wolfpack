@@ -210,9 +210,9 @@ local function layoutDefaults(show, x, y, gap, width, h1, h2, h3, h4, h5, h6, h7
     for _, key in ipairs({ "health", "enemyhealth" }) do
         local b = l.bars[key]
         b.buffs = { show = true, anchorTo = "bar", spot = "topleft", grow = "right", x = 0, y = 2, size = 20,
-            radius = 0, cols = 8, rows = 1, max = 8, hideTimer = false }
+            radius = 0, cols = 8, rows = 1, max = 8, hideTimer = false, zoom = 8 }
         b.debuffs = { show = true, anchorTo = "other", spot = "topleft", grow = "right", x = 0, y = 0, size = 24,
-            radius = 0, cols = 8, rows = 2, max = 16, hideTimer = false }
+            radius = 0, cols = 8, rows = 2, max = 16, hideTimer = false, zoom = 8 }
         b.auraGap, b.auraGroupGap = 2, 4
     end
     -- small icons on the bar: PvP flag (in one of a few looks) and drinking; centered on a
@@ -1516,7 +1516,9 @@ function ns.layoutAuras(f)
                         b:SetFrameLevel(f:GetFrameLevel() + 6)
                         b:ClearAllPoints()
                         b:SetPoint(corner, box, corner, (g[1] * a + w[1] * l) * step, (g[2] * a + w[2] * l) * step)
-                        ns.iconCorners(b.tex, b.mask, o.radius)
+                        -- zoom: the share cut from each side of the picture (8: just its own border)
+                        local z = (o.zoom or 8) / 100
+                        ns.iconCorners(b.tex, b.mask, o.radius, { z, 1 - z, z, 1 - z })
                         -- the swipe takes the icon's shape too
                         b.cd:SetSwipeTexture(file and "Interface\\AddOns\\WolfpackAddon\\Media\\Icon\\"
                             .. file .. ".tga" or "Interface\\Buttons\\WHITE8X8")
@@ -5643,7 +5645,7 @@ local function buildConfig()
     end
 
     -- Buffs and debuffs dialog: a column each, the gaps they share underneath
-    local ad = ns.ui.Window(nil, 440, 754, "Buffs and debuffs")
+    local ad = ns.ui.Window(nil, 440, 800, "Buffs and debuffs")
     ad:SetParent(cfg)
     ad:ClearAllPoints()
     ad:SetPoint("TOPLEFT", cfg, "TOPRIGHT", 12, 0)
@@ -5674,6 +5676,7 @@ local function buildConfig()
             { "Rounded", 25 }, { "Circle", 50 } }, function() return ns.ICON_MASKS[A().radius] and A().radius or 0 end,
             function(v) A().radius = v end, textPreview)
         for _, r in ipairs({ { "x", "X", -200, 200 }, { "y", "Y", -200, 200 }, { "size", "Icon size", 8, 64 },
+            { "zoom", "Zoom (% cut from each side)", 0, 30 },
             { "cols", "Columns", 1, 20 }, { "rows", "Rows", 1, 10 }, { "max", "Most icons", 1, 40 } }) do
             slider(ad, r[2], x, rrow(SLIDER), r[3], r[4], function() return A()[r[1]] end,
                 function(v) A()[r[1]] = v end)

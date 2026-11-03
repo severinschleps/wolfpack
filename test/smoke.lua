@@ -721,6 +721,10 @@ assert(bi[1]:IsShown() and not bi[2]:IsShown(), "most icons caps it")
 -- rounded icons, the swipe rounded with them; the timer text can go
 eh.buffs.radius, eh.buffs.hideTimer = 25, true; fire("UNIT_AURA", "target")
 assert(bi[1].tex._masks[bi[1].mask] and bi[1].cd._swipeTex:find("i25"), "rounded, swipe too")
+assert(bi[1].tex._coords[1] == 0.08 and bi[1].tex._coords[2] == 0.92, "zoom 8: just the icon's own border cut")
+eh.buffs.zoom = 20; fire("UNIT_AURA", "target")
+assert(bi[1].tex._coords[1] == 0.2 and bi[1].tex._coords[4] == 0.8, "zoom 20: a fifth off each side, rounded too")
+eh.buffs.zoom = 8
 assert(bi[1].cd._hideNums == true and di[1].cd._hideNums == false, "buff timer text hidden, debuffs keep theirs")
 eh.buffs.radius = 0; fire("UNIT_AURA", "target")
 assert(not bi[1].tex._masks[bi[1].mask] and bi[1].cd._swipeTex:find("WHITE8X8"), "square again")
@@ -758,9 +762,9 @@ eh.buffs.spot, eh.buffs.grow = "below_left", nil; fire("UNIT_AURA", "target")
 assert(eh.buffs.spot == "bottomright" and eh.buffs.grow == "left" and bb._point[1] == "TOPRIGHT"
     and bb._point[3] == "BOTTOMRIGHT", "below_left: the bottom right corner, growing left")
 eh.buffs = { show = true, anchorTo = "bar", spot = "topleft", grow = "right", x = 0, y = 2, size = 20, radius = 0,
-    cols = 8, rows = 1, max = 8, hideTimer = false }
+    cols = 8, rows = 1, max = 8, hideTimer = false, zoom = 8 }
 eh.debuffs = { show = true, anchorTo = "other", spot = "topleft", grow = "right", x = 0, y = 0, size = 24, radius = 0,
-    cols = 8, rows = 2, max = 16, hideTimer = false }
+    cols = 8, rows = 2, max = 16, hideTimer = false, zoom = 8 }
 S.auras, S.debuffs = nil, nil
 eh.resWidth, eh.resHeight, eh.resX, eh.resY = 50, 8, -20, 5
 fire("PLAYER_TARGET_CHANGED")
