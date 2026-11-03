@@ -549,9 +549,32 @@ fire("PLAYER_TARGET_CHANGED")
 assert(not ef:IsShown(), "no target")
 S.targetHP = 500
 fire("PLAYER_TARGET_CHANGED")
-assert(ef:IsShown() and ef.segs[1]._value == 500 and ef.segs[1]._max == 1000 and ef.text._text == "500",
+assert(ef:IsShown() and ef.segs[1]._value == 500 and ef.segs[1]._max == 1000 and ef.texts.current._text == "500" and not ef.text:IsShown(),
     "target values")
 assert(ef._point[1] == "TOP" and ef._point[5] == -20, "its own slot, right after your health")
+-- three numbers, each optional, each in its own spot, size and color
+local et = ef.texts
+assert(et.current:IsShown() and not et.percent:IsShown() and not et.currentmax:IsShown(), "current only, as before")
+eh.texts.percent.show, eh.texts.currentmax.show = true, true
+eh.texts.percent.size, eh.texts.percent.color, eh.texts.percent.y = 14, { 1, 0, 0, 1 }, 2
+fire("PLAYER_TARGET_CHANGED")
+assert(et.percent._text == "50%" and et.currentmax._text == "500 / 1000" and et.current._text == "500", "all three")
+assert(et.percent._point[1] == "RIGHT" and et.percent._point[4] == -4 and et.percent._point[5] == 2
+    and et.currentmax._point[1] == "LEFT" and et.percent._color[1] == 1 and et.percent._color[2] == 0,
+    "percent on the right in red, current / max on the left")
+assert(et.percent._font[2] == 14, "its own size")
+eh.text = false; fire("PLAYER_TARGET_CHANGED")
+assert(not et.percent:IsShown() and not et.current:IsShown(), "Show text off: all of them")
+eh.text = true
+-- secret numbers: the percent comes from the game's own call
+local realHP = UnitHealth
+UnitHealth = function(u) return u == "target" and SECRET or realHP(u) end
+CurveConstants, UnitHealthPercent = { ScaleTo100 = 1 }, function(u, pred, curve) return curve == 1 and 42.4 end
+fire("PLAYER_TARGET_CHANGED")
+assert(et.percent._text == "42%", "percent from the game when the numbers are secret")
+UnitHealth, CurveConstants, UnitHealthPercent = realHP, nil, nil
+eh.texts.percent.show, eh.texts.currentmax.show = false, false
+fire("PLAYER_TARGET_CHANGED")
 assert(rf:IsShown() and rf._point[1] == "BOTTOM" and rf._point[2] == ef and rf._point[3] == "BOTTOM"
     and rf._point[4] == 0 and rf._point[5] == 3, "the resource sits inside it, 3 up from its bottom")
 assert(rf:GetFrameLevel() > ef:GetFrameLevel(), "drawn over the health bar")
@@ -696,7 +719,7 @@ assert(rf.text:IsShown() and rf.segs[1].border._shown == false, "text like enemy
 eh.resHideText, eh.resBorderSize, eh.resRadius = true, 1, 4
 eh.resBorderMode, eh.resBorderColor = "custom", { 0, 0, 1, 1 }
 fire("PLAYER_TARGET_CHANGED")
-assert(not rf.text:IsShown() and ef.text:IsShown(), "resource text hidden, health text kept")
+assert(not rf.text:IsShown() and ef.texts.current:IsShown(), "resource text hidden, health text kept")
 assert(rf.segs[1].border._shown and rf.segs[1].border._color[3] == 1 and rf.segs[1]._w == 196 and rf.segs[1]._h == 2,
     "a 1 px blue border inside its size")
 assert(rf.segs[1].borderMask._tex:match("r2%.tga$"), "its own corner radius, capped at half its 4 px height")
@@ -1249,6 +1272,15 @@ assert(asked[1] == "WOLFPACKADDON_RESET" and prof().regular.bars.health.width ==
 StaticPopupDialogs.WOLFPACKADDON_RESET.OnAccept()
 assert(prof().regular.bars.health.width ~= 333, "Yes resets")
 StaticPopup_Show = realShow
+-- an older profile's text size and color become the "current" number's, once
+WolfpackAddonDB.profiles.OldText = { regular = { bars = { health = { fontSize = 13, textColor = { 0, 1, 0, 1 } } } } }
+ns.useProfile("OldText")
+local hc = prof().regular.bars.health
+assert(hc.texts.current.size == 13 and hc.texts.current.color[2] == 1 and hc.textsSet, "moved onto current")
+hc.texts.current.size = 9; ns.useProfile("OldText")
+assert(hc.texts.current.size == 9, "only once")
+ns.useProfile("Scratch")
+WolfpackAddonDB.profiles.OldText = nil
 -- Copy from: another profile's settings (and Bar Stack's) land on the current one, name kept
 local here = WolfpackAddonDB.chars[S.name .. " - Realm"]
 WolfpackAddonDB.profiles.Source = { regular = { bars = { health = { width = 321 } } } }
@@ -1407,6 +1439,15 @@ assert(ns.tagDialog:IsShown() and not ns.resDialog:IsShown(), "level and name: i
 byText("Health")._scripts.OnClick(byText("Health"), "LeftButton")
 assert(not rb:IsShown() and not ns.resDialog:IsShown(), "another bar picked: closed")
 assert(not tb:IsShown() and not ns.tagDialog:IsShown(), "and that one too")
+-- Health, power and enemy health: a Numbers window instead of the one size and color
+local nb = byText("Numbers")
+byText("Health")._scripts.OnClick(byText("Health"), "LeftButton")
+assert(nb:IsShown() and not ns.swatches["Text color"]:IsShown(), "numbers button, no single text color")
+nb._scripts.OnClick(nb, "LeftButton")
+assert(ns.textDialog:IsShown(), "opens")
+byText("Cast Bar")._scripts.OnClick(byText("Cast Bar"), "LeftButton")
+assert(not nb:IsShown() and not ns.textDialog:IsShown() and ns.swatches["Text color"]:IsShown(),
+    "cast bar: one text, as before")
 local ab = byText("Buffs and debuffs")
 byText("Enemy Health")._scripts.OnClick(byText("Enemy Health"), "LeftButton")
 tb._scripts.OnClick(tb, "LeftButton")

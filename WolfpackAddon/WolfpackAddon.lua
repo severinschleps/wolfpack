@@ -179,6 +179,17 @@ local function layoutDefaults(show, x, y, gap, width, h1, h2, h3, h4, h5, h6, h7
     }
     -- beside: right of your health bar, the two sharing its width and its height. The resource
     -- sits inside the health bar: width in percent of it, x/y from its bottom center.
+    -- Health, power and enemy health: three numbers, each with its own switch, spot, size and
+    -- color (the bar's font and outline). textsSet: useProfile has moved an older profile's text
+    -- size and color onto "current" (once).
+    for _, key in ipairs({ "health", "power", "enemyhealth" }) do
+        local function num(show, anchor, x)
+            return { show = show, anchor = anchor, x = x, y = 0, size = 10, color = { 1, 1, 1, 1 } }
+        end
+        l.bars[key].texts = { percent = num(false, "RIGHT", -4), current = num(true, "CENTER", 0),
+            currentmax = num(false, "LEFT", 4) }
+        l.bars[key].textsSet = false
+    end
     local eh = l.bars.enemyhealth
     eh.beside, eh.resource = false, true
     eh.resHeight, eh.resWidth, eh.resX, eh.resY = math.max(2, math.floor(h1 / 4)), 90, 0, 3
@@ -869,6 +880,10 @@ local function layoutBar(f, n, width, over)
     local flags = c.outline and "OUTLINE" or ""
     if not f.text:SetFont(c.font, c.fontSize, flags) then f.text:SetFont(FONTS[1][2], c.fontSize, flags) end
     f.text:SetTextColor(unpack(c.textColor))
+    if ns.TEXT_BARS[f.key] and not f.res then -- three numbers of its own instead
+        f.text:Hide()
+        ns.layoutTexts(f, c, n)
+    end
     f.n = n
 end
 
@@ -1105,8 +1120,60 @@ function ns.fill(f)
         f.segs[1]:SetValue(v)
         if f.over and f.over:IsShown() then fillOverlay(f, max) end
         if f.text:IsShown() and not pcall(setText, f.text, v) then f.text:SetText("") end
+        if f.texts and not f.res then ns.fillTexts(f, v, max) end
     else
         for i = 1, f.n do f.segs[i]:SetValue(v) end
+    end
+end
+
+------------------------------------------------------------------------------------------
+-- Health, power and enemy health numbers: percent, current, current / max -- any of them,
+-- each in its own spot, size and color. In a fight the game may keep the numbers secret: they
+-- still draw (the game formats them), and a percent comes from the game's own percent call.
+------------------------------------------------------------------------------------------
+ns.TEXT_BARS = { health = true, power = true, enemyhealth = true }
+ns.TEXT_KINDS = { "percent", "current", "currentmax" }
+
+function ns.layoutTexts(f, c, n)
+    f.texts = f.texts or {}
+    local flags = c.outline and "OUTLINE" or ""
+    for _, k in ipairs(ns.TEXT_KINDS) do
+        local o, t = c.texts[k], f.texts[k]
+        if not t then
+            t = f.segs[1]:CreateFontString(nil, "OVERLAY")
+            t:SetWordWrap(false)
+            f.texts[k] = t
+        end
+        t:SetShown((c.text and o.show and n == 1) and true or false)
+        if not t:SetFont(c.font, o.size, flags) then t:SetFont(FONTS[1][2], o.size, flags) end
+        t:SetTextColor(unpack(o.color))
+        t:ClearAllPoints()
+        t:SetPoint(o.anchor, f.segs[1], o.anchor, o.x, o.y)
+        t:SetJustifyH(o.anchor)
+    end
+end
+
+ns.TEXT_FORMAT = {
+    current = function(t, v) t:SetText(AbbreviateNumbers(v)) end,
+    currentmax = function(t, v, max)
+        local now = AbbreviateNumbers(v)
+        if not pcall(function() t:SetText(now .. " / " .. AbbreviateNumbers(max)) end) then t:SetText(now) end
+    end,
+    percent = function(t, v, max, f)
+        if readable(v) and readable(max) then
+            t:SetText(max > 0 and math.floor(v / max * 100 + 0.5) .. "%" or "")
+            return
+        end
+        local unit, curve = f.unit or "player", CurveConstants.ScaleTo100
+        local p = f.key == "power" and UnitPowerPercent(unit, UnitPowerType(unit), true, curve)
+            or UnitHealthPercent(unit, true, curve)
+        t:SetText(string.format("%.0f%%", p))
+    end,
+}
+
+function ns.fillTexts(f, v, max)
+    for k, t in pairs(f.texts) do
+        if t:IsShown() and not pcall(ns.TEXT_FORMAT[k], t, v, max, f) then t:SetText("") end
     end
 end
 
@@ -3654,6 +3721,13 @@ useProfile = function(name)
         ci.x, ci.fromCenter = ci.x - math.floor((b and b.width or 0) / 2), true
     end
     for _, m in ipairs({ "regular", "nameplate" }) do
+        for _, key in ipairs({ "health", "power", "enemyhealth" }) do
+            local b = db[m].bars[key]
+            if not b.textsSet then -- the one text it had becomes "current", as it looked
+                b.texts.current.size, b.texts.current.color = b.fontSize, { unpack(b.textColor) }
+                b.textsSet = true
+            end
+        end
         local tc = db[m].bars.targetcast
         if not tc.autoSet then
             if tc.colorMode == "custom" then tc.colorMode = "auto" end
@@ -4151,6 +4225,13 @@ function ns.foldColumns(page, COL, TOP)
     end
 end
 
+-- the windows beside the options: one at a time; clicking its button again closes it
+function ns.toggleDialog(d)
+    local show = not d:IsShown()
+    for _, o in ipairs({ ns.resDialog, ns.tagDialog, ns.auraDialog, ns.textDialog }) do o:Hide() end
+    d:SetShown(show)
+end
+
 local function buildConfig()
     cfg = ns.ui.Window("WolfpackAddonConfig", 680, 700, "Wolfpack", 52)
     cfg.TitleText:SetFontObject(ns.ui.TITLE)
@@ -4448,19 +4529,13 @@ local function buildConfig()
     local resCheck = check(barsPage, "Show its resource", only.x, only:row(0),
         function() return cur().resource end, function(v) cur().resource = v end)
     local resButton = button(barsPage, "Resource settings", 186, only.x, only:row(0) - ROW, function()
-        ns.tagDialog:Hide()
-        ns.auraDialog:Hide()
-        ns.resDialog:SetShown(not ns.resDialog:IsShown())
+        ns.toggleDialog(ns.resDialog)
     end)
     local tagButton = button(barsPage, "Level and name", 186, only.x, only:row(0) - ROW - BUTTON, function()
-        ns.resDialog:Hide()
-        ns.auraDialog:Hide()
-        ns.tagDialog:SetShown(not ns.tagDialog:IsShown())
+        ns.toggleDialog(ns.tagDialog)
     end)
     local auraButton = button(barsPage, "Buffs and debuffs", 186, only.x, only:row(0) - ROW - 2 * BUTTON, function()
-        ns.resDialog:Hide()
-        ns.tagDialog:Hide()
-        ns.auraDialog:SetShown(not ns.auraDialog:IsShown())
+        ns.toggleDialog(ns.auraDialog)
     end)
     local swingChecks = {}
     for i, kind in ipairs(SWING_TYPES) do
@@ -4638,15 +4713,22 @@ local function buildConfig()
         check(barsPage, "Show text", txt.x, txt:row(ROW), function() return cur().text end, function(v) cur().text = v end),
         dropdown(barsPage, "Font", txt.x, txt:row(DROP), FONTS, function() return cur().font end,
             function(v) cur().font = v end, fontPreview),
-        slider(barsPage, "Size", txt.x, txt:row(SLIDER), 6, 32, function() return cur().fontSize end,
-            function(v) cur().fontSize = v end),
-        check(barsPage, "Outline", txt.x, txt:row(ROW), function() return cur().outline end, function(v) cur().outline = v end),
-        swatch(barsPage, "Text color", txt.x, txt:row(SWATCH), function() return cur().textColor end),
     }
+    local sizeY = txt:row(SLIDER)
+    textWidgets[3] = slider(barsPage, "Size", txt.x, sizeY, 6, 32, function() return cur().fontSize end,
+        function(v) cur().fontSize = v end)
+    textWidgets[4] = check(barsPage, "Outline", txt.x, txt:row(ROW), function() return cur().outline end,
+        function(v) cur().outline = v end)
+    textWidgets[5] = swatch(barsPage, "Text color", txt.x, txt:row(SWATCH), function() return cur().textColor end)
+    -- health, power and enemy health: their numbers have a window of their own, sizes and colors too
+    local numButton = button(barsPage, "Numbers", 186, txt.x, sizeY - 12, function() ns.toggleDialog(ns.textDialog) end)
     local noText = label(barsPage, "", "GameFontDisableSmall")
     noText:SetPoint("TOPLEFT", txt.x, txt:row(16))
     onRefresh(function()
-        for _, w in ipairs(textWidgets) do w:SetShown(selected ~= "combo") end
+        local many = ns.TEXT_BARS[selected] and true or false
+        for i, w in ipairs(textWidgets) do w:SetShown(selected ~= "combo" and not (many and (i == 3 or i == 5))) end
+        numButton:SetShown(many)
+        if not (many and (section == "combat" or section == "nameplates")) then ns.textDialog:Hide() end
         noText:SetText(selected == "combo" and "Combo points show no text." or "")
     end)
     txt:close()
@@ -5331,6 +5413,35 @@ local function buildConfig()
     anote:SetPoint("TOPLEFT", 16, shared - SLIDER - 4)
     anote:SetWidth(408)
     anote:SetJustifyH("LEFT")
+
+    -- Numbers dialog: percent, current and current / max for the bar picked, a row each
+    local nd = ns.ui.Window(nil, 440, 520, "Numbers")
+    nd:SetParent(cfg)
+    nd:ClearAllPoints()
+    nd:SetPoint("TOPLEFT", cfg, "TOPRIGHT", 12, 0)
+    nd:Hide()
+    ns.textDialog = nd
+    local NSIDES = { { "Left", "LEFT" }, { "Center", "CENTER" }, { "Right", "RIGHT" } }
+    ry = -48
+    for _, k in ipairs({ { "percent", "Percent" }, { "current", "Current" }, { "currentmax", "Current / max" } }) do
+        -- another bar picked: the dialog is hidden, its widgets read health's defaults
+        local T = function() return (cur().texts or DEFAULTS.regular.bars.health.texts)[k[1]] end
+        local top = ry
+        label(nd, k[2], "GameFontNormal"):SetPoint("TOPLEFT", 16, top)
+        check(nd, "Show", 16, top - 22, function() return T().show end, function(v) T().show = v end)
+        dropdown(nd, "Position", 16, top - 46, NSIDES, function() return T().anchor end,
+            function(v) T().anchor = v end, textPreview)
+        slider(nd, "Size", 16, top - 96, 6, 32, function() return T().size end, function(v) T().size = v end)
+        slider(nd, "X", 230, top - 22, -200, 200, function() return T().x end, function(v) T().x = v end)
+        slider(nd, "Y", 230, top - 68, -50, 50, function() return T().y end, function(v) T().y = v end)
+        swatch(nd, k[2] .. " color", 230, top - 118, function() return T().color end)
+        ry = top - 152
+    end
+    local nnote = label(nd, "Font and outline are the bar's, on its Text card. \"Show text\" there turns "
+        .. "all three off at once.", "GameFontDisableSmall")
+    nnote:SetPoint("TOPLEFT", 16, ry)
+    nnote:SetWidth(408)
+    nnote:SetJustifyH("LEFT")
 
     for _, page in pairs(ns.pages) do ns.foldColumns(page, COL, TOP) end
     ns.configHeight = math.max(-(ns.sidebarBottom or 0) + 24, 640)
