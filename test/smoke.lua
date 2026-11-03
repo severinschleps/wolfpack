@@ -994,6 +994,24 @@ fire("PLAYER_REGEN_ENABLED")
 assert(not sti:IsShown(), "combat over")
 S.resting = true; fire("PLAYER_UPDATE_RESTING")
 assert(sti:IsShown() and sti.tex._tex == 130936 and sti.tex._coords[1] == 0, "resting: the rested icon")
+-- or a text of your own, one font string per letter, in the bar's font size and its own color
+st.restStyle, st.restText, st.restColor = "text", "Zzé", { 0.1, 0.2, 0.3, 1 }
+prof().regular.bars.health.fontSize = 11; fire("PLAYER_UPDATE_RESTING")
+assert(sti:IsShown() and not sti.tex:IsShown() and sti.waveN == 3 and sti.letters[1]._text == "Z"
+    and sti.letters[3]._text == "é" and sti.letters[2]._font[2] == 11 and sti.letters[1]._color[3] == 0.3,
+    "three letters (é is one), its size and color")
+assert(sti.letters[2]._point[2] == sti and sti.letters[2]._point[4] == 8, "side by side")
+-- the wave: each letter fades in and out a step behind the one before
+assert(sti._scripts.OnUpdate, "the letters fade in turn")
+sti._scripts.OnUpdate(sti)
+assert(sti.letters[1]._alpha ~= sti.letters[2]._alpha, "staggered")
+st.restWave = false; fire("PLAYER_UPDATE_RESTING")
+assert(not sti._scripts.OnUpdate and sti.letters[1]._alpha == 1, "no wave: plain text")
+st.restText = "Ab"; fire("PLAYER_UPDATE_RESTING")
+assert(sti.waveN == 2 and not sti.letters[3]:IsShown(), "a shorter text hides the letters left over")
+st.restStyle, st.restText, st.restWave = "icon", "Zzz", true
+prof().regular.bars.health.fontSize = 10; fire("PLAYER_UPDATE_RESTING")
+assert(sti.tex:IsShown() and not sti.letters[1]:IsShown(), "back to the icon")
 st.rested = false; fire("PLAYER_UPDATE_RESTING")
 assert(not sti:IsShown(), "rested icon off")
 st.rested, S.resting = true, false

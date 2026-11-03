@@ -221,8 +221,10 @@ local function layoutDefaults(show, x, y, gap, width, h1, h2, h3, h4, h5, h6, h7
     eh.drinking = { show = true, color = { 0.35, 0.75, 1, 1 } }
     -- your health: a status icon (the combat icon in a fight, else rested while resting) and
     -- your own PvP flag
+    -- resting: the Zzz icon, or your own text (bar's font and size, its own color), whose letters
+    -- can fade in and out one after another
     l.bars.health.statusIcon = { show = true, style = "atlas", rested = true, point = "LEFT", x = -12, y = 0,
-        size = 20 }
+        size = 20, restStyle = "icon", restText = "Zzz", restColor = { 0.6, 0.8, 1, 1 }, restWave = true }
     l.bars.health.pvpIcon = { show = true, style = "faction", anchorTo = "bar", point = "TOPLEFT", x = 0, y = 0,
         size = 20, text = "PvP", textColor = { 1, 0.25, 0.25, 1 } } -- text: in the bar's font and size
     l.bars.power.colorMode = "power"
@@ -1600,6 +1602,40 @@ function ns.drinking(unit)
     return false
 end
 
+-- A text one letter per font string, side by side, so each can fade on its own: a wave of
+-- fading in and out runs along it while o.restWave is on. Up to 16 letters (UTF-8 aware).
+function ns.waveLetters(b)
+    local t = GetTime()
+    for i = 1, b.waveN do b.letters[i]:SetAlpha(0.15 + 0.85 * (0.5 + 0.5 * math.sin(t * 3 - i * 0.7))) end
+end
+
+function ns.layoutLetters(b, str, c, o)
+    b.letters = b.letters or {}
+    local n, x = 0, 0
+    if str then
+        local flags = c.outline and "OUTLINE" or ""
+        for ch in str:gmatch("[%z\1-\127\194-\244][\128-\191]*") do
+            if n == 16 then break end
+            n = n + 1
+            local l = b.letters[n] or b:CreateFontString(nil, "OVERLAY")
+            b.letters[n] = l
+            if not l:SetFont(c.font, c.fontSize, flags) then l:SetFont(FONTS[1][2], c.fontSize, flags) end
+            l:SetTextColor(unpack(o.restColor))
+            l:SetText(ch)
+            l:ClearAllPoints()
+            l:SetPoint("LEFT", b, "LEFT", x, 0)
+            l:SetAlpha(1)
+            l:Show()
+            local w = l:GetStringWidth()
+            x = x + (readable(w) and w or c.fontSize * 0.6)
+        end
+        b:SetSize(math.max(1, x), c.fontSize)
+    end
+    for i = n + 1, #b.letters do b.letters[i]:Hide() end
+    b.waveN = n
+    b:SetScript("OnUpdate", (str and n > 0 and o.restWave) and ns.waveLetters or nil)
+end
+
 function ns.layoutBadges(f)
     local c = db[f.mode].bars[f.key]
     local unit = f.key == "health" and "player" or (UnitExists(f.unit) and f.unit)
@@ -1614,7 +1650,7 @@ function ns.layoutBadges(f)
             b.text:SetPoint("CENTER")
             f[k] = b
         end
-        local art, text -- art: { file, coords }, or a combat icon style; text: a PvP text
+        local art, text, letters -- art: { file, coords } or a combat icon style; text: PvP; letters: resting
         if not o.show then
             art = nil
         elseif k == "pvpIcon" then
@@ -1625,16 +1661,21 @@ function ns.layoutBadges(f)
             elseif flag then
                 art = { file = st[flag] or (st.file and st.file:format(flag)) or st.Horde, coords = st.coords }
             end
-        elseif ns.inCombat or preview then -- status: shown while placing it, for placing it
+        elseif ns.inCombat then
             art = o.style
         elseif o.rested and IsResting() then
-            art = REST_ART
+            if o.restStyle == "text" then letters = o.restText or "" else art = REST_ART end
+        elseif preview then -- status: shown while placing it, for placing it
+            art = o.style
         end
-        b:SetShown(art ~= nil or text ~= nil)
+        b:SetShown(art ~= nil or text ~= nil or letters ~= nil)
         b.tex:SetShown(art ~= nil)
         b.text:SetShown(text ~= nil)
-        if art or text then
-            if text then -- the font and size of the name on enemy health, of the bar's text on yours
+        ns.layoutLetters(b, letters, c, o)
+        if art or text or letters then
+            if letters then
+                -- sized by layoutLetters
+            elseif text then -- the font and size of the name on enemy health, of the bar's text on yours
                 local font, size, outline = c.font, c.fontSize, c.outline
                 if f.key == "enemyhealth" then font, size, outline = c.tagFont, c.tagSize, c.tagOutline end
                 local flags = outline and "OUTLINE" or ""
@@ -5647,7 +5688,7 @@ local function buildConfig()
             "Shows while your target is flagged: an icon in its faction's look (free-for-all has its own), or "
             .. "your own text in the name's font and size. On the name or level it sits outside, on that side." },
         { "statusDialog", "Status and PvP icons", "health", { { "statusIcon", "Status" }, { "pvpIcon", "PvP flag" } },
-            "Status: the combat icon in a fight, else the rested icon while you are resting, else nothing. "
+            "Status: the combat icon in a fight, else the Zzz (or your text) while you are resting, else nothing. "
             .. "PvP: while you are flagged." },
     }) do
         local d = ns.ui.Window(nil, #spec[4] == 1 and 230 or 440, 640, spec[2])
@@ -5664,24 +5705,28 @@ local function buildConfig()
             ry = -48
             label(d, k[2], "GameFontNormal"):SetPoint("TOPLEFT", x, rrow(22))
             check(d, "Show", x, rrow(ROW), function() return I().show end, function(v) I().show = v end)
-            if k[1] == "pvpIcon" then
-                dropdown(d, "Icon", x, rrow(DROP), { { "Faction emblem", "faction" }, { "Faction banner", "banner" },
-                    { "Crossed swords", "swords" }, { "Skull", "skull" }, { "Text", "text" } },
-                    function() return I().style end, function(v) I().style = v end, textPreview)
-                -- text: what it says, and its color
-                label(d, "Text", "GameFontNormalSmall"):SetPoint("TOPLEFT", x, rrow(16))
+            -- a typed-in text: kept on Enter or clicking away, Escape puts it back
+            local function textBox(title, field)
+                label(d, title, "GameFontNormalSmall"):SetPoint("TOPLEFT", x, rrow(16))
                 local tb = ns.ui.Input(d, 178)
                 tb:SetPoint("TOPLEFT", x, rrow(30))
                 tb:SetMaxLetters(24)
                 local function keep()
-                    I().text = tb:GetText()
+                    I()[field] = tb:GetText()
                     tb:ClearFocus()
                     changed()
                 end
                 tb:SetScript("OnEnterPressed", keep)
                 tb:HookScript("OnEditFocusLost", keep)
-                tb:SetScript("OnEscapePressed", function() tb:SetText(I().text); tb:ClearFocus() end)
-                onRefresh(function() if not tb:HasFocus() then tb:SetText(I().text or "") end end)
+                tb:SetScript("OnEscapePressed", function() tb:SetText(I()[field] or ""); tb:ClearFocus() end)
+                onRefresh(function() if not tb:HasFocus() then tb:SetText(I()[field] or "") end end)
+                return tb
+            end
+            if k[1] == "pvpIcon" then
+                dropdown(d, "Icon", x, rrow(DROP), { { "Faction emblem", "faction" }, { "Faction banner", "banner" },
+                    { "Crossed swords", "swords" }, { "Skull", "skull" }, { "Text", "text" } },
+                    function() return I().style end, function(v) I().style = v end, textPreview)
+                textBox("Text", "text") -- with the Text look: what it says, and its color
                 swatch(d, spec[3] == "health" and "Your PvP text color" or "PvP text color", x, rrow(SWATCH),
                     function() return I().textColor end)
                 if spec[3] == "enemyhealth" then
@@ -5697,8 +5742,14 @@ local function buildConfig()
                         setCombatArt(t, item[2])
                         return beforeName(button, item, t, 20)
                     end)
-                check(d, "Rested icon while resting", x, rrow(ROW), function() return I().rested end,
+                check(d, "Show while resting", x, rrow(ROW), function() return I().rested end,
                     function(v) I().rested = v end)
+                dropdown(d, "Resting shows", x, rrow(DROP), { { "The Zzz icon", "icon" }, { "Text", "text" } },
+                    function() return I().restStyle end, function(v) I().restStyle = v end, textPreview)
+                textBox("Resting text", "restText")
+                swatch(d, "Resting text color", x, rrow(SWATCH), function() return I().restColor end)
+                check(d, "Letters fade in and out in turn", x, rrow(ROW), function() return I().restWave end,
+                    function(v) I().restWave = v end)
             end
             dropdown(d, "Point", x, rrow(DROP), POINTS, function() return I().point end,
                 function(v) I().point = v end, textPreview)
