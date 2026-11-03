@@ -1447,7 +1447,24 @@ function ns.auraList(unit, filter, max)
     return out
 end
 
--- a = nil: a stand-in while placing the bars
+-- Stand-ins while the options are open: as many as the group can hold, with running timers and
+-- a stack count here and there, so size, zoom, timer text and the grid can all be judged.
+ns.DUMMY_ICONS = {
+    buffs = { "Spell_Holy_WordFortitude", "Spell_Nature_Regeneration", "Spell_Holy_MagicalSentry",
+        "Spell_Holy_PowerWordShield" },
+    debuffs = { "Spell_Shadow_ShadowWordPain", "Spell_Shadow_CurseOfSargeras", "Spell_Frost_FrostShock",
+        "Ability_Warrior_Sunder" },
+}
+function ns.dummyAuras(k, max)
+    local out, icons, now = {}, ns.DUMMY_ICONS[k], GetTime()
+    for i = 1, max do
+        out[i] = { icon = "Interface\\Icons\\" .. icons[(i - 1) % #icons + 1], duration = 60,
+            expirationTime = now + 60 - i * 7 % 60, applications = i % 3 == 0 and 3 or nil }
+    end
+    return out
+end
+
+-- a = nil: a plain question mark
 function ns.drawAura(b, unit, a)
     pcall(b.tex.SetTexture, b.tex, a and a.icon or 134400)
     b.count:SetText("")
@@ -1485,10 +1502,10 @@ function ns.layoutAuras(f)
         local per = across and o.cols or o.rows
         local max = math.min(o.max, o.cols * o.rows)
         local list = {}
-        if o.show and unit then
+        if o.show and ns.previewing() then -- the options are open: a full grid to tune it by
+            list = ns.dummyAuras(k, max)
+        elseif o.show and unit then
             list = ns.auraList(unit, k == "buffs" and "HELPFUL" or ns.debuffFilter(unit), max)
-        elseif o.show and ns.previewing() then
-            list = { false, false, false } -- three stand-ins to place them by
         end
         if list then -- nil: the game refused, the icons stay as they are
             local n = math.min(#list, max)

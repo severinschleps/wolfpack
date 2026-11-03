@@ -705,6 +705,12 @@ assert(bb._point[1] == "BOTTOMLEFT" and bb._point[2] == ef and bb._point[3] == "
 assert(bi[2]._point[2] == bb and bi[2]._point[4] == 22, "icons grow right, 20 + 2 apart")
 assert(di[1].tex._tex == 221 and db_._point[2] == bb and db_._point[3] == "TOPLEFT" and db_._point[5] == 4,
     "debuffs hang on the buffs, a group gap up")
+-- options open (or unlocked): dummies fill each group's grid, with timers and stacks, to tune by
+prof().locked = false; fire("UNIT_AURA", "target")
+assert(bi[8]:IsShown() and bi[1].tex._tex:find("Spell_Holy_WordFortitude") and di[16]:IsShown()
+    and bi[1].cd._cd and bi[3].count._text == 3, "a full grid of stand-ins: 8 buffs, 16 debuffs")
+prof().locked = true; fire("UNIT_AURA", "target")
+assert(bi[1].tex._tex == 111 and not bi[3]:IsShown(), "closed again: the real ones")
 -- debuffs on the bar, buffs on the debuffs: the other way round
 eh.debuffs.anchorTo, eh.buffs.anchorTo, eh.buffs.spot = "bar", "other", "right"
 fire("UNIT_AURA", "target")
