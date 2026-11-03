@@ -3048,13 +3048,16 @@ S.SB.show = true; fire("UNIT_MAXPOWER")
 S.sf = ns.ab.special.stance.frame
 assert(StanceButton1._parent == S.sf and StanceButton2._point[2] == S.sf and StanceButton2._point[4] == 34
     and StanceButton1._w == 30, "the stance buttons in a bar of yours, 30 + 4 apart")
-assert(S.sf._point[1] == "BOTTOMLEFT" and S.sf._point[2] == ns.ab.frames[1] and S.sf._point[3] == "TOPLEFT"
-    and S.sf._point[5] == S.SB.gap, "on top of bar 1")
+assert(S.sf._point[1] == "BOTTOM" and S.sf._point[2] == ns.ab.frames[1] and S.sf._point[3] == "TOP"
+    and S.sf._point[5] == S.SB.gap, "on top of bar 1, centered")
+S.SB.align = "start"; fire("UNIT_MAXPOWER")
+assert(S.sf._point[1] == "BOTTOMLEFT" and S.sf._point[3] == "TOPLEFT", "or at its left end")
+S.SB.align = "center"
 S.PT.show, S.PT.anchorTo, S.PT.side = true, "stance", "right"; fire("UNIT_MAXPOWER")
 S.pf2 = ns.ab.special.pet.frame
 assert(S.pf2._driver == "[pet] show; hide" and PetActionButton1._parent == S.pf2, "pet bar: only with a pet")
-assert(S.pf2._point[2] == S.sf and S.pf2._point[1] == "TOPLEFT" and S.pf2._point[3] == "TOPRIGHT",
-    "right of the stance bar")
+assert(S.pf2._point[2] == S.sf and S.pf2._point[1] == "LEFT" and S.pf2._point[3] == "RIGHT",
+    "right of the stance bar, centered on it")
 S.SB.cols, S.SB.rows = 2, 1; fire("UNIT_MAXPOWER")
 assert(StanceButton3._parent ~= S.sf and StanceButton3._parent ~= StanceBar, "a third doesn't fit two: parked")
 -- keybind mode works on them too, by their own slot names

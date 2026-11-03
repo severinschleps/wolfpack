@@ -381,6 +381,7 @@ for _, key in ipairs({ "stance", "pet" }) do
     local b = {}
     for k, v in pairs(ns.AB_BAR) do b[k] = type(v) == "table" and { unpack(v) } or v end
     b.show, b.cols, b.size, b.anchorTo, b.side, b.y = false, 10, 30, "bar:1", "above", 0
+    b.align = "center" -- along that side: "start" (left / top), "center" or "end" (right / bottom)
     b.first = nil
     DEFAULTS.actionbars[key] = b
 end
@@ -2479,8 +2480,13 @@ ns.AB_SPECIAL = {
         driver = "[pet] show; hide" },
 }
 ns.ab.special = { stance = { saved = {} }, pet = { saved = {} } }
-ns.AB_SIDES = { above = { "BOTTOMLEFT", "TOPLEFT", 0, 1 }, below = { "TOPLEFT", "BOTTOMLEFT", 0, -1 },
-    left = { "TOPRIGHT", "TOPLEFT", -1, 0 }, right = { "TOPLEFT", "TOPRIGHT", 1, 0 } }
+-- per side: its point and the bar's, for start / center / end along it, and which way the gap goes
+ns.AB_SIDES = {
+    above = { start = { "BOTTOMLEFT", "TOPLEFT" }, center = { "BOTTOM", "TOP" }, ["end"] = { "BOTTOMRIGHT", "TOPRIGHT" }, 0, 1 },
+    below = { start = { "TOPLEFT", "BOTTOMLEFT" }, center = { "TOP", "BOTTOM" }, ["end"] = { "TOPRIGHT", "BOTTOMRIGHT" }, 0, -1 },
+    left = { start = { "TOPRIGHT", "TOPLEFT" }, center = { "RIGHT", "LEFT" }, ["end"] = { "BOTTOMRIGHT", "BOTTOMLEFT" }, -1, 0 },
+    right = { start = { "TOPLEFT", "TOPRIGHT" }, center = { "LEFT", "RIGHT" }, ["end"] = { "BOTTOMLEFT", "BOTTOMRIGHT" }, 1, 0 },
+}
 
 function ns.abBlizzButton(key, i)
     for _, prefix in ipairs(ns.AB_SPECIAL[key].buttons) do
@@ -2581,7 +2587,8 @@ function ns.syncSpecialBars()
             f:ClearAllPoints()
             local to, side = ns.abTarget(o), ns.AB_SIDES[o.side] or ns.AB_SIDES.above
             if to and to ~= f then
-                f:SetPoint(side[1], to, side[2], o.x + side[3] * o.gap, o.y + side[4] * o.gap)
+                local pts = side[o.align] or side.center
+                f:SetPoint(pts[1], to, pts[2], o.x + side[1] * o.gap, o.y + side[2] * o.gap)
             else
                 f:SetPoint(o.point, UIParent, o.point, o.x, o.y)
             end
@@ -6399,13 +6406,18 @@ local function buildConfig()
     w.side = dropdown(actionPage, "On its", abl.x, abl:row(0) - ROW - DROP, { { "Top", "above" },
         { "Bottom", "below" }, { "Left", "left" }, { "Right", "right" } }, function() return AB().side end,
         function(v) AB().side = v end, textPreview)
-    ns.abSpecialMenus = { w.to, w.side }
+    w.align = dropdown(actionPage, "Aligned", abl.x, abl:row(0) - ROW - 2 * DROP, function()
+        local across = AB().side == "left" or AB().side == "right"
+        return { { across and "Top" or "Left", "start" }, { "Centered", "center" }, { across and "Bottom" or "Right", "end" } }
+    end, function() return AB().align end, function(v) AB().align = v end, textPreview)
+    ns.abSpecialMenus = { w.to, w.side, w.align }
     onRefresh(function()
         w.show:SetShown(special())
         w.to:SetShown(special())
         w.side:SetShown(special() and AB().anchorTo ~= "screen")
+        w.align:SetShown(special() and AB().anchorTo ~= "screen")
     end)
-    abl:row(ROW + 2 * DROP) -- room for the stance / pet controls (empty for your own bars)
+    abl:row(ROW + 3 * DROP) -- room for the stance / pet controls (empty for your own bars)
     for _, r in ipairs({ { "rows", "Rows", 1, 12 }, { "cols", "Columns", 1, 24 }, { "size", "Button size", 16, 64 },
         { "gap", "Gap", 0, 20 } }) do
         slider(actionPage, r[2], abl.x, abl:row(SLIDER), r[3], r[4], function() return AB()[r[1]] end,
