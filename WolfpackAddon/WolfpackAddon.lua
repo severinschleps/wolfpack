@@ -346,7 +346,7 @@ do
     local l = layoutDefaults(false, 0, 0, 2, 120, 10, 6, 6, 4, 8, 5, 5, 5, 5)
     local e = l.bars.enemyhealth
     e.tagName, e.tagLevel, e.tagSize = true, true, 9
-    e.nameAnchor, e.nameX, e.nameY, e.tagAttach = "TOP", 0, 12, "right"
+    e.nameAnchor, e.nameX, e.nameY, e.tagAttach = "TOP", 0, 1, "right"
     e.resource, e.resPlace, e.resPoint, e.resWidth, e.resHeight, e.resX, e.resY = true, "outside", "BOTTOM", 100, 3, 0, -1
     e.buffs.show, e.debuffs.anchorTo, e.debuffs.spot, e.debuffs.size, e.debuffs.y = false, "bar", "topleft", 18, 16
     for _, t in pairs(e.texts) do t.show = false end
@@ -1615,13 +1615,13 @@ function ns.layoutTag(f)
             t:ClearAllPoints()
             if leads and lvl then -- in the name's spot
                 point = c.nameAnchor
-                t:SetPoint(point, f, point, c.nameX, c.nameY)
+                t:SetPoint(ns.FLIP_V[point] or point, f, point, c.nameX, c.nameY)
             elseif leads then -- the name after the level, as far from it as the level would be
                 t:SetPoint(side[2], f.tag_level.box, side[1], -c.tagX - side[3] * bg.pad, -c.tagY - side[4] * bg.pad)
             elseif lvl and side then -- next to the name's box, its own padding clear of it
                 t:SetPoint(side[1], f.tag_name.box, side[2], x + side[3] * bg.pad, y + side[4] * bg.pad)
-            else
-                t:SetPoint(point, f, point, x, y)
+            else -- top / bottom points: above / below the bar; left, right, center: in it
+                t:SetPoint(ns.FLIP_V[point] or point, f, point, x, y)
             end
             t:SetJustifyH(ns.justify(point))
             if lvl then
@@ -1672,7 +1672,9 @@ function ns.centerTag(f)
     if beside then
         local lw = f.tag_level:GetStringWidth()
         if not readable(lw) then return end
-        local adds = c.tagX + lw + 2 * c.tagBg.pad
+        -- its gap is an offset on the screen (right is +), so it widens the row on the right and
+        -- narrows it on the left
+        local adds = beside * c.tagX + lw + 2 * c.tagBg.pad
         if beside > 0 then right = right + adds else left = left + adds end
     end
     local pv, b = c.pvpIcon, f.pvpIcon
@@ -1683,8 +1685,11 @@ function ns.centerTag(f)
         if on and dir < 0 then left = left + b:GetWidth() - pv.x end
     end
     n:ClearAllPoints()
-    n:SetPoint(c.nameAnchor, f, c.nameAnchor, c.nameX + (left - right) / 2, c.nameY)
+    n:SetPoint(ns.FLIP_V[c.nameAnchor] or c.nameAnchor, f, c.nameAnchor, c.nameX + (left - right) / 2, c.nameY)
 end
+-- a text on a top point sits on the bar (its bottom on the bar's top), on a bottom point under it
+ns.FLIP_V = { TOP = "BOTTOM", TOPLEFT = "BOTTOMLEFT", TOPRIGHT = "BOTTOMRIGHT",
+    BOTTOM = "TOP", BOTTOMLEFT = "TOPLEFT", BOTTOMRIGHT = "TOPRIGHT" }
 
 ------------------------------------------------------------------------------------------
 -- Buffs and debuffs on the enemy health bar: what Blizzard's target frame shows. Every buff;

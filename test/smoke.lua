@@ -1689,19 +1689,21 @@ ns.configOpen = S.wasOpen
     P.nameAnchor, P.nameX, P.nameY, P.tagAttach = "BOTTOMRIGHT", 3, -4, "free"
     ns.np.all()
     local np = f.tag_name._point
-    assert(np[1] == "BOTTOMRIGHT" and np[2] == f and np[3] == "BOTTOMRIGHT" and np[4] == 3 and np[5] == -4
-        and f.tag_name._justify == "RIGHT", "bottom right, 3 right and 4 down")
+    assert(np[1] == "TOPRIGHT" and np[2] == f and np[3] == "BOTTOMRIGHT" and np[4] == 3 and np[5] == -4
+        and f.tag_name._justify == "RIGHT", "bottom right: under the bar, right-aligned, 3 right and 4 down")
     P.tagAttach = "right"
     ns.np.all()
-    assert(f.tag_level._point[1] == "BOTTOMRIGHT" and f.tag_level._point[2] == f, "level beside it, on its side: takes its spot")
+    assert(f.tag_level._point[1] == "TOPRIGHT" and f.tag_level._point[3] == "BOTTOMRIGHT" and f.tag_level._point[2] == f,
+        "level beside it, on its side: takes its spot")
     P.nameAnchor, P.nameX, P.nameY = "TOP", 0, 12
     ns.np.all()
     -- the level right of a centered name: the two centered as one (gap 4 + level 8 + its padding 4)
-    assert(f.tag_name._point[1] == "TOP" and f.tag_name._point[4] == -8 and f.tag_level._point[2] == f.tag_name.box,
-        "name and level centered together")
+    assert(f.tag_name._point[1] == "BOTTOM" and f.tag_name._point[3] == "TOP" and f.tag_name._point[4] == -8
+        and f.tag_level._point[2] == f.tag_name.box, "on top of the bar: name and level centered together")
     P.tagAttach = "left"
     ns.np.all()
-    assert(f.tag_name._point[4] == 8, "the level on the left: the name moves right")
+    -- on the left its gap of 4 points toward the name: it adds 8 + 4 padding - 4 = 8
+    assert(f.tag_name._point[4] == 4, "the level on the left: the name moves right by half of it")
     -- the PvP tag on the name counts too: level right (16) and a 20 px tag right of the name, 2 off
     P.tagAttach = "right"
     S.pvpKept, S.openKept = {}, ns.configOpen
@@ -1716,6 +1718,10 @@ ns.configOpen = S.wasOpen
     P.pvpIcon.anchorTo = "bar"
     ns.np.all()
     assert(f.tag_name._point[4] == -8, "a tag on the bar is not part of the row")
+    P.tagAttach, P.pvpIcon.anchorTo, P.pvpIcon.point, P.pvpIcon.x = "left", "name", "RIGHT", 0
+    ns.np.all()
+    assert(f.tag_name._point[4] == (8 - 20) / 2, "level left, PvP right (as in game): centered as a row")
+    P.tagAttach = "right"
     P.pvpIcon, ns.configOpen = S.pvpKept, S.openKept
     P.nameAnchor, P.tagAttach = "LEFT", "right"
     ns.np.all()
