@@ -1184,7 +1184,10 @@ local function layoutBar(f, n, width, over)
             end
             -- The border sits inside the bar's size (like CSS border-box); the bar is inset by it.
             local t = math.min(c.borderSize, (c.height - 1) / 2, (w - 1) / 2)
-            if i == 1 then f.edge = t end -- the border's width, for what runs along it
+            if i == 1 then -- the border's width and corners, for what runs along it
+                f.edge = t
+                f.edgeRadius = math.min(c.radius == "pill" and math.huge or c.radius, w / 2, c.height / 2, MAX_RADIUS)
+            end
             local iw, ih = w - 2 * t, c.height - 2 * t
             f.segWidth = iw
             s:SetSize(iw, ih)
@@ -4066,19 +4069,13 @@ function ns.np.previewBar()
     return ns.np.preview
 end
 
--- The target trail: a stroke `length` long running round the target's plate. Each frame it is cut
--- into straight pieces along the bar's edges (up to five: it can turn two corners), each a
--- texture with its own stretch of the fade, a soft glow piece behind each, a dot on each end.
+-- The target trail: a stroke `length` long running round the target's plate, along its border's
+-- corners too. Each frame it is cut into pieces along the path (see trailDraw), a dot on each end.
 function ns.np.trail()
     local t = ns.np.trailFrame
     if t then return t end
     t = CreateFrame("Frame", nil, UIParent)
-    t.lines, t.glows, t.head = {}, {}, 0
-    for i = 1, 5 do
-        t.lines[i] = t:CreateTexture(nil, "ARTWORK")
-        t.glows[i] = t:CreateTexture(nil, "BACKGROUND")
-        t.glows[i]:SetBlendMode("ADD")
-    end
+    t.lines, t.glows, t.dots, t.head = {}, {}, {}, 0 -- filled as the path needs them
     t.caps = { t:CreateTexture(nil, "ARTWORK", nil, 1), t:CreateTexture(nil, "ARTWORK", nil, 1) }
     for _, d in ipairs(t.caps) do d:SetTexture("Interface\\AddOns\\" .. ADDON .. "\\Media\\Dot") end
     t:SetScript("OnUpdate", function(self, elapsed)
@@ -4091,66 +4088,138 @@ function ns.np.trail()
     return t
 end
 
--- where on the path (a w x h rectangle from its bottom left) distance d lies, and which way it runs
-function ns.np.trailAt(d, w, h)
-    if d < w then return d, h, 1, 0 end -- top, left to right
-    if d < w + h then return w, h - (d - w), 0, -1 end -- right, down
-    if d < 2 * w + h then return w - (d - w - h), 0, -1, 0 end -- bottom, right to left
-    return 0, d - 2 * w - h, 0, 1 -- left, up
+-- The path round a w x h rectangle (from its bottom left) with corners of radius R, clockwise
+-- from the top edge's left end: straight edges (start + direction) and quarter arcs (center +
+-- start angle), each with its length and where along the path it starts.
+function ns.np.trailPath(w, h, R)
+    local q = math.pi / 2
+    local path = {
+        { len = w - 2 * R, x = R, y = h, dx = 1, dy = 0 },
+        { len = q * R, cx = w - R, cy = h - R, a = q },
+        { len = h - 2 * R, x = w, y = h - R, dx = 0, dy = -1 },
+        { len = q * R, cx = w - R, cy = R, a = 0 },
+        { len = w - 2 * R, x = w - R, y = 0, dx = -1, dy = 0 },
+        { len = q * R, cx = R, cy = R, a = -q },
+        { len = h - 2 * R, x = 0, y = R, dx = 0, dy = 1 },
+        { len = q * R, cx = R, cy = h - R, a = 2 * q },
+    }
+    local at = 0
+    for _, e in ipairs(path) do e.at, at = at, at + e.len end
+    path.total, path.R = at, R
+    return path
 end
 
+-- the stretch of the path distance d (0 to its length) lies on, and how far into it
+function ns.np.trailSeg(path, d)
+    for _, e in ipairs(path) do
+        if e.len > 0 and d < e.at + e.len - 1e-9 then return e, d - e.at end
+    end
+    for _, e in ipairs(path) do if e.len > 0 then return e, 0 end end -- d at the very end: the start
+end
+function ns.np.trailAt(path, d)
+    local e, u = ns.np.trailSeg(path, d % path.total)
+    if e.dx then return e.x + e.dx * u, e.y + e.dy * u end
+    local ang = e.a - u / path.R
+    return e.cx + path.R * math.cos(ang), e.cy + path.R * math.sin(ang)
+end
+
+-- Straight stretches are a texture each, fading along it; arcs (rounded corners) are dots half a
+-- stroke apart, each at its own point of the fade, under one soft glow. Square corners: the
+-- pieces on either side reach over the corner by half a stroke and meet.
 function ns.np.trailDraw(t)
     local o, f = db.plates.trail, t.bar
     local out = o.offset - (f.edge or 0) / 2 -- the border's middle, plus the offset outward
     local w, h = f.width + 2 * out, db.plates.bars.enemyhealth.height + 2 * out
-    local P = 2 * (w + h)
+    local R = (f.edgeRadius or 0) > 0 and math.max(0, math.min(f.edgeRadius + out, w / 2, h / 2)) or 0
+    local path = ns.np.trailPath(w, h, R)
+    local P = path.total
     local len, th, r, g, b, a = math.min(o.length, P), o.thickness, unpack(o.color)
     local head = t.head * P
-    local function alpha(d) return o.fade and a * (d - (head - len)) / len or a end
+    local tail = head - len
+    local function alpha(d) return o.fade and a * (d - tail) / len or a end
     local function color(d, k) return CreateColor(r, g, b, alpha(d) * (k or 1)) end
-    -- the corners on the path: piece ends there meet the next piece (extended by half the stroke)
-    local edges = { 0, w, w + h, 2 * w + h, P }
-    local n, d = 0, head - len
-    while d < head - 1e-6 and n < 5 do
-        local m = d % P
-        local stop = P
-        for _, e in ipairs(edges) do if e > m + 1e-6 then stop = e break end end
-        local e = math.min(head, d + stop - m)
-        n = n + 1
-        local x0, y0, dx, dy = ns.np.trailAt(m, w, h)
-        local x1, y1 = x0 + dx * (e - d), y0 + dy * (e - d)
-        local ext0 = (d > head - len + 1e-6) and th / 2 or 0 -- a corner behind: joined
-        local ext1 = (e < head - 1e-6) and th / 2 or 0
-        local lx, ly = math.min(x0 - dx * ext0, x1 + dx * ext1), math.min(y0 - dy * ext0, y1 + dy * ext1)
-        local lw = dx ~= 0 and math.abs(x1 - x0) + ext0 + ext1 or th
-        local lh = dy ~= 0 and math.abs(y1 - y0) + ext0 + ext1 or th
-        if dx == 0 then lx = lx - th / 2 else ly = ly - th / 2 end
-        -- the fade runs from d to e along the piece: which end is which depends on its direction
-        local c0, c1 = color(d), color(e)
-        local g0, g1 = color(d, o.glowAlpha), color(e, o.glowAlpha)
-        local gs = math.max(1, math.min(math.floor(o.glowSize), 20))
-        t.lines[n]:SetColorTexture(1, 1, 1, 1) -- the texture first: the gradient tints it
-        t.glows[n]:SetTexture("Interface\\AddOns\\" .. ADDON .. "\\Media\\Shadow\\s" .. gs .. ".tga")
-        pcall(t.glows[n].SetTextureSliceMargins, t.glows[n], gs, gs, gs, gs)
-        for k, tex in ipairs({ t.lines[n], t.glows[n] }) do
-            local grow = k == 2 and gs or 0
-            tex:ClearAllPoints()
-            tex:SetPoint("BOTTOMLEFT", f, "BOTTOMLEFT", lx - out - grow, ly - out - grow)
-            tex:SetSize(lw + 2 * grow, lh + 2 * grow)
-            local from, to = k == 1 and c0 or g0, k == 1 and c1 or g1
-            if dx > 0 then tex:SetGradient("HORIZONTAL", from, to)
-            elseif dx < 0 then tex:SetGradient("HORIZONTAL", to, from)
-            elseif dy > 0 then tex:SetGradient("VERTICAL", from, to)
-            else tex:SetGradient("VERTICAL", to, from) end
-            tex:SetShown(k == 1 or (o.glow and o.glowSize > 0))
+    local gs = math.max(1, math.min(math.floor(o.glowSize), 20))
+    local glowOn = (o.glow and o.glowSize > 0) and true or false
+    local used = { lines = 0, glows = 0, dots = 0 }
+    local function take(kind)
+        used[kind] = used[kind] + 1
+        local tex = t[kind][used[kind]]
+        if not tex then
+            tex = t:CreateTexture(nil, kind == "glows" and "BACKGROUND" or "ARTWORK", nil, kind == "dots" and 1 or 0)
+            if kind == "glows" then tex:SetBlendMode("ADD") end
+            if kind == "dots" then tex:SetTexture("Interface\\AddOns\\" .. ADDON .. "\\Media\\Dot") end
+            t[kind][used[kind]] = tex
+        end
+        tex:ClearAllPoints()
+        return tex
+    end
+    local function place(tex, x, y, pw, ph)
+        tex:SetPoint("BOTTOMLEFT", f, "BOTTOMLEFT", x - out, y - out)
+        tex:SetSize(pw, ph)
+    end
+    -- the fade runs from c0 to c1 along the direction of travel
+    local function grad(tex, dx, dy, c0, c1)
+        if dx > 0 then tex:SetGradient("HORIZONTAL", c0, c1)
+        elseif dx < 0 then tex:SetGradient("HORIZONTAL", c1, c0)
+        elseif dy > 0 then tex:SetGradient("VERTICAL", c0, c1)
+        else tex:SetGradient("VERTICAL", c1, c0) end
+    end
+    local function glow(x, y, pw, ph, dx, dy, d0, d1)
+        local gl = take("glows")
+        gl:SetTexture("Interface\\AddOns\\" .. ADDON .. "\\Media\\Shadow\\s" .. gs .. ".tga")
+        pcall(gl.SetTextureSliceMargins, gl, gs, gs, gs, gs)
+        place(gl, x - gs, y - gs, pw + 2 * gs, ph + 2 * gs)
+        grad(gl, dx, dy, color(d0, o.glowAlpha), color(d1, o.glowAlpha))
+        gl:SetShown(glowOn)
+    end
+    local d = tail
+    while d < head - 1e-6 and used.lines + used.glows < 24 do
+        local seg, u0 = ns.np.trailSeg(path, d % P)
+        local e = math.min(head, d + seg.len - u0)
+        local u1 = u0 + (e - d)
+        if seg.dx then
+            local x0, y0 = seg.x + seg.dx * u0, seg.y + seg.dy * u0
+            local x1, y1 = seg.x + seg.dx * u1, seg.y + seg.dy * u1
+            local join = R == 0 and th / 2 or 0
+            local ext0 = d > tail + 1e-6 and join or 0
+            local ext1 = e < head - 1e-6 and join or 0
+            local dx, dy = seg.dx, seg.dy
+            local lx = math.min(x0 - dx * ext0, x1 + dx * ext1) - (dx == 0 and th / 2 or 0)
+            local ly = math.min(y0 - dy * ext0, y1 + dy * ext1) - (dy == 0 and th / 2 or 0)
+            local lw = dx ~= 0 and math.abs(x1 - x0) + ext0 + ext1 or th
+            local lh = dy ~= 0 and math.abs(y1 - y0) + ext0 + ext1 or th
+            local line = take("lines")
+            line:SetColorTexture(1, 1, 1, 1) -- the texture first: the gradient tints it
+            place(line, lx, ly, lw, lh)
+            grad(line, dx, dy, color(d), color(e))
+            line:Show()
+            glow(lx, ly, lw, lh, dx, dy, d, e)
+        else
+            local step, u = math.max(1, th / 2), u0
+            while u <= u1 + 1e-6 do
+                local ang = seg.a - u / R
+                local dot = take("dots")
+                dot:SetSize(th, th)
+                dot:SetPoint("CENTER", f, "BOTTOMLEFT", seg.cx + R * math.cos(ang) - out, seg.cy + R * math.sin(ang) - out)
+                dot:SetVertexColor(r, g, b, alpha(d + u - u0))
+                dot:Show()
+                u = u + step
+            end
+            -- the glow: over the box the stretch spans (an arc in a quarter runs one way in x and y)
+            local ax, ay = seg.cx + R * math.cos(seg.a - u0 / R), seg.cy + R * math.sin(seg.a - u0 / R)
+            local bx, by = seg.cx + R * math.cos(seg.a - u1 / R), seg.cy + R * math.sin(seg.a - u1 / R)
+            glow(math.min(ax, bx) - th / 2, math.min(ay, by) - th / 2, math.abs(bx - ax) + th,
+                math.abs(by - ay) + th, 1, 0, (d + e) / 2, (d + e) / 2)
         end
         d = e
     end
-    for i = n + 1, 5 do t.lines[i]:Hide(); t.glows[i]:Hide() end
+    for kind, n in pairs(used) do
+        for i = n + 1, #t[kind] do t[kind][i]:Hide() end
+    end
     -- round caps: a dot the stroke's width on each end
     for k, cap in ipairs(t.caps) do
-        local at = k == 1 and head or head - len
-        local x, y = ns.np.trailAt(at % P, w, h)
+        local at = k == 1 and head or tail
+        local x, y = ns.np.trailAt(path, at)
         cap:SetShown(o.caps and true or false)
         cap:SetSize(th, th)
         cap:ClearAllPoints()
