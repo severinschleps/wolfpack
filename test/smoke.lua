@@ -836,6 +836,56 @@ UnitReaction, S.reaction, eh.colorMode = nil, nil, "custom"
 fire("PLAYER_TARGET_CHANGED")
 S.targetHP = 250; fire("UNIT_HEALTH", "target")
 assert(ef.segs[1]._value == 250 and fr.health.segs[1]._value == SECRET, "target updates, player keeps its own")
+-- Target of target: right of enemy health (its height, own width), below it (the two share the
+-- slot), or in the stack; enemy health's buffs then hang on the two together
+S.saved = { eh.beside, eh.show }
+eh.show, eh.beside = true, true
+S.TT = prof().regular.bars.tothealth
+S.units = S.units or {}
+S.units.targettarget = true
+S.TT.show = true; fire("UNIT_TARGET", "target")
+S.tf = fr.tothealth
+assert(S.tf:IsShown() and S.tf._point[1] == "TOPLEFT" and S.tf._point[2] == ef and S.tf._point[3] == "TOPRIGHT"
+    and S.tf._point[4] == prof().regular.gap and S.tf._w == 90 and S.tf._h == ef._h, "right of enemy health: its height, own width")
+assert(ef.span and ef.auraBoxes.buffs._point[2] == ef.span and ef.span._points[2][2] == S.tf,
+    "enemy buffs hang on enemy health and its target together")
+S.TT.anchor = "below"; fire("UNIT_TARGET", "target")
+assert(S.tf._point[2] == ef and S.tf._point[3] == "BOTTOMLEFT" and S.tf._point[5] == -prof().regular.gap and S.tf._w == ef._w,
+    "below: enemy health's width")
+assert(ef._h == 18 - S.TT.height - prof().regular.gap, "beside you, the two together as tall as your health")
+-- its health is asked for (nothing tells), five times a second
+S.realHP = UnitHealth
+UnitHealth = function(u) return u == "targettarget" and 77 or S.realHP(u) end
+ns.totPoll._scripts.OnUpdate(ns.totPoll, 1)
+assert(S.tf.segs[1]._value == 77, "health polled")
+UnitHealth = S.realHP
+S.units.targettarget = nil; fire("UNIT_TARGET", "target")
+assert(not S.tf:IsShown() and ef._h == 18, "no target of target: enemy health takes it all back")
+S.units.targettarget = true
+S.TT.anchor = "stack"; fire("UNIT_TARGET", "target")
+assert(S.tf:IsShown() and S.tf._point[2] == WolfpackAddonFrame, "in the stack like any other bar")
+S.TT.show, S.TT.anchor = false, "right"
+S.units.targettarget = nil
+-- Your pet below your health: as wide as it, the bars below move down, and enemy health beside
+-- you grows to match the two
+S.PB = prof().regular.bars.pethealth
+S.petHP, S.PB.show, S.PB.anchor = 100, true, "below"; fire("UNIT_PET", "player")
+S.pf = fr.pethealth
+assert(S.pf:IsShown() and S.pf._point[1] == "TOPLEFT" and S.pf._point[2] == fr.health and S.pf._point[3] == "BOTTOMLEFT"
+    and S.pf._w == fr.health._w, "under your health, as wide as it")
+assert(ef._h == 18 + prof().regular.gap + S.PB.height, "enemy health beside you: your health and pet together")
+assert(fr.power._point[5] == -(18 + prof().regular.gap + S.PB.height + prof().regular.gap), "the stack makes room")
+S.units.targettarget, S.TT.show, S.TT.anchor = true, true, "below"; fire("UNIT_TARGET", "target")
+assert(ef._h == 18 + prof().regular.gap + S.PB.height - S.TT.height - prof().regular.gap, "and target of target below shares that")
+S.units.targettarget, S.TT.show, S.TT.anchor = nil, false, "right"
+S.PB.anchor = "left"; fire("UNIT_PET", "player")
+assert(S.pf._point[1] == "TOPRIGHT" and S.pf._point[3] == "TOPLEFT" and S.pf._point[4] == -prof().regular.gap and S.pf._h == fr.health._h,
+    "left of your health, its height")
+S.petHP = nil; fire("UNIT_PET", "player")
+assert(not S.pf:IsShown(), "no pet: gone")
+S.PB.anchor = "stack"
+eh.beside, eh.show = S.saved[1], S.saved[2]
+fire("PLAYER_TARGET_CHANGED")
 rf.segs[1]._value = nil; fire("UNIT_POWER_FREQUENT", "target")
 assert(rf.segs[1]._value == SECRET, "its resource follows the target's power")
 assert(WolfpackAddonFrame._w == 220, "stack width ignores the enemy bar")
@@ -1502,7 +1552,7 @@ nameBox._text = "PvP"; nameBox._scripts.OnEnterPressed(nameBox)
 assert(store.profiles["PvP 2"] and prof() == store.profiles["PvP 2"], "same name again: PvP 2")
 store.profiles["PvP 2"], store.chars[S.name .. " - Realm"] = nil, "PvP"
 local dds = {} -- profile, texture, bar color, border color, radius, font, kill icon, loot icon, combat icon, attach
-for _, f in ipairs(created) do if f._gen and f ~= ns.copyFromMenu then dds[#dds + 1] = f end end
+for _, f in ipairs(created) do if f._gen and f ~= ns.copyFromMenu and f ~= ns.sitsMenu then dds[#dds + 1] = f end end
 local dd = dds[1]
 dd:GenerateMenu()
 local names = {}
@@ -2001,7 +2051,7 @@ assert(#bad == 32 and bp.evil == nil and bp.locked == true, "unknown key dropped
 assert(bp.other.hover.bar1 and bp.other.hover.nope == nil and bp.other.hover.bar2 == nil, "hover: known and true only")
 assert(bp.other.combatFont == "", "unknown combat font path refused")
 assert(bp.regular.gap == 2 and bp.regular.x == 0, "out-of-range numbers defaulted")
-assert(bp.regular.order[1] == "health" and bp.regular.order[2] == "castbar" and #bp.regular.order == 12, "order repaired")
+assert(bp.regular.order[1] == "health" and bp.regular.order[2] == "castbar" and #bp.regular.order == 13, "order repaired")
 local ns2 = bp.nameplate.bars.power.stops
 assert(#ns2 == 2 and ns2[1].pos == 10 and ns2[2].pos == 90 and ns2[1].color[1] == 1, "gradient points checked")
 local hb2 = bp.regular.bars.health
@@ -2105,7 +2155,7 @@ for _, m in ipairs({ "regular", "nameplate" }) do
     for _, k in ipairs(prof()[m].order) do seen[k] = true end
     assert(seen.health and seen.power and seen.combo and seen.druidmana and seen.castbar and seen.pethealth
         and seen.swing and seen.totems and seen.absorb and seen.flight and seen.targetcast
-        and seen.enemyhealth and #prof()[m].order == 12, "order intact")
+        and seen.enemyhealth and #prof()[m].order == 13, "order intact")
 end
 
 -- Totems: four element segments, each draining on its own; the bar is shaman-only and
