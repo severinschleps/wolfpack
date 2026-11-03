@@ -221,6 +221,11 @@ local function record(name) return function() S.calls[#S.calls + 1] = name end e
 AcceptQuest, ConfirmAcceptQuest = record("accept"), record("confirm")
 AcknowledgeAutoAcceptQuest, StaticPopup_Hide = record("ack"), record("hidepopup")
 IsShiftKeyDown = function() return S.shift end
+IsAltKeyDown = function() return S.alt end
+IsControlKeyDown = function() return S.ctrl end
+S.binds = {}
+ClearOverrideBindings = function(owner) S.binds = {} end
+SetOverrideBindingClick = function(owner, prio, key, name, btn) S.binds[key] = name end
 IsInGroup = function() return S.group end
 IsInRaid = function() return S.raid or false end
 CanMerchantRepair = function() return S.canRepair end
@@ -1697,7 +1702,7 @@ nameBox._text = "PvP"; nameBox._scripts.OnEnterPressed(nameBox)
 assert(store.profiles["PvP 2"] and prof() == store.profiles["PvP 2"], "same name again: PvP 2")
 store.profiles["PvP 2"], store.chars[S.name .. " - Realm"] = nil, "PvP"
 local dds = {} -- profile, texture, bar color, border color, radius, font, kill icon, loot icon, combat icon, attach
-for _, f in ipairs(created) do if f._gen and f ~= ns.copyFromMenu and f ~= ns.sitsMenu and f ~= ns.xpMenu and f ~= ns.borderFromMenu and f ~= ns.sharedRadiusMenu and f ~= ns.textureFromMenu and f ~= ns.sharedTextureMenu then dds[#dds + 1] = f end end
+for _, f in ipairs(created) do if f._gen and f ~= ns.copyFromMenu and f ~= ns.sitsMenu and f ~= ns.xpMenu and f ~= ns.borderFromMenu and f ~= ns.sharedRadiusMenu and f ~= ns.textureFromMenu and f ~= ns.sharedTextureMenu and not (f._parent == ns.pages.actionbars) then dds[#dds + 1] = f end end
 local dd = dds[1]
 dd:GenerateMenu()
 local names = {}
@@ -2972,4 +2977,58 @@ end)()
 SlashCmdList.WOLFPACKADDON("crit")
 SlashCmdList.WOLFPACKADDON("auras") -- the probe must not error, whatever the client has
 SlashCmdList.WOLFPACKADDON("")
+-- Action bars: a pool of 120 slots, each bar a fixed run of them; secure buttons built and laid
+-- out out of combat; keybinds as override bindings, set by hovering in keybind mode
+S.combat = false
+S.A = prof().actionbars
+;(function() for k, v in pairs(ns.AB_BAR) do S.A.bars[1][k] = type(v) == "table" and { unpack(v) } or v end end)() -- poked above
+assert(#S.A.bars == 1 and S.A.bars[1].first == 1 and S.A.bars[1].cols == 12, "one bar to start: slots 1-12")
+fire("UNIT_MAXPOWER")
+S.ab = ns.ab.buttons[1]
+assert(#S.ab == 12 and S.ab[1]._template == "ActionBarButtonTemplate" and S.ab[1]._attr.action == 1
+    and S.ab[12]._attr.action == 12, "twelve buttons on slots 1-12")
+assert(S.ab[2]._point[1] == "TOPLEFT" and S.ab[2]._point[4] == 40 and ns.ab.frames[1]._point[1] == "BOTTOM",
+    "right then down, 36 + 4 apart, at the screen's bottom")
+S.A.bars[1].grow, S.A.bars[1].cols, S.A.bars[1].rows = "leftup", 6, 2; fire("UNIT_MAXPOWER")
+assert(S.ab[7]._point[1] == "BOTTOMRIGHT" and S.ab[7]._point[4] == 0 and S.ab[7]._point[5] == 40
+    and S.ab[2]._point[4] == -40, "left, then up: the seventh starts a row above")
+S.A.bars[1].radius, S.A.bars[1].zoom, S.A.bars[1].borderSize = 25, 15, 2; fire("UNIT_MAXPOWER")
+assert(S.ab[1].wpIcon._coords[1] == 0.15 and S.ab[1].wpIcon._masks[S.ab[1].wpMask] and S.ab[1].wpEdge:IsShown()
+    and S.ab[1].wpIcon._points[1][4] == 2, "zoomed, rounded, a 2 px border")
+-- a second bar takes the next free slots; the first can't grow into them
+S.i2 = ns.abNew()
+assert(S.i2 == 2 and S.A.bars[2].first == 13 and ns.abCount(2) == 12, "bar 2: slots 13-24")
+S.A.bars[1].rows = 3; fire("UNIT_MAXPOWER")
+assert(ns.abCount(1) == 12 and not (S.ab[13] and S.ab[13]:IsShown()), "bar 1 stops where bar 2 starts")
+assert(ns.ab.buttons[2][1]._attr.action == 13 and ns.abUsed() == 24, "24 of 120 in use")
+-- keybind mode: hover a button, press a key; Escape on it unbinds; a key moves, it's never on two
+ns.abBindMode(true)
+S.ab[3]._scripts.OnEnter(S.ab[3])
+S.shift = true; ns.abKey("LSHIFT"); ns.abKey("3"); S.shift = false
+assert(S.A.binds["3"] == "SHIFT-3" and S.binds["SHIFT-3"] == "WolfpackActionBar1Button3"
+    and S.ab[3].wpKey._text == "S3", "shift-3 on slot 3, shown short")
+S.ab[3]._scripts.OnLeave(S.ab[3]); ns.ab.buttons[2][1]._scripts.OnEnter(ns.ab.buttons[2][1])
+S.shift = true; ns.abKey("3"); S.shift = false
+assert(S.A.binds["13"] == "SHIFT-3" and not S.A.binds["3"] and S.ab[3].wpKey._text == "", "the key moved")
+ns.abKey("ESCAPE")
+assert(not S.A.binds["13"] and not S.binds["SHIFT-3"], "Escape on a button: unbound")
+S.combat = true; ns.abKey("Q"); S.combat = false
+assert(not S.A.binds["13"], "no binding in combat")
+ns.ab.buttons[2][1]._scripts.OnLeave(ns.ab.buttons[2][1]); ns.abKey("ESCAPE")
+assert(not ns.ab.binding and not ns.ab.binder:IsShown(), "Escape off the buttons: done")
+-- deleting a bar frees its slots; its frame goes
+StaticPopupDialogs.WOLFPACKADDON_DELBAR.OnAccept(nil, 2)
+assert(#S.A.bars == 1 and not ns.ab.frames[2]:IsShown() and ns.abRoom(1) == 120, "deleted: the room is back")
+-- in the profile string: bars and binds come back
+S.A.binds["5"] = "CTRL-F"
+S.A.bars[1].cols = 7
+S.nm = ns.importString(ns.exportString())
+assert(S.nm and prof().actionbars.binds["5"] == "CTRL-F" and #prof().actionbars.bars == 1
+    and prof().actionbars.bars[1].cols == 7, "bars and binds travel in the profile string")
+-- Blizzard's action bars, hidden the same way as its unit frames
+MultiBarBottomLeft = new(); MultiBarBottomLeft._parent = UIParent
+prof().regular.hideActionBars = true; fire("UNIT_MAXPOWER")
+assert(MultiBarBottomLeft._parent ~= UIParent, "Blizzard's bars hidden")
+prof().regular.hideActionBars = false; fire("UNIT_MAXPOWER")
+assert(MultiBarBottomLeft._parent == UIParent, "and back")
 realPrint("smoke ok")

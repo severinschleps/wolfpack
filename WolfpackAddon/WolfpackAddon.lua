@@ -365,6 +365,16 @@ DEFAULTS.regular.bars.health.target = false
 DEFAULTS.regular.hidePlayerFrame = false -- hide Blizzard's player unit frame
 DEFAULTS.regular.hideTargetFrame = false -- hide Blizzard's target unit frame
 DEFAULTS.regular.hideXPBar = false       -- hide Blizzard's experience bar
+DEFAULTS.regular.hideActionBars = false  -- hide Blizzard's action bars
+
+-- Action bars of your own. They share the game's 120 action slots: each bar owns a fixed run of
+-- them from `first`, so resizing one never moves the spells on another. binds: action slot ->
+-- key, applied as override bindings (the game's own key settings stay as they are).
+ns.AB_POOL = 120
+ns.AB_BAR = { first = 1, rows = 1, cols = 12, size = 36, gap = 4, radius = 0, zoom = 8, borderSize = 1,
+    borderColor = { 0, 0, 0, 1 }, grow = "rightdown", point = "BOTTOM", x = 0, y = 60,
+    keyFont = FONTS[1][2], keySize = 11, macroFont = FONTS[1][2], macroSize = 10, macroText = true }
+DEFAULTS.actionbars = { bars = {}, binds = {}, seeded = false }
 DEFAULTS.regular.hideBlizzCastbar = false -- hide Blizzard's player cast bar
 DEFAULTS.regular.playerMenu = false      -- right-click on the bars opens the player menu
 DEFAULTS.regular.targetMenu = true       -- right-click on the enemy health bar opens the target's menu
@@ -2239,6 +2249,21 @@ hider:Hide()
 ns.unitFrameHides = { { "PlayerFrame", "hidePlayerFrame" }, { "TargetFrame", "hideTargetFrame" },
     { "MainStatusTrackingBarContainer", "hideXPBar" }, { "StatusTrackingBarManager", "hideXPBar" },
     { "MainMenuExpBar", "hideXPBar" }, { "MainMenuBarMaxLevelBar", "hideXPBar" } }
+for _, name in ipairs({ "MultiBarBottomLeft", "MultiBarBottomRight", "MultiBarLeft", "MultiBarRight",
+    "MultiBar5", "MultiBar6", "MultiBar7" }) do
+    table.insert(ns.unitFrameHides, { name, "hideActionBars" })
+end
+if MainMenuBarArtFrame then -- classic: the main bar also holds bags and menu, so only its buttons and art go
+    for i = 1, 12 do table.insert(ns.unitFrameHides, { "ActionButton" .. i, "hideActionBars" }) end
+    for _, name in ipairs({ "MainMenuBarTexture0", "MainMenuBarTexture1", "MainMenuBarTexture2", "MainMenuBarTexture3",
+        "MainMenuBarLeftEndCap", "MainMenuBarRightEndCap", "ActionBarUpButton", "ActionBarDownButton",
+        "MainMenuBarPageNumber" }) do
+        table.insert(ns.unitFrameHides, { name, "hideActionBars" })
+    end
+else
+    table.insert(ns.unitFrameHides, { "MainActionBar", "hideActionBars" })
+    table.insert(ns.unitFrameHides, { "MainMenuBar", "hideActionBars" })
+end
 ns.unitFrameParents = {}
 local castHidden, castParent, castHooked
 
@@ -2266,16 +2291,218 @@ end
 local function syncProtected()
     if InCombatLockdown() then return end
     syncCastbar() -- may be attached to the (protected) player frame, so also out of combat only
+    local seen = {} -- one frame under two names (MainMenuBar / MainActionBar): handled once
     for _, u in ipairs(ns.unitFrameHides) do
         local frame, hide = _G[u[1]], db.regular[u[2]] and true or false
         local was = ns.unitFrameParents[u[1]]
-        if frame and hide ~= (was ~= nil) then
+        local dup = frame and seen[frame]
+        if frame then seen[frame] = true end
+        if frame and not dup and hide ~= (was ~= nil) then
             if hide then ns.unitFrameParents[u[1]] = frame:GetParent() end
             frame:SetParent(hide and hider or was)
             if not hide then ns.unitFrameParents[u[1]] = nil end
         end
     end
     ns.syncClickers()
+    ns.syncActionBars()
+end
+
+------------------------------------------------------------------------------------------
+-- Action bars: secure buttons of the game's own action button template, built, placed and
+-- bound out of combat only (the game allows nothing else). ponytail: laid out on every
+-- refresh out of combat; cheap enough, and nothing to keep in step.
+------------------------------------------------------------------------------------------
+ns.ab = { frames = {}, buttons = {}, owner = CreateFrame("Frame") }
+
+-- The slots bar i may use: from its first up to the next bar's first.
+function ns.abRoom(i)
+    local bars = db.actionbars.bars
+    local b, limit = bars[i], ns.AB_POOL + 1
+    for _, o in ipairs(bars) do
+        if o.first > b.first and o.first < limit then limit = o.first end
+    end
+    return limit - b.first
+end
+function ns.abCount(i)
+    local b = db.actionbars.bars[i]
+    return math.max(0, math.min(b.rows * b.cols, ns.abRoom(i)))
+end
+
+-- A new bar on the first free slot, 12 wide or as much as fits there; nil when the pool is used up.
+function ns.abNew()
+    local bars = db.actionbars.bars
+    for slot = 1, ns.AB_POOL do
+        local taken = false
+        for i, b in ipairs(bars) do
+            if slot >= b.first and slot < b.first + ns.abCount(i) then taken = true end
+        end
+        if not taken then
+            local bar = merge({ first = slot, y = 60 + 44 * #bars }, ns.AB_BAR)
+            bars[#bars + 1] = bar
+            bar.cols = math.min(12, ns.abRoom(#bars))
+            return #bars
+        end
+    end
+end
+
+function ns.abUsed()
+    local n = 0
+    for i in ipairs(db.actionbars.bars) do n = n + ns.abCount(i) end
+    return n
+end
+
+-- A key as short as fits a button: SHIFT-1 -> S1, BUTTON4 -> M4
+function ns.abKeyText(slot)
+    local key = db.actionbars.binds[tostring(slot)]
+    if not key then return "" end
+    return (key:gsub("ALT%-", "A"):gsub("CTRL%-", "C"):gsub("SHIFT%-", "S"):gsub("NUMPAD", "N")
+        :gsub("MOUSEWHEELUP", "WU"):gsub("MOUSEWHEELDOWN", "WD"):gsub("BUTTON", "M"))
+end
+function ns.abHotkey(b)
+    if not b.wpKey then return end
+    b.wpKey:SetText(ns.abKeyText(b:GetAttribute("action")))
+    b.wpKey:Show()
+end
+
+function ns.abButton(f, i, j)
+    local name = ("WolfpackActionBar%dButton%d"):format(i, j)
+    local b = CreateFrame("CheckButton", name, f, "ActionBarButtonTemplate")
+    b:RegisterForClicks("AnyUp", "AnyDown") -- the template keeps the one the key-down setting wants
+    b:SetAttribute("showgrid", 1) -- empty slots show, to drag spells onto
+    b.showgrid = 1
+    b.wpIcon = rawget(b, "icon") or _G[name .. "Icon"] or b:CreateTexture(nil, "ARTWORK")
+    b.wpKey = rawget(b, "HotKey") or _G[name .. "HotKey"] or b:CreateFontString(nil, "OVERLAY")
+    b.wpName = rawget(b, "Name") or _G[name .. "Name"] or b:CreateFontString(nil, "OVERLAY")
+    b.wpEdge = b:CreateTexture(nil, "BACKGROUND", nil, -8)
+    b.wpEdge:SetAllPoints()
+    b.wpEdgeMask, b.wpMask = b:CreateMaskTexture(), b:CreateMaskTexture()
+    b.wpEdgeMask:SetAllPoints(b.wpEdge)
+    b.wpMask:SetAllPoints(b.wpIcon)
+    local mask = rawget(b, "IconMask") -- modern buttons round their icon off; ours set their own
+    if mask then pcall(b.wpIcon.RemoveMaskTexture, b.wpIcon, mask) end
+    -- the game writes its own key text over ours when bindings change: write ours back
+    if type(rawget(b, "UpdateHotkeys")) == "function" then hooksecurefunc(b, "UpdateHotkeys", ns.abHotkey) end
+    b:HookScript("OnEnter", function(self) if ns.ab.binding then ns.ab.target = self end end)
+    b:HookScript("OnLeave", function(self) if ns.ab.target == self then ns.ab.target = nil end end)
+    return b
+end
+
+function ns.abLook(b, bar, slot)
+    local nt = b:GetNormalTexture()
+    if nt then nt:SetAlpha(0) end -- the game's frame art: the border is ours
+    local t, z = bar.borderSize, bar.zoom / 100
+    b.wpEdge:SetColorTexture(unpack(bar.borderColor))
+    b.wpEdge:SetShown(t > 0)
+    b.wpIcon:ClearAllPoints()
+    b.wpIcon:SetPoint("TOPLEFT", b, "TOPLEFT", t, -t)
+    b.wpIcon:SetPoint("BOTTOMRIGHT", b, "BOTTOMRIGHT", -t, t)
+    ns.iconCorners(b.wpIcon, b.wpMask, bar.radius, { z, 1 - z, z, 1 - z })
+    ns.iconCorners(b.wpEdge, b.wpEdgeMask, bar.radius, { 0, 1, 0, 1 })
+    if not b.wpKey:SetFont(bar.keyFont, bar.keySize, "OUTLINE") then b.wpKey:SetFont(FONTS[1][2], bar.keySize, "OUTLINE") end
+    if not b.wpName:SetFont(bar.macroFont, bar.macroSize, "OUTLINE") then
+        b.wpName:SetFont(FONTS[1][2], bar.macroSize, "OUTLINE")
+    end
+    b.wpName:SetShown(bar.macroText and true or false)
+    if not (pcall(b.UpdateAction, b, true)) then pcall(ActionButton_UpdateAction, b) end
+    ns.abHotkey(b)
+end
+
+-- each next button goes this way (x), each next row that way (y)
+ns.AB_GROW = { rightdown = { 1, -1 }, rightup = { 1, 1 }, leftdown = { -1, -1 }, leftup = { -1, 1 } }
+function ns.syncActionBars()
+    if InCombatLockdown() then return end
+    local A, ab = db.actionbars, ns.ab
+    for i, bar in ipairs(A.bars) do
+        local f = ab.frames[i] or CreateFrame("Frame", "WolfpackActionBar" .. i, UIParent)
+        ab.frames[i] = f
+        f:Show()
+        local n, step = ns.abCount(i), bar.size + bar.gap
+        local g = ns.AB_GROW[bar.grow] or ns.AB_GROW.rightdown
+        local corner = (g[2] < 0 and "TOP" or "BOTTOM") .. (g[1] > 0 and "LEFT" or "RIGHT")
+        f:SetSize(math.max(1, math.min(n, bar.cols) * step - bar.gap), math.max(1, math.ceil(n / bar.cols) * step - bar.gap))
+        f:ClearAllPoints()
+        f:SetPoint(bar.point, UIParent, bar.point, bar.x, bar.y)
+        ab.buttons[i] = ab.buttons[i] or {}
+        local list = ab.buttons[i]
+        for j = 1, math.max(n, #list) do
+            local b = list[j]
+            if not b and j <= n then
+                b = ns.abButton(f, i, j)
+                list[j] = b
+            end
+            if b then
+                b:SetShown(j <= n)
+                if j <= n then
+                    local slot = bar.first + j - 1
+                    b:SetAttribute("action", slot)
+                    b:SetSize(bar.size, bar.size)
+                    b:ClearAllPoints()
+                    b:SetPoint(corner, f, corner, g[1] * ((j - 1) % bar.cols) * step,
+                        g[2] * math.floor((j - 1) / bar.cols) * step)
+                    ns.abLook(b, bar, slot)
+                end
+            end
+        end
+    end
+    for i = #A.bars + 1, #ab.frames do ab.frames[i]:Hide() end
+    ns.abBinds()
+end
+
+function ns.abBinds()
+    if InCombatLockdown() then return end
+    local owner = ns.ab.owner
+    ClearOverrideBindings(owner)
+    for i, bar in ipairs(db.actionbars.bars) do
+        for j, b in ipairs(ns.ab.buttons[i] or {}) do
+            local key = b:IsShown() and db.actionbars.binds[tostring(bar.first + j - 1)]
+            if key then SetOverrideBindingClick(owner, false, key, b:GetName(), "LeftButton") end
+        end
+    end
+end
+
+-- Quick keybind mode: hover a button and press a key to bind it there, Escape to unbind; Escape
+-- off the buttons (or Done) ends it. A key already on another of these buttons moves here.
+ns.AB_MODIFIERS = { LSHIFT = true, RSHIFT = true, LCTRL = true, RCTRL = true, LALT = true, RALT = true }
+function ns.abKey(key)
+    if ns.AB_MODIFIERS[key] then return end
+    local t, binds = ns.ab.target, db.actionbars.binds
+    if key == "ESCAPE" and not t then return ns.abBindMode(false) end
+    if not t or InCombatLockdown() then return end
+    local slot = tostring(t:GetAttribute("action"))
+    if key == "ESCAPE" then
+        binds[slot] = nil
+    else
+        local full = (IsAltKeyDown() and "ALT-" or "") .. (IsControlKeyDown() and "CTRL-" or "")
+            .. (IsShiftKeyDown() and "SHIFT-" or "") .. key
+        for s, k in pairs(binds) do if k == full then binds[s] = nil end end
+        binds[slot] = full
+    end
+    ns.abBinds()
+    for _, list in pairs(ns.ab.buttons) do for _, b in ipairs(list) do ns.abHotkey(b) end end
+end
+
+function ns.abBindMode(on)
+    local ab = ns.ab
+    if not ab.binder then
+        local f = CreateFrame("Frame", nil, UIParent)
+        f:SetFrameStrata("DIALOG")
+        f:SetSize(360, 64)
+        f:SetPoint("TOP", UIParent, "TOP", 0, -120)
+        ns.ui.box(f, ns.ui.C.bg, ns.ui.C.border, 8)
+        local text = f:CreateFontString(nil, "OVERLAY")
+        text:SetFontObject(ns.ui.TEXT)
+        text:SetPoint("TOP", 0, -12)
+        text:SetText("Keybind mode: hover a button, press a key.\nEscape on a button unbinds it.")
+        local done = ns.ui.Button(f, "Done", 80)
+        done:SetPoint("BOTTOMRIGHT", -10, 8)
+        done:SetScript("OnClick", function() ns.abBindMode(false) end)
+        f:EnableKeyboard(true)
+        f:SetScript("OnKeyDown", function(_, key) ns.abKey(key) end)
+        f:Hide()
+        ab.binder = f
+    end
+    ab.binding, ab.target = on and true or false, nil
+    ab.binder:SetShown(on and true or false)
 end
 
 -- Secure unit buttons over your health and power bars, clicking like Blizzard's player frame:
@@ -4279,6 +4506,12 @@ useProfile = function(name)
     end
     store.chars[charKey] = name
     db = store.profiles[name]
+    local AB = db.actionbars
+    if not AB.seeded then -- one bar to start with: the first twelve slots, at the bottom
+        AB.bars[1] = AB.bars[1] or merge({}, ns.AB_BAR)
+        AB.seeded = true
+    end
+    for _, bar in ipairs(AB.bars) do merge(bar, ns.AB_BAR) end
     local P = db.colors
     if not P.bordersSet then -- a bar that already had a border or rounded corners keeps them as its own
         for _, m in ipairs({ "regular", "nameplate" }) do
@@ -4460,6 +4693,19 @@ local function sanitize(src, template)
                 end
             end
             if #out.stops < 2 then out.stops = sanitize(nil, def) end
+        elseif k == "bars" and next(def) == nil then -- action bars: a list, each a bar's settings
+            out.bars = {}
+            for _, b in ipairs(type(v) == "table" and v or {}) do
+                if type(b) == "table" and #out.bars < 20 then out.bars[#out.bars + 1] = sanitize(b, ns.AB_BAR) end
+            end
+        elseif k == "binds" then -- action slot -> key
+            out.binds = {}
+            for slot, key in pairs(type(v) == "table" and v or {}) do
+                local n = tonumber(slot)
+                if n and n >= 1 and n <= ns.AB_POOL and type(key) == "string" and #key <= 40 then
+                    out.binds[tostring(n)] = key
+                end
+            end
         elseif k == "hover" then -- a map: only known elements, only true
             out.hover = {}
             for _, e in ipairs(HOVER_FRAMES) do
@@ -4639,6 +4885,13 @@ StaticPopupDialogs.WOLFPACKADDON_RESET = {
         place()
         changed()
     end,
+    timeout = 0, whileDead = true, hideOnEscape = true,
+}
+
+StaticPopupDialogs.WOLFPACKADDON_DELBAR = {
+    text = "Delete action bar %s? Its spells stay in their action slots.",
+    button1 = YES, button2 = NO,
+    OnAccept = function(_, i) table.remove(db.actionbars.bars, i); changed() end,
     timeout = 0, whileDead = true, hideOnEscape = true,
 }
 
@@ -4962,7 +5215,8 @@ local function buildConfig()
     entry("colors", "Colors & borders")
     y = y - 12
     shelf("Interface")
-    for _, e in ipairs({ { "combat", "Combat Display" }, { "nameplates", "Nameplates", "nameplate" },
+    for _, e in ipairs({ { "combat", "Combat Display" }, { "actionbars", "Action bars" },
+        { "nameplates", "Nameplates", "nameplate" },
         { "buffs", "Buff check" }, { "other", "Other" }, { "barstack", "Bar Stack" } }) do
         entry(e[1], e[2], e[3])
     end
@@ -5003,13 +5257,15 @@ local function buildConfig()
     shamanPage:SetAllPoints(barsPage)
     local colorPage = CreateFrame("Frame", nil, content)
     colorPage:SetAllPoints(barsPage)
+    local actionPage = CreateFrame("Frame", nil, content)
+    actionPage:SetAllPoints(barsPage)
     -- Bar Stack builds its own editor (BarStack/Config.lua) into this page, under the title
     local bsPage = CreateFrame("Frame", nil, content)
     bsPage:SetAllPoints(barsPage)
     bsPage.need = 100 + ns.ui.BS_H
     ns.pages = { combat = barsPage, nameplates = questPage, buffs = buffPage, mage = magePage,
         hunter = hunterPage, warlock = lockPage, rogue = roguePage, shaman = shamanPage,
-        other = otherPage, profile = profilePage, colors = colorPage }
+        other = otherPage, profile = profilePage, colors = colorPage, actionbars = actionPage }
 
     local title = label(cfg, "Combat Display", "GameFontNormalLarge")
     title:SetPoint("TOPLEFT", 150, -72)
@@ -5025,6 +5281,7 @@ local function buildConfig()
         title:SetText(section == "other" and "Other"
             or section == "profile" and "Profiles"
             or section == "colors" and "Colors and borders"
+            or section == "actionbars" and "Action bars"
             or section == "buffs" and "Buff check"
             or section == "mage" and "Mage: food and water"
             or section == "hunter" and "Hunter: ammo and pet"
@@ -5046,6 +5303,7 @@ local function buildConfig()
         bsPage:SetShown(section == "barstack")
         profilePage:SetShown(section == "profile")
         colorPage:SetShown(section == "colors")
+        actionPage:SetShown(section == "actionbars")
         local page = section == "barstack" and bsPage or ns.pages[section]
         if np and sub == "quest" then page = questPage end
         if page and page.need then content:SetHeight(math.max(1, page.need - 90 + 16)) end
@@ -5906,6 +6164,96 @@ local function buildConfig()
     -- Four columns of cards are built; the window holds two. Columns 3 and 4 move under 1 and 2:
     -- anything placed on the page itself right of column 2 shifts left and down, and whatever
     -- hangs off those moves with it.
+    ----------------------------------------------------------------------------------
+    -- Action bars page: the bar picked here, its layout, its look; keybinds; Blizzard's bars
+    ----------------------------------------------------------------------------------
+    local abSel = 1
+    -- no bar picked (all deleted): the widgets read and write a scratch copy, never the defaults
+    local scratch = merge({}, ns.AB_BAR)
+    local AB = function() return db.actionbars.bars[abSel] or scratch end
+    local abc = group(actionPage, COL[1], TOP, 202, "Bars")
+    ns.abMenu = dropdown(actionPage, "Bar", abc.x, abc:row(DROP), function()
+        local list = {}
+        for i, b in ipairs(db.actionbars.bars) do
+            list[i] = { ("Bar %d (slots %d-%d)"):format(i, b.first, b.first + math.max(ns.abCount(i), 1) - 1), i }
+        end
+        return list
+    end, function() return abSel end, function(v) abSel = v end, textPreview)
+    local abRow = abc:row(BUTTON)
+    button(actionPage, "New bar", 87, abc.x, abRow, function()
+        local i = ns.abNew()
+        if i then abSel = i end
+        changed()
+    end)
+    button(actionPage, "Delete bar", 87, abc.x + 91, abRow, function()
+        if db.actionbars.bars[abSel] then StaticPopup_Show("WOLFPACKADDON_DELBAR", abSel, nil, abSel) end
+    end)
+    local abUsed = label(actionPage, "", "GameFontDisableSmall")
+    abUsed:SetPoint("TOPLEFT", abc.x, abc:row(44))
+    abUsed:SetWidth(178)
+    abUsed:SetJustifyH("LEFT")
+    onRefresh(function()
+        if not db.actionbars.bars[abSel] then abSel = math.max(1, #db.actionbars.bars) end
+        local room = db.actionbars.bars[abSel] and ns.abRoom(abSel)
+        abUsed:SetText(("%d of %d action slots in use.%s"):format(ns.abUsed(), ns.AB_POOL,
+            room and AB().rows * AB().cols > room and ("\nThis bar has room for " .. room .. " here.") or ""))
+    end)
+    abc:row(6)
+    button(actionPage, "Quick keybind mode", 178, abc.x, abc:row(BUTTON), function()
+        cfg:Hide()
+        ns.abBindMode(true)
+    end)
+    check(actionPage, "Hide Blizzard's action bars", abc.x, abc:row(ROW),
+        function() return db.regular.hideActionBars end, function(v) db.regular.hideActionBars = v end)
+    local abNote = label(actionPage, "Bars, keys and hiding change out of combat only: the game allows "
+        .. "nothing else. Drag spells onto the buttons as usual.", "GameFontDisableSmall")
+    abNote:SetPoint("TOPLEFT", abc.x, abc:row(44))
+    abNote:SetWidth(178)
+    abNote:SetJustifyH("LEFT")
+    abc:close()
+
+    local abl = group(actionPage, COL[1], abc.cursor - 20, 202, "Layout")
+    for _, r in ipairs({ { "rows", "Rows", 1, 12 }, { "cols", "Columns", 1, 24 }, { "size", "Button size", 16, 64 },
+        { "gap", "Gap", 0, 20 } }) do
+        slider(actionPage, r[2], abl.x, abl:row(SLIDER), r[3], r[4], function() return AB()[r[1]] end,
+            function(v) AB()[r[1]] = v end)
+    end
+    dropdown(actionPage, "Grows", abl.x, abl:row(DROP), { { "Right, then down", "rightdown" },
+        { "Right, then up", "rightup" }, { "Left, then down", "leftdown" }, { "Left, then up", "leftup" } },
+        function() return AB().grow end, function(v) AB().grow = v end, textPreview)
+    dropdown(actionPage, "Anchored to the screen's", abl.x, abl:row(DROP), { { "Center", "CENTER" },
+        { "Top (centered)", "TOP" }, { "Bottom (centered)", "BOTTOM" }, { "Left (centered)", "LEFT" },
+        { "Right (centered)", "RIGHT" }, { "Top left", "TOPLEFT" }, { "Top right", "TOPRIGHT" },
+        { "Bottom left", "BOTTOMLEFT" }, { "Bottom right", "BOTTOMRIGHT" } },
+        function() return AB().point end, function(v) AB().point = v end, textPreview)
+    slider(actionPage, "X", abl.x, abl:row(SLIDER), -1500, 1500, function() return AB().x end, function(v) AB().x = v end)
+    slider(actionPage, "Y", abl.x, abl:row(SLIDER), -1000, 1000, function() return AB().y end, function(v) AB().y = v end)
+    abl:close()
+
+    local abk = group(actionPage, COL[2], TOP, 202, "Look")
+    dropdown(actionPage, "Corner radius", abk.x, abk:row(DROP), { { "None (square)", 0 }, { "Slightly rounded", 12 },
+        { "Rounded", 25 }, { "Circle", 50 } }, function() return ns.ICON_MASKS[AB().radius] and AB().radius or 0 end,
+        function(v) AB().radius = v end, textPreview)
+    slider(actionPage, "Zoom (% cut from each side)", abk.x, abk:row(SLIDER), 0, 30, function() return AB().zoom end,
+        function(v) AB().zoom = v end)
+    slider(actionPage, "Border width", abk.x, abk:row(SLIDER), 0, 6, function() return AB().borderSize end,
+        function(v) AB().borderSize = v end)
+    swatch(actionPage, "Action border color", abk.x, abk:row(SWATCH), function() return AB().borderColor end)
+    abk:close()
+
+    local abt = group(actionPage, COL[2], abk.cursor - 20, 202, "Text")
+    dropdown(actionPage, "Keybind font", abt.x, abt:row(DROP), FONTS, function() return AB().keyFont end,
+        function(v) AB().keyFont = v end, fontPreview)
+    slider(actionPage, "Keybind size", abt.x, abt:row(SLIDER), 6, 24, function() return AB().keySize end,
+        function(v) AB().keySize = v end)
+    check(actionPage, "Show macro names", abt.x, abt:row(ROW), function() return AB().macroText end,
+        function(v) AB().macroText = v end)
+    dropdown(actionPage, "Macro name font", abt.x, abt:row(DROP), FONTS, function() return AB().macroFont end,
+        function(v) AB().macroFont = v end, fontPreview)
+    slider(actionPage, "Macro name size", abt.x, abt:row(SLIDER), 6, 24, function() return AB().macroSize end,
+        function(v) AB().macroSize = v end)
+    abt:close()
+
     ----------------------------------------------------------------------------------
     -- Colors page: the palette every bar picks from
     ----------------------------------------------------------------------------------
