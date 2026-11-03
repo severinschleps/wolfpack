@@ -228,6 +228,7 @@ GetMoney = function() return S.money or 0 end
 issecretvalue = function(v) return v == SECRET end
 UnitIsUnit = function(a, b) return a == b or (b == "target" and a == S.targetUnit) end
 RegisterUnitWatch = function(f) f._watched = true end
+UnregisterUnitWatch = function(f) f._watched = false end
 GetNumGroupMembers = function() return S.members or 0 end
 UnitIsDeadOrGhost = function() return false end
 UnitLevel = function() return S.level or 60 end
@@ -904,6 +905,17 @@ assert(not ck:IsShown() and not cp:IsShown(), "both off")
 R0.playerMouseover = true; fire("UNIT_MAXPOWER")
 assert(ck:IsShown() and ck._attr.unit == "player" and not ck._attr.type1 and not ck._attr.type2, "mouseover only: no clicks")
 R0.playerMouseover = false; fire("UNIT_MAXPOWER")
+-- enemy health: its own button, unit "target", right-click menu only, shown by the unit watch
+local ct = WolfpackAddonClickerTarget
+assert(ct and ct._attr.unit == "target" and ct._attr.type2 == "togglemenu" and not ct._attr.type1, "target menu button")
+R0.bars.enemyhealth.show, R0.bars.enemyhealth.beside = true, true; fire("UNIT_MAXPOWER")
+local half = (220 - R0.gap) / 2
+assert(ct._watched and ct._point[1] == "TOPLEFT" and ct._point[4] == R0.x - 110 + half + R0.gap
+    and ct._w == half and ct._h == 18, "beside: over the enemy half, watched for a target")
+R0.targetMenu = false; fire("UNIT_MAXPOWER")
+assert(not ct._watched and not ct:IsShown(), "option off: gone")
+R0.targetMenu, R0.bars.enemyhealth.show, R0.bars.enemyhealth.beside = true, false, false; fire("UNIT_MAXPOWER")
+assert(not ct._watched, "enemy health hidden: no button")
 
 -- Nameplate layout is separate: own show flags, sizes, gap and group offset
 local pf, plateStack = ns.plateFrames, ns.plateFrames.combo._parent

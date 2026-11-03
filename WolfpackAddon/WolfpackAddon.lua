@@ -294,6 +294,7 @@ DEFAULTS.regular.bars.health.target = false
 DEFAULTS.regular.hidePlayerFrame = false -- hide Blizzard's player unit frame
 DEFAULTS.regular.hideBlizzCastbar = false -- hide Blizzard's player cast bar
 DEFAULTS.regular.playerMenu = false      -- right-click on the bars opens the player menu
+DEFAULTS.regular.targetMenu = true       -- right-click on the enemy health bar opens the target's menu
 DEFAULTS.regular.playerTarget = false    -- left-click on the bars targets yourself
 DEFAULTS.regular.playerMouseover = false -- hovering the bars makes you @mouseover
 DEFAULTS.regular.highlight = { show = false, color = { 1, 1, 1, 0.25 } } -- overlay while hovered
@@ -1427,37 +1428,52 @@ end
 -- would lock the bars' layout in combat), so their size and spot follow them out of combat only
 -- -- read from where the stack put each bar, and where the group sits. With enemy health beside
 -- yours, the health one covers only your half, whether there is a target yet or not.
+-- The enemy health bar has one too (unit "target", right-click menu). The game's unit watch shows
+-- it only while you have a target, in combat as well; ponytail: its spot is the bar's last one
+-- out of combat, which is off only if the stack changes shape mid-fight.
 ns.clickers = {}
+local CLICKER_NAMES = { health = "WolfpackAddonClicker", power = "WolfpackAddonClickerPower",
+    enemyhealth = "WolfpackAddonClickerTarget" }
 function ns.syncClickers()
     local R = db.regular
-    local wanted = (R.playerMenu or R.playerTarget or R.playerMouseover) and true or false
+    local eh = R.bars.enemyhealth
+    local beside = eh.show and eh.beside
     local top = R.grow == "up" and R.y + anchor:GetHeight() or R.y -- the group's top edge
-    for _, key in ipairs({ "health", "power" }) do
+    for _, key in ipairs({ "health", "power", "enemyhealth" }) do
+        local enemy = key == "enemyhealth"
+        local wanted = (enemy and R.targetMenu or not enemy and (R.playerMenu or R.playerTarget or R.playerMouseover))
+            and true or false
         local c, f = ns.clickers[key], frames[key]
         if wanted and not c then
-            c = CreateFrame("Button", key == "health" and "WolfpackAddonClicker" or "WolfpackAddonClickerPower",
-                UIParent, "SecureUnitButtonTemplate")
-            c:SetAttribute("unit", "player")
+            c = CreateFrame("Button", CLICKER_NAMES[key], UIParent, "SecureUnitButtonTemplate")
+            c:SetAttribute("unit", enemy and "target" or "player")
             c:RegisterForClicks("LeftButtonUp", "RightButtonUp")
             ns.clickers[key] = c
         end
         if c then
-            c:SetAttribute("type1", R.playerTarget and "target" or nil)
-            c:SetAttribute("type2", R.playerMenu and "togglemenu" or nil)
-            local point, _, _, x, y = f:GetPoint(1)
-            local on = wanted and db.locked and f:IsShown() and point ~= nil -- unlocked: dragging wins
-            c:SetShown(on or false)
+            c:SetAttribute("type1", not enemy and R.playerTarget and "target" or nil)
+            c:SetAttribute("type2", (enemy or R.playerMenu) and "togglemenu" or nil)
+            local point, _, _, x, y = (enemy and beside and frames.health or f):GetPoint(1)
+            local on = wanted and db.locked and point ~= nil -- unlocked: dragging wins
+                and (enemy and eh.show or not enemy and f:IsShown())
+            if enemy then
+                if on then RegisterUnitWatch(c) else UnregisterUnitWatch(c); c:Hide() end
+            else
+                c:SetShown(on or false)
+            end
             if on then
-                local b, eh = R.bars[key], R.bars.enemyhealth
-                local w = f:GetWidth()
+                local b = R.bars[key]
+                local w, h = f:GetWidth(), b.height
                 c:ClearAllPoints()
-                if key == "health" and eh.show and eh.beside then
-                    w = (b.width - R.gap) / 2
-                    c:SetPoint("TOPLEFT", UIParent, "CENTER", R.x + b.x - b.width / 2, top + y)
+                if beside and key ~= "power" then -- the two halves of your health bar's width
+                    local hb = R.bars.health
+                    w, h = (hb.width - R.gap) / 2, hb.height
+                    local left = R.x + hb.x - hb.width / 2 + (enemy and w + R.gap or 0)
+                    c:SetPoint("TOPLEFT", UIParent, "CENTER", left, top + y)
                 else
                     c:SetPoint(point, UIParent, "CENTER", R.x + x, top + y)
                 end
-                c:SetSize(w, b.height)
+                c:SetSize(w, h)
             end
         end
     end
@@ -4431,11 +4447,13 @@ local function buildConfig()
     blizz:close()
 
     -- Other page, column 4: what the mouse does over the bars, and the regen spinner
-    local mouse = group(otherPage, COL[4], TOP, 202, "Your health and power bars")
+    local mouse = group(otherPage, COL[4], TOP, 202, "Clicking the bars")
     check(otherPage, "Left-click: target yourself", mouse.x, mouse:row(ROW),
         function() return db.regular.playerTarget end, function(v) db.regular.playerTarget = v end)
     check(otherPage, "Right-click: player menu", mouse.x, mouse:row(ROW),
         function() return db.regular.playerMenu end, function(v) db.regular.playerMenu = v end)
+    check(otherPage, "Enemy health: right-click menu", mouse.x, mouse:row(ROW),
+        function() return db.regular.targetMenu end, function(v) db.regular.targetMenu = v end)
     check(otherPage, "Mouseover macros", mouse.x, mouse:row(ROW),
         function() return db.regular.playerMouseover end, function(v) db.regular.playerMouseover = v end)
     check(otherPage, "Highlight on mouseover", mouse.x, mouse:row(ROW),
