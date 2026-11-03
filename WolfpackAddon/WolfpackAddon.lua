@@ -5001,9 +5001,31 @@ function ns.uf.button(i)
     b.hover:Hide()
     b:HookScript("OnEnter", function(self) self.hover:SetShown(db.unitframes.hover.show and true or false) end)
     b:HookScript("OnLeave", function(self) self.hover:Hide() end)
+    -- while the options are open, dragging any frame moves the block
+    b:RegisterForDrag("LeftButton")
+    b:HookScript("OnDragStart", function()
+        if not ns.uf.dummy() or InCombatLockdown() then return end
+        ns.uf.moving = true
+        ns.uf.frame:StartMoving()
+    end)
+    b:HookScript("OnDragStop", ns.uf.drop)
     b:Hide()
     ns.uf.buttons[i] = b
     return b
+end
+
+-- a dragged block lands: its start corner, from the screen center, kept in the shown size's settings
+function ns.uf.drop()
+    local U = ns.uf
+    if not U.moving then return end
+    U.moving = false
+    local f, g = U.frame, U.cur
+    f:StopMovingOrSizing()
+    local corner = f:GetPoint(1)
+    local cx, cy = UIParent:GetCenter()
+    g.x = math.floor((corner:find("RIGHT") and f:GetRight() or f:GetLeft()) - cx + 0.5)
+    g.y = math.floor((corner:find("BOTTOM") and f:GetBottom() or f:GetTop()) - cy + 0.5)
+    changed()
 end
 
 -- the frames' spots: lines of `per`, players first, pets in lines of their own after them
@@ -5250,6 +5272,8 @@ function ns.uf.sync()
     if not U.frame then
         U.frame = CreateFrame("Frame", "WolfpackUnitFrames", UIParent)
         U.frame:SetFrameStrata("LOW")
+        U.frame:SetMovable(true)
+        U.frame:SetClampedToScreen(true)
     end
     U.blizz(U.on() and db.unitframes.replace)
     U.frame:SetShown(U.on())
@@ -8469,7 +8493,7 @@ local function buildConfig()
         check(pg, "Hide Blizzard's party and raid", c1.x, c1:row(ROW), function() return U().replace end,
             function(v) U().replace = v end)
         note(c1, "Left click targets, right click opens the menu. While this window is open a "
-            .. "stand-in group shows; on a group size's tab, one of that size.", 58)
+            .. "stand-in group shows (on a group size's tab, one of that size): drag it to move it.", 58)
         sliders(c1, U, { { "dummy", "Stand-in group size", 1, 40 } })
         c1:close()
 

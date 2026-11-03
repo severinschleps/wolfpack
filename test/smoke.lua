@@ -92,6 +92,7 @@ function M:GetCenter() return 100, 100 end
 function M:GetTop() return 150 end
 function M:GetBottom() return 60 end
 function M:GetRight() return 140 end
+function M:GetLeft() return 40 end
 function M:GetFrameLevel() return self._level or 1 end
 function M:SetFrameLevel(v) self._level = v end
 function M:GetFrameStrata() return self._strata or "MEDIUM" end
@@ -3775,6 +3776,13 @@ assert(MultiBarBottomLeft._parent == UIParent, "and back")
     o.dummy = 4
     U.sync()
     assert(U.cur == o.g5 and ic[1]._point[4] == -2 and not B[6]:IsShown(), "four: the 5's spot, the rest hidden")
+    -- dragged while the options are open: the block's corner lands where it was dropped (mock: left
+    -- 40, top 150, screen center 100,100), kept in the shown size's settings
+    B[1]._scripts.OnDragStart(B[1])
+    assert(U.moving, "dragging")
+    B[1]._scripts.OnDragStop(B[1])
+    assert(not U.moving and o.g5.x == -60 and o.g5.y == 50 and U.frame._point[4] == -60, "dropped: the 5's spot")
+    o.g5.x, o.g5.y = -500, 200
     -- a group size's tab in the options: stand-ins of that size, in its settings
     U.preview = 20
     U.sync()
