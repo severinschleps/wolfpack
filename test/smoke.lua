@@ -575,9 +575,19 @@ fire("PLAYER_TARGET_CHANGED")
 assert(tn._point[1] == "RIGHT" and tn._point[4] == -6 and tn._point[5] == 2 and tl._point[1] == "CENTER"
     and tl._point[5] == -3, "each in its own spot")
 -- the level beside the name: next to its box, its own padding clear of it; X/Y still nudge it
+eh.nameAnchor = "LEFT"
 eh.tagAttach, eh.tagX, eh.tagY = "right", 1, 0; fire("PLAYER_TARGET_CHANGED")
 assert(tl._point[1] == "LEFT" and tl._point[2] == tn.box and tl._point[3] == "RIGHT"
     and tl._point[4] == 1 + eh.tagBg.pad, "right of the name")
+-- on the side the name starts from, the level takes the name's spot and the name moves over
+eh.tagAttach = "left"; fire("PLAYER_TARGET_CHANGED")
+assert(tl._point[1] == "LEFT" and tl._point[2] == ef and tl._point[4] == eh.nameX and tl._point[5] == eh.nameY,
+    "left of a name on the left: the level in the name's spot")
+assert(tn._point[1] == "LEFT" and tn._point[2] == tl.box and tn._point[3] == "RIGHT"
+    and tn._point[4] == -1 + eh.nameBg.pad, "and the name right after it")
+eh.nameAnchor, eh.tagAttach = "RIGHT", "right"; fire("PLAYER_TARGET_CHANGED")
+assert(tl._point[1] == "RIGHT" and tl._point[2] == ef and tn._point[1] == "RIGHT" and tn._point[2] == tl.box
+    and tn._point[3] == "LEFT", "the same on the right, mirrored")
 eh.tagAttach = "top"; fire("PLAYER_TARGET_CHANGED")
 assert(tl._point[1] == "BOTTOM" and tl._point[3] == "TOP" and tl._point[5] == eh.tagBg.pad, "above the name")
 eh.tagName = false; fire("PLAYER_TARGET_CHANGED")

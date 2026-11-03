@@ -1154,18 +1154,25 @@ function ns.layoutTag(f)
     local flags = c.tagOutline and "OUTLINE" or ""
     -- the level and the name: one font string each, in its own spot, on a frame that wraps it
     -- (padding all round) and wears its background
-    for _, which in ipairs({ "name", "level" }) do -- the name first: the level may hang on it
-        local key, lvl = "tag_" .. which, which == "level"
-        local t = f[key]
-        if not t then
+    for _, key in ipairs({ "tag_name", "tag_level" }) do
+        if not f[key] then
             local box = CreateFrame("Frame", nil, f)
-            t = box:CreateFontString(nil, "OVERLAY")
+            local t = box:CreateFontString(nil, "OVERLAY")
             t:SetWordWrap(false)
             t.box, t.bg, t.mask = box, box:CreateTexture(nil, "BACKGROUND"), box:CreateMaskTexture()
             t.bg:SetAllPoints()
             t.mask:SetAllPoints(t.bg)
             f[key] = t
         end
+    end
+    -- The level beside the name, on the side the name starts from (left of a name on the left,
+    -- right of one on the right): the level takes the name's spot and the name moves over.
+    local side = c.tagName and ns.TAG_SIDES[c.tagAttach]
+    local leads = side and c.tagLevel and ((c.tagAttach == "left" and c.nameAnchor == "LEFT")
+        or (c.tagAttach == "right" and c.nameAnchor == "RIGHT"))
+    for _, which in ipairs({ "name", "level" }) do
+        local lvl = which == "level"
+        local t = f["tag_" .. which]
         local on = (lvl and c.tagLevel or not lvl and c.tagName) and true or false
         t:SetShown(on)
         t.box:SetShown(on)
@@ -1175,8 +1182,12 @@ function ns.layoutTag(f)
             if not lvl then point, x, y, bg = c.nameAnchor, c.nameX, c.nameY, c.nameBg end
             t.box:SetFrameLevel(f:GetFrameLevel() + 7) -- over the resource bar
             t:ClearAllPoints()
-            local side = lvl and c.tagName and ns.TAG_SIDES[c.tagAttach]
-            if side then -- next to the name's box, its own padding clear of it
+            if leads and lvl then -- in the name's spot
+                point = c.nameAnchor
+                t:SetPoint(point, f, point, c.nameX, c.nameY)
+            elseif leads then -- the name after the level, as far from it as the level would be
+                t:SetPoint(side[2], f.tag_level.box, side[1], -c.tagX - side[3] * bg.pad, -c.tagY - side[4] * bg.pad)
+            elseif lvl and side then -- next to the name's box, its own padding clear of it
                 t:SetPoint(side[1], f.tag_name.box, side[2], x + side[3] * bg.pad, y + side[4] * bg.pad)
             else
                 t:SetPoint(point, f, point, x, y)
