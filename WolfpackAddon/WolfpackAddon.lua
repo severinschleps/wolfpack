@@ -159,7 +159,7 @@ local function layoutDefaults(show, x, y, gap, width, h1, h2, h3, h4, h5, h6, h7
     local l = {
         x = x, y = y, gap = gap, grow = "down", -- "up": the group's bottom edge stays put instead
         order = { "health", "enemyhealth", "tothealth", "power", "combo", "druidmana", "castbar", "targetcast", "pethealth",
-            "swing", "totems", "absorb", "flight" },
+            "swing", "totems", "absorb", "flight", "experience" },
         bars = {
             health = barDefaults(show, width, h1, 0.2, 0.8, 0.2, show),
             power = barDefaults(show, width, h2, 1, 0.85, 0.1, show),
@@ -171,6 +171,8 @@ local function layoutDefaults(show, x, y, gap, width, h1, h2, h3, h4, h5, h6, h7
             totems = barDefaults(show, width, h8, 0.6, 0.6, 0.6, false), -- colored per element instead
             absorb = barDefaults(false, width, h9, 0.9, 0.9, 0.7, true), -- text = points left
             flight = barDefaults(false, width, h10 or h5, 0.4, 0.7, 1, true), -- text = time left
+            -- your experience to the next level; hideInCombat: gone while you fight
+            experience = barDefaults(false, width, h2, 0.58, 0, 0.55, true),
             -- the color is picked from what is being cast, so its own is only a fallback
             targetcast = barDefaults(false, width, h5, 0.8, 0.3, 0.3, true),
             -- your target's health; its resource (mana, rage...) always sits right under it
@@ -184,7 +186,7 @@ local function layoutDefaults(show, x, y, gap, width, h1, h2, h3, h4, h5, h6, h7
     -- Health, power and enemy health: three numbers, each with its own switch, spot, size and
     -- color (the bar's font and outline). textsSet: useProfile has moved an older profile's text
     -- size and color onto "current" (once).
-    for _, key in ipairs({ "health", "power", "enemyhealth" }) do
+    for _, key in ipairs({ "health", "power", "enemyhealth", "experience" }) do
         local function num(show, anchor, x)
             return { show = show, anchor = anchor, x = x, y = 0, size = 10, color = { 1, 1, 1, 1 } }
         end
@@ -253,6 +255,7 @@ local function layoutDefaults(show, x, y, gap, width, h1, h2, h3, h4, h5, h6, h7
     l.bars.health.pvpIcon = { show = true, style = "faction", anchorTo = "bar", point = "TOPLEFT", x = 0, y = 0,
         size = 20, text = "PvP", textColor = { 1, 0.25, 0.25, 1 } } -- text: in the bar's font and size
     l.bars.power.colorMode = "power"
+    l.bars.experience.colorMode, l.bars.experience.hideInCombat = "experience", false
     l.bars.health.colorMode, l.bars.enemyhealth.colorMode, l.bars.castbar.colorMode = "health", "reaction", "cast"
     l.bars.druidmana.colorMode = "power"
     l.bars.castbar.icon, l.bars.castbar.iconSide = true, "left"
@@ -355,6 +358,7 @@ DEFAULTS.buffs = {
 DEFAULTS.regular.bars.health.target = false
 DEFAULTS.regular.hidePlayerFrame = false -- hide Blizzard's player unit frame
 DEFAULTS.regular.hideTargetFrame = false -- hide Blizzard's target unit frame
+DEFAULTS.regular.hideXPBar = false       -- hide Blizzard's experience bar
 DEFAULTS.regular.hideBlizzCastbar = false -- hide Blizzard's player cast bar
 DEFAULTS.regular.playerMenu = false      -- right-click on the bars opens the player menu
 DEFAULTS.regular.targetMenu = true       -- right-click on the enemy health bar opens the target's menu
@@ -392,6 +396,7 @@ do
     end
     for token, c in pairs(POWER) do p.power[token] = { c[1], c[2], c[3], 1 } end
     p.health = { 0.2, 0.8, 0.2, 1 }
+    p.experience = { 0.58, 0, 0.55, 1 } -- Blizzard's experience purple
     p.reaction = { hostile = { 0.85, 0.2, 0.2, 1 }, neutral = { 0.95, 0.8, 0.2, 1 }, friendly = { 0.2, 0.8, 0.2, 1 } }
     -- your cast bar: casting / channeling; your target's: what kind of cast (auto color)
     p.cast = { cast = { 1, 0.7, 0, 1 }, channel = { 0.3, 0.7, 1, 1 }, harm = { 0.9, 0.3, 0.2, 1 },
@@ -600,6 +605,16 @@ local BARS = {
         -- taken as a yes: the game only has something to hide when there is something there.
         state = function()
             return (ns.previewing() or ns.targetCasting == true) and true or false, 1
+        end,
+    },
+    experience = {
+        label = "Experience",
+        -- while there is experience to gain (never at the top level), and while placing the bars
+        state = function() return (ns.previewing() or not ns.xpDone()) and true or false, 1 end,
+        value = function()
+            local ok, v, max = pcall(function() return UnitXP("player"), UnitXPMax("player") end)
+            if not ok or not max or max <= 0 then return 1, 1 end -- previewing at the top: a full bar
+            return v, max
         end,
     },
     flight = {
@@ -853,6 +868,9 @@ function ns.modeRGB(f, c)
         local r, g, b = classRGB(unit)
         if r or (f.key ~= "enemyhealth" and f.key ~= "tothealth") then return r, g, b end
         return ns.reactionRGB(unit) -- an NPC has no class color of its own: how it stands to you
+    elseif m == "experience" then
+        local x = db.colors.experience
+        return x[1], x[2], x[3]
     elseif m == "reaction" then
         return ns.reactionRGB(unit)
     elseif m == "auto" or m == "cast" then
@@ -1250,7 +1268,20 @@ end
 -- each in its own spot, size and color. In a fight the game may keep the numbers secret: they
 -- still draw (the game formats them), and a percent comes from the game's own percent call.
 ------------------------------------------------------------------------------------------
-ns.TEXT_BARS = { health = true, power = true, enemyhealth = true }
+ns.TEXT_BARS = { health = true, power = true, enemyhealth = true, experience = true }
+
+-- No experience to gain: the top level, or experience turned off.
+function ns.xpDone()
+    local ok, off = pcall(IsXPUserDisabled)
+    if ok and off then return true end
+    local ok2, top = pcall(IsPlayerAtEffectiveMaxLevel)
+    if ok2 and top ~= nil then return top and true or false end
+    local ok3, maxLevel = pcall(GetMaxPlayerLevel)
+    local level = UnitLevel("player")
+    if ok3 and type(maxLevel) == "number" and readable(level) then return level >= maxLevel end
+    local ok4, max = pcall(UnitXPMax, "player")
+    return not (ok4 and type(max) == "number" and max > 0)
+end
 ns.TEXT_KINDS = { "percent", "current", "currentmax" }
 
 function ns.layoutTexts(f, c, n)
@@ -2086,6 +2117,7 @@ local function stack(container, set, L, on, swings)
         local shown, n = BARS[key].state()
         shown = (on and shown and c.show) and true or false
         if key == "enemyhealth" and c.beside and L == db.regular then shown = false end -- Refresh places it
+        if key == "experience" and c.hideInCombat and ns.inCombat and not ns.previewing() then shown = false end
         -- hung on another bar (your Combat Display only): placed with that bar, or by Refresh
         local hung = L == db.regular and (key == "tothealth" or key == "pethealth") and c.anchor ~= "stack"
         if key == "swing" then -- one row per ticked weapon, sharing this bar's settings
@@ -2143,7 +2175,11 @@ local hider = CreateFrame("Frame")
 hider:Hide()
 -- Blizzard unit frames hidden by parking them under `hider`: the option for each, and where it
 -- was before (to give it back). Never touched unless asked.
-ns.unitFrameHides = { { "PlayerFrame", "hidePlayerFrame" }, { "TargetFrame", "hideTargetFrame" } }
+-- The experience bar: the status bar holder on modern clients (it also holds reputation and
+-- honor), the bar itself on classic ones (and the plain bar shown in its place at the top level).
+ns.unitFrameHides = { { "PlayerFrame", "hidePlayerFrame" }, { "TargetFrame", "hideTargetFrame" },
+    { "MainStatusTrackingBarContainer", "hideXPBar" }, { "StatusTrackingBarManager", "hideXPBar" },
+    { "MainMenuExpBar", "hideXPBar" }, { "MainMenuBarMaxLevelBar", "hideXPBar" } }
 ns.unitFrameParents = {}
 local castHidden, castParent, castHooked
 
@@ -4175,7 +4211,7 @@ useProfile = function(name)
         db.regular.combatIcon = nil
     end
     for _, m in ipairs({ "regular", "nameplate" }) do
-        for _, key in ipairs({ "health", "power", "enemyhealth" }) do
+        for _, key in ipairs({ "health", "power", "enemyhealth", "experience" }) do
             local b = db[m].bars[key]
             if not b.textsSet then -- the one text it had becomes "current", as it looked
                 b.texts.current.size, b.texts.current.color = b.fontSize, { unpack(b.textColor) }
@@ -4996,6 +5032,8 @@ local function buildConfig()
         function() return cur().anchor end, function(v) cur().anchor = v end, textPreview)
     ns.sitsMenu = sits
     -- target of target: its name at a click (the rest of it is in the Level and name window)
+    local xpCombat = check(barsPage, "Hide in combat", only.x, only:row(0),
+        function() return cur().hideInCombat end, function(v) cur().hideInCombat = v end)
     local totName = check(barsPage, "Show name", only.x, only:row(0) - ROW - 2 * BUTTON,
         function() return cur().tagName end, function(v) cur().tagName = v end)
     local resCheck = check(barsPage, "Show its resource", only.x, only:row(0),
@@ -5086,6 +5124,7 @@ local function buildConfig()
         local hungOn = SITS[selected] and mode == "regular" and cur().anchor or "stack"
         sits:SetShown(SITS[selected] ~= nil and mode == "regular")
         totName:SetShown(selected == "tothealth")
+        xpCombat:SetShown(selected == "experience")
         widthSlider:SetShown(not fixed and hungOn ~= "below")
         heightSlider:SetShown(not fixed and (hungOn == "stack" or hungOn == "below"))
         healCheck:SetShown(selected == "health")
@@ -5134,9 +5173,11 @@ local function buildConfig()
     local MODES = { health = { "health", "class", "custom" }, power = { "power", "class", "custom" },
         druidmana = { "power", "class", "custom" }, pethealth = { "health", "class", "custom" },
         tothealth = { "class", "reaction", "health", "custom" },
+        experience = { "experience", "class", "custom" },
         enemyhealth = { "class", "reaction", "health", "custom" }, castbar = { "cast", "class", "custom" },
         targetcast = { "auto", "cast", "class", "custom" } }
     local MODE_NAMES = { health = "Health color", power = "Power color", class = "Class color",
+        experience = "Experience color",
         reaction = "Hostile / neutral / friendly", cast = "Casting / channeling", custom = "Custom",
         auto = "By kind of cast" }
     dropdown(barsPage, "Bar color", look.x, look:row(DROP), function()
@@ -5279,6 +5320,8 @@ local function buildConfig()
         function() return db.regular.hidePlayerFrame end, function(v) db.regular.hidePlayerFrame = v end)
     check(otherPage, "Hide target frame", blizz.x, blizz:row(ROW),
         function() return db.regular.hideTargetFrame end, function(v) db.regular.hideTargetFrame = v end)
+    check(otherPage, "Hide experience bar", blizz.x, blizz:row(ROW),
+        function() return db.regular.hideXPBar end, function(v) db.regular.hideXPBar = v end)
     check(otherPage, "Hide cast bar", blizz.x, blizz:row(ROW),
         function() return db.regular.hideBlizzCastbar end, function(v) db.regular.hideBlizzCastbar = v end)
     check(otherPage, "Hide action bar gryphons", blizz.x, blizz:row(ROW),
@@ -5760,6 +5803,7 @@ local function buildConfig()
     end
     local hcard = group(colorPage, COL[1], TOP, 202, "Health and standing")
     swatch(colorPage, "Health", hcard.x, hcard:row(SWATCH), function() return P().health end)
+    swatch(colorPage, "Experience", hcard.x, hcard:row(SWATCH), function() return P().experience end)
     swatches(hcard, { { "hostile", "Hostile" }, { "neutral", "Neutral" }, { "friendly", "Friendly" } },
         function() return P().reaction end)
     hcard:close()
@@ -6691,7 +6735,7 @@ ev:SetScript("OnEvent", function(_, event, unit, arg2, arg3)
         for _, e in ipairs({ "PLAYER_ENTERING_WORLD", "UPDATE_SHAPESHIFT_FORM", "PLAYER_TARGET_CHANGED",
             "NAME_PLATE_UNIT_ADDED", "NAME_PLATE_UNIT_REMOVED", "QUEST_LOG_UPDATE", "PLAYER_REGEN_ENABLED",
             "QUEST_DETAIL", "QUEST_ACCEPT_CONFIRM", "QUEST_PROGRESS", "QUEST_COMPLETE", "GOSSIP_SHOW", "QUEST_GREETING",
-            "PLAYER_REGEN_DISABLED", "PLAYER_UPDATE_RESTING", "PLAYER_SWING", "PLAYER_TOTEM_UPDATE", "MERCHANT_SHOW", "MERCHANT_CLOSED",
+            "PLAYER_REGEN_DISABLED", "PLAYER_UPDATE_RESTING", "PLAYER_XP_UPDATE", "PLAYER_LEVEL_UP", "PLAYER_SWING", "PLAYER_TOTEM_UPDATE", "MERCHANT_SHOW", "MERCHANT_CLOSED",
             "GOSSIP_CLOSED" }) do
             listen(e)
         end
@@ -6718,6 +6762,8 @@ ev:SetScript("OnEvent", function(_, event, unit, arg2, arg3)
                 safe(ns.layoutBadges, set.health)
             end
         end
+    elseif event == "PLAYER_XP_UPDATE" then
+        fillShown("experience")
     elseif event == "UNIT_HEAL_PREDICTION" then
         fillShown("health")
     elseif event == "PLAYER_TARGET_CHANGED" then

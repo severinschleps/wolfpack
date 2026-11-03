@@ -412,6 +412,10 @@ PlayerFrame = new()
 PlayerFrame._parent = UIParent
 TargetFrame = new()
 TargetFrame._parent = UIParent
+MainMenuExpBar = new()
+MainMenuExpBar._parent = UIParent
+UnitXP = function() return S.xp or 300 end
+UnitXPMax = function() return S.xpMax or 1000 end
 GetRealmName = function() return "Realm" end
 CreateFrame = function(kind, name, parent, template)
     local f = new(kind)
@@ -1251,6 +1255,27 @@ S.combat = true; R0.hideTargetFrame = false; fire("UNIT_MAXPOWER")
 assert(TargetFrame._parent == hider, "waits for combat to end")
 S.combat = false; fire("PLAYER_REGEN_ENABLED")
 assert(TargetFrame._parent == UIParent, "given back")
+-- Blizzard's experience bar the same way (classic: MainMenuExpBar; modern holders aren't there)
+R0.hideXPBar = true; fire("UNIT_MAXPOWER")
+assert(MainMenuExpBar._parent == hider, "experience bar hidden")
+R0.hideXPBar = false; fire("UNIT_MAXPOWER")
+assert(MainMenuExpBar._parent == UIParent, "and given back")
+-- the experience bar: like the power bar, your experience to the next level
+S.XB = R0.bars.experience
+S.XB.show = true; fire("UNIT_MAXPOWER") -- a setting changed: re-laid out
+assert(fr.experience:IsShown() and fr.experience.segs[1]._value == 300 and fr.experience.segs[1]._max == 1000
+    and fr.experience.texts.current._text == "300", "300 of 1000")
+assert(fr.experience.segs[1]._sbc[1] == 0.58 and fr.experience.segs[1]._sbc[3] == 0.55, "the palette's purple")
+S.xp = 450; fire("PLAYER_XP_UPDATE")
+assert(fr.experience.segs[1]._value == 450, "follows experience")
+S.XB.hideInCombat = true; fire("PLAYER_REGEN_DISABLED")
+assert(not fr.experience:IsShown(), "hidden in combat")
+fire("PLAYER_REGEN_ENABLED")
+assert(fr.experience:IsShown(), "back after")
+IsPlayerAtEffectiveMaxLevel = function() return true end; fire("UNIT_MAXPOWER")
+assert(not fr.experience:IsShown(), "top level: nothing to gain")
+IsPlayerAtEffectiveMaxLevel, S.XB.show, S.XB.hideInCombat, S.xp = nil, false, false, nil
+fire("UNIT_MAXPOWER")
 
 -- Blizzard cast bar: parked under the hidden frame, stays there when Blizzard re-parents it
 local pcb = PlayerCastingBarFrame
@@ -2135,7 +2160,7 @@ assert(#bad == 32 and bp.evil == nil and bp.locked == true, "unknown key dropped
 assert(bp.other.hover.bar1 and bp.other.hover.nope == nil and bp.other.hover.bar2 == nil, "hover: known and true only")
 assert(bp.other.combatFont == "", "unknown combat font path refused")
 assert(bp.regular.gap == 2 and bp.regular.x == 0, "out-of-range numbers defaulted")
-assert(bp.regular.order[1] == "health" and bp.regular.order[2] == "castbar" and #bp.regular.order == 13, "order repaired")
+assert(bp.regular.order[1] == "health" and bp.regular.order[2] == "castbar" and #bp.regular.order == 14, "order repaired")
 local ns2 = bp.nameplate.bars.power.stops
 assert(#ns2 == 2 and ns2[1].pos == 10 and ns2[2].pos == 90 and ns2[1].color[1] == 1, "gradient points checked")
 local hb2 = bp.regular.bars.health
@@ -2239,7 +2264,7 @@ for _, m in ipairs({ "regular", "nameplate" }) do
     for _, k in ipairs(prof()[m].order) do seen[k] = true end
     assert(seen.health and seen.power and seen.combo and seen.druidmana and seen.castbar and seen.pethealth
         and seen.swing and seen.totems and seen.absorb and seen.flight and seen.targetcast
-        and seen.enemyhealth and #prof()[m].order == 13, "order intact")
+        and seen.enemyhealth and #prof()[m].order == 14, "order intact")
 end
 
 -- Totems: four element segments, each draining on its own; the bar is shaman-only and
