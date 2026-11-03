@@ -373,7 +373,8 @@ DEFAULTS.regular.hideActionBars = false  -- hide Blizzard's action bars
 ns.AB_POOL = 120
 ns.AB_BAR = { first = 1, rows = 1, cols = 12, size = 36, gap = 4, radius = 0, zoom = 8, borderSize = 1,
     borderColor = { 0, 0, 0, 1 }, grow = "rightdown", point = "BOTTOM", x = 0, y = 60,
-    keyFont = FONTS[1][2], keySize = 11, macroFont = FONTS[1][2], macroSize = 10, macroText = true }
+    keyFont = FONTS[1][2], keySize = 11, macroFont = FONTS[1][2], macroSize = 10, macroText = true,
+    hideEmpty = false } -- hideEmpty: a slot with nothing in it shows no button (they show while dragging)
 DEFAULTS.actionbars = { bars = {}, binds = {}, seeded = false }
 -- Stance and pet bars: Blizzard's own buttons, moved into a bar of yours. anchorTo: "screen", "bar:N"
 -- (one of your bars) or the other of the two; side: where on it ("above", "below", "left", "right").
@@ -2407,7 +2408,7 @@ function ns.abButton(f, i, j)
     local name = ("WolfpackActionBar%dButton%d"):format(i, j)
     local b = CreateFrame("CheckButton", name, f, "ActionBarButtonTemplate")
     b:RegisterForClicks("AnyUp", "AnyDown") -- the template keeps the one the key-down setting wants
-    b:SetAttribute("showgrid", 1) -- empty slots show, to drag spells onto
+    b:SetAttribute("showgrid", 1) -- empty slots show, to drag spells onto (unless the bar hides them)
     b.showgrid = 1
     b.wpIcon = rawget(b, "icon") or _G[name .. "Icon"] or b:CreateTexture(nil, "ARTWORK")
     b.wpKey = rawget(b, "HotKey") or _G[name .. "HotKey"] or b:CreateFontString(nil, "OVERLAY")
@@ -2470,9 +2471,13 @@ function ns.syncActionBars()
                 list[j] = b
             end
             if b then
-                b:SetShown(j <= n)
+                local slot = bar.first + j - 1
+                -- hiding empty ones: the template shows them again while a spell is dragged
+                local grid = bar.hideEmpty and 0 or 1
+                b:SetAttribute("showgrid", grid)
+                b.showgrid = grid
+                b:SetShown(j <= n and (not bar.hideEmpty or HasAction(slot)) and true or false)
                 if j <= n then
-                    local slot = bar.first + j - 1
                     b:SetAttribute("action", slot)
                     b.wpSlot = slot
                     b:SetSize(bar.size, bar.size)
@@ -6492,6 +6497,8 @@ local function buildConfig()
         function(v) AB().keyFont = v end, fontPreview)
     slider(actionPage, "Keybind size", abt.x, abt:row(SLIDER), 6, 24, function() return AB().keySize end,
         function(v) AB().keySize = v end)
+    check(actionPage, "Hide empty buttons", abt.x, abt:row(ROW), function() return AB().hideEmpty end,
+        function(v) AB().hideEmpty = v end)
     check(actionPage, "Show macro names", abt.x, abt:row(ROW), function() return AB().macroText end,
         function(v) AB().macroText = v end)
     dropdown(actionPage, "Macro name font", abt.x, abt:row(DROP), FONTS, function() return AB().macroFont end,

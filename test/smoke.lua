@@ -225,6 +225,7 @@ IsShiftKeyDown = function() return S.shift end
 IsAltKeyDown = function() return S.alt end
 IsControlKeyDown = function() return S.ctrl end
 S.binds = {}
+HasAction = function(slot) return (S.hasAction or {})[slot] and true or false end
 RegisterStateDriver = function(f, kind, rule) f._driver = rule end
 UnregisterStateDriver = function(f) f._driver = nil end
 ClearOverrideBindings = function(owner) S.binds = {} end
@@ -2996,6 +2997,12 @@ assert(S.ab[2]._point[1] == "TOPLEFT" and S.ab[2]._point[4] == 40 and ns.ab.fram
 S.A.bars[1].grow, S.A.bars[1].cols, S.A.bars[1].rows = "leftup", 6, 2; fire("UNIT_MAXPOWER")
 assert(S.ab[7]._point[1] == "BOTTOMRIGHT" and S.ab[7]._point[4] == 0 and S.ab[7]._point[5] == 40
     and S.ab[2]._point[4] == -40, "left, then up: the seventh starts a row above")
+-- empty slots hidden: only buttons with something on them show; the template shows them while dragging
+S.hasAction, S.A.bars[1].hideEmpty = { [1] = true, [3] = true }, true; fire("UNIT_MAXPOWER")
+assert(S.ab[1]:IsShown() and not S.ab[2]:IsShown() and S.ab[3]:IsShown() and S.ab[2]._attr.showgrid == 0,
+    "empty ones hidden, the rest keep their place")
+S.A.bars[1].hideEmpty = false; fire("UNIT_MAXPOWER")
+assert(S.ab[2]:IsShown() and S.ab[2]._attr.showgrid == 1, "shown again")
 S.A.bars[1].radius, S.A.bars[1].zoom, S.A.bars[1].borderSize = 25, 15, 2; fire("UNIT_MAXPOWER")
 assert(S.ab[1].wpIcon._coords[1] == 0.15 and S.ab[1].wpIcon._masks[S.ab[1].wpMask] and S.ab[1].wpEdge:IsShown()
     and S.ab[1].wpIcon._points[1][4] == 2, "zoomed, rounded, a 2 px border")
