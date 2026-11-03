@@ -1877,8 +1877,31 @@ ns.configOpen = S.wasOpen
     ns.np.trailDraw(tr)
     assert(not dots[1]:IsShown(), "square again: no dots")
     tr.head = 0.5
-    tr._scripts.OnUpdate(tr, T.lap / 4)
+    tr._scripts.OnUpdate(tr, T.states.idle.lap / 4)
     assert(math.abs(tr.head - 0.75) < 1e-9, "a quarter of the round in a quarter of the lap")
+    -- what the target is up to: green and slow when just targeted, red and fast in combat,
+    -- flashing too when it has you targeted
+    local St = T.states
+    tr.head = 0.1 -- on the top: the gradient's second color is the head's
+    ns.np.trailDraw(tr)
+    assert(tr.state == "idle" and l1._grad[3][1] == 0.25 and St.idle.lap > St.combat.lap, "targeted: green, slow")
+    S.keptUAC, S.keptTT = UnitAffectingCombat, S.targetUnit
+    UnitAffectingCombat = function(u) return u == "target" end
+    tr.poll = 0
+    tr._scripts.OnUpdate(tr, 0)
+    assert(tr.state == "combat" and l1._grad[3][1] == 1 and l1._grad[3][2] == 0.2
+        and math.abs(l1._grad[3][4] - 1) < 1e-9, "in combat: red, steady")
+    S.keptUII = UnitIsUnit
+    UnitIsUnit = function(a, b) return (a == "targettarget" and b == "player") or S.keptUII(a, b) end
+    tr.poll, tr.clock = 0, 1 / (2 * T.flashRate) - 0 -- half a flash in: at its dimmest
+    tr._scripts.OnUpdate(tr, 0)
+    assert(tr.state == "aggro" and l1._grad[3][1] == 1 and math.abs(l1._grad[3][4] - 0.25) < 1e-6, "aggro: flashing")
+    tr._scripts.OnUpdate(tr, 0.05) -- polled again only every 0.2 s
+    assert(tr.poll > 0, "polled, not every frame")
+    UnitAffectingCombat, UnitIsUnit = S.keptUAC, S.keptUII
+    tr.poll = 0
+    tr._scripts.OnUpdate(tr, 0)
+    assert(tr.state == "idle", "out of combat: back to green")
     T.glow, T.caps = false, false
     ns.np.trailDraw(tr)
     assert(not tr.glows[1]:IsShown() and not tr.caps[1]:IsShown(), "glow and caps can go")
@@ -2184,7 +2207,7 @@ prof().other.hideGryphons = true; fire("UNIT_MAXPOWER")
 assert(caps.LeftEndCap.Texture._alpha == 0 and caps.RightEndCap.Texture._alpha == 0, "hidden")
 prof().other.hideGryphons = false; fire("UNIT_MAXPOWER")
 assert(caps.LeftEndCap.Texture._alpha == 1, "shown again")
-local opBox = boxes[34] -- highlight opacity (%), after the party/raid one and the target trail's six
+local opBox = boxes[37] -- highlight opacity (%), after the party/raid one and the target trail's nine
 opBox._text = "60"; opBox._scripts.OnEnterPressed(opBox)
 assert(math.abs(prof().regular.highlight.color[4] - 0.6) < 1e-9 and opBox._text == "60", "opacity typed")
 -- Enemy health's resource settings open in a window beside the options, only for that bar

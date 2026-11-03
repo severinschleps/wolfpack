@@ -352,10 +352,14 @@ do
     for _, t in pairs(e.texts) do t.show = false end
     l.bars.targetcast.show = true -- while the unit casts
     -- your target's plate: a stroke running round its health bar, centered on the border's line
-    -- (the bar's edge without one) plus offset. length / thickness / glowSize in px, lap: seconds
-    -- per round; fade: the tail fades out; caps: round ends
-    l.trail = { show = false, color = { 1, 0.82, 0.25, 1 }, length = 15, thickness = 2, lap = 2, offset = 0,
-        caps = true, fade = true, glow = true, glowSize = 6, glowAlpha = 0.6 }
+    -- (the bar's edge without one) plus offset. length / thickness / glowSize in px; fade: the tail
+    -- fades out; caps: round ends. Its color, speed (lap: seconds per round) and flashing follow the
+    -- target: idle (not in combat), combat, aggro (in combat with you as its target)
+    l.trail = { show = false, length = 15, thickness = 2, offset = 0, caps = true, fade = true,
+        glow = true, glowSize = 6, glowAlpha = 0.6, flashRate = 3,
+        states = { idle = { color = { 0.25, 1, 0.35, 1 }, lap = 4, flash = false },
+            combat = { color = { 1, 0.2, 0.15, 1 }, lap = 1, flash = false },
+            aggro = { color = { 1, 0.2, 0.15, 1 }, lap = 1, flash = true } } }
     DEFAULTS.plates = l
 end
 
@@ -4076,11 +4080,15 @@ function ns.np.trail()
     if t then return t end
     t = CreateFrame("Frame", nil, UIParent)
     t.lines, t.glows, t.dots, t.head = {}, {}, {}, 0 -- filled as the path needs them
+    t.clock, t.poll, t.state = 0, 0, "idle"
     t.caps = { t:CreateTexture(nil, "ARTWORK", nil, 1), t:CreateTexture(nil, "ARTWORK", nil, 1) }
     for _, d in ipairs(t.caps) do d:SetTexture("Interface\\AddOns\\" .. ADDON .. "\\Media\\Dot") end
     t:SetScript("OnUpdate", function(self, elapsed)
-        local o = db.plates.trail
-        self.head = (self.head + (elapsed or 0) / math.max(o.lap, 0.1)) % 1
+        elapsed = elapsed or 0
+        self.clock, self.poll = self.clock + elapsed, self.poll - elapsed
+        if self.poll <= 0 then self.poll, self.state = 0.2, ns.np.trailState() end -- combat and aggro come and go
+        local st = db.plates.trail.states[self.state]
+        self.head = (self.head + elapsed / math.max(st.lap, 0.1)) % 1
         safe(ns.np.trailDraw, self)
     end)
     t:Hide()
@@ -4133,7 +4141,11 @@ function ns.np.trailDraw(t)
     local R = (f.edgeRadius or 0) > 0 and math.max(0, math.min(f.edgeRadius + out, w / 2, h / 2)) or 0
     local path = ns.np.trailPath(w, h, R)
     local P = path.total
-    local len, th, r, g, b, a = math.min(o.length, P), o.thickness, unpack(o.color)
+    local st = o.states[t.state]
+    local len, th, r, g, b, a = math.min(o.length, P), o.thickness, unpack(st.color)
+    if st.flash then -- pulsing between a quarter and full, flashRate times a second
+        a = a * (0.625 + 0.375 * math.cos(2 * math.pi * t.clock * o.flashRate))
+    end
     local head = t.head * P
     local tail = head - len
     local function alpha(d) return o.fade and a * (d - tail) / len or a end
@@ -4228,6 +4240,17 @@ function ns.np.trailDraw(t)
     end
 end
 
+-- What your target is up to: "aggro" (in combat, targeting you), "combat", or "idle". An answer
+-- the game keeps secret counts as no.
+function ns.np.trailState()
+    local function yes(fn)
+        local ok, v = pcall(function() return fn() and true or false end)
+        return ok and v
+    end
+    if not yes(function() return UnitAffectingCombat("target") end) then return "idle" end
+    return yes(function() return UnitIsUnit("targettarget", "player") end) and "aggro" or "combat"
+end
+
 -- on your target's plate (or the preview while the Nameplates page is open), else hidden
 function ns.np.trailSync()
     local o, f = db.plates.trail, nil
@@ -4244,7 +4267,7 @@ function ns.np.trailSync()
     t:SetParent(f)
     t:SetAllPoints(f)
     t:SetFrameLevel(f:GetFrameLevel() + 6)
-    t.bar = f
+    t.bar, t.state = f, ns.np.trailState()
     t:Show()
     ns.np.trailDraw(t)
 end
@@ -7322,9 +7345,8 @@ local function buildConfig()
         local g = group(trailPage, COL[1], TOP, 202, "Target trail")
         check(trailPage, "Show on your target's plate", g.x, g:row(ROW), function() return T().show end,
             function(v) T().show = v end)
-        swatch(trailPage, "Trail color", g.x, g:row(SWATCH), function() return T().color end)
         for _, r in ipairs({ { "length", "Length", 2, 200, 1 }, { "thickness", "Thickness", 1, 12, 1 },
-            { "lap", "Seconds per round", 0.3, 10, 0.1 }, { "offset", "Offset (out / in)", -10, 10, 1 } }) do
+            { "offset", "Offset (out / in)", -10, 10, 1 } }) do
             slider(trailPage, r[2], g.x, g:row(SLIDER), r[3], r[4], function() return T()[r[1]] end,
                 function(v) T()[r[1]] = v end, r[5])
         end
@@ -7344,7 +7366,26 @@ local function buildConfig()
         n:SetWidth(182)
         n:SetJustifyH("LEFT")
         gl:close()
-        trailPage.need = 520
+        -- what the target is up to sets the color, speed and flashing
+        local cards = { g, gl }
+        for i, e in ipairs({ { "idle", "Targeted (not in combat)" }, { "combat", "In combat" },
+            { "aggro", "In combat, targeting you" } }) do
+            local S = function() return T().states[e[1]] end
+            local col = i == 1 and COL[1] or COL[2]
+            local above = i == 1 and g or (i == 2 and gl or cards[4]) -- aggro under combat
+            local c = group(trailPage, col, above.cursor - 20, 202, e[2])
+            swatch(trailPage, e[2] .. ": color", c.x, c:row(SWATCH), function() return S().color end)
+            slider(trailPage, "Seconds per round", c.x, c:row(SLIDER), 0.3, 10, function() return S().lap end,
+                function(v) S().lap = v end, 0.1)
+            check(trailPage, "Flash", c.x, c:row(ROW), function() return S().flash end, function(v) S().flash = v end)
+            if e[1] == "aggro" then
+                slider(trailPage, "Flashes per second", c.x, c:row(SLIDER), 0.5, 10, function() return T().flashRate end,
+                    function(v) T().flashRate = v end, 0.5)
+            end
+            c:close()
+            cards[#cards + 1] = c
+        end
+        trailPage.need = math.max(-cards[3].cursor, -cards[5].cursor) + 30
     end
 
     local qinfo = group(questPage, COL[1], TOP, 202, "Quest mobs")
