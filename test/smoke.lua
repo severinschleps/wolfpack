@@ -1040,6 +1040,18 @@ UnitIsPVP = function() return false end; fire("UNIT_FACTION", "player")
 assert(not fr.health.pvpIcon:IsShown(), "not flagged")
 UnitIsPVP = nil
 
+-- buffs and debuffs on your own health bar, the same options as enemy health; all your debuffs
+S.auras, S.debuffs = { { icon = 501 }, { icon = 502 } }, { { icon = 601 } }
+fire("UNIT_AURA", "player")
+S.hb2, S.hd2 = fr.health.auraIcons.buffs, fr.health.auraIcons.debuffs
+assert(S.hb2[1]:IsShown() and S.hb2[2].tex._tex == 502 and S.hd2[1].tex._tex == 601, "your buffs and debuffs")
+assert(fr.health.auraBoxes.buffs._point[2] == fr.health and fr.health.auraBoxes.debuffs._point[2]
+    == fr.health.auraBoxes.buffs, "above your bar, debuffs over the buffs")
+prof().regular.bars.health.buffs.show = false; fire("UNIT_AURA", "player")
+assert(not S.hb2[1]:IsShown() and S.hd2[1]:IsShown(), "each switches on its own")
+prof().regular.bars.health.buffs.show = true
+S.auras, S.debuffs = nil, nil; fire("UNIT_AURA", "player")
+
 -- Border and radius: border inside the bar's size, bar inset by it; one mask file per radius,
 -- sliced at native size (Media/Round/r<N>.tga)
 local hb = prof().regular.bars.health -- 220 x 18
@@ -1598,7 +1610,10 @@ tb._scripts.OnClick(tb, "LeftButton")
 ab._scripts.OnClick(ab, "LeftButton")
 assert(ns.auraDialog:IsShown() and not ns.tagDialog:IsShown(), "buffs and debuffs: its own window too")
 byText("Health")._scripts.OnClick(byText("Health"), "LeftButton")
-assert(not ab:IsShown() and not ns.auraDialog:IsShown(), "closed with the bar")
+assert(ab:IsShown() and ns.auraDialog:IsShown(), "your health has them too: the window stays, now for it")
+byText("Power")._scripts.OnClick(byText("Power"), "LeftButton")
+assert(not ab:IsShown() and not ns.auraDialog:IsShown(), "closed with a bar that has none")
+byText("Health")._scripts.OnClick(byText("Health"), "LeftButton")
 byText("Combat Display")._scripts.OnClick(byText("Combat Display"), "LeftButton")
 
 -- Auto-accept: off by default; Shift skips; item/area-trigger quests left to Blizzard
@@ -1725,7 +1740,7 @@ assert(BagsBar._parent == UIParent and BagsBar._point[2] == "MicroButtonAndBagsB
 -- Color pickers start from the color in use: class / same-as-bar borders, class bars; picking
 -- a color makes it custom, opacity alone doesn't, cancel restores both
 local sw, hcol = ns.swatches, prof().regular.bars.health
-assert(sw.Rage and sw.Energy and sw.Mana and sw.Focus, "a swatch per power in the power bar's options")
+assert(sw.Rage and sw.Energy and sw.Mana and sw.Focus, "a swatch per power, on the Colors page")
 hcol.colorMode, hcol.borderMode = "class", "bar"
 sw["Custom border color"]._scripts.OnClick()
 assert(S.picker.r == 1 and math.abs(S.picker.b - 0.5575) < 1e-6, "border picker opens on the border as drawn")

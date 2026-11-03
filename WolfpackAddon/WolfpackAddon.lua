@@ -204,13 +204,17 @@ local function layoutDefaults(show, x, y, gap, width, h1, h2, h3, h4, h5, h6, h7
     -- a box behind each: color (with opacity), padding around the text, corner radius
     eh.tagBg = { show = false, color = { 0, 0, 0, 0.6 }, pad = 2, radius = 0 }
     eh.nameBg = { show = false, color = { 0, 0, 0, 0.6 }, pad = 2, radius = 0 }
-    -- buffs and debuffs: each group sits in a spot of the bar or of the other group (anchorTo
-    -- "bar" / "other", auraGroupGap apart), with its own nudge, icon size, corner radius and grid
-    eh.buffs = { show = true, anchorTo = "bar", spot = "topleft", grow = "right", x = 0, y = 2, size = 20, radius = 0,
-        cols = 8, rows = 1, max = 8, hideTimer = false }
-    eh.debuffs = { show = true, anchorTo = "other", spot = "topleft", grow = "right", x = 0, y = 0, size = 24, radius = 0,
-        cols = 8, rows = 2, max = 16, hideTimer = false }
-    eh.auraGap, eh.auraGroupGap = 2, 4
+    -- buffs and debuffs, on your health and on enemy health: each group sits in a spot of the bar
+    -- or of the other group (anchorTo "bar" / "other", auraGroupGap apart), with its own nudge,
+    -- icon size, corner radius and grid
+    for _, key in ipairs({ "health", "enemyhealth" }) do
+        local b = l.bars[key]
+        b.buffs = { show = true, anchorTo = "bar", spot = "topleft", grow = "right", x = 0, y = 2, size = 20,
+            radius = 0, cols = 8, rows = 1, max = 8, hideTimer = false }
+        b.debuffs = { show = true, anchorTo = "other", spot = "topleft", grow = "right", x = 0, y = 0, size = 24,
+            radius = 0, cols = 8, rows = 2, max = 16, hideTimer = false }
+        b.auraGap, b.auraGroupGap = 2, 4
+    end
     -- small icons on the bar: PvP flag (in one of a few looks) and drinking; centered on a
     -- point of the bar, nudged by x/y
     -- anchorTo: "bar", or "name" / "level" (then it sits outside that box, on the side of point).
@@ -1413,7 +1417,7 @@ function ns.auraDirs(o)
 end
 
 function ns.debuffFilter(unit)
-    if select(4, GetBuildInfo()) < 100000 then return "HARMFUL" end
+    if unit == "player" or select(4, GetBuildInfo()) < 100000 then return "HARMFUL" end
     local ok, enemy = pcall(function() return UnitCanAttack("player", unit) and true or false end)
     return (ok and enemy) and "HARMFUL|PLAYER" or "HARMFUL"
 end
@@ -1463,9 +1467,10 @@ end
 -- group's box. Both on each other would hang in the air, so then buffs take the bar. One that
 -- hangs on an empty group borrows that group's own anchor on the bar while it is empty: the
 -- game draws nothing that hangs on a frame of no size (seen in game).
+ns.AURA_BARS = { health = true, enemyhealth = true }
 function ns.layoutAuras(f)
-    local c = db[f.mode].bars.enemyhealth
-    local unit = UnitExists(f.unit) and f.unit
+    local c = db[f.mode].bars[f.key]
+    local unit = f.key == "health" and "player" or (UnitExists(f.unit) and f.unit)
     f.auraIcons = f.auraIcons or { buffs = {}, debuffs = {} }
     f.auraBoxes = f.auraBoxes or { buffs = CreateFrame("Frame", nil, f), debuffs = CreateFrame("Frame", nil, f) }
     for _, k in ipairs({ "buffs", "debuffs" }) do
@@ -1957,7 +1962,8 @@ local function stack(container, set, L, on, swings)
             else
                 f:SetPoint("TOP", container, "TOP", c.x, c.y - h)
             end
-            if f.resFrame then ns.layoutRes(f); ns.layoutTag(f); ns.layoutAuras(f) end
+            if f.resFrame then ns.layoutRes(f); ns.layoutTag(f) end
+            if ns.AURA_BARS[key] then ns.layoutAuras(f) end
             if ns.BADGES[key] then ns.layoutBadges(f) end
             h = h + c.height + c.padBottom
             w = math.max(w, c.width)
@@ -4843,9 +4849,12 @@ local function buildConfig()
         if not (resOn and (section == "combat" or section == "nameplates")) then ns.resDialog:Hide() end
         local ehOn = selected == "enemyhealth" and (section == "combat" or section == "nameplates")
         tagButton:SetShown(selected == "enemyhealth")
-        auraButton:SetShown(selected == "enemyhealth")
+        auraButton:SetShown(selected == "enemyhealth" or selected == "health")
         iconButton:SetShown(selected == "enemyhealth")
-        if not ehOn then ns.tagDialog:Hide(); ns.auraDialog:Hide(); ns.iconDialog:Hide() end
+        if not ehOn then ns.tagDialog:Hide(); ns.iconDialog:Hide() end
+        if not (ns.AURA_BARS[selected] and (section == "combat" or section == "nameplates")) then
+            ns.auraDialog:Hide()
+        end
         statusButton:SetShown(selected == "health")
         if not (selected == "health" and (section == "combat" or section == "nameplates")) then
             ns.statusDialog:Hide()
@@ -5671,8 +5680,8 @@ local function buildConfig()
         function(v) cur().auraGap = v end)
     slider(ad, "Gap between the groups", 230, shared, 0, 40, function() return cur().auraGroupGap or 0 end,
         function(v) cur().auraGroupGap = v end)
-    local anote = label(ad, "What Blizzard's target frame shows: all buffs, and on an enemy your own "
-        .. "debuffs. New rows (or columns) go away from what the group hangs on; a group anchored to the "
+    local anote = label(ad, "Your health: all your buffs and debuffs. Enemy health: what Blizzard's target "
+        .. "frame shows, all buffs and on an enemy your own debuffs. New rows (or columns) go away from what the group hangs on; a group anchored to the "
         .. "other sits the group gap away from it.", "GameFontDisableSmall")
     anote:SetPoint("TOPLEFT", 16, shared - SLIDER - 4)
     anote:SetWidth(408)
@@ -6403,7 +6412,7 @@ ev:SetScript("OnEvent", function(_, event, unit, arg2, arg3)
             listen(e, "player", "target") -- target: the enemy resource bar
         end
         listen("UNIT_QUEST_LOG_CHANGED", "player")
-        listen("UNIT_AURA", "target") -- the enemy health bar's buffs and debuffs, and drinking
+        listen("UNIT_AURA", "target", "player") -- buffs and debuffs on both health bars; drinking
         listen("UNIT_FACTION", "target", "player") -- PvP flags
         for _, e in ipairs({ "PLAYER_ENTERING_WORLD", "UPDATE_SHAPESHIFT_FORM", "PLAYER_TARGET_CHANGED",
             "NAME_PLATE_UNIT_ADDED", "NAME_PLATE_UNIT_REMOVED", "QUEST_LOG_UPDATE", "PLAYER_REGEN_ENABLED",
@@ -6430,7 +6439,10 @@ ev:SetScript("OnEvent", function(_, event, unit, arg2, arg3)
                 end
                 safe(ns.layoutBadges, set.enemyhealth)
             end
-            if set.health:IsShown() and unit ~= "target" then safe(ns.layoutBadges, set.health) end
+            if set.health:IsShown() and unit ~= "target" then
+                if event == "UNIT_AURA" then safe(ns.layoutAuras, set.health) end
+                safe(ns.layoutBadges, set.health)
+            end
         end
     elseif event == "UNIT_HEAL_PREDICTION" then
         fillShown("health")
