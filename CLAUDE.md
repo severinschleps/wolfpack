@@ -33,6 +33,13 @@ Note the target is the addon folder, not `Interface/` itself — WoW only loads
 addons from it. On this Mac the disk spells it `AddOns` and `Addons` reaches
 the very same directory, so either works in the command above.
 
+## Push to GitHub after every change
+
+Every change that is saved -- tested and installed as above -- is committed and pushed to
+GitHub (`origin`, master) in the same turn: `git add -A`, a conventional-commit message,
+`git pull --rebase` (other sessions push here too), `git push`. Never leave a finished change
+unpushed at the end of a turn.
+
 ## Testing
 
 `test/smoke.lua` runs the addon against a mock WoW API: `luajit test/smoke.lua`
