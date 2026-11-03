@@ -1008,9 +1008,6 @@ assert(WolfpackAddonFrame._point[1] == "TOP", "grows down by default")
 R1.grow = "up"
 fire("PLAYER_ENTERING_WORLD")
 assert(WolfpackAddonFrame._point[1] == "BOTTOM" and WolfpackAddonFrame._point[4] == R1.x, "pinned by its bottom")
-S.plate = new(); prof().nameplate.grow = "up"; fire("NAME_PLATE_UNIT_ADDED", "nameplate9")
-assert(ns.plateFrames.combo._parent._point[1] == "BOTTOM", "nameplate stack too")
-S.plate = nil; prof().nameplate.grow = "down"; fire("NAME_PLATE_UNIT_REMOVED", "nameplate9")
 local mover2
 for _, f in ipairs(created) do if f._scripts.OnMouseUp and f._scripts.OnDragStart and not f._name then mover2 = f end end
 mover2._scripts.OnDragStart(mover2); mover2._scripts.OnDragStop(mover2)
@@ -1464,32 +1461,6 @@ assert(S.ctot._point[1] == "BOTTOMLEFT" and S.ctot._point[3] == "BOTTOMLEFT" and
     and S.ctot:GetFrameLevel() > WolfpackAddonClickerTarget:GetFrameLevel(), "below: the bottom of enemy health's slot, over its button")
 S.TT.show, S.TT.anchor, R0.bars.enemyhealth.show = false, "right", false; fire("UNIT_MAXPOWER")
 
--- Nameplate layout is separate: own show flags, sizes, gap and group offset
-local pf, plateStack = ns.plateFrames, ns.plateFrames.combo._parent
-local N = prof().nameplate.bars
-N.combo.show = true
-fire("PLAYER_TARGET_CHANGED")
-assert(fr.combo:IsShown() and not pf.combo:IsShown() and not plateStack:IsShown(), "no plate: regular only")
-S.plate = new(); fire("NAME_PLATE_UNIT_ADDED")
-assert(fr.combo:IsShown() and pf.combo:IsShown(), "both")
-assert(plateStack._parent == S.plate and plateStack:IsShown(), "plate stack on the plate")
-local ps = plateStack._point
-assert(ps[2] == S.plate and ps[3] == "BOTTOM" and ps[4] == 0 and ps[5] == -2, "plate group offset")
-assert(WolfpackAddonFrame._h == 48 and plateStack._h == 6, "stacks sized independently")
-R.combo.show = false
-N.health.show = true
-fire("PLAYER_TARGET_CHANGED")
-assert(not fr.combo:IsShown() and pf.combo:IsShown() and pf.health:IsShown(), "nameplate only")
-assert(WolfpackAddonFrame._h == 34 and plateStack._h == 15, "plate stack: 8 + 1 + 6")
-fire("UNIT_POWER_FREQUENT"); fire("UNIT_HEALTH")
-assert(pf.combo.segs[3]._value == SECRET, "plate bars get values")
-N.combo.show = false
-fire("PLAYER_TARGET_CHANGED")
-assert(not fr.combo:IsShown() and not pf.combo:IsShown(), "neither")
-S.plate = nil; fire("NAME_PLATE_UNIT_REMOVED")
-assert(not plateStack:IsShown() and not pf.health:IsShown() and plateStack._parent == WolfpackAddonFrame, "plate gone")
-R.combo.show, N.health.show = true, false
-
 -- Quest mobs: sword for open kill objectives, bag for open item objectives, from the tooltip
 local L = Enum.TooltipDataLineType
 S.quests = { { info = { questID = 7, isHeader = false }, objectives = {
@@ -1651,6 +1622,25 @@ ns.configOpen = S.wasOpen
     assert(not f:IsShown() and not ns.np.units.nameplate4 and plate.UnitFrame._alpha == 1, "removed: Blizzard's back")
     npFire("NAME_PLATE_UNIT_ADDED", "nameplate4")
     assert(ns.np.units.nameplate4 == f, "a recycled plate keeps its bar")
+    -- its cast bar: only while that unit casts, under the power bar hanging below
+    S.npOpen, S.npLocked, ns.configOpen, prof().locked = ns.configOpen, prof().locked, false, true
+    local cb = f.castBar
+    ns.np.all()
+    assert(not cb:IsShown(), "no cast, no cast bar")
+    S.keptInfo = UnitCastingInfo
+    UnitCastingInfo = function(u) if u == "nameplate4" then return "Fireball", "", 135812, 0, 0 end end
+    npFire("UNIT_SPELLCAST_START", "nameplate4")
+    assert(cb:IsShown() and cb.text._text == "Fireball" and cb.unit == "nameplate4", "its own unit's cast")
+    assert(cb._point[1] == "TOP" and cb._point[2] == f.resFrame and cb._point[3] == "BOTTOM", "under the power bar")
+    assert(not ns.frames.targetcast:IsShown() or ns.targetCasting, "your target's cast bar is not touched")
+    npFire("UNIT_SPELLCAST_STOP", "nameplate4")
+    assert(not cb:IsShown(), "gone when it stops")
+    npFire("NAME_PLATE_UNIT_REMOVED", "nameplate4")
+    npFire("NAME_PLATE_UNIT_ADDED", "nameplate4")
+    assert(cb:IsShown(), "a plate that comes into view mid-cast shows it")
+    UnitCastingInfo = S.keptInfo
+    npFire("UNIT_SPELLCAST_STOP", "nameplate4")
+    ns.configOpen, prof().locked = S.npOpen, S.npLocked
     P.show = false; ns.np.all()
     assert(not f:IsShown() and plate.UnitFrame._alpha == 1, "turned off: Blizzard's plates again")
     npFire("NAME_PLATE_UNIT_REMOVED", "nameplate4")
@@ -1696,24 +1686,23 @@ for _, f in ipairs(created) do if f._scripts.OnMouseUp and f._scripts.OnDragStar
 mover._scripts.OnDragStart(mover); mover._scripts.OnUpdate(mover); mover._scripts.OnDragStop(mover)
 assert(prof().regular.x == 0 and prof().regular.y == 50 and not mover._scripts.OnUpdate, "drag stores coordinates")
 
--- Sidebar: Nameplates (Target bars tab) edits the nameplate layout only; its group range is +-200
+-- Sidebar: Nameplates is the enemy nameplate, its health bar and its cast bar, apart from
+-- Combat Display; the bar picked there comes back on leaving
 byText("Nameplates")._scripts.OnClick(byText("Nameplates"), "LeftButton")
-byText("Target bars")._scripts.OnClick(byText("Target bars"), "LeftButton")
-assert(gapBox._text == "1" and xBox._text == "0" and yBox._text == "-2", "tab shows nameplate values")
+assert(gapBox._text == "2" and xBox._text == "0" and yBox._text == "0", "the nameplate's own values")
 gapBox._text = "4"; gapBox._scripts.OnEnterPressed(gapBox)
-xBox._text = "-150"; xBox._scripts.OnEnterPressed(xBox)
-boxes[5]._text = "90"; boxes[5]._scripts.OnEnterPressed(boxes[5])
-assert(prof().nameplate.gap == 4 and prof().nameplate.x == -150 and prof().nameplate.bars.health.width == 90, "nameplate edits")
-assert(prof().regular.gap == 30 and prof().regular.x == 0 and prof().regular.bars.health.width == 220, "regular untouched")
--- the Plates tab edits the one nameplate bar; the bar picked before comes back on leaving it
-byText("Plates")._scripts.OnClick(byText("Plates"), "LeftButton")
 boxes[5]._text = "130"; boxes[5]._scripts.OnEnterPressed(boxes[5])
-assert(prof().plates.bars.enemyhealth.width == 130 and prof().nameplate.bars.enemyhealth.width ~= 130, "plate width")
+assert(prof().plates.gap == 4 and prof().plates.bars.enemyhealth.width == 130, "nameplate edits")
 assert(ns.np.preview:IsShown() and ns.np.preview.width == 130 and ns.np.preview._point[2] == ns.cfg,
-    "a preview plate beside the window while the tab is open")
-byText("Target bars")._scripts.OnClick(byText("Target bars"), "LeftButton")
-assert(not ns.np.preview:IsShown(), "and gone on another tab")
-assert(boxes[5]._text == "90", "back on the nameplate health bar")
+    "a preview plate beside the window while the page is open")
+assert(not byText("Target bars") and byText("Health"), "one nameplate: no second bar stack")
+byText("Cast bar")._scripts.OnClick(byText("Cast bar"), "LeftButton")
+boxes[5]._text = "100"; boxes[5]._scripts.OnEnterPressed(boxes[5])
+assert(prof().plates.bars.targetcast.width == 100 and prof().plates.bars.enemyhealth.width == 130, "its cast bar")
+assert(ns.np.preview.castBar:IsShown() and ns.np.preview.castBar.width == 100, "previewed under it")
+assert(prof().regular.gap == 30 and prof().regular.x == 0 and prof().regular.bars.health.width == 220, "regular untouched")
+byText("Combat Display")._scripts.OnClick(byText("Combat Display"), "LeftButton")
+assert(not ns.np.preview:IsShown() and boxes[5]._text == "220", "back on Combat Display's health bar")
 -- every sidebar entry is really there, opens its page, and that page has settings on it
 for _, name in ipairs({ "Combat Display", "Nameplates", "Buff check", "Other",
     "Mage", "Rogue", "Shaman", "Warlock" }) do
@@ -2409,7 +2398,7 @@ assert(oldName == "Old" and oldEM == "EDITMODE:Old", "old combined string")
 -- untrusted content: bad types, silly numbers, broken order, unknown keys
 blobs[#blobs + 1] = { name = string.rep("x", 50), combatFont = "Interface\\evil.ttf", profile = { evil = "x", locked = "yes",
     other = { hover = { bar1 = true, nope = true, bar2 = "yes" } },
-    nameplate = { bars = { power = { stops = { { pos = 10, color = { 1, 0, 0, 1 } }, { pos = "x" },
+    plates = { bars = { power = { stops = { { pos = 10, color = { 1, 0, 0, 1 } }, { pos = "x" },
         { pos = 90, color = { 0, 0, 1, 1 } } } } } },
     regular = { gap = -5, x = 1e9, order = { "health", "health", "bogus", "castbar" },
         bars = { health = { width = "wide", height = 0, radius = "pill", color = { 1, "red", 0, 1 } } } } } }
@@ -2420,7 +2409,7 @@ assert(bp.other.hover.bar1 and bp.other.hover.nope == nil and bp.other.hover.bar
 assert(bp.other.combatFont == "", "unknown combat font path refused")
 assert(bp.regular.gap == 2 and bp.regular.x == 0, "out-of-range numbers defaulted")
 assert(bp.regular.order[1] == "health" and bp.regular.order[2] == "castbar" and #bp.regular.order == 15, "order repaired")
-local ns2 = bp.nameplate.bars.power.stops
+local ns2 = bp.plates.bars.power.stops
 assert(#ns2 == 2 and ns2[1].pos == 10 and ns2[2].pos == 90 and ns2[1].color[1] == 1, "gradient points checked")
 local hb2 = bp.regular.bars.health
 assert(hb2.width == 220 and hb2.height == 18 and hb2.radius == "pill" and hb2.color[2] == 0.8, "bar values checked")
@@ -2489,7 +2478,7 @@ assert(WolfpackAddonDB.classProfiles.WARRIOR == "Alpha Warrior", "with each clas
 WolfpackAddonDB.profiles, WolfpackAddonDB.classProfiles = keptProfiles, keptClasses
 -- new profiles start from it, or the plain defaults if it can't be read
 local fresh = ns.freshProfile()
-assert(fresh.regular and fresh.nameplate and fresh.other and fresh.quest, "a complete profile either way")
+assert(fresh.regular and fresh.plates and fresh.bags and fresh.other and fresh.quest, "a complete profile either way")
 
 -- Every bundled font path points at a real file in the addon folder
 for _, f in ipairs(ns.COMBAT_FONTS) do
@@ -2518,7 +2507,7 @@ for _, f in ipairs(created) do
     end
 end
 prof().colors.borderShade = 25 -- poked to 42 above, like every slider
-for _, m in ipairs({ "regular", "nameplate" }) do
+for _, m in ipairs({ "regular", "plates" }) do
     local seen = {}
     for _, k in ipairs(prof()[m].order) do seen[k] = true end
     assert(seen.health and seen.power and seen.combo and seen.druidmana and seen.castbar and seen.pethealth
@@ -2690,6 +2679,16 @@ fire("UNIT_SPELLCAST_START", "target")
 S.keptDur, UnitCastingDuration = UnitCastingDuration, function() return nil end
 ns.fill(ns.frames.targetcast)
 assert(ns.frames.targetcast.segs[1]._value == 0, "no duration, an empty bar rather than a full one")
+-- the classic clients have no duration object, but plain start and end times: the bar runs on them
+S.keptInfo = UnitCastingInfo
+UnitCastingInfo = function() return "Frostbolt", "", 135846, 1000, 3000 end
+S.keptTime, S.time = S.time, 2
+ns.fill(ns.frames.targetcast)
+S.seg = ns.frames.targetcast.segs[1]
+assert(S.seg._max == 2 and S.seg._value == 1 and S.seg._scripts.OnUpdate, "halfway through a 2 s cast, and ticking")
+S.time = 9; S.seg._scripts.OnUpdate(S.seg)
+assert(S.seg._value == 2, "full at the end, never past it")
+UnitCastingInfo, S.time = S.keptInfo, S.keptTime
 UnitCastingDuration = S.keptDur
 S.targetCast = nil
 S.targetChannel = nil

@@ -307,7 +307,6 @@ end
 local DEFAULTS = {
     locked = true,
     regular = layoutDefaults(true, 0, -120, 2, 220, 18, 14, 12, 6, 14, 10, 10, 10, 10),
-    nameplate = layoutDefaults(false, 0, -2, 1, 110, 8, 6, 6, 4, 8, 5, 5, 5, 5),
     quest = {
         x = 0, y = 0, spacing = 2, anchor = "inside", -- anchor: a key of ns.QUEST_SPOTS
         kill = { show = true, icon = 131013, size = 20, count = false },
@@ -340,6 +339,7 @@ do
     e.resource, e.resPlace, e.resPoint, e.resWidth, e.resHeight, e.resX, e.resY = true, "outside", "BOTTOM", 100, 3, 0, -1
     e.buffs.show, e.debuffs.anchorTo, e.debuffs.spot, e.debuffs.size, e.debuffs.y = false, "bar", "topleft", 18, 16
     for _, t in pairs(e.texts) do t.show = false end
+    l.bars.targetcast.show = true -- while the unit casts
     DEFAULTS.plates = l
 end
 
@@ -788,26 +788,20 @@ mover:SetScript("OnMouseUp", function(_, button)
     if button == "RightButton" then ns.ToggleConfig() end
 end)
 
--- Every bar exists twice: in the regular stack and in a second stack under the target nameplate.
-local plateAnchor = CreateFrame("Frame", nil, anchor)
-local plateFrames = {}
-ns.plateFrames = plateFrames
-
 local function newBar(parent, key, mode)
     local f = CreateFrame("Frame", nil, parent)
     f.key, f.mode, f.segs = key, mode, {}
     return f
 end
 
-local swingFrames = { regular = {}, nameplate = {} }
+local swingFrames = { regular = {} }
 ns.swingFrames = swingFrames
 
 for key in pairs(BARS) do
     frames[key] = newBar(anchor, key, "regular")
-    plateFrames[key] = newBar(plateAnchor, key, "nameplate")
 end
 -- Enemy health reads your target; its resource bar sits inside it and wears its look
-for _, set in ipairs({ frames, plateFrames }) do
+for _, set in ipairs({ frames }) do
     set.tothealth.unit = "targettarget"
     local f = set.enemyhealth
     f.unit = "target"
@@ -818,8 +812,6 @@ end
 for i in ipairs(SWING_TYPES) do
     swingFrames.regular[i] = newBar(anchor, "swing", "regular")
     swingFrames.regular[i].swing = i
-    swingFrames.nameplate[i] = newBar(plateAnchor, "swing", "nameplate")
-    swingFrames.nameplate[i].swing = i
 end
 
 local MAX_STOPS = 8
@@ -1159,14 +1151,20 @@ function ns.watchTargetCast(event, unit)
         return true
     end
     if unit ~= "target" then return false end
+    return ns.castState(ns, event)
+end
+
+-- st.targetCasting / st.targetChannelling from a cast event: your target's (st = ns) or a
+-- nameplate's own. False when the event says nothing about casting.
+function ns.castState(st, event)
     if event == "UNIT_SPELLCAST_START" then
-        ns.targetCasting, ns.targetChannelling = true, false
+        st.targetCasting, st.targetChannelling = true, false
     elseif event == "UNIT_SPELLCAST_CHANNEL_START" then
-        ns.targetCasting, ns.targetChannelling = true, true
+        st.targetCasting, st.targetChannelling = true, true
     elseif event == "UNIT_SPELLCAST_STOP" or event == "UNIT_SPELLCAST_FAILED"
         or event == "UNIT_SPELLCAST_INTERRUPTED" or event == "UNIT_SPELLCAST_CHANNEL_STOP"
         or event == "UNIT_SPELLCAST_SUCCEEDED" then
-        ns.targetCasting = false
+        st.targetCasting = false
     else
         return false
     end
@@ -1200,8 +1198,9 @@ function ns.fillTargetCast(f)
     -- target's cast comes back secret, and a secret may be handed to a bar or a font string but
     -- not looked at in any way. Which of the two calls to ask, and whether anything is being
     -- cast at all, come from the events instead -- asking the cast would mean reading it.
-    local channel = ns.targetChannelling == true
-    local info = { pcall(channel and UnitChannelInfo or UnitCastingInfo, "target") }
+    local unit, st, s = f.unit or "target", f.castState or ns, f.segs[1]
+    local channel = st.targetChannelling == true
+    local info = { pcall(channel and UnitChannelInfo or UnitCastingInfo, unit) }
     local name, icon = info[2], info[4]
     local locked = info[channel and 8 or 9]  -- picked by index: choosing it with `and` reads it
 
@@ -1212,7 +1211,8 @@ function ns.fillTargetCast(f)
         if c then ns.wearColor(f, c) end
     end
 
-    if ns.targetCasting ~= true then -- previewing, or nothing being cast
+    s:SetScript("OnUpdate", nil)
+    if st.targetCasting ~= true then -- previewing, or nothing being cast
         f.text:SetText(BARS.targetcast.label)
         f.icon:SetTexture(134400)
         f.segs[1]:SetMinMaxValues(0, 1)
@@ -1223,12 +1223,24 @@ function ns.fillTargetCast(f)
 
     -- The duration object is what drains the bar, in C. Whether one came back is counted, not
     -- compared: a call that returned nothing leaves the table one long.
-    local got = { pcall(channel and UnitChannelDuration or UnitCastingDuration, "target") }
-    local ticking = #got > 1 and pcall(f.segs[1].SetTimerDuration, f.segs[1], got[2], 0,
+    local got = { pcall(channel and UnitChannelDuration or UnitCastingDuration, unit) }
+    local ticking = #got > 1 and pcall(s.SetTimerDuration, s, got[2], 0,
         channel and TIMER_REMAINING or TIMER_ELAPSED)
-    if not ticking then -- nobody will say how long: an empty bar is less of a lie than a full one
-        f.segs[1]:SetMinMaxValues(0, 1)
-        f.segs[1]:SetValue(0)
+    -- no duration object (the classic clients): there the cast's start and end are plain numbers
+    local from, to = info[5], info[6]
+    if not ticking and readable(from) and readable(to) and type(from) == "number" and type(to) == "number"
+        and to > from then
+        from, to = from / 1000, to / 1000
+        s:SetMinMaxValues(0, to - from)
+        local function tick(self)
+            local gone = math.min(math.max(GetTime() - from, 0), to - from)
+            self:SetValue(channel and (to - from) - gone or gone)
+        end
+        s:SetScript("OnUpdate", tick)
+        tick(s)
+    elseif not ticking then -- nobody will say how long: an empty bar is less of a lie than a full one
+        s:SetMinMaxValues(0, 1)
+        s:SetValue(0)
     end
     pcall(f.text.SetText, f.text, name)        -- a secret name still draws
     pcall(f.icon.SetTexture, f.icon, icon)
@@ -2056,11 +2068,6 @@ function ns.placeToT()
     end
     ns.fill(tf)
     ns.layoutTag(tf)
-end
-
-local function targetPlate()
-    local ok, p = pcall(C_NamePlate.GetNamePlateForUnit, "target")
-    if ok and p and not (p.IsForbidden and p:IsForbidden()) then return p end
 end
 
 ------------------------------------------------------------------------------------------
@@ -3641,14 +3648,6 @@ local function Refresh()
     if not (ns.ammoBeside() and frames.power:IsShown()) and db.regular.bars.ammo.anchor ~= "stack" then
         frames.ammo:Hide()
     end
-    local plate = targetPlate()
-    plateAnchor:SetParent(plate or anchor)
-    plateAnchor:SetShown(plate ~= nil)
-    if plate then
-        plateAnchor:ClearAllPoints()
-        plateAnchor:SetPoint(growEdge(db.nameplate), plate, "BOTTOM", db.nameplate.x, db.nameplate.y)
-    end
-    stack(plateAnchor, plateFrames, db.nameplate, plate ~= nil, swingFrames.nameplate)
     for _, h in pairs(questHolders) do styleQuest(h) end
     mover:SetShown(not db.locked)
     moverHint:SetFormattedText(HINT, db.regular.x, db.regular.y)
@@ -3697,7 +3696,37 @@ function ns.np.bar(parent)
     f.resFrame = newBar(f, "enemyhealth", "plates")
     f.resFrame.res = true
     f.resFrame:Hide()
+    f.castBar = newBar(f, "targetcast", "plates")
+    f.castState = {}
+    f.castBar.castState = f.castState
+    f.castBar:Hide()
     return f
+end
+
+-- the cast bar: while the unit casts (or the bars are being placed), under the health bar, and
+-- under its power too when that hangs underneath
+function ns.np.layoutCast(f)
+    local c, cb, e = db.plates.bars.targetcast, f.castBar, db.plates.bars.enemyhealth
+    local on = (c.show and (f.castState.targetCasting == true or ns.previewing())) and true or false
+    cb:SetShown(on)
+    if not on then return end
+    layoutBar(cb, 1)
+    ns.fillTargetCast(cb)
+    cb:ClearAllPoints()
+    local below = (e.resource and e.resPlace == "outside" and e.resPoint == "BOTTOM") and f.resFrame or f
+    cb:SetPoint("TOP", below, "BOTTOM", c.x, c.y - db.plates.gap)
+end
+
+-- a plate that comes into view mid-cast: what it is casting now. A secret answer means yes.
+function ns.np.castNow(f, unit)
+    local function busy(fn)
+        local ok, n = pcall(fn, unit)
+        if not ok then return false end
+        local okT, yes = pcall(function() return n ~= nil end)
+        return not okT or yes
+    end
+    f.castState.targetChannelling = busy(UnitChannelInfo)
+    f.castState.targetCasting = f.castState.targetChannelling or busy(UnitCastingInfo)
 end
 
 function ns.np.layout(f)
@@ -3714,6 +3743,7 @@ function ns.np.layout(f)
     ns.layoutRes(f)
     ns.layoutAuras(f)
     ns.layoutBadges(f)
+    ns.np.layoutCast(f)
 end
 
 -- Blizzard's own plate: invisible while ours is on it, and kept so when the game sets its alpha
@@ -3736,7 +3766,8 @@ function ns.np.add(unit)
     if not ok or not plate or plate:IsForbidden() then return end
     local f = ns.np.bars[plate] or ns.np.bar(plate)
     ns.np.bars[plate], f.plate = f, plate
-    f.unit, f.resFrame.unit = unit, unit
+    f.unit, f.resFrame.unit, f.castBar.unit = unit, unit, unit
+    ns.np.castNow(f, unit)
     ns.np.units[unit] = f
     ns.np.blizz(plate, true)
     ns.np.layout(f)
@@ -3771,6 +3802,8 @@ function ns.np.previewBar()
     if not ns.np.preview then
         ns.np.preview = ns.np.bar(UIParent)
         ns.np.preview.unit, ns.np.preview.resFrame.unit = "target", "target"
+        ns.np.preview.castBar.unit = "target"
+        ns.np.preview.castState, ns.np.preview.castBar.castState = ns, ns -- your target's cast
         ns.np.preview:Hide()
     end
     return ns.np.preview
@@ -3779,7 +3812,9 @@ end
 ns.npEv = CreateFrame("Frame")
 for _, e in ipairs({ "NAME_PLATE_UNIT_ADDED", "NAME_PLATE_UNIT_REMOVED", "UNIT_HEALTH", "UNIT_MAXHEALTH",
     "UNIT_POWER_FREQUENT", "UNIT_MAXPOWER", "UNIT_DISPLAYPOWER", "UNIT_AURA", "UNIT_NAME_UPDATE", "UNIT_LEVEL",
-    "UNIT_FACTION", "UNIT_CLASSIFICATION_CHANGED" }) do
+    "UNIT_FACTION", "UNIT_CLASSIFICATION_CHANGED", "UNIT_SPELLCAST_START", "UNIT_SPELLCAST_STOP",
+    "UNIT_SPELLCAST_FAILED", "UNIT_SPELLCAST_INTERRUPTED", "UNIT_SPELLCAST_SUCCEEDED", "UNIT_SPELLCAST_DELAYED",
+    "UNIT_SPELLCAST_CHANNEL_START", "UNIT_SPELLCAST_CHANNEL_STOP", "UNIT_SPELLCAST_CHANNEL_UPDATE" }) do
     pcall(ns.npEv.RegisterEvent, ns.npEv, e)
 end
 ns.npEv:SetScript("OnEvent", function(_, event, unit)
@@ -3799,6 +3834,9 @@ ns.npEv:SetScript("OnEvent", function(_, event, unit)
     elseif event == "UNIT_AURA" then
         safe(ns.layoutAuras, f)
         safe(ns.layoutTag, f) -- eating, drinking
+    elseif event:find("^UNIT_SPELLCAST_") then
+        ns.castState(f.castState, event) -- DELAYED / CHANNEL_UPDATE: the same cast, new times
+        safe(ns.np.layoutCast, f)
     else
         safe(ns.np.layout, f)
     end
@@ -4693,7 +4731,7 @@ function hn.refresh()
     hn.panel:Hide()
     -- ammo coming or going changes the layout; otherwise the bar just fills
     if frames.ammo:IsShown() ~= (BARS.ammo.state() and db.regular.bars.ammo.show) then return changed() end
-    for _, set in ipairs({ frames, plateFrames }) do
+    for _, set in ipairs({ frames }) do
         if set.pethealth:IsShown() then safe(ns.layoutHappy, set.pethealth) end
         if set.ammo:IsShown() then safe(ns.fill, set.ammo) end
     end
@@ -5099,12 +5137,14 @@ changed = function()
 end
 
 local function L() return db[mode] end
--- Plates edits one bar, enemy health; the bar picked for the other layouts comes back after
+-- The nameplate has two bars of its own; the bar picked on Combat Display comes back after
+ns.PLATE_BARS = { "enemyhealth", "targetcast" }
+ns.PLATE_LABELS = { enemyhealth = "Health", targetcast = "Cast bar" }
 function ns.platesMode(on, other)
     if on and mode ~= "plates" then ns.barPicked = selected end
     if not on and mode == "plates" then selected = ns.barPicked or selected end
     mode = on and "plates" or other
-    if on then selected = "enemyhealth" end
+    if on and not ns.PLATE_LABELS[selected] then selected = "enemyhealth" end
 end
 local function cur() return L().bars[selected] end
 local function onRefresh(fn) refreshers[#refreshers + 1] = fn end
@@ -5367,7 +5407,7 @@ end
 
 useProfile = function(name)
     store.profiles[name] = merge(store.profiles[name] or ns.freshProfile(name), DEFAULTS)
-    for _, which in ipairs({ "regular", "nameplate" }) do
+    for _, which in ipairs({ "regular", "plates" }) do
         ns.repairOrder(store.profiles[name][which], DEFAULTS[which].order)
     end
     store.chars[charKey] = name
@@ -5387,7 +5427,7 @@ useProfile = function(name)
     for _, bar in ipairs(AB.bars) do merge(bar, ns.AB_BAR) end
     local P = db.colors
     if not P.bordersSet then -- a bar that already had a border or rounded corners keeps them as its own
-        for _, m in ipairs({ "regular", "nameplate" }) do
+        for _, m in ipairs({ "regular", "plates" }) do
             for _, b in pairs(db[m].bars) do
                 if type(b) == "table" and ((b.borderSize or 0) ~= 0 or (b.radius or 0) ~= 0) then b.borderFrom = "own" end
             end
@@ -5395,7 +5435,7 @@ useProfile = function(name)
         P.bordersSet = true
     end
     if not P.texturesSet then -- a bar with a texture other than the first keeps it as its own
-        for _, m in ipairs({ "regular", "nameplate" }) do
+        for _, m in ipairs({ "regular", "plates" }) do
             for _, b in pairs(db[m].bars) do
                 if type(b) == "table" and b.texture and b.texture ~= TEXTURES[1][2] then b.textureFrom = "own" end
             end
@@ -5411,7 +5451,7 @@ useProfile = function(name)
         for kind, key in pairs({ harm = "harmColor", heal = "healColor", locked = "lockedColor" }) do
             if type(tc[key]) == "table" then P.cast[kind] = { unpack(tc[key]) } end
         end
-        for _, m in ipairs({ "regular", "nameplate" }) do
+        for _, m in ipairs({ "regular", "plates" }) do
             local bars = db[m].bars
             bars.power.powerColors = nil
             bars.targetcast.harmColor, bars.targetcast.healColor, bars.targetcast.lockedColor = nil, nil, nil
@@ -5431,7 +5471,7 @@ useProfile = function(name)
         end
         db.regular.combatIcon = nil
     end
-    for _, m in ipairs({ "regular", "nameplate" }) do
+    for _, m in ipairs({ "regular", "plates" }) do
         for _, key in ipairs({ "health", "power", "enemyhealth", "experience" }) do
             local b = db[m].bars[key]
             if not b.textsSet then -- the one text it had becomes "current", as it looked
@@ -6064,7 +6104,7 @@ local function buildConfig()
     local function entry(key, text, m)
         local b = button(cfg, text, 122, 12, y, function()
             section = key
-            ns.platesMode(key == "nameplates" and sub == "plates", m or "regular")
+            ns.platesMode(key == "nameplates", m or "regular")
             changed()
         end, true)
         onRefresh(function() if section == key then b:LockHighlight() else b:UnlockHighlight() end end)
@@ -6077,7 +6117,7 @@ local function buildConfig()
     y = y - 12
     shelf("Interface")
     for _, e in ipairs({ { "combat", "Combat Display" }, { "actionbars", "Action bars" }, { "bags", "Bags" },
-        { "nameplates", "Nameplates", "nameplate" },
+        { "nameplates", "Nameplates" },
         { "buffs", "Buff check" }, { "other", "Other" }, { "barstack", "Bar Stack" } }) do
         entry(e[1], e[2], e[3])
     end
@@ -6131,10 +6171,9 @@ local function buildConfig()
     local title = label(cfg, "Combat Display", "GameFontNormalLarge")
     title:SetPoint("TOPLEFT", 150, -72)
     local tabs = {}
-    for i, t in ipairs({ { "plates", "Plates" }, { "bars", "Target bars" }, { "quest", "Quest mobs" } }) do
-        tabs[i] = button(cfg, t[2], 96, 150 + (i - 1) * 100, -66, function()
+    for i, t in ipairs({ { "plates", "Nameplate" }, { "quest", "Quest mobs" } }) do
+        tabs[i] = button(cfg, t[2], 110, 150 + (i - 1) * 114, -66, function()
             sub = t[1]
-            ns.platesMode(sub == "plates", "nameplate")
             changed()
         end)
         onRefresh(function() if sub == t[1] then tabs[i]:LockHighlight() else tabs[i]:UnlockHighlight() end end)
@@ -6185,15 +6224,17 @@ local function buildConfig()
         if section == "nameplates" then tabNote:SetPoint("LEFT", tabs[#tabs], "RIGHT", 14, 0)
         else tabNote:SetPoint("LEFT", title, "RIGHT", 14, -1) end
         tabNote:SetText(mode == "regular" and "Health, power and combo bars on your screen."
-            or mode == "plates" and "Every nameplate as a bar of yours. Nameplates on: V key."
-            or "Bars under your target's nameplate.")
+            or "Every enemy's nameplate, your way. Nameplates on: V key.")
     end)
 
     -- Bars page, column 1: which bars, and where the group sits
     local bars = group(barsPage, COL[1], TOP, 202, "Bars, top to bottom")
     for i = 1, #db.regular.order do
         local y = bars:row(ROW)
-        local sel = button(barsPage, "", 100, bars.x, y, function() selected = L().order[i]; changed() end, true)
+        local sel = button(barsPage, "", 100, bars.x, y, function()
+            selected = mode == "plates" and ns.PLATE_BARS[i] or L().order[i]
+            changed()
+        end, true)
         local up = button(barsPage, "Up", 34, bars.x + 104, y, function() move(i, -1) end)
         local down = button(barsPage, "Down", 40, bars.x + 140, y, function() move(i, 1) end)
         up:SetHeight(22)
@@ -6201,18 +6242,18 @@ local function buildConfig()
         sel:SetHeight(22)
         onRefresh(function()
             -- Plates: one bar, enemy health, on every nameplate
-            local one = mode == "plates"
-            sel:SetShown(not one or i == 1)
+            local one = mode == "plates" -- the nameplate's two bars: health, then its cast bar
+            sel:SetShown(not one or ns.PLATE_BARS[i] ~= nil)
             up:SetShown(not one)
             down:SetShown(not one)
-            local key = one and "enemyhealth" or L().order[i]
-            sel:SetText(one and "Nameplate" or BARS[key].label)
+            local key = one and (ns.PLATE_BARS[i] or "enemyhealth") or L().order[i]
+            sel:SetText(one and ns.PLATE_LABELS[key] or BARS[key].label)
             if key == selected then sel:LockHighlight() else sel:UnlockHighlight() end
         end)
     end
     local gapSlider = slider(barsPage, "Gap between bars", bars.x, bars:row(SLIDER), 0, 30,
         function() return L().gap end, function(v) L().gap = v end)
-    onRefresh(function() gapSlider:SetShown(mode ~= "plates") end)
+    onRefresh(function() bars.title:SetText(mode == "plates" and "Nameplate" or "Bars, top to bottom") end)
     bars:close()
 
     local grp = group(barsPage, COL[1], bars.cursor - 20, 202, "Group position")
@@ -6249,8 +6290,11 @@ local function buildConfig()
 
     -- Column 2: the selected bar's size and spacing
     local function selFrame()
-        if mode == "plates" then return ns.np.previewBar() end
-        return (mode == "regular" and frames or plateFrames)[selected]
+        if mode == "plates" then
+            local p = ns.np.previewBar()
+            return selected == "targetcast" and p.castBar or p
+        end
+        return frames[selected]
     end
     local size = group(barsPage, COL[2], TOP, 202, "")
     onRefresh(function()
@@ -6262,8 +6306,10 @@ local function buildConfig()
     end)
     local showCheck = check(barsPage, "Show", size.x, size:row(ROW), function() return cur().show end,
         function(v) cur().show = v end)
-    onRefresh(function() showCheck.Text:SetText(mode == "plates" and "Replace Blizzard's nameplates" or "Show") end)
-    ns.np.wantPreview = function() return cfg:IsShown() and section == "nameplates" and sub ~= "bars" end
+    onRefresh(function()
+        showCheck.Text:SetText(mode == "plates" and selected == "enemyhealth" and "Replace Blizzard's nameplates" or "Show")
+    end)
+    ns.np.wantPreview = function() return cfg:IsShown() and section == "nameplates" end
     local widthSlider = slider(barsPage, "Width", size.x, size:row(SLIDER), 10, 600,
         function() return cur().width end, function(v) cur().width = v end)
     local heightSlider = slider(barsPage, "Height", size.x, size:row(SLIDER), 2, 100,
@@ -8188,7 +8234,7 @@ ft.ticker:SetScript("OnUpdate", function(self, elapsed)
         changed()
     end
     if not (ft.startedAt or ns.previewing()) then return end
-    for _, set in ipairs({ frames, plateFrames }) do
+    for _, set in ipairs({ frames }) do
         local f = set.flight
         if f and f:IsShown() then safe(ns.fill, f) end
     end
@@ -8198,7 +8244,6 @@ local function fillShown(...)
     for i = 1, select("#", ...) do
         local key = select(i, ...)
         if frames[key]:IsShown() then safe(ns.fill, frames[key]) end
-        if plateFrames[key]:IsShown() then safe(ns.fill, plateFrames[key]) end
     end
 end
 
@@ -8209,7 +8254,7 @@ ns.totPoll:SetScript("OnUpdate", function(self, elapsed)
     self.wait = self.wait - (elapsed or 0)
     if self.wait > 0 then return end
     self.wait = 0.2
-    for _, set in ipairs({ frames, plateFrames }) do
+    for _, set in ipairs({ frames }) do
         if set.tothealth:IsShown() then safe(ns.fill, set.tothealth) end
     end
 end)
@@ -8229,7 +8274,7 @@ ev:SetScript("OnEvent", function(_, event, unit, arg2, arg3)
         -- every profile, not just the one in use: a bar added since it was saved belongs on all
         -- of them, and switching to one later should not be the first time it appears
         for _, prof in pairs(store.profiles) do
-            for _, which in ipairs({ "regular", "nameplate" }) do
+            for _, which in ipairs({ "regular", "plates" }) do
                 ns.repairOrder(prof[which], DEFAULTS[which].order)
             end
         end
@@ -8280,7 +8325,7 @@ ev:SetScript("OnEvent", function(_, event, unit, arg2, arg3)
         useProfile(store.profiles[mine or ""] and mine or classProfile)
         placeMini()
     elseif event == "UNIT_AURA" or event == "UNIT_FACTION" or event == "PLAYER_UPDATE_RESTING" then
-        for _, set in ipairs({ frames, plateFrames }) do
+        for _, set in ipairs({ frames }) do
             if set.enemyhealth:IsShown() and unit == "target" then
                 if event == "UNIT_AURA" then
                     safe(ns.layoutAuras, set.enemyhealth)
@@ -8332,7 +8377,7 @@ ev:SetScript("OnEvent", function(_, event, unit, arg2, arg3)
         fillShown("enemyhealth")
     elseif event == "UNIT_POWER_FREQUENT" then
         if unit == "target" then -- only the enemy resource bars read your target's power
-            for _, set in ipairs({ frames, plateFrames }) do
+            for _, set in ipairs({ frames }) do
                 if set.enemyhealth.resFrame:IsShown() then safe(ns.fill, set.enemyhealth.resFrame) end
             end
         else
