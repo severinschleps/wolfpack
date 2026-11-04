@@ -511,6 +511,7 @@ for _, v in ipairs({ "11509", "16001", "20506", "50504", "120105" }) do
 end
 assert(loadfile("WolfpackAddon/WolfpackAddon.lua"))("WolfpackAddon", ns)
 assert(loadfile("WolfpackAddon/Macros.lua"))("WolfpackAddon", ns) -- next in the toc
+assert(loadfile("WolfpackAddon/Trinkets.lua"))("WolfpackAddon", ns)
 local function fire(e, ...) evFrame._scripts.OnEvent(evFrame, e, ...) end
 -- each class logs in as its own character; once S.perClass is set, on a profile of its own (named
 -- after the class, as the tests below were written for), else on Alpha like a real first login
@@ -4234,6 +4235,78 @@ do
     sw.classes[S.class].off, prof().locked = false, true
     fire("UNIT_MAXPOWER")
     assert(ns.swingDialog and ns.swingButton, "the per-class window, from the swing timer's settings")
+end
+
+-- Trinket manager: one list, top first; a slot on cooldown pulls the next ready one
+do
+    local T, O = ns.trink, prof().trinkets
+    local worn, cds, equips = { [13] = 101, [14] = 102 }, {}, {}
+    local bag = { 103, 900 } -- a trinket and something else
+    local keep = { GetInventoryItemID, C_Container.GetContainerItemID, C_Container.GetContainerNumSlots,
+        C_Container.GetItemCooldown, C_Item.GetItemInfoInstant, EquipItemByName }
+    GetInventoryItemID = function(_, s) return worn[s] end
+    C_Container.GetContainerNumSlots = function(b) return b == 0 and #bag or 0 end
+    C_Container.GetContainerItemID = function(b, i) return b == 0 and bag[i] or nil end
+    C_Item.GetItemInfoInstant = function(id) return id, nil, nil, id < 900 and "INVTYPE_TRINKET" or "INVTYPE_HEAD" end
+    C_Container.GetItemCooldown = function(id) local c = cds[id]; if c then return c[1], c[2], 1 end return 0, 0, 1 end
+    EquipItemByName = function(id, slot)
+        equips[#equips + 1] = id .. ">" .. slot
+        for s, x in pairs(worn) do if x == id then worn[s] = nil end end
+        for i, x in ipairs(bag) do if x == id then table.remove(bag, i) end end
+        if worn[slot] then bag[#bag + 1] = worn[slot] end
+        worn[slot] = id
+    end
+    S.time, T.busyUntil, T.hold, T.queued = 5000, nil, {}, {}
+    O.queue = {}
+    assert(table.concat(T.list(), ",") == "101,102,103", "your trinkets, worn and in the bags; nothing else")
+    -- you put 103 first: the slot not wearing a top-two one gets it
+    O.queue = { 103, 101, 102 }
+    T.apply()
+    assert(equips[1] == "103>14" and worn[13] == 101 and worn[14] == 103, "the top two worn")
+    -- 103 used: 2 min cooldown. The next ready one comes in; 103 back once it is ready
+    cds[103] = { 5000, 120 }
+    T.busyUntil = nil; T.apply()
+    assert(worn[14] == 102, "on cooldown: the next of the list")
+    cds[102] = { 5005, 30 } -- just put on: locked 30 s, which counts as ready
+    S.time = 5100; T.busyUntil = nil; T.apply()
+    assert(worn[14] == 103, "within 30 s of ready: the higher one back")
+    -- picked by hand: worn until it is used, whatever the list says
+    cds[102], cds[103] = nil, nil
+    T.pick(1, 102)
+    assert(worn[13] == 102 and T.hold[1], "picked: worn in that slot")
+    T.busyUntil = nil; T.apply()
+    assert(worn[13] == 102, "held against the list")
+    cds[102] = { 5200, 90 }; S.time = 5201
+    T.busyUntil = nil; T.apply()
+    assert(not T.hold[1] and worn[13] == 101, "used: the list takes over again")
+    -- the key on a trinket on cooldown: the next; in combat, once combat ends
+    O.queue, cds[103], cds[102] = { 101, 102, 103 }, { 5201, 120 }, nil
+    worn[13], worn[14], bag = 103, 101, { 102 }
+    O.auto = false
+    S.combat = true
+    T.press(T.buttons[1])
+    assert(worn[13] == 103 and T.queued[1], "in combat: asked for, not done")
+    S.combat = false
+    T.t, T.n = 1, 0
+    T.tick(nil, 0)
+    assert(worn[13] == 102 and not T.queued[1], "combat over: the next ready one")
+    O.auto = true
+    -- the moving arrows, and the import
+    T.move(102, -1)
+    assert(table.concat(T.list(), ",") == "102,101,103", "one up")
+    assert(table.concat(T.clean({ 5, "x", 2.5, -1, 7 }), ",") == "5,7", "an imported list: item IDs only")
+    -- a key on each: bound only while the buttons show
+    prof().actionbars.binds["trinket:1"] = "F"
+    O.show = false; ns.abBinds()
+    assert(S.binds.F ~= "WolfpackTrinket1", "hidden: no key")
+    O.show = true; ns.abBinds()
+    assert(S.binds.F == "WolfpackTrinket1", "shown: the key uses trinket 1")
+    T.sync()
+    assert(T.holder:IsShown() and T.buttons[2]._point, "the two buttons, placed")
+    O.show, prof().actionbars.binds["trinket:1"] = false, nil
+    T.sync(); ns.abBinds()
+    GetInventoryItemID, C_Container.GetContainerItemID, C_Container.GetContainerNumSlots,
+        C_Container.GetItemCooldown, C_Item.GetItemInfoInstant, EquipItemByName = unpack(keep)
 end
 
 realPrint("smoke ok")

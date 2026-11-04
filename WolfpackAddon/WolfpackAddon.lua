@@ -452,6 +452,9 @@ DEFAULTS.micro = { show = false, anchor = "screen", point = "BOTTOMRIGHT", side 
 DEFAULTS.tooltip = { mode = "game", point = "BOTTOMRIGHT", x = -100, y = 120 }
 -- the macro library (Macros.lua): in the profile, so it travels in a string and a child inherits it
 DEFAULTS.macros = { tabs = {}, deleted = {} }
+-- the Trinket manager (Trinkets.lua): its two buttons, and queue, your trinkets by priority (item IDs)
+DEFAULTS.trinkets = { show = false, auto = true, point = "CENTER", x = 0, y = -220, size = 36, gap = 4,
+    vertical = false, flyout = "up", queue = {} }
 
 DEFAULTS.unitframes = { show = false, replace = true, fontSize = 10, power = true, powerHeight = 4,
     pets = true, petHeight = 14, roleIcon = true, marker = true,
@@ -3392,6 +3395,10 @@ function ns.abBinds()
             if key and b and b:GetName() then SetOverrideBindingClick(owner, true, key, b:GetName(), "LeftButton") end
         end
     end
+    for i, b in ipairs(ns.ab.buttons.trinket or {}) do -- the Trinket manager's two
+        local key = db.trinkets.show and db.actionbars.binds["trinket:" .. i]
+        if key then SetOverrideBindingClick(owner, true, key, b:GetName(), "LeftButton") end
+    end
 end
 
 -- Quick keybind mode: hover a button and press a key to bind it there, Escape to unbind; Escape
@@ -6188,6 +6195,7 @@ changed = function()
     safe(ns.micro.sync)
     safe(ns.tip.sync)
     safe(ns.blizzCombo)
+    if ns.trink then safe(ns.trink.sync) end
     safe(ns.tip.preview, cfg and cfg:IsShown() and section == "tooltip")
     -- the Unit frames page's stand-ins: as many as its tab says (General: 5), set before they're laid out
     ns.uf.preview = section == "unitframes" and (tonumber(ns.ufTab) or 5) or nil
@@ -6831,7 +6839,7 @@ local function sanitize(src, template)
             for slot, key in pairs(type(v) == "table" and v or {}) do
                 local n = tonumber(slot)
                 local kind, i = tostring(slot):match("^(%a+):(%d+)$")
-                local ok = (n and n >= 1 and n <= ns.AB_POOL) or ((kind == "stance" or kind == "pet") and tonumber(i) <= 10)
+                local ok = (n and n >= 1 and n <= ns.AB_POOL) or ((kind == "stance" or kind == "pet") and tonumber(i) <= 10) or (kind == "trinket" and tonumber(i) <= 2)
                 if ok and type(key) == "string" and #key <= 40 then out.binds[n and tostring(n) or slot] = key end
             end
         elseif k == "hover" then -- a map: only known elements, only true
@@ -6872,6 +6880,8 @@ local function sanitize(src, template)
             end
         elseif k == "macros" then
             out.macros = ns.mac.clean(v)
+        elseif k == "queue" then
+            out.queue = ns.trink.clean(v)
         elseif k == "platesTarget" and v == nil then -- from before the targeted look: the standard one
             out[k] = sanitize(src.plates, def)
         elseif type(def) == "table" then
@@ -7510,8 +7520,8 @@ local function buildConfig()
     entry("colors", "Colors & borders")
     y = y - 12
     shelf("Interface")
-    for _, e in ipairs({ { "combat", "Combat Display" }, { "actionbars", "Action bars" }, { "bags", "Bags" },
-        { "nameplates", "Nameplates" }, { "unitframes", "Unit frames" },
+    for _, e in ipairs({ { "combat", "Combat Display" }, { "actionbars", "Action bars" },
+        { "trinkets", "   Trinket manager" }, { "bags", "Bags" }, { "nameplates", "Nameplates" }, { "unitframes", "Unit frames" },
         { "micro", "Micro menu" }, { "tooltip", "Tooltip" }, { "macros", "Macros" }, { "other", "Other" }, { "barstack", "Bar Stack" } }) do
         entry(e[1], e[2], e[3])
     end
@@ -7544,8 +7554,9 @@ local function buildConfig()
     ns.pages = { combat = barsPage, nameplates = questPage, other = otherPage, profile = profilePage, colors = colorPage, actionbars = actionPage,
         bags = CreateFrame("Frame", nil, content), unitframes = CreateFrame("Frame", nil, content),
         macros = CreateFrame("Frame", nil, content), micro = CreateFrame("Frame", nil, content),
-        tooltip = CreateFrame("Frame", nil, content) }
+        tooltip = CreateFrame("Frame", nil, content), trinkets = CreateFrame("Frame", nil, content) }
     ns.pages.tooltip:SetAllPoints(barsPage)
+    ns.pages.trinkets:SetAllPoints(barsPage)
     ns.pages.macros:SetAllPoints(barsPage)
     ns.pages.micro:SetAllPoints(barsPage)
     ns.pages.bags:SetAllPoints(barsPage)
@@ -7590,6 +7601,7 @@ local function buildConfig()
             or section == "macros" and "Macros"
             or section == "micro" and "Micro menu"
             or section == "tooltip" and "Tooltip"
+            or section == "trinkets" and "Trinket manager"
             or "Combat Display")
         for _, t in ipairs(tabs) do t:SetShown(np) end
         local trail = np and sub == "targeted" and ns.npTrail
@@ -7605,6 +7617,7 @@ local function buildConfig()
         ns.pages.macros:SetShown(section == "macros")
         ns.pages.micro:SetShown(section == "micro")
         ns.pages.tooltip:SetShown(section == "tooltip")
+        ns.pages.trinkets:SetShown(section == "trinkets")
         ns.pages.unitframes:SetShown(uf and ns.ufTab == "general")
         local page = section == "barstack" and bsPage or ns.pages[section]
         if uf and ns.ufTab ~= "general" then page = ns.pages["uf" .. ns.ufTab] end
@@ -8515,6 +8528,46 @@ local function buildConfig()
         swatch(pg, "Button background", c3.x, c3:row(SWATCH), function() return O().buttonBg end)
         swatch(pg, "Border color", c3.x, c3:row(SWATCH), function() return O().borderColor end)
         c3:close()
+    end)()
+
+    ----------------------------------------------------------------------------------
+    -- Trinket manager page (Trinkets.lua; a function of its own: buildConfig's 200 locals)
+    ----------------------------------------------------------------------------------
+    ;(function()
+        local pg, O = ns.pages.trinkets, function() return db.trinkets end
+        local c1 = group(pg, COL[1], TOP, 202, "Trinket manager")
+        check(pg, "Show the two trinket buttons", c1.x, c1:row(ROW), function() return O().show end,
+            function(v) O().show = v end)
+        check(pg, "Swap automatically", c1.x, c1:row(ROW), function() return O().auto end,
+            function(v) O().auto = v end)
+        local n = label(pg, "Your trinkets form one list, top first: each button wears the first ready one. "
+            .. "Used and on cooldown, it pulls the next; ready again, the higher one comes back. Off: only a "
+            .. "press on a trinket that is on cooldown pulls the next.\n\nHover a button for the list: the "
+            .. "arrows order it, a click wears that one here until you use it.\n\nThe game allows no gear "
+            .. "changes in combat: those happen as it ends.", "GameFontDisableSmall")
+        n:SetPoint("TOPLEFT", c1.x, c1:row(190))
+        n:SetWidth(178)
+        n:SetJustifyH("LEFT")
+        button(pg, "Set keys (quick keybind mode)", 178, c1.x, c1:row(BUTTON), function()
+            cfg:Hide()
+            ns.abBindMode(true)
+        end)
+        c1:close()
+        local c2 = group(pg, COL[2], TOP, 202, "Position and look")
+        dropdown(pg, "Point of the screen", c2.x, c2:row(DROP), { { "Top left", "TOPLEFT" }, { "Top", "TOP" },
+            { "Top right", "TOPRIGHT" }, { "Left", "LEFT" }, { "Center", "CENTER" }, { "Right", "RIGHT" },
+            { "Bottom left", "BOTTOMLEFT" }, { "Bottom", "BOTTOM" }, { "Bottom right", "BOTTOMRIGHT" } },
+            function() return O().point end, function(v) O().point = v end, textPreview)
+        slider(pg, "X offset", c2.x, c2:row(SLIDER), -1600, 1600, function() return O().x end, function(v) O().x = v end)
+        slider(pg, "Y offset", c2.x, c2:row(SLIDER), -1000, 1000, function() return O().y end, function(v) O().y = v end)
+        slider(pg, "Button size", c2.x, c2:row(SLIDER), 20, 80, function() return O().size end, function(v) O().size = v end)
+        slider(pg, "Gap", c2.x, c2:row(SLIDER), 0, 20, function() return O().gap end, function(v) O().gap = v end)
+        check(pg, "One above the other", c2.x, c2:row(ROW), function() return O().vertical end,
+            function(v) O().vertical = v end)
+        dropdown(pg, "The list opens", c2.x, c2:row(DROP), { { "Above", "up" }, { "Below", "down" },
+            { "To the left", "left" }, { "To the right", "right" } }, function() return O().flyout end,
+            function(v) O().flyout = v end, textPreview)
+        c2:close()
     end)()
 
     ----------------------------------------------------------------------------------
@@ -10139,7 +10192,9 @@ ev:SetScript("OnEvent", function(_, event, unit, arg2, arg3)
         if ns.micro.pending then safe(ns.micro.sync) end
     else
         if event == "PLAYER_ENTERING_WORLD" and ns.mac then ns.mac.ready = true; safe(ns.mac.sync) end -- the macro library
-        if event == "PLAYER_ENTERING_WORLD" then safe(ns.micro.sync); safe(ns.tip.sync); safe(ns.blizzCombo) end
+        if event == "PLAYER_ENTERING_WORLD" then
+            safe(ns.micro.sync); safe(ns.tip.sync); safe(ns.blizzCombo); safe(ns.trink.sync)
+        end
         if event == "NAME_PLATE_UNIT_ADDED" then safe(plateAdded, unit) end
         if event == "NAME_PLATE_UNIT_REMOVED" then safe(plateRemoved, unit) end
         -- form, max, target or nameplate changes: re-layout (target change moves the nameplate bars)
