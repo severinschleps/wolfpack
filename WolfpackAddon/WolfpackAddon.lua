@@ -337,6 +337,7 @@ local function layoutDefaults(show, x, y, gap, width, h1, h2, h3, h4, h5, h6, h7
     -- absorb shields, striped over the health
     for _, key in ipairs({ "health", "enemyhealth" }) do
         l.bars[key].dots, l.bars[key].dotsColor = true, { 0, 0, 0, 0.5 }
+        l.bars[key].dotsTexture, l.bars[key].dotsHideText = "bar", false -- "bar": the bar's own texture
         l.bars[key].shield, l.bars[key].shieldColor = true, { 1, 1, 1, 0.5 }
     end
     l.bars.power.cost, l.bars.power.costColor = false, { 1, 1, 1, 0.35 } -- what the cast will take
@@ -7613,7 +7614,7 @@ function ns.toggleDialog(d)
     local show = not d:IsShown()
     for _, o in ipairs({ ns.resDialog, ns.tagDialog, ns.auraDialog, ns.textDialog, ns.iconDialog,
         ns.statusDialog, ns.fsrDialog, ns.happyDialog, ns.drinkDialog, ns.eatDialog, ns.wbDialog,
-        ns.circleDialog }) do o:Hide() end
+        ns.circleDialog, ns.dotsDialog }) do o:Hide() end
     d:SetShown(show)
 end
 
@@ -8156,10 +8157,8 @@ local function buildConfig()
     local healColor = swatch(barsPage, "Heal color", only.x, only:row(0) - ROW,
         function() return cur().healColor or { 0, 0, 0, 1 } end)
     -- both health bars: DoT damage still to come, under their buttons
-    local dotsCheck = check(barsPage, "Show DoT damage left", only.x, only:row(0) - ROW - 4 * BUTTON,
-        function() return cur().dots end, function(v) cur().dots = v end)
-    local dotsColor = swatch(barsPage, "DoT color", only.x, only:row(0) - 2 * ROW - 4 * BUTTON,
-        function() return cur().dotsColor or { 0, 0, 0, 1 } end)
+    local dotsButton = button(barsPage, "DoT damage left", 186, only.x, only:row(0) - ROW - 4 * BUTTON,
+        function() ns.toggleDialog(ns.dotsDialog) end)
     local costCheck = check(barsPage, "Show the cast's cost", only.x, only:row(0),
         function() return cur().cost end, function(v) cur().cost = v end)
     local costColor = swatch(barsPage, "Cost color", only.x, only:row(0) - ROW,
@@ -8226,8 +8225,8 @@ local function buildConfig()
         healCheck:SetShown(selected == "health")
         healColor:SetShown(selected == "health")
         local dotsOn = (selected == "health" or selected == "enemyhealth") and ns.dotsOn
-        dotsCheck:SetShown(dotsOn)
-        dotsColor:SetShown(dotsOn)
+        dotsButton:SetShown(dotsOn)
+        if not (dotsOn and (section == "combat" or section == "nameplates")) then ns.dotsDialog:Hide() end
         shieldCheck:SetShown(selected == "health" or selected == "enemyhealth")
         shieldColor:SetShown(selected == "health" or selected == "enemyhealth")
         costCheck:SetShown(selected == "power")
@@ -9716,6 +9715,30 @@ local function buildConfig()
         n:SetWidth(198)
         n:SetJustifyH("LEFT")
     end
+
+    -- DoT damage left dialog (both health bars): the stretch's color and texture, its number
+    local dd = ns.ui.Window(nil, 230, 300, "DoT damage left")
+    dd:SetParent(cfg)
+    dd:ClearAllPoints()
+    dd:SetPoint("TOPLEFT", cfg, "TOPRIGHT", 12, 0)
+    dd:Hide()
+    ns.dotsDialog = dd
+    ry = -48
+    check(dd, "Show", 16, rrow(ROW), function() return cur().dots end, function(v) cur().dots = v end)
+    swatch(dd, "Color", 16, rrow(SWATCH), function() return cur().dotsColor or { 0, 0, 0, 1 } end)
+    dropdown(dd, "Texture", 16, rrow(DROP), function()
+        local list = { { "Same as the bar", "bar" } }
+        for _, t in ipairs(TEXTURES) do list[#list + 1] = t end
+        return list
+    end, function() return cur().dotsTexture end, function(v) cur().dotsTexture = v end,
+        function(b, item) return (item[2] == "bar" and textPreview or texturePreview)(b, item) end)
+    check(dd, "Hide the number", 16, rrow(ROW), function() return cur().dotsHideText end,
+        function(v) cur().dotsHideText = v end)
+    local dn = label(dd, "The damage your DoTs will still do, darker over the end of the health. "
+        .. "A skull shows while they will finish it off. The number takes the bar's font.", "GameFontDisableSmall")
+    dn:SetPoint("TOPLEFT", 16, rrow(60))
+    dn:SetWidth(198)
+    dn:SetJustifyH("LEFT")
 
     -- Mana regen spinner dialog (the setting itself lives with the other page's, db.other.fsr)
     local fd = ns.ui.Window(nil, 230, 560, "Mana regen spinner")

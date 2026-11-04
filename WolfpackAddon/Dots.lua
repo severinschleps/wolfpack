@@ -316,7 +316,7 @@ function ns.layoutDots(f, c)
     end
     local d, col = f.dot, c.dotsColor
     d:SetFrameLevel(seg:GetFrameLevel() + 2) -- over the heals, should both meet
-    d:SetStatusBarTexture(c.texture)
+    d:SetStatusBarTexture((c.dotsTexture or "bar") == "bar" and c.texture or c.dotsTexture)
     d:SetStatusBarColor(col[1], col[2], col[3], col[4])
     d:SetSize(seg:GetWidth(), seg:GetHeight())
     d:ClearAllPoints()
@@ -327,10 +327,12 @@ function ns.layoutDots(f, c)
     local flags = c.outline and "OUTLINE" or ""
     if not d.text:SetFont(c.font, c.fontSize, flags) then d.text:SetFontObject(GameFontHighlightSmall) end
     d.text:SetTextColor(unpack(c.textColor))
+    d.text:SetShown(not c.dotsHideText)
     local s = math.min(h, 16)
     d.kill:SetSize(s, s)
     d.kill:ClearAllPoints()
-    d.kill:SetPoint("RIGHT", d.text, "LEFT", -1, 0)
+    -- no number: the skull sits right by the stretch
+    d.kill:SetPoint("RIGHT", c.dotsHideText and d:GetStatusBarTexture() or d.text, "LEFT", -1, 0)
     d.killBar:SetSize(10000, s)
     d.killBar:ClearAllPoints()
     d.killBar:SetPoint("LEFT", d.kill, "RIGHT", -10000, 0)

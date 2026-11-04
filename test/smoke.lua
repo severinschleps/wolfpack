@@ -3513,6 +3513,16 @@ do
     assert(eb.dot._value == 200, "between ticks: the next one is still to come")
     S.debuffs = {}; fire("UNIT_AURA", "target")
     assert(eb.dot._value == 0 and eb.dot.text._text == "", "dispelled: nothing left")
+    local ec = prof().regular.bars.enemyhealth
+    assert(eb.dot._tex == ec.texture and eb.dot.text._shown, "by default: the bar's texture, the number shown")
+    ec.dotsTexture, ec.dotsHideText = "Interface\\Buttons\\WHITE8X8", true
+    fire("UNIT_MAXPOWER")
+    assert(eb.dot._tex == "Interface\\Buttons\\WHITE8X8", "a texture of its own")
+    assert(not eb.dot.text._shown and eb.dot.kill._point[2] == eb.dot:GetStatusBarTexture(),
+        "the number hidden: the skull sits right by the stretch")
+    ec.dotsTexture, ec.dotsHideText = "bar", false
+    fire("UNIT_MAXPOWER")
+    assert(eb.dot.text._shown and eb.dot.kill._point[2] == eb.dot.text, "and back")
     tick("UNIT_DIED")
     assert(ns.dots["Mob-1"] == nil, "a death forgets the ticks")
     -- the tooltip's numbers: total, school, duration (and the tick gap where it says)
