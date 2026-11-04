@@ -116,7 +116,9 @@ local function barDefaults(show, width, height, r, g, b, text)
         font = FONTS[1][2], fontSize = 10, outline = false, textColor = { 1, 1, 1, 1 },
         colorMode = "custom", -- "custom", "class" or "power" (power bar only)
         borderSize = 0, borderColor = { 0, 0, 0, 1 }, borderMode = "bar", radius = 0, -- border: or "class", "custom"
-        borderFrom = "shared", -- width and corner radius: the profile's shared ones, or "own" (the two above)
+        -- width: the profile's shared one, or "own" (the one above). The radius is set for every
+        -- bar at once (the Colors page's Corners card), into both
+        borderFrom = "shared",
         borderTexture = "Interface\\Buttons\\WHITE8X8", -- with "own": the border's texture
         textureFrom = "shared", -- the profile's shared texture, or "own" (texture above)
     }
@@ -453,8 +455,10 @@ DEFAULTS.tooltip = { mode = "game", point = "BOTTOMRIGHT", x = -100, y = 120 }
 -- the macro library (Macros.lua): in the profile, so it travels in a string and a child inherits it
 DEFAULTS.macros = { tabs = {}, deleted = {} }
 -- the Trinket manager (Trinkets.lua): its two buttons, and queue, your trinkets by priority (item IDs)
+-- and the action bars' look (see ns.AB_BAR), plus hoverColor: the button under the mouse
 DEFAULTS.trinkets = { show = false, auto = true, point = "CENTER", x = 0, y = -220, size = 36, gap = 4,
-    vertical = false, flyout = "up", queue = {} }
+    vertical = false, flyout = "up", queue = {}, radius = 0, zoom = 8, borderSize = 1, borderColor = { 0, 0, 0, 1 },
+    keyFont = FONTS[1][2], keySize = 11, mouseover = false, hoverColor = { 1, 0.82, 0, 0.3 } }
 
 DEFAULTS.unitframes = { show = false, replace = true, fontSize = 10, power = true, powerHeight = 4,
     pets = true, petHeight = 14, roleIcon = true, marker = true,
@@ -3047,7 +3051,8 @@ function ns.abNew()
             if slot >= b.first and slot < b.first + ns.abCount(i) then taken = true end
         end
         if not taken then
-            local bar = merge({ first = slot, y = 60 + 44 * #bars }, ns.AB_BAR)
+            -- corners as the others' (one for all action buttons, on the Colors page)
+            local bar = merge({ first = slot, y = 60 + 44 * #bars, radius = bars[1] and bars[1].radius }, ns.AB_BAR)
             bars[#bars + 1] = bar
             bar.cols = math.min(12, ns.abRoom(#bars))
             return #bars
@@ -7975,9 +7980,7 @@ local function buildConfig()
     look:close()
 
     local bord = group(barsPage, COL[3], look.cursor - 20, 202, "Border")
-    local RADII = { { "None", 0 }, { "2 px", 2 }, { "4 px", 4 },
-        { "8 px", 8 }, { "16 px", 16 }, { "32 px", 32 }, { "Pill (50% of height)", "pill" } }
-    ns.borderFromMenu = dropdown(barsPage, "Width and corners", bord.x, bord:row(DROP), { { "Shared (Colors page)", "shared" },
+    ns.borderFromMenu = dropdown(barsPage, "Width and texture", bord.x, bord:row(DROP), { { "Shared (Colors page)", "shared" },
         { "Its own", "own" } }, function() return cur().borderFrom end, function(v) cur().borderFrom = v end, textPreview)
     local thick = slider(barsPage, "Thickness", bord.x, bord:row(SLIDER), 0, 10,
         function() return cur().borderSize end, function(v) cur().borderSize = v end)
@@ -7988,14 +7991,11 @@ local function buildConfig()
         get = function() return cur().borderMode end, set = function(v) cur().borderMode = v end,
         effective = function() return select(4, barColors(selFrame(), cur())) end,
     })
-    local corners = dropdown(barsPage, "Corner radius", bord.x, bord:row(DROP), RADII,
-        function() return cur().radius end, function(v) cur().radius = v end, textPreview)
     local edgeTex = dropdown(barsPage, "Border texture", bord.x, bord:row(DROP), TEXTURES,
         function() return cur().borderTexture end, function(v) cur().borderTexture = v end, texturePreview)
     ns.ownBorderTexMenu = edgeTex
     onRefresh(function()
         thick:SetShown(cur().borderFrom == "own")
-        corners:SetShown(cur().borderFrom == "own")
         edgeTex:SetShown(cur().borderFrom == "own")
     end)
     bord:close()
@@ -8123,7 +8123,6 @@ local function buildConfig()
 
     local QUEST_SPOT_LIST = {}
     for _, k in ipairs(ns.QUEST_SPOT_ORDER) do QUEST_SPOT_LIST[#QUEST_SPOT_LIST + 1] = { ns.QUEST_SPOTS[k][1], k } end
-    local RADII = { { "None", 0 }, { "2 px", 2 }, { "4 px", 4 }, { "8 px", 8 }, { "Pill (50% of height)", "pill" } }
     for i, kind in ipairs({ { "kill", "Kill it (sword)", "The bag" }, { "loot", "Drops a quest item (bag)", "The sword" } }) do
         local function q() return db.quest[kind[1]] end
         local g = group(questPage, COL[i + 1], TOP, 202, kind[2])
@@ -8158,8 +8157,6 @@ local function buildConfig()
             function(v) q().countY = v end)
         swatch(questPage, "Number color", n.x, n:row(SWATCH), function() return q().textColor end)
         swatch(questPage, "Background", n.x, n:row(SWATCH), function() return q().bg end)
-        dropdown(questPage, "Background radius", n.x, n:row(DROP), RADII,
-            function() return q().radius end, function(v) q().radius = v end, textPreview)
         slider(questPage, "Padding", n.x, n:row(SLIDER), 0, 12, function() return q().pad end,
             function(v) q().pad = v end)
         n:close()
@@ -8287,9 +8284,6 @@ local function buildConfig()
         function(v) MM().square = v end)
     check(otherPage, "1 px border", look2.x, look2:row(ROW), function() return MM().border end,
         function(v) MM().border = v end)
-    dropdown(otherPage, "Corner radius", look2.x, look2:row(DROP), { { "None (square)", 0 }, { "4 px", 4 },
-        { "8 px", 8 }, { "16 px", 16 }, { "32 px", 32 }, { "Round", "round" } },
-        function() return MM().radius end, function(v) MM().radius = v end, textPreview)
     check(otherPage, "Hide day/night dial", look2.x, look2:row(ROW), function() return MM().hideDayNight end,
         function(v) MM().hideDayNight = v end)
     look2:close()
@@ -8422,9 +8416,6 @@ local function buildConfig()
     abl:close()
 
     local abk = group(actionPage, COL[2], TOP, 202, "Look")
-    dropdown(actionPage, "Corner radius", abk.x, abk:row(DROP), { { "None (square)", 0 }, { "Slightly rounded", 12 },
-        { "Rounded", 25 }, { "Circle", 50 } }, function() return ns.ICON_MASKS[AB().radius] and AB().radius or 0 end,
-        function(v) AB().radius = v end, textPreview)
     slider(actionPage, "Zoom (% cut from each side)", abk.x, abk:row(SLIDER), 0, 30, function() return AB().zoom end,
         function(v) AB().zoom = v end)
     slider(actionPage, "Border width", abk.x, abk:row(SLIDER), 0, 6, function() return AB().borderSize end,
@@ -8568,6 +8559,24 @@ local function buildConfig()
             { "To the left", "left" }, { "To the right", "right" } }, function() return O().flyout end,
             function(v) O().flyout = v end, textPreview)
         c2:close()
+        -- the action bars' look, and the hover
+        local c3 = group(pg, COL[2], c2.cursor - 20, 202, "Look")
+        dropdown(pg, "Icon corners", c3.x, c3:row(DROP), { { "None (square)", 0 }, { "Slightly rounded", 12 },
+            { "Rounded", 25 }, { "Circle", 50 } }, function() return O().radius end, function(v) O().radius = v end,
+            textPreview)
+        slider(pg, "Zoom (% cut from each side)", c3.x, c3:row(SLIDER), 0, 30, function() return O().zoom end,
+            function(v) O().zoom = v end)
+        slider(pg, "Border width", c3.x, c3:row(SLIDER), 0, 6, function() return O().borderSize end,
+            function(v) O().borderSize = v end)
+        swatch(pg, "Border color", c3.x, c3:row(SWATCH), function() return O().borderColor end)
+        swatch(pg, "Under the mouse", c3.x, c3:row(SWATCH), function() return O().hoverColor end)
+        dropdown(pg, "Keybind font", c3.x, c3:row(DROP), FONTS, function() return O().keyFont end,
+            function(v) O().keyFont = v end, fontPreview)
+        slider(pg, "Keybind size", c3.x, c3:row(SLIDER), 6, 24, function() return O().keySize end,
+            function(v) O().keySize = v end)
+        check(pg, "Show only on mouseover", c3.x, c3:row(ROW), function() return O().mouseover end,
+            function(v) O().mouseover = v end)
+        c3:close()
     end)()
 
     ----------------------------------------------------------------------------------
@@ -8614,9 +8623,6 @@ local function buildConfig()
         c2:close()
 
         local c3 = group(pg, COL[2], TOP, 202, "Look")
-        dropdown(pg, "Corner radius", c3.x, c3:row(DROP), { { "None (square)", 0 }, { "Slightly rounded", 12 },
-            { "Rounded", 25 }, { "Circle", 50 } }, function() return ns.ICON_MASKS[G().radius] and G().radius or 0 end,
-            function(v) G().radius = v end, textPreview)
         slider(pg, "Zoom (% cut from each side)", c3.x, c3:row(SLIDER), 0, 30, function() return G().zoom end,
             function(v) G().zoom = v end)
         slider(pg, "Border width", c3.x, c3:row(SLIDER), 0, 6, function() return G().borderSize end,
@@ -8773,9 +8779,6 @@ local function buildConfig()
                     textPreview)
                 sliders(g, A, { { "max", "At most", 1, 40 }, { "cols", "Columns", 1, 10 }, { "rows", "Rows", 1, 10 },
                     { "size", "Icon size", 6, 40 } }, gp)
-                dropdown(gp, "Corner radius", g.x, g:row(DROP), { { "None (square)", 0 }, { "Slightly rounded", 12 },
-                    { "Rounded", 25 }, { "Circle", 50 } }, function() return A().radius end,
-                    function(v) A().radius = v end, textPreview)
                 check(gp, "Hide timer text", g.x, g:row(ROW), function() return A().hideTimer end,
                     function(v) A().hideTimer = v end)
                 sliders(g, A, { { "border", "Border width", 0, 4 } }, gp)
@@ -8873,14 +8876,72 @@ local function buildConfig()
     note(barDrop, "The fill's shadow, over the border and under the bar.", 30)
     barDrop:close()
 
-    local bcard = group(colorPage, COL[2], TOP, 202, "Borders")
+    -- Corners: one radius per kind of thing, set here for all of it. It is written into each of
+    -- that kind's own settings, which is what they are drawn from; the first one is what shows.
+    -- Bars and text plates in px (or a pill), icons by how round (as ns.ICON_MASKS).
+    local ICON_R = { { "None (square)", 0 }, { "Slightly rounded", 12 }, { "Rounded", 25 }, { "Circle", 50 } }
+    local function inBars(add, keys, field, sub)
+        for _, m in ipairs({ "regular", "plates", "platesTarget" }) do
+            for _, k in ipairs(keys) do
+                local b = db[m].bars[k]
+                b = b and sub and b[sub] or b
+                if b then add(b, field) end
+            end
+        end
+    end
+    ns.CORNER_KINDS = {
+        { "Bars", { { "None", 0 }, { "2 px", 2 }, { "4 px", 4 }, { "8 px", 8 }, { "16 px", 16 }, { "32 px", 32 },
+            { "Pill (50% of height)", "pill" } }, function(add)
+            add(db.colors, "radius")
+            for _, set in ipairs({ db.regular.bars, db.plates.bars, db.platesTarget.bars, db.unitframes.bars }) do
+                for _, b in pairs(set) do if type(b) == "table" and b.radius ~= nil then add(b, "radius") end end
+                if set.enemyhealth then add(set.enemyhealth, "resRadius") end
+            end
+        end },
+        { "Buffs and debuffs", ICON_R, function(add)
+            for _, s in ipairs({ "buffs", "debuffs" }) do
+                inBars(add, { "health", "enemyhealth" }, "radius", s)
+                for _, n in ipairs(ns.uf.SIZES) do add(db.unitframes["g" .. n][s], "radius") end
+            end
+        end },
+        { "Action buttons", ICON_R, function(add)
+            for _, b in ipairs(db.actionbars.bars) do add(b, "radius") end
+            add(db.actionbars.stance, "radius")
+            add(db.actionbars.pet, "radius")
+        end },
+        { "Bag slots", ICON_R, function(add) add(db.bags, "radius") end },
+        { "Item icons on bars", ICON_R, function(add)
+            inBars(add, { "enchantmh", "enchantoh", "durability" }, "iconRadius")
+        end },
+        { "Text backgrounds", { { "None", 0 }, { "2 px", 2 }, { "4 px", 4 }, { "8 px", 8 },
+            { "Pill (50% of height)", "pill" } }, function(add)
+            inBars(add, { "enemyhealth" }, "radius", "tagBg")
+            inBars(add, { "enemyhealth" }, "radius", "nameBg")
+            add(db.quest.kill, "radius")
+            add(db.quest.loot, "radius")
+        end },
+        { "Minimap", { { "None (square)", 0 }, { "4 px", 4 }, { "8 px", 8 }, { "16 px", 16 }, { "32 px", 32 },
+            { "Round", "round" } }, function(add) add(db.other.minimap, "radius") end },
+    }
+    local ccorn = group(colorPage, COL[2], TOP, 202, "Corners")
+    ns.cornerMenus = {}
+    for _, kind in ipairs(ns.CORNER_KINDS) do
+        ns.cornerMenus[#ns.cornerMenus + 1] = dropdown(colorPage, kind[1], ccorn.x, ccorn:row(DROP), kind[2],
+            function()
+                local v
+                kind[3](function(t, k) if v == nil then v = t[k] end end)
+                return v
+            end, function(v) kind[3](function(t, k) t[k] = v end) end, textPreview)
+    end
+    ns.sharedRadiusMenu = ns.cornerMenus[1]
+    note(ccorn, "Each sets the corners of everything of its kind, everywhere it shows.", 30)
+    ccorn:close()
+
+    local bcard = group(colorPage, COL[2], ccorn.cursor - 20, 202, "Borders")
     ns.sharedBorderTexMenu = dropdown(colorPage, "Texture", bcard.x, bcard:row(DROP), TEXTURES,
         function() return P().borderTexture end, function(v) P().borderTexture = v end, texturePreview)
     slider(colorPage, "Width", bcard.x, bcard:row(SLIDER), 0, 10,
         function() return P().borderSize end, function(v) P().borderSize = v end)
-    ns.sharedRadiusMenu = dropdown(colorPage, "Corner radius", bcard.x, bcard:row(DROP), { { "None", 0 }, { "2 px", 2 }, { "4 px", 4 },
-        { "8 px", 8 }, { "16 px", 16 }, { "32 px", 32 }, { "Pill (50% of height)", "pill" } },
-        function() return P().radius end, function(v) P().radius = v end, textPreview)
     note(bcard, "Every bar set to \"Shared\" under Border takes these.", 30)
     slider(colorPage, "\"Same as bar\" shade", bcard.x, bcard:row(SLIDER), -100, 100,
         function() return P().borderShade end, function(v) P().borderShade = v end)
@@ -8970,9 +9031,6 @@ local function buildConfig()
             return select(4, barColors(f.resFrame or f, f.resFrame and ns.resConf(cur()) or cur()))
         end,
     })
-    dropdown(rd, "Border radius", 16, rrow(DROP), { { "None", 0 }, { "2 px", 2 }, { "4 px", 4 },
-        { "8 px", 8 }, { "16 px", 16 }, { "Pill (50% of height)", "pill" } },
-        function() return cur().resRadius end, function(v) cur().resRadius = v end, textPreview)
 
     -- Level and name dialog: same place, for the same bar. The font on top, then a column each.
     local td = ns.ui.Window(nil, 440, 740, "Level and name")
@@ -8996,7 +9054,6 @@ local function buildConfig()
     local SIDES = { { "Left", "LEFT" }, { "Center", "CENTER" }, { "Right", "RIGHT" }, { "Top", "TOP" },
         { "Bottom", "BOTTOM" }, { "Top left", "TOPLEFT" }, { "Top right", "TOPRIGHT" },
         { "Bottom left", "BOTTOMLEFT" }, { "Bottom right", "BOTTOMRIGHT" } }
-    local RADII = { { "None", 0 }, { "2 px", 2 }, { "4 px", 4 }, { "8 px", 8 }, { "Pill (50% of height)", "pill" } }
     local top = ry
     for i, w in ipairs({ { "Level", "tag", "tagLevel" }, { "Name", "name", "tagName" } }) do
         local x, p = 16 + (i - 1) * 214, w[2]
@@ -9036,8 +9093,6 @@ local function buildConfig()
         check(td, "Background", x, rrow(ROW), function() return B().show end, function(v) B().show = v end)
         swatch(td, w[1] .. " background", x, rrow(SWATCH), function() return B().color end)
         slider(td, "Padding", x, rrow(SLIDER), 0, 12, function() return B().pad end, function(v) B().pad = v end)
-        dropdown(td, "Corner radius", x, rrow(DROP), RADII, function() return B().radius end,
-            function(v) B().radius = v end, textPreview)
     end
 
     -- Buffs and debuffs dialog: a tab each (where it sits on the left, its size and grid on the
@@ -9091,9 +9146,6 @@ local function buildConfig()
             return across and { { "Auto", "auto" }, { "Up", "up" }, { "Down", "down" } }
                 or { { "Auto", "auto" }, { "Left", "left" }, { "Right", "right" } }
         end, function() return A().wrap end, function(v) A().wrap = v end, textPreview)
-        dropdown(pane, "Corner radius", 16, rrow(DROP), { { "None (square)", 0 }, { "Slightly rounded", 12 },
-            { "Rounded", 25 }, { "Circle", 50 } }, function() return ns.ICON_MASKS[A().radius] and A().radius or 0 end,
-            function(v) A().radius = v end, textPreview)
         ry = -80
         for _, r in ipairs({ { "x", "X", -200, 200 }, { "y", "Y", -200, 200 }, { "size", "Icon size", 8, 64 },
             { "zoom", "Zoom (% cut from each side)", 0, 30 },
@@ -9354,9 +9406,6 @@ local function buildConfig()
         ns.wbMenus = {
             dropdown(d, "Icon side", 16, rrow(DROP), { { "Left", "left" }, { "Right", "right" } },
                 function() return O().iconSide end, function(v) O().iconSide = v end, textPreview),
-            dropdown(d, "Icon corners", 16, rrow(DROP), { { "None (square)", 0 }, { "Slightly rounded", 12 },
-                { "Rounded", 25 }, { "Circle", 50 } }, function() return O().iconRadius end,
-                function(v) O().iconRadius = v end, textPreview),
         }
         slider(d, "Zoom (% cut from each side)", 16, rrow(SLIDER), 0, 30, function() return O().iconZoom end,
             function(v) O().iconZoom = v end)

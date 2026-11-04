@@ -167,34 +167,50 @@ for i, s in ipairs(T.SLOTS) do
     b:SetAttribute("item", tostring(s))
     b:RegisterForClicks("AnyUp", "AnyDown") -- the template keeps the one the key-down setting wants
     b.wpI, b.wpSlot = i, "trinket:" .. i
-    b.edge = b:CreateTexture(nil, "BACKGROUND")
-    b.edge:SetColorTexture(0, 0, 0, 1)
-    b.edge:SetPoint("TOPLEFT", -1, 1)
-    b.edge:SetPoint("BOTTOMRIGHT", 1, -1)
-    b.icon = b:CreateTexture(nil, "ARTWORK")
-    b.icon:SetAllPoints()
-    b.icon:SetTexCoord(0.08, 0.92, 0.08, 0.92)
+    -- the parts the action bars' look (ns.abLook) styles: border, icon, their masks, the key
+    b.wpEdge = b:CreateTexture(nil, "BACKGROUND", nil, -8)
+    b.wpEdge:SetAllPoints()
+    b.wpIcon = b:CreateTexture(nil, "ARTWORK")
+    b.wpEdgeMask, b.wpMask = b:CreateMaskTexture(), b:CreateMaskTexture()
+    b.wpEdgeMask:SetAllPoints(b.wpEdge)
+    b.wpMask:SetAllPoints(b.wpIcon)
     b.cd = CreateFrame("Cooldown", nil, b, "CooldownFrameTemplate")
-    b.cd:SetAllPoints()
-    b.wpKey = b:CreateFontString(nil, "OVERLAY", "NumberFontNormalSmallGray")
+    b.cd:SetAllPoints(b.wpIcon)
+    -- under the mouse: the icon lit and the border in the hover color
+    b.wpHover = b:CreateTexture(nil, "OVERLAY")
+    b.wpHover:SetAllPoints(b.wpIcon)
+    b.wpHover:Hide()
+    b.wpKey = b:CreateFontString(nil, "OVERLAY")
+    b.wpKey:SetFont(STANDARD_TEXT_FONT or "Fonts\\FRIZQT__.TTF", 11, "OUTLINE")
     b.wpKey:SetPoint("TOPRIGHT", -2, -2)
     b:SetScript("PreClick", function(self) T.press(self) end)
     b:SetScript("OnEnter", function(self)
+        T.lit(self, true)
         GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
         GameTooltip:SetInventoryItem("player", s)
         GameTooltip:Show()
         if not (ns.ab and ns.ab.binding) then T.open(self) end
     end)
-    b:SetScript("OnLeave", function() GameTooltip:Hide() end)
+    b:SetScript("OnLeave", function(self) T.lit(self, false); GameTooltip:Hide() end)
     if ns.abHooks then ns.abHooks(b) end -- quick keybind mode binds here too
     T.buttons[i] = b
 end
 if ns.ab then ns.ab.buttons.trinket = T.buttons end
 
+-- hovered (or its list open): lit, its border in the hover color; else as the look says
+function T.lit(b, on)
+    local O = T.o()
+    if not O then return end
+    local c = O.hoverColor
+    b.wpHover:SetColorTexture(c[1], c[2], c[3], c[4])
+    b.wpHover:SetShown(on)
+    b.wpEdge:SetColorTexture(unpack(on and { c[1], c[2], c[3], 1 } or O.borderColor))
+end
+
 function T.paint()
     for i, b in ipairs(T.buttons) do
         local s = T.SLOTS[i]
-        b.icon:SetTexture(GetInventoryItemTexture("player", s) or T.EMPTY)
+        b.wpIcon:SetTexture(GetInventoryItemTexture("player", s) or T.EMPTY)
         local ok, start, dur = pcall(GetInventoryItemCooldown, "player", s)
         if ok and start ~= nil then
             local same = readable(start) and readable(dur) and b.wpStart == start and b.wpDur == dur
@@ -213,6 +229,7 @@ function T.sync()
     T.pending = false
     local h, size, gap = T.holder, O.size, O.gap
     h:SetShown(O.show and true or false)
+    if ns.abFadeSet then ns.abFadeSet(h, O.mouseover) end
     h:ClearAllPoints()
     h:SetPoint(O.point, UIParent, O.point, O.x, O.y)
     h:SetSize(O.vertical and size or 2 * size + gap, O.vertical and 2 * size + gap or size)
@@ -224,7 +241,9 @@ function T.sync()
         else
             b:SetPoint("LEFT", h, "LEFT", (i - 1) * (size + gap), 0)
         end
-        if ns.abHotkey then ns.abHotkey(b) end
+        if ns.abLook then ns.abLook(b, O, nil, true) end -- the action bars' look; the key text too
+        ns.iconCorners(b.wpHover, b.wpMask, O.radius, { 0, 1, 0, 1 })
+        T.lit(b, b:IsMouseOver() and h:IsShown())
     end
     if ns.abBinds then ns.abBinds() end
     T.paint()
@@ -245,7 +264,9 @@ function T.tick(_, dt)
     if T.n % 4 ~= 0 then return end
     if T.o().auto then T.apply() else for i in pairs(T.hold) do T.apply(i) end end
 end
-T.holder:SetScript("OnUpdate", T.tick)
+-- its own clock: the holder's OnUpdate fades it, on mouseover
+T.clock = CreateFrame("Frame")
+T.clock:SetScript("OnUpdate", function(self, dt) if T.holder:IsShown() then T.tick(self, dt) end end)
 
 ------------------------------------------------------------------------------------------
 -- The flyout: the list, top first. Click one to wear it in this button's slot; arrows reorder.
@@ -262,6 +283,7 @@ T.flyout.rows = {}
 T.flyout:SetScript("OnUpdate", function(self)
     if not (self:IsMouseOver() or (self.owner and self.owner:IsMouseOver())) then self:Hide() end
 end)
+T.flyout:SetScript("OnHide", function(self) if self.owner then T.lit(self.owner, self.owner:IsMouseOver()) end end)
 
 local function row(k)
     local r = T.flyout.rows[k]
@@ -332,6 +354,7 @@ T.SIDES = { up = { "BOTTOM", "TOP", 0, 4 }, down = { "TOP", "BOTTOM", 0, -4 }, l
     right = { "LEFT", "RIGHT", 4, 0 } }
 function T.open(b)
     local f, side = T.flyout, T.SIDES[T.o().flyout] or T.SIDES.up
+    if f.owner and f.owner ~= b then T.lit(f.owner, false) end
     f.owner = b
     f:ClearAllPoints()
     f:SetPoint(side[1], b, side[2], side[3], side[4])

@@ -14,7 +14,10 @@ function M:Hide() self._shown = false end
 function M:SetShown(v) assert(v == nil or type(v) == "boolean", "SetShown got " .. type(v)); self._shown = not not v end
 function M:IsShown() return self._shown end
 function M:SetScript(k, fn) self._scripts[k] = fn end
-M.HookScript = M.SetScript
+function M:HookScript(k, fn) -- as the game: after the script already there, not instead of it
+    local old = self._scripts[k]
+    self._scripts[k] = old and function(...) old(...); return fn(...) end or fn
+end
 function M:GetName() return self._name end
 function M:GetText() return self._text end
 function M:SetText(t) self._text = t end
@@ -2233,7 +2236,7 @@ nameBox._text = "PvP"; nameBox._scripts.OnEnterPressed(nameBox)
 assert(store.profiles["PvP 2"] and prof() == store.profiles["PvP 2"], "same name again: PvP 2")
 store.profiles["PvP 2"], store.parents["PvP 2"] = nil, nil
 ns.useProfile("PvP")
-local dds = {} -- step 1's parent, texture, bar color, border color, radius, font, kill icon, loot icon, combat icon, attach
+local dds = {} -- step 1's parent, texture, bar color, border color, font, kill icon, loot icon, combat icon, attach
 for _, f in ipairs(created) do if f._gen and f ~= ns.copyFromMenu and f ~= ns.childPick and f ~= ns.countSpotMenus[1] and f ~= ns.countSpotMenus[2] and f ~= ns.sharedBorderTexMenu and f ~= ns.ownBorderTexMenu and f ~= ns.shineMenus[1] and f ~= ns.shineMenus[2] and f ~= ns.resPlaceMenu and f ~= ns.resPointMenu and f ~= ns.sitsMenu and f ~= ns.xpMenu and f ~= ns.borderFromMenu and f ~= ns.sharedRadiusMenu and f ~= ns.textureFromMenu and f ~= ns.sharedTextureMenu and not (f._parent == ns.pages.actionbars) then dds[#dds + 1] = f end end
 assert(dds[1] == ns.parentPick, "step 1 comes first")
 do
@@ -2332,7 +2335,7 @@ store.parents.Rogue, store.overrides.Rogue = nil, nil
 ns.useProfile("Rogue")
 
 -- Texture and font dropdowns: pick sets the selected bar (Health), previews render
-local texDD, fontDD = dds[2], dds[6]
+local texDD, fontDD = dds[2], dds[5]
 texDD:GenerateMenu(); fontDD:GenerateMenu()
 assert(#texDD._items == 11 and #fontDD._items == 6, "dropdown entries")
 -- Menu entries' regions refuse SetFont in the real client (Blizzard_Menu Compositor)
@@ -2365,11 +2368,20 @@ for _, it in ipairs(fontDD._items) do
     checkColumn(b, 44)
 end
 texDD._items[2].set(); fontDD._items[6].set()
-dds[5]:GenerateMenu()
-assert(#dds[5]._items == 7 and dds[5]._items[7].text == "Pill (50% of height)", "radius presets")
-dds[5]._items[7].set()
-assert(prof().regular.bars.health.radius == "pill", "pill picked")
-dds[5]._items[1].set()
+-- Corners: one dropdown per kind on the Colors page, setting every place of that kind
+do local cm = ns.cornerMenus
+cm[1]:GenerateMenu()
+assert(#cm[1]._items == 7 and cm[1]._items[7].text == "Pill (50% of height)", "bar radius presets")
+cm[1]._items[7].set()
+assert(prof().regular.bars.health.radius == "pill" and prof().colors.radius == "pill"
+    and prof().plates.bars.enemyhealth.resRadius == "pill" and cm[1]._items[7].sel(), "every bar takes it")
+cm[1]._items[1].set()
+cm[2]:GenerateMenu(); cm[2]._items[3].set()
+assert(prof().regular.bars.health.buffs.radius == 25 and prof().unitframes.g40.debuffs.radius == 25, "every buff and debuff")
+cm[2]._items[1].set()
+cm[3]:GenerateMenu(); cm[3]._items[4].set()
+assert(prof().actionbars.bars[1].radius == 50 and prof().actionbars.pet.radius == 50, "every action button")
+cm[3]._items[1].set() end
 assert(prof().regular.bars.health.texture == "Interface\\Buttons\\WHITE8X8", "texture picked")
 assert(prof().regular.bars.health.font:match("Anton%-Regular%.ttf$") and fontDD._items[6].sel(), "font picked")
 
@@ -3014,14 +3026,14 @@ assert(iof.note._text:find("Imported as profile") and not iof.area2:IsShown(), "
 
 -- Combat text font: 20 fonts + default; applied on ADDON_LOADED only for known paths
 assert(#ns.COMBAT_FONTS == 21, "20 fonts + WoW default")
-dds[17]:GenerateMenu()
-assert(#dds[17]._items == 21, "combat font dropdown")
-for _, it in ipairs(dds[17]._items) do
+dds[14]:GenerateMenu()
+assert(#dds[14]._items == 21, "combat font dropdown")
+for _, it in ipairs(dds[14]._items) do
     local b = menuButton()
     assert(type(it.init(b)) == "number" and b._attached._text == "123", "combat font preview")
     checkColumn(b, 56)
 end
-dds[17]._items[6].set()
+dds[14]._items[6].set()
 local picked = ns.COMBAT_FONTS[6][2]
 assert(prof().other.combatFont == picked, "stored in the profile")
 assert(DAMAGE_TEXT_FONT == picked and CombatTextFont._font[1] == picked, "applied as soon as it's picked")
@@ -3040,7 +3052,7 @@ ns.useProfile(store.chars[S.name .. " - Realm"] or "Rogue")
 DAMAGE_TEXT_FONT = "Fonts\\FRIZQT__.TTF"
 prof().other.combatFont = "Interface\\evil.ttf"; fire("ADDON_LOADED", "WolfpackAddon")
 assert(DAMAGE_TEXT_FONT == "Fonts\\FRIZQT__.TTF", "unknown path refused")
-dds[17]._items[1].set()
+dds[14]._items[1].set()
 assert(prof().other.combatFont == "", "WoW default is remembered, so the baked font stays off")
 -- the baked-in export string is intact in the file (an edit truncating it would break defaults)
 local src = io.open("WolfpackAddon/WolfpackAddon.lua"):read("*a")
@@ -4303,6 +4315,18 @@ do
     assert(S.binds.F == "WolfpackTrinket1", "shown: the key uses trinket 1")
     T.sync()
     assert(T.holder:IsShown() and T.buttons[2]._point, "the two buttons, placed")
+    -- the action bars' look, and a clear mark on the one under the mouse
+    O.radius, O.borderColor, O.hoverColor = 25, { 0, 0, 0, 1 }, { 1, 0.82, 0, 0.3 }
+    T.sync()
+    local b1 = T.buttons[1]
+    assert(b1.wpIcon._masks and b1.wpIcon._masks[b1.wpMask] and b1.wpHover._masks[b1.wpMask], "rounded, hover too")
+    b1._scripts.OnEnter(b1)
+    assert(b1.wpHover:IsShown() and b1.wpEdge._color[1] == 1 and b1.wpEdge._color[4] == 1, "hovered: lit, gold border")
+    assert(not T.buttons[2].wpHover:IsShown(), "only that one")
+    b1._scripts.OnLeave(b1)
+    assert(not b1.wpHover:IsShown() and b1.wpEdge._color[1] == 0, "left: as it was")
+    T.flyout:Hide()
+    O.radius = 0
     O.show, prof().actionbars.binds["trinket:1"] = false, nil
     T.sync(); ns.abBinds()
     GetInventoryItemID, C_Container.GetContainerItemID, C_Container.GetContainerNumSlots,
