@@ -333,9 +333,11 @@ local function layoutDefaults(show, x, y, gap, width, h1, h2, h3, h4, h5, h6, h7
     l.bars.swing.classes, l.bars.swing.classesSet = {}, false
     for _, t in ipairs(ns.ALL_CLASSES) do l.bars.swing.classes[t] = { main = true, off = false, ranged = false } end
     l.bars.health.heal, l.bars.health.healColor = false, { 0.4, 1, 0.5, 0.45 } -- incoming heals
-    -- DoT damage still to come, from what the combat log says each tick does (Classic clients)
+    -- DoT damage still to come, from what the combat log says each tick does (Classic clients);
+    -- absorb shields, striped over the health
     for _, key in ipairs({ "health", "enemyhealth" }) do
         l.bars[key].dots, l.bars[key].dotsColor = true, { 0, 0, 0, 0.5 }
+        l.bars[key].shield, l.bars[key].shieldColor = true, { 1, 1, 1, 0.5 }
     end
     l.bars.power.cost, l.bars.power.costColor = false, { 1, 1, 1, 0.35 } -- what the cast will take
     -- combo points as circles (on): per point a background disc, the fill disc over it while the
@@ -1489,6 +1491,20 @@ local function layoutBar(f, n, width, over)
     elseif f.over then
         f.over:Hide()
     end
+    -- Absorb shields, the MiniOvershields way: stripes over the health fill from the bar's far
+    -- end, as wide as the shields are deep. A StatusBar takes the secret amount as it is.
+    if (f.key == "health" or f.key == "enemyhealth") and not f.res and c.shield and n == 1 then
+        local seg = f.segs[1]
+        f.shield = f.shield or CreateFrame("StatusBar", nil, seg)
+        f.shield:SetFrameLevel(seg:GetFrameLevel() + 2)
+        f.shield:SetAllPoints(seg)
+        f.shield:SetStatusBarTexture("Interface\\AddOns\\" .. ADDON .. "\\Media\\Bar\\Stripes")
+        f.shield:SetStatusBarColor(unpack(c.shieldColor))
+        f.shield:SetReverseFill(true)
+        f.shield:Show()
+    elseif f.shield then
+        f.shield:Hide()
+    end
     if not f.text then
         f.text = f.segs[1]:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
         f.text:SetPoint("CENTER") -- centered on the bar itself (not the cast bar's icon)
@@ -1830,6 +1846,11 @@ function ns.fill(f)
         f.segs[1]:SetValue(v)
         if f.over and f.over:IsShown() then fillOverlay(f, max) end
         if f.dot and f.dot:IsShown() then ns.fillDots(f, max) end
+        if f.shield and f.shield:IsShown() then
+            local ok, points = pcall(UnitGetTotalAbsorbs, f.unit or "player")
+            f.shield:SetMinMaxValues(0, max)
+            f.shield:SetValue(ok and points or 0)
+        end
         if f.text:IsShown() and not pcall(setText, f.text, v) then f.text:SetText("") end
         if f.texts and not f.res then ns.fillTexts(f, v, max) end
     else
@@ -8143,6 +8164,10 @@ local function buildConfig()
         function() return cur().cost end, function(v) cur().cost = v end)
     local costColor = swatch(barsPage, "Cost color", only.x, only:row(0) - ROW,
         function() return cur().costColor or { 0, 0, 0, 1 } end)
+    local shieldCheck = check(barsPage, "Show absorb shields", only.x, only:row(0) - 2 * ROW - 4 * BUTTON - SWATCH,
+        function() return cur().shield end, function(v) cur().shield = v end)
+    local shieldColor = swatch(barsPage, "Shield color", only.x, only:row(0) - 3 * ROW - 4 * BUTTON - SWATCH,
+        function() return cur().shieldColor or { 1, 1, 1, 0.5 } end)
     local regenButton = button(barsPage, "Mana regen spinner", 186, only.x, only:row(0) - 2 * ROW - 4,
         function() ns.toggleDialog(ns.fsrDialog) end)
     local drinkButton = button(barsPage, "Drinking text", 186, only.x, only:row(0) - 2 * ROW - 4 - BUTTON,
@@ -8203,6 +8228,8 @@ local function buildConfig()
         local dotsOn = (selected == "health" or selected == "enemyhealth") and ns.dotsOn
         dotsCheck:SetShown(dotsOn)
         dotsColor:SetShown(dotsOn)
+        shieldCheck:SetShown(selected == "health" or selected == "enemyhealth")
+        shieldColor:SetShown(selected == "health" or selected == "enemyhealth")
         costCheck:SetShown(selected == "power")
         costColor:SetShown(selected == "power")
         regenButton:SetShown(selected == "power")
@@ -8253,7 +8280,7 @@ local function buildConfig()
             onlyNote:SetText(selected ~= "totems" and none and "Nothing extra for this one." or "")
         end
     end)
-    only:row(118) -- room for the four totem rows and the DoT rows, which sit over the other controls
+    only:row(168) -- room for the four totem rows, the DoT and shield rows, which sit over the other controls
     only:close()
 
     -- Column 3: colors and border
@@ -10457,7 +10484,7 @@ ev:SetScript("OnEvent", function(_, event, unit, arg2, arg3)
         end
         listen("UNIT_HEALTH", "player", "target")
         listen("UNIT_MAXHEALTH", "player", "target")
-        listen("UNIT_ABSORB_AMOUNT_CHANGED", "player")
+        listen("UNIT_ABSORB_AMOUNT_CHANGED", "player", "target")
         for _, e in ipairs({ "SPELLS_CHANGED", "LEARNED_SPELL_IN_TAB", "PLAYER_LEVEL_UP" }) do
             listen(e)
         end
@@ -10538,11 +10565,11 @@ ev:SetScript("OnEvent", function(_, event, unit, arg2, arg3)
         safe(ns.watchTargetCast, event) -- a new target is not mid-cast until it says so
         safe(Refresh)
     elseif event == "UNIT_ABSORB_AMOUNT_CHANGED" then
-        if GetTime() - absorb.castAt <= ABSORB_CAST_WINDOW then -- our cast just put a shield up
+        if unit == "player" and GetTime() - absorb.castAt <= ABSORB_CAST_WINDOW then -- our cast just put a shield up
             local ok, points = pcall(UnitGetTotalAbsorbs, "player")
             absorb.max, absorb.have = ok and points, ok
         end
-        fillShown("absorb")
+        fillShown("absorb", "health", "enemyhealth")
     elseif event == "UNIT_HEALTH" then
         fillShown("health", "pethealth")
         fillShown("absorb") -- max health scales it

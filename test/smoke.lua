@@ -4685,4 +4685,20 @@ do
     C_Spell.GetSpellInfo, S.known, S.auras, S.weapons, S.mainEnchant, S.mainMs, S.combat = unpack(keep, 1, 7)
 end
 
+-- Absorb shields (MiniOvershields): stripes from the far end of your health and the target's,
+-- as deep as the shields
+do
+    local hb, eh = ns.frames.health, ns.frames.enemyhealth
+    S.absorb = 300
+    fire("UNIT_ABSORB_AMOUNT_CHANGED", "player")
+    assert(hb.shield:IsShown() and hb.shield._value == 300 and hb.shield._max == 1000
+        and hb.shield._reverseFill == true, "your shield, from the right")
+    assert(eh.shield and not eh.resFrame.shield, "the target's health has one, its resource none")
+    prof().regular.bars.health.shield = false
+    fire("UNIT_MAXPOWER")
+    assert(not hb.shield:IsShown(), "switched off")
+    prof().regular.bars.health.shield, S.absorb = true, 0
+    fire("UNIT_MAXPOWER")
+end
+
 realPrint("smoke ok")
