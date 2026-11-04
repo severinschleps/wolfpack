@@ -4339,7 +4339,9 @@ do
     O.show = false; ns.abBinds()
     assert(S.binds.F ~= "WolfpackTrinket1", "hidden: no key")
     O.show = true; ns.abBinds()
-    assert(S.binds.F == "WolfpackTrinket1", "shown: the key uses trinket 1")
+    assert(S.binds.F == "WolfpackTrinketKey1", "shown: the key uses trinket 1, by its key twin")
+    assert(T.buttons[1]:GetAttribute("useOnKeyDown") == false
+        and T.buttons[1].wpKeyButton:GetAttribute("useOnKeyDown") == nil, "the mouse on release; the key as set")
     T.sync()
     assert(T.holder:IsShown() and T.buttons[2]._point, "the two buttons, placed")
     -- the action bars' look, and a clear mark on the one under the mouse

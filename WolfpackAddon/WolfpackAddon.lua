@@ -3402,7 +3402,8 @@ function ns.abBinds()
     end
     for i, b in ipairs(ns.ab.buttons.trinket or {}) do -- the Trinket manager's two
         local key = db.trinkets.show and db.actionbars.binds["trinket:" .. i]
-        if key then SetOverrideBindingClick(owner, true, key, b:GetName(), "LeftButton") end
+        local to = b.wpKeyButton or b -- its key twin: down or up as your key-down setting says
+        if key then SetOverrideBindingClick(owner, true, key, to:GetName(), "LeftButton") end
     end
 end
 

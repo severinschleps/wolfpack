@@ -188,7 +188,17 @@ for i, s in ipairs(T.SLOTS) do
     local b = CreateFrame("Button", "WolfpackTrinket" .. i, T.holder, "SecureActionButtonTemplate")
     b:SetAttribute("type", "item")
     b:SetAttribute("item", tostring(s))
-    b:RegisterForClicks("AnyUp", "AnyDown") -- the template keeps the one the key-down setting wants
+    -- the mouse: on release only, so pressing to drag it to a bar fires nothing. The template
+    -- would otherwise follow the "cast on key down" setting for clicks too.
+    b:SetAttribute("useOnKeyDown", false)
+    b:RegisterForClicks("AnyUp", "AnyDown")
+    -- the key: a hidden twin that does follow that setting, as your action bars' keys do
+    local key = CreateFrame("Button", "WolfpackTrinketKey" .. i, UIParent, "SecureActionButtonTemplate")
+    key:SetAttribute("type", "item")
+    key:SetAttribute("item", tostring(s))
+    key:RegisterForClicks("AnyUp", "AnyDown") -- the template keeps the one the key-down setting wants
+    key:Hide()
+    b.wpKeyButton = key
     b.wpI, b.wpSlot = i, "trinket:" .. i
     -- the parts the action bars' look (ns.abLook) styles: border, icon, their masks, the key
     b.wpEdge = b:CreateTexture(nil, "BACKGROUND", nil, -8)
