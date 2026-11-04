@@ -370,6 +370,7 @@ local DEFAULTS = {
     other = {
         hideGryphons = false, autoAccept = false, autoComplete = false, sellJunk = false,
         autoRepair = false,
+        leaveForm = true,   -- a "Leave form" button on the flight map while you are in a form
         hover = {},         -- [key from HOVER_FRAMES] = true: that Blizzard element shows only on mouseover
         bagsOnOpen = false, -- bag bar only while bags are open, attached to them
         raidHover = { show = true, color = { 1, 1, 1, 0.2 } }, -- overlay on hovered party/raid frames
@@ -703,6 +704,36 @@ function ft.hook()
         end
     end)
 end
+
+-- No flight in a form (Ghost Wolf, a druid's), and only a click may cancel one: the game keeps
+-- that to secure code. So while the flight map is open and you are in a form, a button above it
+-- leaves the form for you.
+ns.leaveForm = CreateFrame("Button", "WolfpackLeaveForm", UIParent, "UIPanelButtonTemplate, SecureActionButtonTemplate")
+ns.leaveForm:SetSize(140, 26)
+ns.leaveForm:SetText("Leave form")
+ns.leaveForm:SetAttribute("type", "macro")
+ns.leaveForm:SetAttribute("macrotext", "/cancelform")
+ns.leaveForm:SetAttribute("useOnKeyDown", false)
+ns.leaveForm:RegisterForClicks("AnyUp")
+ns.leaveForm:Hide()
+function ns.leaveFormSync()
+    if InCombatLockdown() or not db then return end
+    local map = TaxiFrame and TaxiFrame:IsShown() and TaxiFrame
+        or FlightMapFrame and FlightMapFrame:IsShown() and FlightMapFrame
+    local want = db.other.leaveForm and map and (GetShapeshiftForm() or 0) > 0 and true or false
+    if want then
+        ns.leaveForm:ClearAllPoints()
+        ns.leaveForm:SetPoint("BOTTOM", map, "TOP", 0, 6)
+    end
+    if ns.leaveForm:IsShown() ~= want then ns.leaveForm:SetShown(want) end
+end
+ns.leaveFormClock = CreateFrame("Frame") -- ponytail: a 0.25 s poll, no events (the map differs per client)
+ns.leaveFormClock:SetScript("OnUpdate", function(self, dt)
+    self.t = (self.t or 0) + dt
+    if self.t < 0.25 then return end
+    self.t = 0
+    pcall(ns.leaveFormSync)
+end)
 
 function ft.key()
     return ft.route and (ft.route.from .. " > " .. ft.route.to) or nil
@@ -8322,6 +8353,8 @@ local function buildConfig()
         function() return db.other.sellJunk end, function(v) db.other.sellJunk = v end)
     check(otherPage, "Auto-repair", merch.x, merch:row(ROW),
         function() return db.other.autoRepair end, function(v) db.other.autoRepair = v end)
+    check(otherPage, "Leave form at flight masters", merch.x, merch:row(ROW),
+        function() return db.other.leaveForm end, function(v) db.other.leaveForm = v end)
     merch:close()
 
 

@@ -2905,6 +2905,25 @@ fire("MERCHANT_CLOSED")
 assert(#S.sold == 1 and tick.obj.cancelled, "closing stops it")
 prof().other.sellJunk = false
 
+-- Leave form: a secure "/cancelform" button over the flight map, only while you are in a form
+do local lf, form = ns.leaveForm, 0
+assert(lf._attr.type == "macro" and lf._attr.macrotext == "/cancelform" and lf._attr.useOnKeyDown == false,
+    "a secure click cancels the form")
+local was = GetShapeshiftForm
+GetShapeshiftForm = function() return form end
+TaxiFrame = new(); TaxiFrame:Show()
+ns.leaveFormSync()
+assert(not lf:IsShown(), "not in a form: no button")
+form = 1
+ns.leaveFormSync()
+assert(lf:IsShown() and lf._points[1][2] == TaxiFrame, "in Ghost Wolf at the flight master: above the map")
+TaxiFrame:Hide(); ns.leaveFormSync()
+assert(not lf:IsShown(), "map closed: gone")
+TaxiFrame:Show(); prof().other.leaveForm = false; ns.leaveFormSync()
+assert(not lf:IsShown(), "turned off: never")
+prof().other.leaveForm = true
+TaxiFrame, GetShapeshiftForm = nil, was end
+
 -- Auto-repair: only when asked, only when the merchant can, only when you can afford it
 S.canRepair, S.repairCost, S.money = true, 500, 1000
 fire("MERCHANT_SHOW")
