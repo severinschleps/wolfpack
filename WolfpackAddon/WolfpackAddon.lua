@@ -10332,8 +10332,10 @@ end
 
 -- DoT damage still to come: each DoT's last tick (a crit only until a plain one lands) times the
 -- ticks its debuff has left, the gap between ticks measured as they land. Keyed by spell name:
--- Classic Era's log gives no spell IDs. Midnight keeps the log from addons, so there it is off.
-ns.dotLog = CombatLogGetCurrentEventInfo ~= nil and select(4, GetBuildInfo()) < 120000
+-- Classic Era's log gives no spell IDs. Midnight and Forever (1.6, on Midnight's client) keep the
+-- log from addons: just asking for it there is a blocked action. So there it is off.
+function ns.logAllowed(build) return build < 16000 or (build >= 20000 and build < 120000) end
+ns.dotLog = CombatLogGetCurrentEventInfo ~= nil and ns.logAllowed(select(4, GetBuildInfo()))
 ns.dots = {} -- [target GUID] = { [spell name] = { [caster GUID] = { amount, every, at } } }
 
 function ns.dotFromLog()

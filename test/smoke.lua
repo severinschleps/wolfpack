@@ -3490,6 +3490,8 @@ do
     fire("UNIT_MAXPOWER")
     fire("PLAYER_TARGET_CHANGED")
     assert(eb.dot and eb.dot:IsShown() and eb.dot._reverseFill, "on by default on a Classic client, growing left")
+    assert(ns.logAllowed(11509) and ns.logAllowed(20506) and ns.logAllowed(50504), "Era, Anniversary, Classic: the log")
+    assert(not ns.logAllowed(16001) and not ns.logAllowed(120105), "Forever and Midnight: never asked for")
     local function tick(sub, amount, crit)
         S.cleu = { 0, sub, false, "Player-1", "", 0, 0, "Mob-1", "", 0, 0, 172, "Corruption", 32, amount }
         S.cleu[21] = crit
