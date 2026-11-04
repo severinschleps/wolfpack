@@ -3122,9 +3122,17 @@ function ns.abButton(f, i, j)
     if mask then pcall(b.wpIcon.RemoveMaskTexture, b.wpIcon, mask) end
     -- the game writes its own key text over ours when bindings change: write ours back
     if type(rawget(b, "UpdateHotkeys")) == "function" then hooksecurefunc(b, "UpdateHotkeys", ns.abHotkey) end
+    -- The template works out b.action as the button is made, so inside our code: it stays tainted.
+    -- A right-click reads it (the pet autocast check) and the game blocked the action (taint log,
+    -- anniversary). A secure snippet renames that click first; it is used as any click.
+    if SecureHandlerWrapScript then
+        ns.ab.header = ns.ab.header or CreateFrame("Frame", nil, UIParent, "SecureHandlerBaseTemplate")
+        SecureHandlerWrapScript(b, "OnClick", ns.ab.header, ns.AB_RIGHT)
+    end
     ns.abHooks(b)
     return b
 end
+ns.AB_RIGHT = [[ if button == "RightButton" then return "WolfpackRight" end ]]
 
 -- Buttons are scaled to size, never resized: the game's template draws its highlight, glow,
 -- cooldown and slot art at fixed sizes, which spilled into the gap on a smaller button (seen in

@@ -454,6 +454,10 @@ MainMenuExpBar._parent = UIParent
 UnitXP = function() return S.xp or 300 end
 UnitXPMax = function() return S.xpMax or 1000 end
 GetRealmName = function() return "Realm" end
+SecureHandlerWrapScript = function(f, script, header, pre)
+    f._wrap = rawget(f, "_wrap") or {}
+    f._wrap[script] = pre
+end
 CreateFrame = function(kind, name, parent, template)
     local f = new(kind)
     f._name, f._parent, f._template = name, parent, template
@@ -3740,6 +3744,11 @@ S.A = prof().actionbars
 assert(#S.A.bars == 1 and S.A.bars[1].first == 1 and S.A.bars[1].cols == 12, "one bar to start: slots 1-12")
 fire("UNIT_MAXPOWER")
 S.ab = ns.ab.buttons[1]
+-- a right-click is renamed by a secure snippet, so the template never reads its tainted b.action
+assert(S.ab[1]._wrap and S.ab[1]._wrap.OnClick == ns.AB_RIGHT and ns.ab.header._template == "SecureHandlerBaseTemplate",
+    "the click is wrapped")
+do local pre = assert(loadstring("local self, button = ... " .. ns.AB_RIGHT))
+assert(pre(S.ab[1], "RightButton") == "WolfpackRight" and pre(S.ab[1], "LeftButton") == nil, "right renamed, left as it was") end
 -- the game's dark slot background behind the icon: shown, or hidden on request; a client that
 -- has only some of these textures still gets them all switched
 S.slotArt = new("Texture")
