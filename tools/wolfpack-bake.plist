@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!-- Runs tools/bake.py whenever a game writes its saved settings (logout, /reload).
+     Install: cp tools/wolfpack-bake.plist ~/Library/LaunchAgents/ &&
+     launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/wolfpack-bake.plist -->
+<plist version="1.0">
+<dict>
+    <key>Label</key><string>com.severin.wolfpack-bake</string>
+    <key>ProgramArguments</key>
+    <array><string>/opt/homebrew/bin/python3</string><string>/Users/severin/Documents/sevdev/wolfpack/tools/bake.py</string></array>
+    <key>EnvironmentVariables</key>
+    <dict><key>PATH</key><string>/opt/homebrew/bin:/usr/bin:/bin</string></dict>
+    <key>WatchPaths</key>
+    <array>
+        <string>/Users/severin/Games/World of Warcraft/_anniversary_/WTF/Account/EICHENDORFF/SavedVariables</string>
+        <string>/Users/severin/Games/World of Warcraft/_classic_/WTF/Account/EICHENDORFF/SavedVariables</string>
+        <string>/Users/severin/Games/World of Warcraft/_classic_era_/WTF/Account/EICHENDORFF/SavedVariables</string>
+        <string>/Users/severin/Games/World of Warcraft/_forever_/WTF/Account/112299718#1/SavedVariables</string>
+        <string>/Users/severin/Games/World of Warcraft/_forever_/WTF/Account/EICHENDORFF/SavedVariables</string>
+        <string>/Users/severin/Games/World of Warcraft/_retail_/WTF/Account/EICHENDORFF/SavedVariables</string>
+    </array>
+    <key>ThrottleInterval</key><integer>30</integer>
+    <key>StandardOutPath</key><string>/Users/severin/Library/Logs/wolfpack-bake.log</string>
+    <key>StandardErrorPath</key><string>/Users/severin/Library/Logs/wolfpack-bake.log</string>
+</dict>
+</plist>

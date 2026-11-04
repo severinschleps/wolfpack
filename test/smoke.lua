@@ -2277,6 +2277,17 @@ end
 prof().regular.bars.health.width = 111
 fire("PLAYER_LOGOUT")
 assert(store.overrides.Kid.regular.bars.health.width == 111, "written down before the game saves")
+-- for tools/bake.py: the bundle's string, and when the settings last changed (first time: 0)
+time = function() return S.now or 1000 end
+store.bake = nil
+fire("PLAYER_LOGOUT")
+local bake = store.bake
+assert(bake.text:find("^WPA1:") and bake.at == 0 and bake.sum, "first logout: the string, stamped 0")
+S.now = 2000; fire("PLAYER_LOGOUT")
+assert(bake.at == 0, "nothing changed: no news")
+prof().regular.bars.health.width = 112
+fire("PLAYER_LOGOUT")
+assert(bake.at == 2000, "a setting changed: stamped now")
 -- a setting the child removed stays removed
 local d = ns.inh.diff({ a = 1 }, { a = 1, b = 2 })
 assert(d.b == ns.inh.NIL and ns.inh.apply({ a = 1, b = 2 }, d).b == nil, "a removal is kept")

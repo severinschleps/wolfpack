@@ -6792,7 +6792,7 @@ local function exportString(all)
             if token and #name > #(data.classes[token] or "") then data.classes[token] = name end
         end
     end
-    return "WPA1:" .. E.EncodeBase64(E.CompressString(E.SerializeCBOR(data)))
+    return "WPA1:" .. E.EncodeBase64(E.CompressString(E.SerializeCBOR(data))), data
 end
 
 local function editModeString()
@@ -6988,6 +6988,27 @@ function ns.importBarStack(data)
 end
 ns.exportString, ns.editModeString, ns.importString = exportString, editModeString, importString
 ns.seedFromBaked = function() return seedFromBaked() end
+
+-- For tools/bake.py, which bakes your latest settings into the addon: at logout, the bundle's
+-- string and when its settings last changed. `sum` tells a change apart from the same settings
+-- in another key order (the string's order is not fixed); the first one is stamped 0, so a
+-- client merely logging out never counts as news.
+function ns.bakeMark()
+    local text, data = exportString(true)
+    local function canon(v)
+        if type(v) ~= "table" then return type(v) .. tostring(v) end
+        local keys, out = {}, {}
+        for k in pairs(v) do keys[#keys + 1] = k end
+        table.sort(keys, function(a, b) return tostring(a) < tostring(b) end)
+        for _, k in ipairs(keys) do out[#out + 1] = tostring(k) .. "=" .. canon(v[k]) end
+        return "{" .. table.concat(out, ",") .. "}"
+    end
+    local s, sum = canon(data), 0
+    for i = 1, #s do sum = (sum * 31 + s:byte(i)) % 4294967296 end
+    local b = store.bake or {}
+    if b.sum ~= sum then b.at, b.sum = b.sum and time() or 0, sum end
+    b.text, store.bake = text, b
+end
 ns.useProfile = useProfile
 
 -- Another profile's settings replace the current one's; the name stays. Bar Stack is not part
@@ -7098,7 +7119,7 @@ local function openIO(mode)
         f.all = ns.ui.Check(f, "All profiles in one string")
         f.all:SetPoint("TOPLEFT", 340, -48)
         f.all:SetScript("OnClick", function(self)
-            f.area1.box:SetText(exportString(self:GetChecked()))
+            f.area1.box:SetText((exportString(self:GetChecked())))
             f.area1.box:SetFocus()
         end)
         f.area1 = ns.textArea(f, -68, 104)
@@ -7138,7 +7159,7 @@ local function openIO(mode)
     f.label2:SetShown(export)
     if export then
         f.label1:SetText("1. Addon profile. Import it on the Profiles page.")
-        f.area1.box:SetText(exportString(f.all:GetChecked()))
+        f.area1.box:SetText((exportString(f.all:GetChecked())))
         f.area2.box:SetText(editModeString() or "(The WoW UI layout isn't available right now.)")
         f.note:SetText("Click a box, then Ctrl+C. Keep the profile string somewhere safe: the beta forgets "
             .. "addon settings when the game restarts, and it brings them back. Tick \"All profiles\" to "
@@ -10106,6 +10127,7 @@ ev:SetScript("OnEvent", function(_, event, unit, arg2, arg3)
         safe(questLogChanged)
     elseif event == "PLAYER_LOGOUT" then -- a child's own settings, written down before they are saved
         ns.inh.save(store.chars[charKey])
+        safe(ns.bakeMark)
     elseif event == "PLAYER_REGEN_DISABLED" then
         inCombat, ns.inCombat = true, true
         safe(Refresh)

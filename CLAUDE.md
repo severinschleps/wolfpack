@@ -47,3 +47,12 @@ real bug gets a test that fails without the fix.
 Blizzard's Cooldown Manager frames, with its own page in the options window (`/bs`) and its own saved data
 (`BarStackDB`, plus a copy in account CVars). It keeps its names on `ns.bs` so they never meet
 Wolfpack's. Design and status notes are in `docs/`.
+
+## Baked settings
+
+`DEFAULT_PROFILE` (top of `WolfpackAddon.lua`) is what a fresh install starts from. At logout or
+`/reload` the addon saves every profile's export string and when its settings last changed
+(`ns.bakeMark`); `tools/bake.py` bakes the newest one in, tests, commits and pushes. A launchd
+agent (`tools/wolfpack-bake.plist`, log in `~/Library/Logs/wolfpack-bake.log`) runs it whenever
+a game saves, so `chore: bake in-game settings` commits appear on their own. It skips when
+`WolfpackAddon.lua` has uncommitted changes.
