@@ -2385,7 +2385,12 @@ cm[2]._items[1].set()
 cm[3]:GenerateMenu(); cm[3]._items[4].set()
 assert(prof().actionbars.bars[1].radius == 50 and prof().actionbars.pet.radius == 50 and prof().trinkets.radius == 50,
     "every action button, the trinket buttons too")
-cm[3]._items[1].set() end
+cm[3]._items[1].set()
+cm[5]:GenerateMenu(); cm[5]._items[4].set()
+assert(prof().regular.bars.targetcast.iconRadius == 50 and prof().plates.bars.targetcast.iconRadius == 50
+    and prof().regular.bars.castbar.iconRadius == 50 and prof().regular.bars.durability.iconRadius == 50,
+    "both cast bars' spell icons, with the item icons")
+cm[5]._items[1].set() end
 assert(prof().regular.bars.health.texture == "Interface\\Buttons\\WHITE8X8", "texture picked")
 assert(prof().regular.bars.health.font:match("Anton%-Regular%.ttf$") and fontDD._items[6].sel(), "font picked")
 -- Fonts: one dropdown per kind on the Colors page, setting every text of that kind
@@ -3325,6 +3330,11 @@ assert(ns.frames.targetcast._points[1][2] == ns.frames.health._points[1][2],
     "against the same anchor as every other bar")
 assert(ns.frames.targetcast.text._text == "Shadow Bolt", "wearing the spell's name")
 assert(ns.frames.targetcast.icon._tex == 136116, "and its icon")
+assert(not ns.frames.targetcast.icon.iconMask, "square by default")
+prof().regular.bars.targetcast.iconRadius = 50 -- the Corners card's "Icons on bars"
+fire("UNIT_SPELLCAST_START", "target")
+assert(ns.frames.targetcast.icon.iconMask, "the enemy cast icon takes the corners")
+prof().regular.bars.targetcast.iconRadius = 0
 assert(ns.frames.targetcast.castKind == "harm", "a damaging cast")
 assert(ns.frames.targetcast.segs[1]._timer
     and ns.frames.targetcast.segs[1]._timer == "targetCastDuration",

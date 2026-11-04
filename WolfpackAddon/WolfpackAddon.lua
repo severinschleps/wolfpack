@@ -313,14 +313,13 @@ local function layoutDefaults(show, x, y, gap, width, h1, h2, h3, h4, h5, h6, h7
     l.bars.experience.source, l.bars.experience.hideAtMax = "xp", true
     l.bars.health.colorMode, l.bars.enemyhealth.colorMode, l.bars.castbar.colorMode = "health", "reaction", "cast"
     l.bars.druidmana.colorMode = "power"
-    l.bars.castbar.icon, l.bars.castbar.iconSide = true, "left"
-    l.bars.targetcast.icon, l.bars.targetcast.iconSide = true, "left"
-    -- the item's icon at one end: its corners (0, 12, 25, 50: as ns.ICON_MASKS) and zoom (% cut
-    -- from each side); flash: the bar flashes once it is empty
-    for _, key in ipairs({ "enchantmh", "enchantoh", "durability" }) do
+    -- the spell's or item's icon at one end: its corners (0, 12, 25, 50: as ns.ICON_MASKS) and
+    -- zoom (% cut from each side); flash: the bar flashes once it is empty
+    for _, key in ipairs({ "castbar", "targetcast", "enchantmh", "enchantoh", "durability" }) do
         local b = l.bars[key]
-        b.icon, b.iconSide, b.iconRadius, b.iconZoom, b.flash = true, "left", 0, 8, true
+        b.icon, b.iconSide, b.iconRadius, b.iconZoom = true, "left", 0, 8
     end
+    for _, key in ipairs({ "enchantmh", "enchantoh", "durability" }) do l.bars[key].flash = true end
     -- what your target is casting. "Auto color": one color each for a cast you cannot stop, a
     -- heal, and everything else. autoSet: useProfile has moved an older profile, which always
     -- colored by kind, onto auto (once, so picking another mode sticks)
@@ -1326,19 +1325,15 @@ local function layoutBar(f, n, width, over)
     width = width or c.width
     f.width = width
     local r, g, b, br, bg, bb, ba = barColors(f, c)
-    -- Cast bar spell icon: a square at one end, inside the bar's width. Both cast bars have one,
-    -- and the weapon enchant and durability bars, theirs with corners and zoom.
+    -- Cast bar spell icon: a square at one end, inside the bar's width, with corners and zoom.
+    -- Both cast bars have one, and the weapon enchant and durability bars.
     local lead, iconSpace = 0, 0
     if f.key == "castbar" or f.key == "targetcast" or ns.wb.KEYS[f.key] then
         f.icon = f.icon or f:CreateTexture(nil, "ARTWORK")
-        if ns.wb.KEYS[f.key] then
-            f.iconMask = f.iconMask or newMask(f)
-            f.iconMask:SetAllPoints(f.icon)
-            local z = (c.iconZoom or 8) / 100
-            ns.iconCorners(f.icon, f.iconMask, c.iconRadius, { z, 1 - z, z, 1 - z })
-        else
-            f.icon:SetTexCoord(0.08, 0.92, 0.08, 0.92) -- trim the icon's built-in border
-        end
+        f.iconMask = f.iconMask or newMask(f)
+        f.iconMask:SetAllPoints(f.icon)
+        local z = (c.iconZoom or 8) / 100
+        ns.iconCorners(f.icon, f.iconMask, c.iconRadius, { z, 1 - z, z, 1 - z })
         f.icon:SetSize(c.height, c.height)
         f.icon:ClearAllPoints()
         f.icon:SetPoint(c.iconSide == "right" and "RIGHT" or "LEFT", f)
@@ -9054,8 +9049,8 @@ local function buildConfig()
             add(db.trinkets, "radius")
         end },
         { "Bag slots", ICON_R, function(add) add(db.bags, "radius") end },
-        { "Item icons on bars", ICON_R, function(add)
-            inBars(add, { "enchantmh", "enchantoh", "durability" }, "iconRadius")
+        { "Icons on bars", ICON_R, function(add)
+            inBars(add, { "castbar", "targetcast", "enchantmh", "enchantoh", "durability" }, "iconRadius")
         end },
         { "Text backgrounds", { { "None", 0 }, { "2 px", 2 }, { "4 px", 4 }, { "8 px", 8 },
             { "Pill (50% of height)", "pill" } }, function(add)
