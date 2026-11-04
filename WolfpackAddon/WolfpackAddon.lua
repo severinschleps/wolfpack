@@ -1847,7 +1847,10 @@ function ns.fill(f)
         f.segs[1]:SetValue(v)
         if f.over and f.over:IsShown() then fillOverlay(f, max) end
         if f.dot and f.dot:IsShown() then ns.fillDots(f, max) end
-        if f.shield and f.shield:IsShown() then
+        if f.shield and f.shield:IsShown() and ns.configOpen then -- a sample, to see and color it
+            f.shield:SetMinMaxValues(0, 1)
+            f.shield:SetValue(0.3)
+        elseif f.shield and f.shield:IsShown() then
             local ok, points = pcall(UnitGetTotalAbsorbs, f.unit or "player")
             f.shield:SetMinMaxValues(0, max)
             f.shield:SetValue(ok and points or 0)

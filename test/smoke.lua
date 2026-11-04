@@ -4709,6 +4709,10 @@ do
     assert(not hb.shield:IsShown(), "switched off")
     prof().regular.bars.health.shield, S.absorb = true, 0
     fire("UNIT_MAXPOWER")
+    assert(hb.shield._value == 0, "no shield, no stripes")
+    ns.configOpen = true; fire("UNIT_MAXPOWER")
+    assert(hb.shield._value == 0.3 and hb.shield._max == 1, "a sample while the options are open")
+    ns.configOpen = false; fire("UNIT_MAXPOWER")
 end
 
 realPrint("smoke ok")
