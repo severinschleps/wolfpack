@@ -9,6 +9,7 @@
 
 UI.lua
 WolfpackAddon.lua
+Dots.lua
 Macros.lua
 Trinkets.lua
 BarStack\Core.lua

@@ -519,6 +519,7 @@ for _, v in ipairs({ "11509", "16001", "20506", "50504", "120105" }) do
     assert(S.toc:match("## Interface:[^\n]*" .. v), "the toc names interface " .. v)
 end
 assert(loadfile("WolfpackAddon/WolfpackAddon.lua"))("WolfpackAddon", ns)
+assert(loadfile("WolfpackAddon/Dots.lua"))("WolfpackAddon", ns) -- next in the toc
 assert(loadfile("WolfpackAddon/Macros.lua"))("WolfpackAddon", ns) -- next in the toc
 UseInventoryItem = function() end -- the game's: Trinkets.lua watches it
 assert(loadfile("WolfpackAddon/Trinkets.lua"))("WolfpackAddon", ns)
@@ -3514,6 +3515,59 @@ do
     assert(eb.dot._value == 0 and eb.dot.text._text == "", "dispelled: nothing left")
     tick("UNIT_DIED")
     assert(ns.dots["Mob-1"] == nil, "a death forgets the ticks")
+    -- the tooltip's numbers: total, school, duration (and the tick gap where it says)
+    local t, s, d, e = ns.readDot("Corrupts the target, causing 180 Shadow damage over 18 sec.")
+    assert(t == 180 and s == 32 and d == 18 and e == nil, "a plain DoT")
+    t, s, d = ns.readDot("Burns the enemy for 11 Fire damage and then an additional 20 Fire damage over 15 sec.")
+    assert(t == 20 and s == 4 and d == 15, "a hit and a DoT: the DoT part")
+    local rip = "Finishing move that causes damage over time:\n 1 point : 42 damage over 12 sec.\n 2 points: 66 damage over 12 sec."
+    assert(ns.readDot(rip, 2) == 66 and ns.readDot(rip) == 42 and ns.readDot(rip, 5) == 66, "a finisher, by combo points")
+    t, s, d, e = ns.readDot("Transfers 15 health from the target to the caster every 3 sec. Lasts 30 sec.")
+    assert(t == 150 and d == 30 and e == 3, "so much every so often, for so long")
+    assert(ns.readDot("Heals the target of 830 damage over 15 sec.") == nil, "a heal isn't a DoT")
+    -- before its first tick: the tooltip's share for every tick still to come
+    local keepSpell = C_Spell
+    C_Spell = setmetatable({ GetSpellDescription = function(id) return (S.descs or {})[id] end,
+        GetSpellName = function(id) return (S.names or {})[id] end }, { __index = keepSpell })
+    S.descs = { [172] = "Corrupts the target, causing 180 Shadow damage over 18 sec.",
+        [348] = "Burns the enemy for 11 Fire damage and then an additional 20 Fire damage over 15 sec." }
+    S.names = { [172] = "Corruption", [348] = "Immolate" }
+    S.debuffs = { { name = "Corruption", spellId = 172, duration = 18, expirationTime = S.time + 18 } }
+    fire("UNIT_AURA", "target")
+    assert(eb.dot._value == 180, "no tick yet: all six of 30: " .. tostring(eb.dot._value))
+    S.time = S.time + 4; fire("UNIT_HEALTH", "target")
+    assert(eb.dot._value == 150, "one beat gone by: five left")
+    -- Agony ticks small, then more: the ticks still to come follow its shape
+    S.debuffs = { { name = "Curse of Agony", spellId = 980, duration = 24, expirationTime = S.time + 24 } }
+    S.time = S.time + 2
+    S.cleu = { 0, "SPELL_PERIODIC_DAMAGE", false, "Player-1", "", 0, 0, "Mob-1", "", 0, 0, 980, "Curse of Agony", 32, 15 }
+    fire("COMBAT_LOG_EVENT_UNFILTERED")
+    assert(eb.dot._value == 345, "a first tick of 15 is half an average 30; 11 to come: " .. tostring(eb.dot._value))
+    -- the skull: a bar of the health, filled by the damage to come (full: it shows)
+    assert(eb.dot.killBar._max == 800 and eb.dot.killBar._value == 345, "the skull's sum, left to the bar")
+    S.debuffs = {}; fire("UNIT_AURA", "target")
+    assert(eb.dot.killBar._value == 0, "no DoTs, no skull")
+    ns.dots["Mob-1"], S.cleu = nil, nil
+    -- Forever: no log. Your DoT casts start one from the tooltip; hits of its school on its beat
+    -- are its ticks, and teach its size.
+    ns.dotLog = false
+    ns.dotSent("cast-1")
+    ns.dotCast("cast-1", 172)
+    assert(eb.dot._value == 180, "cast: the tooltip's 180")
+    S.time = S.time + 3
+    ns.dotHit("target", "WOUND", nil, 40, 32)
+    assert(eb.dot._value == 200 and WolfpackAddonDB.dotTicks[172] == 40, "a tick of 40 on the beat: five more")
+    S.time = S.time + 0.2
+    ns.dotHit("target", "WOUND", nil, 41, 1)
+    S.time = S.time + 1.3
+    ns.dotHit("target", "WOUND", nil, 40, 32)
+    assert(eb.dot._value == 200, "a melee hit, a Shadow hit off the beat: neither is a tick")
+    ns.dotCast("cast-2", 348) -- Immolate, never ticks: resisted
+    S.time = S.time + 7
+    fire("UNIT_HEALTH", "target")
+    assert(eb.dot._value == 120, "two beats missed: Immolate goes; Corruption runs on unseen: three left: "
+        .. tostring(eb.dot._value))
+    ns.dotLog, C_Spell, S.descs, S.names = true, keepSpell, nil, nil
     S.cleu, S.npc, S.targetHP = nil, keepNpc, keepHP
     prof().regular.bars.enemyhealth.show, prof().regular.bars.enemyhealth.resource = false, keepRes
     fire("UNIT_MAXPOWER")
