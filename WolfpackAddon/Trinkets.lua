@@ -182,6 +182,32 @@ function T.macro(i)
     end
     if (GetMacroIndexByName(name) or 0) > 0 then PickupMacro(name) end
 end
+-- The key of the action button that macro sits on (the first one found with a key): your bars'
+-- key for that action slot, else the game's own binding for the button showing it. nil: the
+-- macro is on no bar, or on none with a key. Shown on the trinket button that has no key itself.
+T.BLIZZ_BARS = { { 1, "ACTIONBUTTON" }, { 25, "MULTIACTIONBAR3BUTTON" }, { 37, "MULTIACTIONBAR4BUTTON" },
+    { 49, "MULTIACTIONBAR2BUTTON" }, { 61, "MULTIACTIONBAR1BUTTON" } } -- first action slot, binding
+function T.barKey(i)
+    local m = GetMacroIndexByName and GetMacroIndexByName(T.MACRO:format(i)) or 0
+    if not (m and m > 0 and GetActionInfo) then return end
+    local binds = ns.profile().actionbars.binds
+    for slot = 1, 120 do
+        local ok, kind, id = pcall(GetActionInfo, slot)
+        if ok and kind == "macro" and id == m then
+            local key = binds[tostring(slot)]
+            for _, b in ipairs(T.BLIZZ_BARS) do
+                if not key and GetBindingKey and slot >= b[1] and slot < b[1] + 12 then
+                    key = GetBindingKey(b[2] .. (slot - b[1] + 1))
+                end
+            end
+            if key then return key end
+        end
+    end
+end
+-- the macro put on a bar or taken off, a key changed (the addon's events): the key text again
+function T.keys()
+    for _, b in ipairs(T.buttons or {}) do if ns.abHotkey then ns.abHotkey(b) end end
+end
 if UseInventoryItem then
     hooksecurefunc("UseInventoryItem", function(slot)
         for i, s in ipairs(T.SLOTS) do

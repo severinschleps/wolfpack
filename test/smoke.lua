@@ -4423,6 +4423,23 @@ do
     assert(S.binds.F == "WolfpackTrinketKey1", "shown: the key uses trinket 1, by its key twin")
     assert(T.buttons[1]:GetAttribute("useOnKeyDown") == false
         and T.buttons[1].wpKeyButton:GetAttribute("useOnKeyDown") == nil, "the mouse on release; the key as set")
+    -- no key of its own: it shows the key of the bar button its macro sits on (yours, else the game's)
+    do
+        local kept = { GetMacroIndexByName, GetActionInfo, GetBindingKey }
+        prof().actionbars.binds["trinket:1"] = nil
+        GetMacroIndexByName = function(n) return n == "WP Trinket 1" and 7 or 0 end
+        GetActionInfo = function(slot) if slot == 27 then return "macro", 7 end end
+        GetBindingKey = function(cmd) if cmd == "MULTIACTIONBAR3BUTTON3" then return "SHIFT-4" end end
+        fire("ACTIONBAR_SLOT_CHANGED")
+        assert(T.buttons[1].wpKey._text == "S4" and T.buttons[2].wpKey._text == "",
+            "the macro on the right bar's 3rd button: its key, S4; the other slot has none")
+        prof().actionbars.binds["27"] = "Q"
+        fire("UPDATE_BINDINGS")
+        assert(T.buttons[1].wpKey._text == "Q", "on one of your bars: your key for it")
+        prof().actionbars.binds["27"] = nil
+        GetMacroIndexByName, GetActionInfo, GetBindingKey = kept[1], kept[2], kept[3]
+        prof().actionbars.binds["trinket:1"] = "F"
+    end
     T.sync()
     assert(T.holder:IsShown() and T.buttons[2]._point, "the two buttons, placed")
     -- the action bars' look, and a clear mark on the one under the mouse

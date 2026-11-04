@@ -3071,6 +3071,9 @@ end
 -- A key as short as fits a button: SHIFT-1 -> S1, META-E -> ME, BUTTON4 -> B4
 function ns.abKeyText(slot)
     local key = db.actionbars.binds[tostring(slot)]
+    -- a trinket button with no key of its own: the key of the bar button its macro sits on
+    local t = not key and ns.trink and tostring(slot):match("^trinket:(%d)$")
+    if t then key = ns.trink.barKey(tonumber(t)) end
     if not key then return "" end
     -- M: the Mac's Command key, so mouse buttons are B (BUTTON4 -> B4)
     return (key:gsub("ALT%-", "A"):gsub("CTRL%-", "C"):gsub("SHIFT%-", "S"):gsub("META%-", "M"):gsub("NUMPAD", "N")
@@ -10261,7 +10264,7 @@ ev:SetScript("OnEvent", function(_, event, unit, arg2, arg3)
             "QUEST_DETAIL", "QUEST_ACCEPT_CONFIRM", "QUEST_PROGRESS", "QUEST_COMPLETE", "GOSSIP_SHOW", "QUEST_GREETING",
             "PLAYER_REGEN_DISABLED", "PLAYER_UPDATE_RESTING", "PLAYER_XP_UPDATE", "PLAYER_LEVEL_UP", "UPDATE_FACTION", "HONOR_XP_UPDATE", "ACTIONBAR_SHOWGRID",
             "ACTIONBAR_HIDEGRID", "CURSOR_CHANGED", "ACTIONBAR_SLOT_CHANGED", "PLAYER_SWING", "PLAYER_TOTEM_UPDATE", "MERCHANT_SHOW", "MERCHANT_CLOSED",
-            "GOSSIP_CLOSED", "PLAYER_LOGOUT" }) do
+            "GOSSIP_CLOSED", "PLAYER_LOGOUT", "UPDATE_BINDINGS" }) do
             listen(e)
         end
         if ns.swingLog then listen("COMBAT_LOG_EVENT_UNFILTERED") end -- swings, where no PLAYER_SWING
@@ -10298,8 +10301,11 @@ ev:SetScript("OnEvent", function(_, event, unit, arg2, arg3)
             C_Timer.After(0.05, function()
                 ns.ab.slotPending = false
                 safe(ns.syncActionBars)
+                if ns.trink then safe(ns.trink.keys) end -- its macro on a bar: that button's key
             end)
         end
+    elseif event == "UPDATE_BINDINGS" then
+        if ns.trink then safe(ns.trink.keys) end
     elseif event == "ACTIONBAR_SHOWGRID" or event == "ACTIONBAR_HIDEGRID" or event == "CURSOR_CHANGED" then
         -- dragging something that can go on an action button: hidden empty slots show for it
         local ok, what = pcall(GetCursorInfo)
