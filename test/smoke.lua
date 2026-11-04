@@ -2239,8 +2239,8 @@ nameBox._text = "PvP"; nameBox._scripts.OnEnterPressed(nameBox)
 assert(store.profiles["PvP 2"] and prof() == store.profiles["PvP 2"], "same name again: PvP 2")
 store.profiles["PvP 2"], store.parents["PvP 2"] = nil, nil
 ns.useProfile("PvP")
-local dds = {} -- step 1's parent, texture, bar color, border color, font, kill icon, loot icon, combat icon, attach
-for _, f in ipairs(created) do if f._gen and f ~= ns.copyFromMenu and f ~= ns.childPick and f ~= ns.countSpotMenus[1] and f ~= ns.countSpotMenus[2] and f ~= ns.sharedBorderTexMenu and f ~= ns.ownBorderTexMenu and f ~= ns.shineMenus[1] and f ~= ns.shineMenus[2] and f ~= ns.resPlaceMenu and f ~= ns.resPointMenu and f ~= ns.sitsMenu and f ~= ns.xpMenu and f ~= ns.borderFromMenu and f ~= ns.sharedRadiusMenu and f ~= ns.textureFromMenu and f ~= ns.sharedTextureMenu and not (f._parent == ns.pages.actionbars) then dds[#dds + 1] = f end end
+local dds = {} -- step 1's parent, texture, bar color, border color, kill icon, loot icon, combat icon, attach
+for _, f in ipairs(created) do if f._gen and f ~= ns.copyFromMenu and f ~= ns.childPick and f ~= ns.countSpotMenus[1] and f ~= ns.countSpotMenus[2] and f ~= ns.sharedBorderTexMenu and f ~= ns.ownBorderTexMenu and f ~= ns.shineMenus[1] and f ~= ns.shineMenus[2] and f ~= ns.resPlaceMenu and f ~= ns.resPointMenu and f ~= ns.sitsMenu and f ~= ns.xpMenu and f ~= ns.borderFromMenu and f ~= ns.sharedRadiusMenu and f ~= ns.fontMenus[1] and f ~= ns.fontMenus[2] and f ~= ns.fontMenus[3] and f ~= ns.fontMenus[4] and f ~= ns.textureFromMenu and f ~= ns.sharedTextureMenu and not (f._parent == ns.pages.actionbars) then dds[#dds + 1] = f end end
 assert(dds[1] == ns.parentPick, "step 1 comes first")
 do
     local names = {}
@@ -2338,7 +2338,7 @@ store.parents.Rogue, store.overrides.Rogue = nil, nil
 ns.useProfile("Rogue")
 
 -- Texture and font dropdowns: pick sets the selected bar (Health), previews render
-local texDD, fontDD = dds[2], dds[5]
+local texDD, fontDD = dds[2], ns.fontMenus[1]
 texDD:GenerateMenu(); fontDD:GenerateMenu()
 assert(#texDD._items == 11 and #fontDD._items == 6, "dropdown entries")
 -- Menu entries' regions refuse SetFont in the real client (Blizzard_Menu Compositor)
@@ -2388,6 +2388,13 @@ assert(prof().actionbars.bars[1].radius == 50 and prof().actionbars.pet.radius =
 cm[3]._items[1].set() end
 assert(prof().regular.bars.health.texture == "Interface\\Buttons\\WHITE8X8", "texture picked")
 assert(prof().regular.bars.health.font:match("Anton%-Regular%.ttf$") and fontDD._items[6].sel(), "font picked")
+-- Fonts: one dropdown per kind on the Colors page, setting every text of that kind
+assert(prof().plates.bars.enemyhealth.tagFont:match("Anton") and prof().unitframes.bars.power.font:match("Anton")
+    and prof().regular.bars.castbar.font:match("Anton"), "every bar's text, level and name too")
+ns.fontMenus[2]:GenerateMenu(); ns.fontMenus[2]._items[6].set()
+assert(prof().actionbars.bars[1].keyFont:match("Anton") and prof().actionbars.pet.macroFont:match("Anton")
+    and prof().trinkets.keyFont:match("Anton"), "every action button's keys and macro names, the trinkets' too")
+ns.fontMenus[2]._items[1].set()
 
 -- Quest page: icon style, size and position per icon
 byText("Nameplates")._scripts.OnClick(byText("Nameplates"), "LeftButton")
@@ -3103,14 +3110,14 @@ assert(iof.note._text:find("Imported as profile") and not iof.area2:IsShown(), "
 
 -- Combat text font: 20 fonts + default; applied on ADDON_LOADED only for known paths
 assert(#ns.COMBAT_FONTS == 21, "20 fonts + WoW default")
-dds[14]:GenerateMenu()
-assert(#dds[14]._items == 21, "combat font dropdown")
-for _, it in ipairs(dds[14]._items) do
+dds[11]:GenerateMenu()
+assert(#dds[11]._items == 21, "combat font dropdown")
+for _, it in ipairs(dds[11]._items) do
     local b = menuButton()
     assert(type(it.init(b)) == "number" and b._attached._text == "123", "combat font preview")
     checkColumn(b, 56)
 end
-dds[14]._items[6].set()
+dds[11]._items[6].set()
 local picked = ns.COMBAT_FONTS[6][2]
 assert(prof().other.combatFont == picked, "stored in the profile")
 assert(DAMAGE_TEXT_FONT == picked and CombatTextFont._font[1] == picked, "applied as soon as it's picked")
@@ -3129,7 +3136,7 @@ ns.useProfile(store.chars[S.name .. " - Realm"] or "Rogue")
 DAMAGE_TEXT_FONT = "Fonts\\FRIZQT__.TTF"
 prof().other.combatFont = "Interface\\evil.ttf"; fire("ADDON_LOADED", "WolfpackAddon")
 assert(DAMAGE_TEXT_FONT == "Fonts\\FRIZQT__.TTF", "unknown path refused")
-dds[14]._items[1].set()
+dds[11]._items[1].set()
 assert(prof().other.combatFont == "", "WoW default is remembered, so the baked font stays off")
 -- the baked-in export string is intact in the file (an edit truncating it would break defaults)
 local src = io.open("WolfpackAddon/WolfpackAddon.lua"):read("*a")

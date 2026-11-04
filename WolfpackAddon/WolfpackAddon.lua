@@ -3054,7 +3054,9 @@ function ns.abNew()
         end
         if not taken then
             -- corners as the others' (one for all action buttons, on the Colors page)
-            local bar = merge({ first = slot, y = 60 + 44 * #bars, radius = bars[1] and bars[1].radius }, ns.AB_BAR)
+            local b1 = bars[1] or {}
+            local bar = merge({ first = slot, y = 60 + 44 * #bars, radius = b1.radius, keyFont = b1.keyFont,
+                macroFont = b1.macroFont }, ns.AB_BAR)
             bars[#bars + 1] = bar
             bar.cols = math.min(12, ns.abRoom(#bars))
             return #bars
@@ -8164,22 +8166,20 @@ local function buildConfig()
     local txt = group(barsPage, COL[4], grad.cursor - 20, 202, "Text")
     local textWidgets = {
         check(barsPage, "Show text", txt.x, txt:row(ROW), function() return cur().text end, function(v) cur().text = v end),
-        dropdown(barsPage, "Font", txt.x, txt:row(DROP), FONTS, function() return cur().font end,
-            function(v) cur().font = v end, fontPreview),
     }
     local sizeY = txt:row(SLIDER)
-    textWidgets[3] = slider(barsPage, "Size", txt.x, sizeY, 6, 32, function() return cur().fontSize end,
+    textWidgets[2] = slider(barsPage, "Size", txt.x, sizeY, 6, 32, function() return cur().fontSize end,
         function(v) cur().fontSize = v end)
-    textWidgets[4] = check(barsPage, "Outline", txt.x, txt:row(ROW), function() return cur().outline end,
+    textWidgets[3] = check(barsPage, "Outline", txt.x, txt:row(ROW), function() return cur().outline end,
         function(v) cur().outline = v end)
-    textWidgets[5] = swatch(barsPage, "Text color", txt.x, txt:row(SWATCH), function() return cur().textColor end)
+    textWidgets[4] = swatch(barsPage, "Text color", txt.x, txt:row(SWATCH), function() return cur().textColor end)
     -- health, power and enemy health: their numbers have a window of their own, sizes and colors too
     local numButton = button(barsPage, "Numbers", 186, txt.x, sizeY - 12, function() ns.toggleDialog(ns.textDialog) end)
     local noText = label(barsPage, "", "GameFontDisableSmall")
     noText:SetPoint("TOPLEFT", txt.x, txt:row(16))
     onRefresh(function()
         local many = ns.TEXT_BARS[selected] and true or false
-        for i, w in ipairs(textWidgets) do w:SetShown(selected ~= "combo" and not (many and (i == 3 or i == 5))) end
+        for i, w in ipairs(textWidgets) do w:SetShown(selected ~= "combo" and not (many and (i == 2 or i == 4))) end
         numButton:SetShown(many)
         if not (many and (section == "combat" or section == "nameplates")) then ns.textDialog:Hide() end
         noText:SetText(selected == "combo" and "Combo points show no text." or "")
@@ -8281,8 +8281,6 @@ local function buildConfig()
         local n = group(questPage, COL[i + 1], g.cursor - 20, 202, "How many are left")
         check(questPage, "Show the number", n.x, n:row(ROW), function() return q().count end,
             function(v) q().count = v end)
-        dropdown(questPage, "Font", n.x, n:row(DROP), FONTS, function() return q().font end,
-            function(v) q().font = v end, fontPreview)
         slider(questPage, "Font size", n.x, n:row(SLIDER), 6, 32, function() return q().fontSize end,
             function(v) q().fontSize = v end)
         ns.countSpotMenus = ns.countSpotMenus or {}
@@ -8563,8 +8561,6 @@ local function buildConfig()
     abk:close()
 
     local abt = group(actionPage, COL[2], abk.cursor - 20, 202, "Text")
-    dropdown(actionPage, "Keybind font", abt.x, abt:row(DROP), FONTS, function() return AB().keyFont end,
-        function(v) AB().keyFont = v end, fontPreview)
     slider(actionPage, "Keybind size", abt.x, abt:row(SLIDER), 6, 24, function() return AB().keySize end,
         function(v) AB().keySize = v end)
     check(actionPage, "Hide empty buttons", abt.x, abt:row(ROW), function() return AB().hideEmpty end,
@@ -8573,8 +8569,6 @@ local function buildConfig()
         function(v) AB().mouseover = v end)
     check(actionPage, "Show macro names", abt.x, abt:row(ROW), function() return AB().macroText end,
         function(v) AB().macroText = v end)
-    dropdown(actionPage, "Macro name font", abt.x, abt:row(DROP), FONTS, function() return AB().macroFont end,
-        function(v) AB().macroFont = v end, fontPreview)
     slider(actionPage, "Macro name size", abt.x, abt:row(SLIDER), 6, 24, function() return AB().macroSize end,
         function(v) AB().macroSize = v end)
     abt:close()
@@ -8705,8 +8699,6 @@ local function buildConfig()
             function(v) O().borderSize = v end)
         swatch(pg, "Border color", c3.x, c3:row(SWATCH), function() return O().borderColor end)
         swatch(pg, "Under the mouse", c3.x, c3:row(SWATCH), function() return O().hoverColor end)
-        dropdown(pg, "Keybind font", c3.x, c3:row(DROP), FONTS, function() return O().keyFont end,
-            function(v) O().keyFont = v end, fontPreview)
         slider(pg, "Keybind size", c3.x, c3:row(SLIDER), 6, 24, function() return O().keySize end,
             function(v) O().keySize = v end)
         check(pg, "Show only on mouseover", c3.x, c3:row(ROW), function() return O().mouseover end,
@@ -8778,8 +8770,6 @@ local function buildConfig()
             function(v) G().borderSize = v end)
         swatch(pg, "Border color", c3.x, c3:row(SWATCH), function() return G().borderColor end)
         swatch(pg, "Background", c3.x, c3:row(SWATCH), function() return G().bg end)
-        dropdown(pg, "Count font", c3.x, c3:row(DROP), FONTS, function() return G().font end,
-            function(v) G().font = v end, fontPreview)
         slider(pg, "Count size", c3.x, c3:row(SLIDER), 6, 20, function() return G().countSize end,
             function(v) G().countSize = v end)
         c3:close()
@@ -9087,7 +9077,42 @@ local function buildConfig()
     note(ccorn, "Each sets the corners of everything of its kind, everywhere it shows.", 30)
     ccorn:close()
 
-    local bcard = group(colorPage, COL[2], ccorn.cursor - 20, 202, "Borders")
+    -- Fonts: the same, one font per kind of text (the floating combat numbers are on Other)
+    ns.FONT_KINDS = {
+        { "Text on bars", function(add)
+            for _, set in ipairs({ db.regular.bars, db.plates.bars, db.platesTarget.bars, db.unitframes.bars }) do
+                for _, b in pairs(set) do if type(b) == "table" and b.font ~= nil then add(b, "font") end end
+                if set.enemyhealth then add(set.enemyhealth, "tagFont") end -- level and name
+            end
+        end },
+        { "Action buttons", function(add)
+            local AB = db.actionbars
+            for _, b in ipairs({ AB.stance, AB.pet, unpack(AB.bars) }) do
+                add(b, "keyFont")
+                add(b, "macroFont")
+            end
+            add(db.trinkets, "keyFont")
+        end },
+        { "Bag counts", function(add) add(db.bags, "font") end },
+        { "Quest numbers", function(add)
+            add(db.quest.kill, "font")
+            add(db.quest.loot, "font")
+        end },
+    }
+    local cfnt = group(colorPage, COL[2], ccorn.cursor - 20, 202, "Fonts")
+    ns.fontMenus = {}
+    for _, kind in ipairs(ns.FONT_KINDS) do
+        ns.fontMenus[#ns.fontMenus + 1] = dropdown(colorPage, kind[1], cfnt.x, cfnt:row(DROP), FONTS,
+            function()
+                local v
+                kind[2](function(t, k) if v == nil then v = t[k] end end)
+                return v
+            end, function(v) kind[2](function(t, k) t[k] = v end) end, fontPreview)
+    end
+    note(cfnt, "Each sets the font of every text of its kind. Sizes and colors stay where they are.", 30)
+    cfnt:close()
+
+    local bcard = group(colorPage, COL[2], cfnt.cursor - 20, 202, "Borders")
     ns.sharedBorderTexMenu = dropdown(colorPage, "Texture", bcard.x, bcard:row(DROP), TEXTURES,
         function() return P().borderTexture end, function(v) P().borderTexture = v end, texturePreview)
     slider(colorPage, "Width", bcard.x, bcard:row(SLIDER), 0, 10,
@@ -9182,7 +9207,8 @@ local function buildConfig()
         end,
     })
 
-    -- Level and name dialog: same place, for the same bar. The font on top, then a column each.
+    -- Level and name dialog: same place, for the same bar. The size on top (the font is on the
+    -- Colors page), then a column each.
     local td = ns.ui.Window(nil, 440, 740, "Level and name")
     td:SetParent(cfg)
     td:ClearAllPoints()
@@ -9190,10 +9216,7 @@ local function buildConfig()
     td:Hide()
     ns.tagDialog = td
     ry = -48
-    local fontRow = rrow(DROP)
-    dropdown(td, "Font", 16, fontRow, FONTS, function() return cur().tagFont end,
-        function(v) cur().tagFont = v end, fontPreview)
-    slider(td, "Size", 230, fontRow, 6, 32, function() return cur().tagSize end, function(v) cur().tagSize = v end)
+    slider(td, "Size", 16, rrow(SLIDER), 6, 32, function() return cur().tagSize end, function(v) cur().tagSize = v end)
     check(td, "Outline", 16, rrow(ROW), function() return cur().tagOutline end, function(v) cur().tagOutline = v end)
     local tnote = label(td, "The level takes the game's color: grey gives no experience, red is far "
         .. "above you. \"+\" marks an elite.", "GameFontDisableSmall")
