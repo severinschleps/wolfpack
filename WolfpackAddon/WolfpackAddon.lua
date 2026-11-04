@@ -8537,7 +8537,7 @@ local function buildConfig()
             .. "first nearest: a click wears that one here until you use it; right-click moves it up, "
             .. "Shift-right-click down. Corners: the Colors page's, as your action bars'.\n\nThe game allows no gear "
             .. "changes in combat: those happen as it ends.", "GameFontDisableSmall")
-        n:SetPoint("TOPLEFT", c1.x, c1:row(190))
+        n:SetPoint("TOPLEFT", c1.x, c1:row(220))
         n:SetWidth(178)
         n:SetJustifyH("LEFT")
         button(pg, "Set keys (quick keybind mode)", 178, c1.x, c1:row(BUTTON), function()
