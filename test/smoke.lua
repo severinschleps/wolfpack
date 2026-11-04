@@ -4565,6 +4565,18 @@ do
     ns.cbTick(cb, 0.5)
     assert(icons[2]._alpha < 1 and icons[1]._alpha == 1, "the missing one flashes")
     assert(f.auraBoxes.buffs._points[1][2] == cb, "buffs hang on the class buffs")
+    -- the class buffs on the center line: buffs hung on them line up there too, on their own edge
+    hp.selfbuffs.anchorTo, hp.selfbuffs.lineEdge, hp.selfbuffs.spot, hp.selfbuffs.y = "line", "center", "topleft", 3
+    hp.buffs.lineEdge, hp.buffs.x, hp.buffs.y, hp.auraLineGap, hp.auraGroupGap = "bottom", 0, 0, 1, 4
+    fire("UNIT_AURA", "player")
+    local pt = f.auraBoxes.buffs._points[1]
+    assert(pt[1] == "BOTTOMLEFT" and pt[2] == cb and pt[3] == "RIGHT" and pt[4] == 4 and pt[5] == 1 - 3,
+        "beside them, its bottom edge on the line")
+    hp.selfbuffs.spot = "lefttop" -- they grow left: the buffs go on, left of them
+    fire("UNIT_AURA", "player")
+    pt = f.auraBoxes.buffs._points[1]
+    assert(pt[1] == "BOTTOMRIGHT" and pt[3] == "LEFT" and pt[4] == -4, "left of them")
+    hp.selfbuffs.anchorTo, hp.selfbuffs.spot, hp.selfbuffs.y = "bar", "righttop", 0
     hp.buffs.anchorTo = "bar"
     -- a rogue: a poison on each weapon there is
     login("ROGUE", 3)

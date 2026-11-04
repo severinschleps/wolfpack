@@ -2302,6 +2302,20 @@ function ns.cbTick(box, dt)
     if box.host:IsShown() then pcall(ns.layoutAuras, box.host) end
 end
 
+-- A group hung on the class buffs while they sit on the center line: next along the line from
+-- them (the way they grow), with its own edge on the line. Their point on it is known, so the
+-- difference between the two is the offset.
+local function lineV(gp) return gp:match("^TOP") and "TOP" or gp:match("^BOTTOM") and "BOTTOM" or "" end
+function ns.besideOnLine(co, o, gap, lineGap, cb)
+    local cgp, _, _, cy = ns.linePlace(co, false, lineGap)
+    local bgp, _, _, by = ns.linePlace(o, false, lineGap)
+    local cv, bv = lineV(cgp), lineV(bgp)
+    if (ns.LINE_SIDES[co.spot] or ns.LINE_SIDES.righttop)[1] == "RIGHT" then -- they grow left
+        return bv .. "RIGHT", cb, cv .. "LEFT", o.x - gap, by - cy
+    end
+    return bv .. "LEFT", cb, cv .. "RIGHT", o.x + gap, by - cy
+end
+
 -- Each group lives in a box as big as its icons; the box hangs on the bar or on the other
 -- group's box. Both on each other would hang in the air, so then buffs take the bar. One that
 -- hangs on an empty group borrows that group's own anchor on the bar while it is empty: the
@@ -2440,7 +2454,11 @@ function ns.layoutAuras(f)
         -- on the class buffs (or on the other group, empty and on them), the group gap away
         if cb and (o.anchorTo == "class" or toOther and alone and c[other].anchorTo == "class") then
             local gap = (cb.n or 0) > 0 and c.auraGroupGap or 0
-            box:SetPoint(corner, cb, sp[1], o.x + sp[2] * gap, o.y + sp[3] * gap)
+            if c.selfbuffs.anchorTo == "line" then -- beside them on the line, on its own edge of it
+                box:SetPoint(ns.besideOnLine(c.selfbuffs, o, gap, c.auraLineGap or 0, cb))
+            else
+                box:SetPoint(corner, cb, sp[1], o.x + sp[2] * gap, o.y + sp[3] * gap)
+            end
         elseif o.anchorTo == "line" then -- on the center line; alone on it, centered
             local gp, hp, x, y = ns.linePlace(o, alone, c.auraLineGap or 0)
             box:SetPoint(gp, host, hp, x, y)
@@ -9449,7 +9467,9 @@ local function buildConfig()
         local edge = dropdown(pane, "On the line", 16, rrow(DROP), { { "Bottom edge (above it)", "bottom" },
             { "Center", "center" }, { "Top edge (below it)", "top" } }, function() return A().lineEdge end,
             function(v) A().lineEdge = v end, textPreview)
-        onRefresh(function() edge:SetShown(A().anchorTo == "line") end)
+        -- hung on the class buffs while they are on the line: it lines up there too
+        onRefresh(function() edge:SetShown(A().anchorTo == "line" or A().anchorTo == "class"
+            and cur().selfbuffs ~= nil and cur().selfbuffs.anchorTo == "line") end)
         check(pane, "Hide timer text", 16, rrow(ROW), function() return A().hideTimer end,
             function(v) A().hideTimer = v end)
         dropdown(pane, "Starts at", 16, rrow(DROP), SPOTS, function() return A().spot end,
