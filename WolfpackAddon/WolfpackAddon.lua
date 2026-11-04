@@ -8561,9 +8561,6 @@ local function buildConfig()
         c2:close()
         -- the action bars' look, and the hover
         local c3 = group(pg, COL[2], c2.cursor - 20, 202, "Look")
-        dropdown(pg, "Icon corners", c3.x, c3:row(DROP), { { "None (square)", 0 }, { "Slightly rounded", 12 },
-            { "Rounded", 25 }, { "Circle", 50 } }, function() return O().radius end, function(v) O().radius = v end,
-            textPreview)
         slider(pg, "Zoom (% cut from each side)", c3.x, c3:row(SLIDER), 0, 30, function() return O().zoom end,
             function(v) O().zoom = v end)
         slider(pg, "Border width", c3.x, c3:row(SLIDER), 0, 6, function() return O().borderSize end,
@@ -8908,6 +8905,7 @@ local function buildConfig()
             for _, b in ipairs(db.actionbars.bars) do add(b, "radius") end
             add(db.actionbars.stance, "radius")
             add(db.actionbars.pet, "radius")
+            add(db.trinkets, "radius")
         end },
         { "Bag slots", ICON_R, function(add) add(db.bags, "radius") end },
         { "Item icons on bars", ICON_R, function(add)

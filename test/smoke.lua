@@ -2380,7 +2380,8 @@ cm[2]:GenerateMenu(); cm[2]._items[3].set()
 assert(prof().regular.bars.health.buffs.radius == 25 and prof().unitframes.g40.debuffs.radius == 25, "every buff and debuff")
 cm[2]._items[1].set()
 cm[3]:GenerateMenu(); cm[3]._items[4].set()
-assert(prof().actionbars.bars[1].radius == 50 and prof().actionbars.pet.radius == 50, "every action button")
+assert(prof().actionbars.bars[1].radius == 50 and prof().actionbars.pet.radius == 50 and prof().trinkets.radius == 50,
+    "every action button, the trinket buttons too")
 cm[3]._items[1].set() end
 assert(prof().regular.bars.health.texture == "Interface\\Buttons\\WHITE8X8", "texture picked")
 assert(prof().regular.bars.health.font:match("Anton%-Regular%.ttf$") and fontDD._items[6].sel(), "font picked")
