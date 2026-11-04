@@ -2781,6 +2781,68 @@ assert(BagsBar._parent == UIParent and BagsBar._point[2] == "MicroButtonAndBagsB
     S.bags, ContainerFrame2, bank._shown = keptBags, nil, false
 end)()
 
+-- The bank: a window like the bags' for its slots and its bags; Blizzard's parked without its
+-- OnHide (which closes the bank), its bag slots and buy button on our window's top. Escape on
+-- ours closes the bank; the bank closing closes ours and gives Blizzard's back.
+;(function()
+    local B, o = ns.bags, prof().bags
+    local keptSlots, keptBags = C_Container.GetContainerNumSlots, S.bags
+    o.show, NUM_BANKBAGSLOTS = true, 2 -- your bags are 0-1 here, so the bank's are 2 and 3
+    C_Container.GetContainerNumSlots = function(bag) return ({ [-1] = 3, [2] = 2 })[bag] or 0 end
+    S.bags = { [-1] = { { itemID = 1, iconFileID = 11, quality = 1, stackCount = 1 } },
+        [2] = { nil, { itemID = 77, iconFileID = 12, quality = 1, stackCount = 1 } } }
+    BankFrame = new()
+    BankFrame._shown, BankFrame._parent = true, UIParent
+    BankFrame.GetScript = function(self, k) return self._scripts[k] end
+    local blizzHide = function() end
+    BankFrame._scripts.OnHide = blizzHide
+    local slot = new()
+    slot.isBag, slot._parent, slot.GetID = 1, BankFrame, function() return 1 end
+    BankFrame._children = { slot }
+    BankFramePurchaseButton = new()
+    BankFramePurchaseButton._parent = BankFrame
+    GetNumBankSlots = function() return 1, false end
+    CloseBankFrame = function() S.bankClosed = true end
+    local bankBagWin = new()
+    bankBagWin.GetID, bankBagWin._shown, bankBagWin._parent = function() return 2 end, true, UIParent
+    ContainerFrame4 = bankBagWin
+    local templates = {}
+    S.realCF = CreateFrame
+    CreateFrame = function(kind, name, parent, tpl)
+        if name then templates[name] = tpl end
+        return S.realCF(kind, name, parent, tpl)
+    end
+    B.ev._scripts.OnEvent(B.ev, "BANKFRAME_OPENED")
+    CreateFrame = S.realCF
+    local f = B.bankFrame
+    assert(f:IsShown() and BankFrame._parent == hider and BankFrame._scripts.OnHide == blizzHide,
+        "open: ours shows, Blizzard's parked, its OnHide kept")
+    assert(templates.WolfpackBagM1Slot1 == nil and templates["WolfpackBag-1Slot1"] == "BankItemButtonGenericTemplate"
+        and templates.WolfpackBag2Slot2 == "ContainerFrameItemButtonTemplate", "the bank's slots: the game's bank buttons")
+    assert(B.holders[-1]:GetParent() == f and B.holders[2]:GetParent() == f and B.holders[-1].buttons[3]:IsShown()
+        and B.holders[2].buttons[2].wpIcon._tex == 12 and f.money._text == "Bank", "its slots and its bag's, in our window")
+    assert(slot._parent == f and slot._point[1] == "BOTTOMLEFT" and BankFramePurchaseButton._point[2] == slot
+        and BankFramePurchaseButton:IsShown(), "the bag slots and the buy button on top")
+    B.sync()
+    assert(bankBagWin._parent == hider and not B.frame:IsShown(), "a bank bag's window: parked, the bags stay shut")
+    S.bankClosed = nil
+    f._scripts.OnHide(f)
+    assert(S.bankClosed, "closed by hand: the bank closes")
+    S.bankClosed = nil
+    B.ev._scripts.OnEvent(B.ev, "BANKFRAME_CLOSED")
+    assert(not f:IsShown() and BankFrame._parent == UIParent and slot._parent == BankFrame and not S.bankClosed,
+        "the bank closed: ours shut, Blizzard's given back")
+    o.bank = false
+    B.ev._scripts.OnEvent(B.ev, "BANKFRAME_OPENED")
+    assert(not f:IsShown() and BankFrame._parent == UIParent, "off: Blizzard's bank as it is")
+    B.ev._scripts.OnEvent(B.ev, "BANKFRAME_CLOSED")
+    o.bank, o.show = true, false
+    bankBagWin._shown = false
+    B.sync()
+    BankFrame, BankFramePurchaseButton, ContainerFrame4, NUM_BANKBAGSLOTS = nil, nil, nil, nil
+    C_Container.GetContainerNumSlots, S.bags = keptSlots, keptBags
+end)()
+
 -- Color pickers start from the color in use: class / same-as-bar borders, class bars; picking
 -- a color makes it custom, opacity alone doesn't, cancel restores both
 local sw, hcol = ns.swatches, prof().regular.bars.health

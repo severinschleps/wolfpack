@@ -418,7 +418,8 @@ end
 DEFAULTS.bags = { show = false, cols = 10, size = 36, gap = 4, sectionGap = 12, borderSize = 1,
     borderColor = { 0, 0, 0, 1 }, radius = 0, zoom = 8, quality = true, junk = true, sort = false,
     countSize = 11, font = FONTS[1][2], bg = { 0.05, 0.05, 0.06, 0.6 }, x = -60, y = 110,
-    keyring = true, side = true, custom = {}, classBags = true, classItems = {} }
+    keyring = true, side = true, custom = {}, classBags = true, classItems = {},
+    bank = true, bankX = 60, bankY = -120 } -- bank: the bank in a window like ours (top left corner at bankX / bankY)
 
 -- Unit frames: your party or raid, a frame each, in a block with one side fixed. Each group size
 -- has its own block and auras: g5 up to 5 players, g10 up to 10, g20 up to 20, g40 more. fixed
@@ -4859,19 +4860,22 @@ function ns.bags.isQuest(bag, slot, info)
     return okC and classID == 12 -- Enum.ItemClass.Questitem
 end
 
--- one holder per bag carries the bag's id, as the game's buttons look for it on their parent
+-- one holder per bag carries the bag's id, as the game's buttons look for it on their parent.
+-- The bank's own slots are the game's bank buttons; its bags', container buttons as any bag's.
 function ns.bags.button(bag, slot)
-    local h = ns.bags.holders[bag]
+    local h, B = ns.bags.holders[bag], ns.bags
     if not h then
-        h = CreateFrame("Frame", nil, bag == ns.bags.keys() and ns.bags.frame.keys or ns.bags.frame)
+        local parent = bag == B.keys() and B.frame.keys or B.isBank(bag) and B.bankFrame or B.frame
+        h = CreateFrame("Frame", nil, parent)
         h:SetID(bag)
         h.buttons = {}
         ns.bags.holders[bag] = h
     end
     if h.buttons[slot] then return h.buttons[slot] end
     local name = ("WolfpackBag%dSlot%d"):format(bag, slot)
-    local ok, b = pcall(CreateFrame, "ItemButton", name, h, "ContainerFrameItemButtonTemplate")
-    if not ok then b = CreateFrame("Button", name, h, "ContainerFrameItemButtonTemplate") end
+    local tpl = bag == B.BANK and "BankItemButtonGenericTemplate" or "ContainerFrameItemButtonTemplate"
+    local ok, b = pcall(CreateFrame, "ItemButton", name, h, tpl)
+    if not ok then b = CreateFrame("Button", name, h, tpl) end
     b:SetID(slot)
     if type(rawget(b, "SetBagID")) == "function" or b.SetBagID ~= nil then pcall(b.SetBagID, b, bag) end
     -- the template's own art (new-item and quest glows, slot frame...) is Blizzard's bag code to
@@ -4991,9 +4995,11 @@ function ns.bags.grid(f, list, y, pad)
     return y - math.ceil(#list / o.cols) * step + o.gap
 end
 
-function ns.bags.layout()
+-- a window of bags: ours (f = B.frame, the bags) or the bank's (B.bankFrame, its bags)
+function ns.bags.layout(f, bags)
     local o, B = db.bags, ns.bags
-    local f = B.frame
+    f = f or B.frame
+    local bank = f == B.bankFrame
     -- the custom bags' groups come right after the quest items
     local order, groups, free, all = {}, {}, 0, B.all()
     for _, k in ipairs(B.order) do
@@ -5001,7 +5007,7 @@ function ns.bags.layout()
         if k == "quest" then for i in ipairs(all) do order[#order + 1] = "c" .. i end end
     end
     for _, k in ipairs(order) do groups[k] = {} end
-    for _, bag in ipairs(B.list()) do
+    for _, bag in ipairs(bags or B.list()) do
         local sec = B.section(bag)
         B.slots(bag, function(slot, info)
             if not info then free = free + 1 end
@@ -5036,15 +5042,17 @@ function ns.bags.layout()
             y = B.grid(f, list, y, pad)
         end
     end
-    f.money:SetText(ns.money(GetMoney()))
+    f.money:SetText(bank and "Bank" or ns.money(GetMoney()))
     f.free:SetText(free .. " free")
     f:SetSize(pad * 2 + o.cols * step - o.gap, -y + pad + 18)
     f.bg:SetColorTexture(unpack(o.bg))
-    if not B.dragged then -- moved by hand: left there until the bags close
+    if not f.dragged then -- moved by hand: left there until the window closes
         f:ClearAllPoints()
-        f:SetPoint("BOTTOMRIGHT", UIParent, "BOTTOMRIGHT", o.x, o.y)
+        if bank then f:SetPoint("TOPLEFT", UIParent, "TOPLEFT", o.bankX, o.bankY)
+        else f:SetPoint("BOTTOMRIGHT", UIParent, "BOTTOMRIGHT", o.x, o.y) end
     end
-    f.sort:SetShown(B.api("SortBags") ~= nil)
+    f.sort:SetShown(B.api(f.sortWith) ~= nil)
+    if bank then return end -- the strip of hand-made bags is the bags' window's
     local counts = {}
     for i in ipairs(all) do counts[i] = #groups["c" .. i] end
     B.layoutSide(counts)
@@ -5149,17 +5157,19 @@ function ns.bags.sync()
             end
         end
         local key = keyBag and f ~= ContainerFrameCombinedBags and f:GetID() == keyBag
-        if on and f:IsShown() and (key or B.mine(f)) then
+        -- a bank bag's window: its slots are in our bank window already
+        local bankBag = f ~= ContainerFrameCombinedBags and B.bankOn() and B.isBank(f:GetID())
+        if on and f:IsShown() and (key or bankBag or B.mine(f)) then
             if not f.wpHome then f.wpHome = f:GetParent() end
             f:SetParent(hider)
-            if key then keys = true else open = true end
+            if key then keys = true elseif not bankBag then open = true end
         elseif f.wpHome then
             f:SetParent(f.wpHome)
             f.wpHome = nil
         end
     end
     open = open or (on and B.wantPreview and B.wantPreview()) or false
-    if not open then B.dragged = nil end -- closed: back to its set spot next time
+    if not open then B.frame.dragged = nil end -- closed: back to its set spot next time
     B.frame:SetShown(open)
     if open then B.layout() end
     local barKeys = on and keyBag ~= nil
@@ -5169,29 +5179,30 @@ function ns.bags.sync()
     end
     B.frame.keys:SetShown(keys)
     if keys then B.layoutKeys() end
+    B.syncBank()
 end
 
-function ns.bags.make()
-    local B = ns.bags
-    if B.frame then return end
-    local f = CreateFrame("Frame", "WolfpackBags", UIParent)
+-- a window in the bags' look; sortWith: the game's sort function for what it shows
+function ns.bags.window(name, sortWith)
+    local f = CreateFrame("Frame", name, UIParent)
     f:SetFrameStrata("HIGH")
     f:EnableMouse(true)
     f:SetMovable(true)
     f:SetClampedToScreen(true)
     f:RegisterForDrag("LeftButton")
     f:SetScript("OnDragStart", f.StartMoving)
-    -- dragged: there for now; once the bags close it goes back to the spot set on the Bags page
+    -- dragged: there for now; once it closes it goes back to the spot set on the Bags page
     f:SetScript("OnDragStop", function(self)
         self:StopMovingOrSizing()
         self:SetUserPlaced(false) -- the game would otherwise remember the spot itself
-        ns.bags.dragged = true
+        self.dragged = true
     end)
     f:Hide()
     f.bg = f:CreateTexture(nil, "BACKGROUND", nil, -8)
     f.bg:SetAllPoints()
     f.tags = {}
-    for k, text in pairs(B.labels) do
+    f.sortWith = sortWith
+    for k, text in pairs(ns.bags.labels) do
         f.tags[k] = f:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
         f.tags[k]:SetText(text)
     end
@@ -5202,7 +5213,14 @@ function ns.bags.make()
     f.sort = ns.ui.Button(f, "Sort", 44, true)
     f.sort:SetHeight(16)
     f.sort:SetPoint("BOTTOM", 0, 3)
-    f.sort:SetScript("OnClick", function() pcall(ns.bags.api("SortBags")) end)
+    f.sort:SetScript("OnClick", function(self) pcall(ns.bags.api(self:GetParent().sortWith)) end)
+    return f
+end
+
+function ns.bags.make()
+    local B = ns.bags
+    if B.frame then return end
+    local f = B.window("WolfpackBags", "SortBags")
     f.side = CreateFrame("Frame", nil, f)
     f.side:SetPoint("TOPRIGHT", f, "TOPLEFT", -4, 0)
     f.side:EnableMouse(true)
@@ -5219,10 +5237,96 @@ function ns.bags.make()
     B.frame = f
 end
 
+------------------------------------------------------------------------------------------
+-- Bank: the bags' window again, for the bank's own slots and its bags, in the same look and
+-- groups, open while the bank is. Blizzard's bank window opens as always, parked out of
+-- sight; its bag slots and buy-a-slot button ride on top of ours, as the bag bar does on the
+-- bags. The bank of tabs (Midnight) is left to Blizzard's window.
+------------------------------------------------------------------------------------------
+ns.bags.BANK = (Enum and Enum.BagIndex and Enum.BagIndex.Bank) or BANK_CONTAINER or -1
+function ns.bags.bankOn()
+    local tabs = Enum and Enum.BagIndex and Enum.BagIndex.CharacterBankTab_1
+    return ns.bags.on() and db.bags.bank and BankFrame ~= nil and not tabs or false
+end
+-- the bank's own slots, then its bags, numbered after yours
+function ns.bags.bankList()
+    local out, mine, first = { ns.bags.BANK }, ns.bags.list(), (NUM_BAG_SLOTS or 4) + 1
+    for bag = first, first + (NUM_BANKBAGSLOTS or 6) - 1 do
+        if not tContains(mine, bag) then out[#out + 1] = bag end
+    end
+    return out
+end
+function ns.bags.isBank(bag) return tContains(ns.bags.bankList(), bag) end
+
+-- Blizzard's bank bag slots (its buttons with isBag) and the buy button, along our window's top
+function ns.bags.bankBar(on)
+    local B, list = ns.bags, {}
+    for _, p in ipairs({ BankFrame, BankSlotsFrame or false }) do
+        for _, c in ipairs(p and { p:GetChildren() } or {}) do
+            if rawget(c, "isBag") then list[#list + 1] = c end
+        end
+    end
+    table.sort(list, function(a, b) return a:GetID() < b:GetID() end)
+    local buy = BankFramePurchaseButton
+    if buy then list[#list + 1] = buy end
+    local ok, _, full = pcall(GetNumBankSlots)
+    for i, w in ipairs(list) do
+        if on then
+            if not w.wpHome then
+                w.wpHome = { parent = w:GetParent() }
+                for k = 1, w:GetNumPoints() do w.wpHome[k] = { w:GetPoint(k) } end
+            end
+            w:SetParent(B.bankFrame)
+            w:ClearAllPoints()
+            if i == 1 then w:SetPoint("BOTTOMLEFT", B.bankFrame, "TOPLEFT", 0, 4)
+            else w:SetPoint("LEFT", list[i - 1], "RIGHT", 2, 0) end
+            if w == buy then w:SetShown(not (ok and full)) end -- every slot bought: nothing to buy
+        elseif w.wpHome then
+            w:SetParent(w.wpHome.parent)
+            w:ClearAllPoints()
+            for _, pt in ipairs(w.wpHome) do w:SetPoint(unpack(pt)) end
+            w.wpHome = nil
+        end
+    end
+end
+
+function ns.bags.syncBank()
+    local B, on, bf = ns.bags, ns.bags.bankOn(), BankFrame
+    if not (B.bankFrame or on) or not bf then return end
+    if not B.bankFrame then
+        local f = B.window("WolfpackBank", "SortBankBags")
+        -- closed by hand (Escape): the bank closes with it
+        f:SetScript("OnHide", function() if B.bankOpen and not B.quiet then pcall(CloseBankFrame) end end)
+        if UISpecialFrames then tinsert(UISpecialFrames, "WolfpackBank") end
+        bf:HookScript("OnShow", function() if B.bankOpen then safe(ns.bags.syncBank) end end)
+        B.bankFrame = f
+    end
+    local f, open = B.bankFrame, on and B.bankOpen or false
+    -- Blizzard's parked while ours shows. Hiding it would close the bank (its OnHide does), so
+    -- that is held back for the move; once parked it is out of sight, and hides unseen.
+    if open and bf:IsShown() and not bf.wpHome then
+        bf.wpHome = bf:GetParent()
+        local onHide = bf:GetScript("OnHide")
+        bf:SetScript("OnHide", nil)
+        bf:SetParent(hider)
+        bf:SetScript("OnHide", onHide)
+    elseif bf.wpHome and not open then
+        bf:SetParent(bf.wpHome)
+        bf.wpHome = nil
+    end
+    if not open then f.dragged = nil end -- closed: back to its set spot next time
+    B.bankBar(open)
+    B.quiet = true -- ours hidden by this, not by hand: the bank stays as it is
+    f:SetShown(open)
+    B.quiet = false
+    if open then B.layout(f, B.bankList()) end
+end
+
 -- contents change: one pass for many changes at once
 ns.bags.ev = CreateFrame("Frame")
 for _, e in ipairs({ "BAG_UPDATE", "BAG_UPDATE_DELAYED", "ITEM_LOCK_CHANGED", "BAG_UPDATE_COOLDOWN",
-    "PLAYER_MONEY", "QUEST_ACCEPTED", "QUEST_REMOVED", "PLAYER_REGEN_ENABLED", "GET_ITEM_INFO_RECEIVED" }) do
+    "PLAYER_MONEY", "QUEST_ACCEPTED", "QUEST_REMOVED", "PLAYER_REGEN_ENABLED", "GET_ITEM_INFO_RECEIVED",
+    "BANKFRAME_OPENED", "BANKFRAME_CLOSED", "PLAYERBANKSLOTS_CHANGED", "PLAYERBANKBAGSLOTS_CHANGED" }) do
     pcall(ns.bags.ev.RegisterEvent, ns.bags.ev, e)
 end
 ns.bags.ev:SetScript("OnEvent", function(_, event)
@@ -5231,12 +5335,23 @@ ns.bags.ev:SetScript("OnEvent", function(_, event)
         if B.barPending then safe(B.bar, B.barOn) end
         return
     end
-    if not (B.frame and (B.frame:IsShown() or B.frame.keys:IsShown())) or B.pending then return end
+    if event == "BANKFRAME_OPENED" or event == "BANKFRAME_CLOSED" then
+        B.bankOpen = event == "BANKFRAME_OPENED"
+        safe(B.syncBank)
+        return
+    end
+    local bags = B.frame and (B.frame:IsShown() or B.frame.keys:IsShown())
+    local bank = B.bankFrame and B.bankFrame:IsShown()
+    if not (bags or bank) or B.pending then return end
     B.pending = true
     C_Timer.After(0.05, function()
         B.pending = false
-        if B.frame:IsShown() then safe(B.layout) end
-        if B.frame.keys:IsShown() then safe(B.layoutKeys) end
+        if B.frame and B.frame:IsShown() then safe(B.layout) end
+        if B.frame and B.frame.keys:IsShown() then safe(B.layoutKeys) end
+        if B.bankFrame and B.bankFrame:IsShown() then
+            safe(B.layout, B.bankFrame, B.bankList())
+            safe(B.bankBar, true) -- a bag bought or swapped
+        end
     end)
 end)
 
@@ -8637,6 +8752,20 @@ local function buildConfig()
                 function(v) G()[r[1]] = v end)
         end
         c2:close()
+
+        local cb = group(pg, COL[1], c2.cursor - 20, 202, "Bank")
+        check(pg, "The bank in a window like this", cb.x, cb:row(ROW), function() return G().bank end,
+            function(v) G().bank = v end)
+        slider(pg, "X (from the left edge)", cb.x, cb:row(SLIDER), 0, 1500, function() return G().bankX end,
+            function(v) G().bankX = v end)
+        slider(pg, "Y (from the top)", cb.x, cb:row(SLIDER), -1000, 0, function() return G().bankY end,
+            function(v) G().bankY = v end)
+        local bn = label(pg, "Opens with the bank: its slots and its bags, grouped and sorted as above. Its bag "
+            .. "slots sit on top. The bank of tabs (Midnight) stays Blizzard's.", "GameFontDisableSmall")
+        bn:SetPoint("TOPLEFT", cb.x, cb:row(44))
+        bn:SetWidth(178)
+        bn:SetJustifyH("LEFT")
+        cb:close()
 
         local c3 = group(pg, COL[2], TOP, 202, "Look")
         slider(pg, "Zoom (% cut from each side)", c3.x, c3:row(SLIDER), 0, 30, function() return G().zoom end,
