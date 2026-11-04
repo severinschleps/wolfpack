@@ -84,7 +84,7 @@ function M:GetFrameLevel() return self._level or 0 end
 function M:SetSwipeColor(...) self._swipe = { ... } end
 function M:SetTimerDuration(d, interp, dir) self._timer, self._dir = d, dir end
 function M:GetAlpha() return self._alpha or 1 end
-function M:SetColorTexture(...) self._color = { ... } end
+function M:SetColorTexture(r, ...) assert(type(r) == "number", "SetColorTexture(color [, a])"); self._color = { r, ... } end
 function M:SetVertexColor(...) self._vertex = { ... } end
 function M:IsMouseOver() return S.mouseOver end
 function M:GetStatusBarTexture() self._sbt = self._sbt or new(); return self._sbt end
@@ -2171,11 +2171,12 @@ WolfpackAddonDB.profiles.OldText = nil
 -- colors that lived on single bars move into the palette, once; class borders follow the bar
 WolfpackAddonDB.profiles.OldColors = { regular = { bars = {
     power = { powerColors = { ENERGY = { 0.5, 0.5, 0.5, 1 } } },
-    targetcast = { harmColor = { 0.7, 0, 0, 1 }, healColor = { 0, 0.7, 0, 1 } },
+    targetcast = { harmColor = { 0.7, 0, 0, 1 }, healColor = { 0, 0.7, 0, 1 }, lockedColor = {} },
     health = { borderMode = "class" } } } }
 ns.useProfile("OldColors")
 assert(prof().colors.power.ENERGY[1] == 0.5 and prof().colors.cast.harm[1] == 0.7
     and prof().colors.cast.heal[2] == 0.7 and prof().colors.moved, "moved into the palette")
+assert(prof().colors.cast.locked[1], "an empty leftover color keeps the palette's")
 assert(prof().regular.bars.power.powerColors == nil and prof().regular.bars.targetcast.harmColor == nil
     and prof().regular.bars.health.borderMode == "bar", "gone from the bars; a class border follows the bar")
 ns.useProfile("Scratch")

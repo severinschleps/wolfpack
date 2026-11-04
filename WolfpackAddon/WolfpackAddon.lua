@@ -6965,11 +6965,11 @@ useProfile = function(name)
     if not P.moved then -- colors that lived on single bars move into the palette
         local pc = db.regular.bars.power.powerColors
         for token, c in pairs(type(pc) == "table" and pc or {}) do
-            if P.power[token] and type(c) == "table" then P.power[token] = { unpack(c) } end
+            if P.power[token] and type(c) == "table" and c[1] then P.power[token] = { unpack(c) } end
         end
         local tc = db.regular.bars.targetcast
         for kind, key in pairs({ harm = "harmColor", heal = "healColor", locked = "lockedColor" }) do
-            if type(tc[key]) == "table" then P.cast[kind] = { unpack(tc[key]) } end
+            if type(tc[key]) == "table" and tc[key][1] then P.cast[kind] = { unpack(tc[key]) } end -- {}: an empty leftover
         end
         for _, m in ipairs({ "regular", "plates", "platesTarget" }) do
             local bars = db[m].bars
