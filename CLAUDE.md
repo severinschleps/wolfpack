@@ -2,36 +2,31 @@
 
 ## Install to the game after every change
 
-Whenever you change anything under `WolfpackAddon/`, run the test and then
-mirror the folder into all five live games -- Forever, Midnight (retail), Classic
-(Mists), Classic Era and Anniversary -- so the
-next `/reload` picks it up:
+Every game's `Interface/AddOns/WolfpackAddon` is a symlink to this repo's
+`WolfpackAddon/` (main checkout, not a worktree). A save is live at the next
+`/reload`, so there is no copy step. Work from a worktree goes live only once it
+is merged into the main checkout.
+
+`link-addons.sh` (local, gitignored) finds every `AddOns` folder under
+`/Users/severin/Games/World of Warcraft/` and (re)creates the links. Git hooks
+(pre-push, post-commit, post-merge, post-checkout) and the Stop hook in
+`.claude/settings.json` run it. Never `rsync` into the game folders: it would
+write through the symlink into this repo.
+
+Because saves go live right away, run the tests before you `/reload`:
 
 ```bash
-luajit test/smoke.lua && luajit test/barstack.lua && for g in _forever_ _retail_ _classic_ _classic_era_ _anniversary_; do
-  rsync -a --delete WolfpackAddon/ \
-    "/Users/severin/Games/World of Warcraft/$g/Interface/AddOns/WolfpackAddon/"
-done
+luajit test/smoke.lua && luajit test/barstack.lua
 ```
 
-This is also enforced: a Stop hook in `.claude/settings.json` runs the same thing at
-the end of every turn, and on a failing test it installs nothing and says so. The
-manual run is still yours to do before reporting a change as done.
+The Stop hook runs them too and says so if they fail.
 
 One copy serves all: the toc lists Classic Era's interface (11509), Forever's
 (16001), Anniversary's (20506), Classic's (50504) and Midnight's (120105, 120107). Add the new number
 when a client patches.
 
-Do this before you report the change as done, in the same turn as the edit.
-Never install a version whose test fails; fix it first.
-
-`--delete` mirrors exactly, so files you removed here disappear there too. The
-game keeps its settings in `WTF/`, not in the addon folder, so nothing of the
-user's is lost.
-
-Note the target is the addon folder, not `Interface/` itself — WoW only loads
-addons from it. On this Mac the disk spells it `AddOns` and `Addons` reaches
-the very same directory, so either works in the command above.
+Run the tests before you report the change as done. If they fail, fix it in the
+same turn: the broken version is already live.
 
 ## Push to GitHub after every change
 

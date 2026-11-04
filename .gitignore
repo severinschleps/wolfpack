@@ -7,3 +7,4 @@ __pycache__/
 tools/.cache/
 WTF/
 macros-cache.txt
+link-addons.sh
