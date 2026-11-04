@@ -3482,8 +3482,9 @@ assert(hb.over._reverseFill == false and hb.over._sbc[4] == 0.45, "grows right, 
 S.incomingHeal = 0; fire("UNIT_HEAL_PREDICTION", "player")
 assert(hb.over._value == 0, "heals landed: nothing left to draw")
 -- DoT damage left: the last tick times the ticks the debuff has left, a darker stretch over the
--- end of the health fill and the number beside it
-do
+-- end of the health fill and the number beside it. A function of its own: the main chunk is at
+-- Lua's 200 locals, and a do block's count toward them.
+;(function()
     local eb, keepNpc, keepHP = ns.frames.enemyhealth, S.npc, S.targetHP
     S.npc, S.targetHP = "Mob-1", 800
     local keepRes = prof().regular.bars.enemyhealth.resource
@@ -3523,6 +3524,18 @@ do
     ec.dotsTexture, ec.dotsHideText = "bar", false
     fire("UNIT_MAXPOWER")
     assert(eb.dot.text._shown and eb.dot.kill._point[2] == eb.dot.text, "and back")
+    -- its color: the bar's, darker (a texture shows through), else your own
+    fire("UNIT_HEALTH", "target")
+    local rgb, sbc = eb.segs[1].rgb, eb.dot._sbc
+    assert(sbc[1] == rgb[1] * 0.5 and sbc[2] == rgb[2] * 0.5 and sbc[3] == rgb[3] * 0.5 and sbc[4] == 1,
+        "by default the bar's color, half as bright")
+    ec.dotsColorFrom, ec.dotsColor = "custom", { 0.2, 0.4, 0.6, 0.7 }
+    fire("UNIT_MAXPOWER")
+    fire("UNIT_HEALTH", "target")
+    sbc = eb.dot._sbc
+    assert(sbc[1] == 0.2 and sbc[3] == 0.6 and sbc[4] == 0.7, "custom: your own color, kept at every fill")
+    ec.dotsColorFrom = "bar"
+    fire("UNIT_MAXPOWER")
     tick("UNIT_DIED")
     assert(ns.dots["Mob-1"] == nil, "a death forgets the ticks")
     -- the tooltip's numbers: total, school, duration (and the tick gap where it says)
@@ -3582,7 +3595,7 @@ do
     prof().regular.bars.enemyhealth.show, prof().regular.bars.enemyhealth.resource = false, keepRes
     fire("UNIT_MAXPOWER")
     fire("PLAYER_TARGET_CHANGED")
-end
+end)()
 -- a client with no prediction calculator falls back to the plain call rather than drawing zero
 S.keptCalc, S.keptDetail = CreateUnitHealPredictionCalculator, UnitGetDetailedHealPrediction
 UnitGetDetailedHealPrediction = nil

@@ -338,6 +338,9 @@ local function layoutDefaults(show, x, y, gap, width, h1, h2, h3, h4, h5, h6, h7
     for _, key in ipairs({ "health", "enemyhealth" }) do
         l.bars[key].dots, l.bars[key].dotsColor = true, { 0, 0, 0, 0.5 }
         l.bars[key].dotsTexture, l.bars[key].dotsHideText = "bar", false -- "bar": the bar's own texture
+        -- "bar": the bar's color, darker (a texture shows through it); "custom": dotsColor. Black
+        -- can't be the default: the textures are grayscale, tinted by the color, and black hides them
+        l.bars[key].dotsColorFrom = "bar"
         l.bars[key].shield, l.bars[key].shieldColor = true, { 1, 1, 1, 0.5 }
     end
     l.bars.power.cost, l.bars.power.costColor = false, { 1, 1, 1, 0.35 } -- what the cast will take
@@ -9728,7 +9731,11 @@ local function buildConfig()
     ns.dotsDialog = dd
     ry = -48
     check(dd, "Show", 16, rrow(ROW), function() return cur().dots end, function(v) cur().dots = v end)
-    swatch(dd, "Color", 16, rrow(SWATCH), function() return cur().dotsColor or { 0, 0, 0, 1 } end)
+    dropdown(dd, "Color", 16, rrow(DROP), { { "The bar's, darker", "bar" }, { "Custom", "custom" } },
+        function() return cur().dotsColorFrom end, function(v) cur().dotsColorFrom = v end, textPreview)
+    local dotsSwatch = swatch(dd, "Custom DoT color", 16, rrow(SWATCH), -- swatches go by name: not "Custom color"
+        function() return cur().dotsColor or { 0, 0, 0, 1 } end)
+    onRefresh(function() dotsSwatch:SetShown(cur().dotsColorFrom == "custom") end)
     dropdown(dd, "Texture", 16, rrow(DROP), function()
         local list = { { "Same as the bar", "bar" } }
         for _, t in ipairs(TEXTURES) do list[#list + 1] = t end

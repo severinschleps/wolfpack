@@ -317,7 +317,8 @@ function ns.layoutDots(f, c)
     local d, col = f.dot, c.dotsColor
     d:SetFrameLevel(seg:GetFrameLevel() + 2) -- over the heals, should both meet
     d:SetStatusBarTexture((c.dotsTexture or "bar") == "bar" and c.texture or c.dotsTexture)
-    d:SetStatusBarColor(col[1], col[2], col[3], col[4])
+    d:SetStatusBarColor(col[1], col[2], col[3], col[4]) -- after the texture: a new one resets it
+    d.darker = c.dotsColorFrom ~= "custom" -- else the bar's color, darker, at every fill: it changes
     d:SetSize(seg:GetWidth(), seg:GetHeight())
     d:ClearAllPoints()
     d:SetReverseFill(true)
@@ -348,6 +349,10 @@ function ns.fillDots(f, max)
     local percent = not isSecret(max) and max == 100 and UnitIsPlayer(unit) and not UnitIsUnit(unit, "player")
     f.dot:SetMinMaxValues(0, max)
     f.dot:SetValue(percent and 0 or left)
+    if f.dot.darker then
+        local rgb = f.segs[1].rgb or { 0.5, 0.5, 0.5 }
+        f.dot:SetStatusBarColor(rgb[1] * 0.5, rgb[2] * 0.5, rgb[3] * 0.5, 1)
+    end
     f.dot.text:SetText(left > 0 and AbbreviateNumbers(left) or "")
     local ok, hp = pcall(UnitHealth, unit)
     f.dot.killBar:SetMinMaxValues(0, ok and hp or 1)
