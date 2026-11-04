@@ -2848,6 +2848,11 @@ end)()
     o.bank, o.show = true, false
     bankBagWin._shown = false
     B.sync()
+    -- the classic clients: bags 0-4, the reagent bag's number 5, then bank bags 6-12 (Enum.BagIndex)
+    local keptEnum, keptNum = Enum, NUM_BAG_SLOTS
+    Enum, NUM_BAG_SLOTS, NUM_BANKBAGSLOTS = { BagIndex = { Bank = -1, ReagentBag = 5, BankBag_1 = 6 } }, 4, 7
+    assert(table.concat(B.bankList(), ",") == "-1,6,7,8,9,10,11,12", "every bank bag, the 7th too")
+    Enum, NUM_BAG_SLOTS = keptEnum, keptNum
     BankFrame, BankFramePurchaseButton, ContainerFrame4, NUM_BANKBAGSLOTS = nil, nil, nil, nil
     C_Container.GetContainerNumSlots, S.bags = keptSlots, keptBags
 end)()

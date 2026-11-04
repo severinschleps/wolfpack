@@ -5254,9 +5254,13 @@ function ns.bags.bankOn()
     local tabs = Enum and Enum.BagIndex and Enum.BagIndex.CharacterBankTab_1
     return ns.bags.on() and db.bags.bank and BankFrame ~= nil and not tabs or false
 end
--- the bank's own slots, then its bags, numbered after yours
+-- the bank's own slots, then its bags. Their numbers are the game's where it names them: the
+-- classic clients' Enum.BagIndex has BankBag_1 = 6 (to 12), the reagent bag's 5 coming first, so
+-- counting on from your bags lost the last bank bag. Else: right after your bags (and reagent bag).
 function ns.bags.bankList()
-    local out, mine, first = { ns.bags.BANK }, ns.bags.list(), (NUM_BAG_SLOTS or 4) + 1
+    local E = Enum and Enum.BagIndex
+    local first = E and E.BankBag_1 or (NUM_BAG_SLOTS or 4) + (NUM_REAGENTBAG_SLOTS or 0) + 1
+    local out, mine = { ns.bags.BANK }, ns.bags.list()
     for bag = first, first + (NUM_BANKBAGSLOTS or 6) - 1 do
         if not tContains(mine, bag) then out[#out + 1] = bag end
     end
