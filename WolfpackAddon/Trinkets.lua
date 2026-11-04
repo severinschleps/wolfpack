@@ -155,6 +155,29 @@ function T.press(b)
     end
 end
 
+-- Dragged off a button: a macro of the game's, "/use 13" (or 14), to drop on an action bar. It
+-- fires whatever trinket that slot wears, its icon and cooldown follow it, and a press on it
+-- pulls the next one as the button does (the game's UseInventoryItem is watched, below).
+T.MACRO = "WP Trinket %d"
+function T.macro(i)
+    if InCombatLockdown() or not CreateMacro then return end -- bars change out of combat only
+    local name, body = T.MACRO:format(i), "#showtooltip\n/use " .. T.SLOTS[i]
+    if (GetMacroIndexByName(name) or 0) == 0 then
+        -- the account's macros (every character has it); full: this character's
+        if not pcall(CreateMacro, name, 134400, body, false) or (GetMacroIndexByName(name) or 0) == 0 then
+            pcall(CreateMacro, name, 134400, body, true)
+        end
+    end
+    if (GetMacroIndexByName(name) or 0) > 0 then PickupMacro(name) end
+end
+if UseInventoryItem then
+    hooksecurefunc("UseInventoryItem", function(slot)
+        for i, s in ipairs(T.SLOTS) do
+            if slot == s and T.buttons[i] then T.press(T.buttons[i]) end
+        end
+    end)
+end
+
 ------------------------------------------------------------------------------------------
 -- The two buttons. Secure ("/use 13", "/use 14"), so they work in combat; moved out of it only.
 ------------------------------------------------------------------------------------------
@@ -184,10 +207,13 @@ for i, s in ipairs(T.SLOTS) do
     b.wpKey:SetFont(STANDARD_TEXT_FONT or "Fonts\\FRIZQT__.TTF", 11, "OUTLINE")
     b.wpKey:SetPoint("TOPRIGHT", -2, -2)
     b:SetScript("PreClick", function(self) T.press(self) end)
+    b:RegisterForDrag("LeftButton")
+    b:SetScript("OnDragStart", function(self) T.macro(self.wpI) end)
     b:SetScript("OnEnter", function(self)
         T.lit(self, true)
         GameTooltip:SetOwner(self, T.TIP[T.o().flyout] or "ANCHOR_BOTTOM")
         GameTooltip:SetInventoryItem("player", s)
+        GameTooltip:AddLine("Drag onto an action bar: a macro that uses this slot.", 0.6, 0.6, 0.6)
         GameTooltip:Show()
         if not (ns.ab and ns.ab.binding) then T.open(self) end
     end)

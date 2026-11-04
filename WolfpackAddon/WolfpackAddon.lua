@@ -8535,7 +8535,7 @@ local function buildConfig()
             .. "Used and on cooldown, it pulls the next; ready again, the higher one comes back. Off: only a "
             .. "press on a trinket that is on cooldown pulls the next.\n\nHover a button for the list, as icons, "
             .. "first nearest: a click wears that one here until you use it; right-click moves it up, "
-            .. "Shift-right-click down. Corners: the Colors page's, as your action bars'.\n\nThe game allows no gear "
+            .. "Shift-right-click down. Drag a button onto an action bar for a macro that uses its slot.\n\nThe game allows no gear "
             .. "changes in combat: those happen as it ends.", "GameFontDisableSmall")
         n:SetPoint("TOPLEFT", c1.x, c1:row(220))
         n:SetWidth(178)

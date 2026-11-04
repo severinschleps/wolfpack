@@ -514,6 +514,7 @@ for _, v in ipairs({ "11509", "16001", "20506", "50504", "120105" }) do
 end
 assert(loadfile("WolfpackAddon/WolfpackAddon.lua"))("WolfpackAddon", ns)
 assert(loadfile("WolfpackAddon/Macros.lua"))("WolfpackAddon", ns) -- next in the toc
+UseInventoryItem = function() end -- the game's: Trinkets.lua watches it
 assert(loadfile("WolfpackAddon/Trinkets.lua"))("WolfpackAddon", ns)
 local function fire(e, ...) evFrame._scripts.OnEvent(evFrame, e, ...) end
 -- each class logs in as its own character; once S.perClass is set, on a profile of its own (named
@@ -4304,6 +4305,31 @@ do
     T.tick(nil, 0)
     assert(worn[13] == 102 and not T.queued[1], "combat over: the next ready one")
     O.auto = true
+    -- dragged onto a bar: one macro per slot, "/use 13", made once and put on the cursor
+    ;(function()
+        local made, picked = {}, nil
+        local keptGI, keptCM, keptPM = GetMacroIndexByName, CreateMacro, PickupMacro
+        GetMacroIndexByName = function(n) for i, m in ipairs(made) do if m.name == n then return i end end return 0 end
+        CreateMacro = function(n, icon, body, per) made[#made + 1] = { name = n, icon = icon, body = body, per = per } end
+        PickupMacro = function(n) picked = n end
+        local b = T.buttons[1]
+        b._scripts.OnDragStart(b)
+        assert(#made == 1 and made[1].body == "#showtooltip\n/use 13" and not made[1].per and picked == "WP Trinket 1",
+            "a macro of the account's, on the cursor")
+        b._scripts.OnDragStart(b)
+        assert(#made == 1, "made once")
+        S.combat = true; picked = nil
+        b._scripts.OnDragStart(b)
+        assert(picked == nil, "not in combat: bars can't change then")
+        S.combat = false
+        GetMacroIndexByName, CreateMacro, PickupMacro = keptGI, keptCM, keptPM
+        -- used from the bar, on cooldown: the button's own pull
+        worn[13], cds[102], cds[103] = 102, { S.time, 120 }, nil
+        T.busyUntil, T.buttons[1].wpLast = nil, nil
+        UseInventoryItem(13)
+        assert(worn[13] == 103, "used from a bar on cooldown: the next ready one pulled")
+        cds[102] = nil
+    end)()
     -- the moving arrows, and the import
     T.move(102, -1)
     assert(table.concat(T.list(), ",") == "102,101,103", "one up")
