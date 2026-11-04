@@ -455,10 +455,11 @@ DEFAULTS.micro = { show = false, anchor = "screen", point = "BOTTOMRIGHT", side 
 DEFAULTS.tooltip = { mode = "game", point = "BOTTOMRIGHT", x = -100, y = 120 }
 -- the macro library (Macros.lua): in the profile, so it travels in a string and a child inherits it
 DEFAULTS.macros = { tabs = {}, deleted = {} }
--- the Trinket manager (Trinkets.lua): its two buttons, and queue, your trinkets by priority (item IDs)
+-- the Trinket manager (Trinkets.lua): its two buttons, and queue, your trinkets by priority (item IDs),
+-- of which rotation, the ones the list swaps in (new ones are not)
 -- and the action bars' look (see ns.AB_BAR), plus hoverColor: the button under the mouse
 DEFAULTS.trinkets = { show = false, auto = true, point = "CENTER", x = 0, y = -220, size = 36, gap = 4,
-    vertical = false, flyout = "up", queue = {}, radius = 0, zoom = 8, borderSize = 1, borderColor = { 0, 0, 0, 1 },
+    vertical = false, flyout = "up", queue = {}, rotation = {}, radius = 0, zoom = 8, borderSize = 1, borderColor = { 0, 0, 0, 1 },
     keyFont = FONTS[1][2], keySize = 11, mouseover = false, hoverColor = { 1, 0.82, 0, 0.3 } }
 
 DEFAULTS.unitframes = { show = false, replace = true, fontSize = 10, power = true, powerHeight = 4,
@@ -7018,8 +7019,8 @@ local function sanitize(src, template)
             end
         elseif k == "macros" then
             out.macros = ns.mac.clean(v)
-        elseif k == "queue" then
-            out.queue = ns.trink.clean(v)
+        elseif k == "queue" or k == "rotation" then
+            out[k] = ns.trink.clean(v)
         elseif k == "platesTarget" and v == nil then -- from before the targeted look: the standard one
             out[k] = sanitize(src.plates, def)
         elseif type(def) == "table" then
@@ -8664,11 +8665,11 @@ local function buildConfig()
             function(v) O().show = v end)
         check(pg, "Swap automatically", c1.x, c1:row(ROW), function() return O().auto end,
             function(v) O().auto = v end)
-        local n = label(pg, "Your trinkets form one list, top first: each button wears the first ready one. "
-            .. "Used and on cooldown, it pulls the next; ready again, the higher one comes back. Off: only a "
-            .. "press on a trinket that is on cooldown pulls the next.\n\nHover a button for the list, as icons, "
-            .. "first nearest: a click wears that one here until you use it; right-click moves it up, "
-            .. "Shift-right-click down. Drag a button onto an action bar for a macro that uses its slot.\n\nThe game allows no gear "
+        local n = label(pg, "Your trinkets form one list, top first: each button wears the first ready one "
+            .. "in the rotation. Used and on cooldown, it pulls the next; ready again, the higher one comes back. "
+            .. "Off: only a press on a trinket that is on cooldown pulls the next.\n\nHover a button for the "
+            .. "list, as icons, first nearest: a click wears that one here until you use it. Beside each, arrows "
+            .. "move it in the list and a toggle puts it in the rotation (new ones start out). Drag a button onto an action bar for a macro that uses its slot.\n\nThe game allows no gear "
             .. "changes in combat: those happen as it ends.", "GameFontDisableSmall")
         n:SetPoint("TOPLEFT", c1.x, c1:row(220))
         n:SetWidth(178)

@@ -60,6 +60,8 @@ function M:GetScale() return self._scale or 1 end
 function M:SetTextureSliceMargins(...) self._slice = { ... } end
 function M:SetAlpha(v) self._alpha, self._alphaSets = v, (self._alphaSets or 0) + 1 end
 function M:SetDesaturated(v) self._desat = v end
+function M:SetRotation(v) self._rot = v end
+function M:SetEnabled(v) self._enabled = v end
 function M:SetAtlas(a) self._atlas = a end
 function M:SetTexCoord(...) self._coords = { ... } end
 function M:SetStatusBarColor(...) self._sbc = { ... } end
@@ -4346,6 +4348,12 @@ do
     S.time, T.busyUntil, T.hold, T.queued = 5000, nil, {}, {}
     O.queue = {}
     assert(table.concat(T.list(), ",") == "101,102,103", "your trinkets, worn and in the bags; nothing else")
+    -- none in the rotation (as new ones start): nothing is swapped in
+    O.rotation = {}
+    O.queue = { 103, 101, 102 }
+    T.apply()
+    assert(#equips == 0, "out of the rotation: left in the bags")
+    O.rotation = { 101, 102, 103 }
     -- you put 103 first: the slot not wearing a top-two one gets it
     O.queue = { 103, 101, 102 }
     T.apply()
@@ -4454,15 +4462,22 @@ do
     assert(f:IsShown(), "back on it: the wait starts again")
     f._scripts.OnUpdate(f, 0.2)
     assert(not f:IsShown(), "gone a moment after the mouse left both")
-    -- right-click: one up the list; Shift: one down; a click wears it here
+    -- the sidebar: arrows move it along the list, each pointing the way it goes; a toggle, in the rotation
     T.open(b1)
+    assert(f._point[4] == 20 and f.icons[1]._point[4] == -20, "the icons in line with the button, the sidebar beside")
     local second = T.list()[2]
-    f.icons[2]._scripts.OnClick(f.icons[2], "RightButton")
-    assert(T.list()[1] == second, "right-click: up")
-    S.shift = true
-    f.icons[1]._scripts.OnClick(f.icons[1], "RightButton")
-    S.shift = nil
-    assert(T.list()[2] == second, "shift-right-click: down")
+    assert(f.icons[1].earlier._enabled == false and f.icons[2].earlier._enabled == true, "the first can't go higher")
+    assert(f.icons[2].earlier.tex._rot == math.pi, "going up: higher in the list points down, at the button")
+    f.icons[2].earlier._scripts.OnClick(f.icons[2].earlier)
+    assert(T.list()[1] == second, "up the list")
+    f.icons[1].later._scripts.OnClick(f.icons[1].later)
+    assert(T.list()[2] == second, "down the list")
+    local r = f.icons[2].rot
+    assert(r._checked == true, "in the rotation: checked")
+    r:SetChecked(false); r._scripts.OnClick(r)
+    assert(not T.inRot(second) and f.icons[2].tex._desat and f.icons[3].num._text == 2, "out: grey, unnumbered")
+    r:SetChecked(true); r._scripts.OnClick(r)
+    assert(T.inRot(second) and not f.icons[2].tex._desat, "back in")
     T.busyUntil = nil
     f.icons[3]._scripts.OnClick(f.icons[3], "LeftButton")
     assert(T.hold[1] and T.hold[1].id == T.list()[3], "a click: picked for this button")

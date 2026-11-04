@@ -1,8 +1,9 @@
 -- Trinket manager: a button for each trinket slot (13, 14), each with a key (Action bars' quick
 -- keybind mode), and one priority list of your trinkets. A slot whose trinket is on cooldown
--- pulls the first ready one of the list; hovering a button opens the list as a flyout, to order it
--- (the arrows) or to pick one by hand for that slot. The game allows no gear changes in combat:
--- what you ask for then happens as combat ends.
+-- pulls the first ready one of the list that is in the rotation; hovering a button opens the list
+-- as a flyout, with a sidebar to order it (the arrows) and put each in the rotation or not (the
+-- toggle; new ones are not), or to pick one by hand for that slot. The game allows no gear changes
+-- in combat: what you ask for then happens as combat ends.
 local _, ns = ...
 local T = {}
 ns.trink = T
@@ -71,6 +72,17 @@ function T.list()
     return out
 end
 
+-- in the rotation: swapped in by the list. Not: in your bags, worn only when picked by hand
+function T.inRot(id)
+    for _, x in ipairs(T.o().rotation) do if x == id then return true end end
+    return false
+end
+function T.setRot(id, on)
+    local r = T.o().rotation
+    for i = #r, 1, -1 do if r[i] == id then table.remove(r, i) end end
+    if on then r[#r + 1] = id end
+end
+
 -- one place up (d = -1) or down (d = 1); what you don't have any more goes to the end
 function T.move(id, d)
     local list = T.list()
@@ -84,7 +96,7 @@ function T.move(id, d)
 end
 
 -- what each slot should wear: one picked by hand, until it is used; else the first ready ones of
--- the list, a slot keeping what it wears when that is among them
+-- the list in the rotation, a slot keeping what it wears when that is among them
 function T.plan()
     local worn = { GetInventoryItemID("player", 13), GetInventoryItemID("player", 14) }
     local want, taken = {}, {}
@@ -102,7 +114,7 @@ function T.plan()
     local ready = {}
     for _, id in ipairs(T.list()) do
         local left = T.left(id)
-        if not taken[id] and left and left <= T.LOCK then ready[#ready + 1] = id end
+        if not taken[id] and T.inRot(id) and left and left <= T.LOCK then ready[#ready + 1] = id end
     end
     local free, picks = {}, {}
     for i = 1, 2 do if not want[i] then free[#free + 1] = i end end
@@ -309,7 +321,8 @@ T.clock:SetScript("OnUpdate", function(self, dt) if T.holder:IsShown() then T.ti
 
 ------------------------------------------------------------------------------------------
 -- The flyout: your trinkets as icons in a line out of the button, the list's first nearest it.
--- Left-click: wear it in this button's slot. Right-click: one up the list; with Shift, one down.
+-- Left-click: wear it in this button's slot. Beside each, its sidebar: two arrows that move it
+-- along the list (each points the way it goes) and a toggle, in the rotation or not.
 -- It touches the button and closes only a moment after the mouse has left both, so the way over
 -- to it is safe.
 ------------------------------------------------------------------------------------------
@@ -336,12 +349,32 @@ T.DIRS = { up = { "BOTTOM", 0, 1 }, down = { "TOP", 0, -1 }, left = { "RIGHT", -
 -- the button's own tooltip goes the other way, off the list
 T.TIP = { up = "ANCHOR_BOTTOM", down = "ANCHOR_TOP", left = "ANCHOR_RIGHT", right = "ANCHOR_LEFT" }
 
+local function tip(self, text, sub)
+    GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+    GameTooltip:SetText(text, 1, 1, 1)
+    if sub then GameTooltip:AddLine(sub, 0.6, 0.6, 0.6, true) end
+    GameTooltip:Show()
+end
+
+-- an arrow of the sidebar: d = -1 earlier in the list, 1 later
+local function arrow(c, d)
+    local a = CreateFrame("Button", nil, T.flyout)
+    a.tex = a:CreateTexture(nil, "ARTWORK")
+    a.tex:SetAllPoints()
+    a.tex:SetTexture("Interface\\Buttons\\Arrow-Up-Up")
+    a:SetHighlightTexture("Interface\\Buttons\\ButtonHilight-Square", "ADD")
+    a:SetScript("OnClick", function() T.move(c.id, d); T.fill() end)
+    a:SetScript("OnEnter", function(self) tip(self, d < 0 and "Higher in the list" or "Lower in the list") end)
+    a:SetScript("OnLeave", function() GameTooltip:Hide() end)
+    return a
+end
+
 local function icon(k)
     local f = T.flyout
     local c = f.icons[k]
     if c then return c end
     c = CreateFrame("Button", nil, f)
-    c:RegisterForClicks("LeftButtonUp", "RightButtonUp")
+    c:RegisterForClicks("LeftButtonUp")
     c.edge = c:CreateTexture(nil, "BACKGROUND")
     c.edge:SetAllPoints()
     c.tex = c:CreateTexture(nil, "ARTWORK")
@@ -357,41 +390,53 @@ local function icon(k)
     c.num = c:CreateFontString(nil, "OVERLAY")
     c.num:SetFont(STANDARD_TEXT_FONT or "Fonts\\FRIZQT__.TTF", 10, "OUTLINE")
     c.num:SetPoint("BOTTOMLEFT", 2, 2)
-    c:SetScript("OnClick", function(self, btn)
-        if btn == "RightButton" then T.move(self.id, IsShiftKeyDown() and 1 or -1)
-        else T.pick(f.owner.wpI, self.id) end
-        T.fill()
-    end)
+    c:SetScript("OnClick", function(self) T.pick(f.owner.wpI, self.id); T.fill() end)
     c:SetScript("OnEnter", function(self)
         self.hl:Show()
         local side = T.o().flyout
-        GameTooltip:SetOwner(self, (side == "left" or side == "right") and "ANCHOR_TOP" or "ANCHOR_RIGHT")
+        GameTooltip:SetOwner(self, (side == "left" or side == "right") and "ANCHOR_TOP" or "ANCHOR_LEFT")
         pcall(GameTooltip.SetItemByID, GameTooltip, self.id)
         GameTooltip:AddLine(("Click: wear as trinket %d%s"):format(f.owner and f.owner.wpI or 1,
             InCombatLockdown() and " (after combat)" or ""), 0.4, 1, 0.4)
-        GameTooltip:AddLine("Right-click: up the list. Shift-right-click: down.", 0.6, 0.6, 0.6)
         GameTooltip:Show()
     end)
     c:SetScript("OnLeave", function(self) self.hl:Hide(); GameTooltip:Hide() end)
+    -- the sidebar
+    c.earlier, c.later = arrow(c, -1), arrow(c, 1)
+    c.rot = ns.ui and ns.ui.Check and ns.ui.Check(f) or CreateFrame("CheckButton", nil, f)
+    c.rot:SetScript("OnClick", function(self) T.setRot(c.id, self:GetChecked() and true or false); T.fill() end)
+    c.rot:SetScript("OnEnter", function(self)
+        if T.inRot(c.id) then tip(self, "In the rotation", "Swapped in by the list.")
+        else tip(self, "Not in the rotation", "Stays in your bags; worn only when you click it.") end
+    end)
+    c.rot:SetScript("OnLeave", function() GameTooltip:Hide() end)
     f.icons[k] = c
     return c
 end
 
--- the icons, laid out again: their order, which are worn or picked, their cooldowns
+-- the angle that turns the up arrow to point (x, y)
+local function angle(x, y) return x == 0 and (y > 0 and 0 or math.pi) or (x > 0 and -math.pi / 2 or math.pi / 2) end
+
+-- the icons, laid out again: their order, which are worn or picked, their cooldowns; and their sidebars
 function T.fill()
     local f, O, list = T.flyout, T.o(), T.list()
     local size, d = O.size, T.DIRS[O.flyout] or T.DIRS.up
+    local across = d[3] == 0 -- opens to the left or right
+    -- the sidebar's side: right of a list going up or down, below one going left or right
+    local px, py = across and 0 or 1, across and -1 or 0
+    local o, a = (size + GAP) / 2, math.max(10, math.floor((size - GAP) / 2))
     local worn = { GetInventoryItemID("player", 13), GetInventoryItemID("player", 14) }
     local me = f.owner and f.owner.wpI or 1
     local held = T.hold[me]
     local hc, z = O.hoverColor, O.zoom / 100
+    local rank = 0
     for k, id in ipairs(list) do
         local c = icon(k)
         c.id = id
         c:SetSize(size, size)
         c:ClearAllPoints()
         local at = PAD + (k - 1) * (size + GAP)
-        c:SetPoint(d[1], f, d[1], d[2] * at, d[3] * at)
+        c:SetPoint(d[1], f, d[1], d[2] * at - o * px, d[3] * at - o * py)
         c.tex:SetTexture((C_Item and C_Item.GetItemIconByID and C_Item.GetItemIconByID(id))
             or (GetItemIcon and GetItemIcon(id)) or T.EMPTY)
         ns.iconCorners(c.tex, c.mask, O.radius, { z, 1 - z, z, 1 - z })
@@ -401,30 +446,58 @@ function T.fill()
         local edge = (held and held.id == id) and { 1, 0.82, 0, 1 } or worn[me] == id and { 0.3, 1, 0.3, 1 }
             or worn[3 - me] == id and { 0.35, 0.6, 1, 1 } or O.borderColor
         c.edge:SetColorTexture(unpack(edge))
-        c.num:SetText(k)
+        -- out of the rotation: grey, no number; the rotation numbered in its order
+        local on = T.inRot(id)
+        if on then rank = rank + 1 end
+        c.tex:SetDesaturated(not on)
+        c.num:SetText(on and rank or "")
         local _, dur, start = T.left(id)
         if c.wpStart ~= start or c.wpDur ~= dur then
             pcall(c.cd.SetCooldown, c.cd, start or 0, dur or 0)
             c.wpStart, c.wpDur = start, dur
         end
+        -- the sidebar beside it: the arrows along the list, nearer the icon; the toggle past them
+        local mid = at + size / 2
+        for _, x in ipairs({ { c.earlier, -1, k > 1 }, { c.later, 1, k < #list } }) do
+            local b, s, can = x[1], x[2], x[3]
+            local along, side = mid + s * (a + GAP) / 2, o - (a + GAP) / 2
+            b:SetSize(a, a)
+            b:ClearAllPoints()
+            b:SetPoint("CENTER", f, d[1], d[2] * along + px * side, d[3] * along + py * side)
+            b.tex:SetRotation(angle(s * d[2], s * d[3]))
+            b:SetEnabled(can)
+            b.tex:SetAlpha(can and 1 or 0.25)
+            b:Show()
+        end
+        local side = o + (a + GAP) / 2
+        c.rot:SetSize(a, a)
+        c.rot:ClearAllPoints()
+        c.rot:SetPoint("CENTER", f, d[1], d[2] * mid + px * side, d[3] * mid + py * side)
+        c.rot:SetChecked(on)
+        c.rot:Show()
         c:Show()
     end
-    for k = #list + 1, #f.icons do f.icons[k]:Hide() end
+    for k = #list + 1, #f.icons do
+        local c = f.icons[k]
+        c:Hide(); c.earlier:Hide(); c.later:Hide(); c.rot:Hide()
+    end
     f.empty:SetShown(#list == 0)
     local n = math.max(1, #list)
-    local long, short = 2 * PAD + n * size + (n - 1) * GAP, size + 2 * PAD
-    local across = d[3] == 0 -- opens to the left or right
+    local long, short = 2 * PAD + n * size + (n - 1) * GAP, 2 * size + GAP + 2 * PAD
     f:SetSize(across and long or short, across and short or long)
 end
 
--- opened beside the button, touching it, on the side the Trinket manager page says
+-- opened beside the button, touching it, on the side the Trinket manager page says; the icons in
+-- line with it, the sidebar out to one side
 T.SIDES = { up = { "BOTTOM", "TOP" }, down = { "TOP", "BOTTOM" }, left = { "RIGHT", "LEFT" }, right = { "LEFT", "RIGHT" } }
 function T.open(b)
-    local f, side = T.flyout, T.SIDES[T.o().flyout] or T.SIDES.up
+    local O = T.o()
+    local f, side = T.flyout, T.SIDES[O.flyout] or T.SIDES.up
+    local o, across = (O.size + GAP) / 2, (T.DIRS[O.flyout] or T.DIRS.up)[3] == 0
     if f.owner and f.owner ~= b then T.lit(f.owner, false) end
     f.owner = b
     f:ClearAllPoints()
-    f:SetPoint(side[1], b, side[2], 0, 0)
+    f:SetPoint(side[1], b, side[2], across and 0 or o, across and -o or 0)
     T.fill()
     f:Show()
     f.away = 0
