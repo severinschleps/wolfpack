@@ -5069,10 +5069,13 @@ end
 
 -- The bag bar rides on top of our window: Blizzard's whole bar where there is one, else the
 -- backpack and bag slot buttons. Only out of combat; given back where it was when turned off.
+-- The game moves it back to its own spot now and then (Edit Mode applying its layout after a
+-- loading screen): put on the window again each time the bags open, and right away when moved.
 function ns.bags.bar(on)
     if InCombatLockdown() then ns.bags.barPending = true return end
     ns.bags.barPending = false
     local B, list = ns.bags, nil
+    B.placingBar = true
     if BagsBar then list = { BagsBar } else
         list = {}
         for _, n in ipairs({ "MainMenuBarBackpackButton", "CharacterBag0Slot", "CharacterBag1Slot",
@@ -5089,6 +5092,19 @@ function ns.bags.bar(on)
                 w.wpHome = { parent = w:GetParent() }
                 for k = 1, w:GetNumPoints() do w.wpHome[k] = { w:GetPoint(k) } end
             end
+            if not w.wpBarHooked then -- moved by the game: back on the window, out of its own call
+                w.wpBarHooked = true
+                local function moved()
+                    if B.placingBar or not B.barOn then return end
+                    C_Timer.After(0, function()
+                        if B.barOn and not (EditModeManagerFrame and EditModeManagerFrame:IsEditModeActive()) then
+                            safe(B.bar, true)
+                        end
+                    end)
+                end
+                hooksecurefunc(w, "SetPoint", moved)
+                hooksecurefunc(w, "SetParent", moved)
+            end
             w:SetParent(B.frame)
             w:ClearAllPoints()
             if i == 1 then w:SetPoint("BOTTOMRIGHT", B.frame, "TOPRIGHT", 0, 4)
@@ -5100,6 +5116,7 @@ function ns.bags.bar(on)
             w.wpHome = nil
         end
     end
+    B.placingBar = false
 end
 
 -- Blizzard's windows for these bags (not the bank's) are parked under `hider` while open: their
@@ -5146,7 +5163,7 @@ function ns.bags.sync()
     B.frame:SetShown(open)
     if open then B.layout() end
     local barKeys = on and keyBag ~= nil
-    if on ~= (B.barOn or false) or B.barPending or barKeys ~= (B.barKeys or false) then
+    if on ~= (B.barOn or false) or B.barPending or barKeys ~= (B.barKeys or false) or (on and open) then
         B.barOn, B.barKeys = on, barKeys
         B.bar(on)
     end

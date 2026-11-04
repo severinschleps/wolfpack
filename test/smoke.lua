@@ -2749,6 +2749,17 @@ assert(BagsBar._parent == UIParent and BagsBar._point[2] == "MicroButtonAndBagsB
     o.quality, o.junk = false, false
     B.layout()
     assert(BagsBar._parent == f and BagsBar._point[1] == "BOTTOMRIGHT" and BagsBar._point[3] == "TOPRIGHT", "bag bar on top")
+    -- the game putting it back on its own spot (Edit Mode's layout, after a loading screen): on the window again
+    BagsBar:SetParent(UIParent)
+    BagsBar:SetPoint("TOPRIGHT", "MicroButtonAndBagsBar", "TOPRIGHT", 0, 0)
+    assert(BagsBar._parent == f and BagsBar._point[2] == f and BagsBar._point[3] == "TOPRIGHT", "moved by the game: back")
+    local keptEM = EditModeManagerFrame
+    EditModeManagerFrame = { IsEditModeActive = function() return true end }
+    BagsBar:SetPoint("CENTER", UIParent, "CENTER", 0, 0)
+    assert(BagsBar._point[1] == "CENTER", "in Edit Mode: left where you put it")
+    EditModeManagerFrame = keptEM
+    ContainerFrame1:Hide(); ContainerFrame1:Show()
+    assert(BagsBar._parent == f and BagsBar._point[2] == f, "the bags opened: on the window again")
     -- the key closes Blizzard's window while it sits under the hidden parent: Hide() fires no
     -- OnHide there (nothing becomes invisible), so ours must hear the call itself (seen in game)
     -- dragged: there for now, the setting untouched; closed, back to the spot set on the page
