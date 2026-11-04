@@ -190,7 +190,7 @@ local function layoutDefaults(show, x, y, gap, width, h1, h2, h3, h4, h5, h6, h7
     local l = {
         x = x, y = y, gap = gap, grow = "down", -- "up": the group's bottom edge stays put instead
         order = { "health", "enemyhealth", "tothealth", "power", "combo", "druidmana", "castbar", "targetcast", "pethealth",
-            "swing", "totems", "absorb", "flight", "experience", "ammo", "enchantmh", "enchantoh", "durability" },
+            "swing", "totems", "absorb", "flight", "experience", "ammo", "durability" },
         bars = {
             health = barDefaults(show, width, h1, 0.2, 0.8, 0.2, show),
             power = barDefaults(show, width, h2, 1, 0.85, 0.1, show),
@@ -207,8 +207,6 @@ local function layoutDefaults(show, x, y, gap, width, h1, h2, h3, h4, h5, h6, h7
             -- hunters: the ammo in your bags; filled as far as your quiver / ammo pouch is
             ammo = barDefaults(show, 60, h2, 0.67, 0.83, 0.45, true),
             -- out of combat: what is left of each weapon's poison / imbue, and your most worn item
-            enchantmh = barDefaults(false, width, h2, 0.35, 0.8, 0.45, true),
-            enchantoh = barDefaults(false, width, h2, 0.35, 0.7, 0.8, true),
             durability = barDefaults(false, width, h2, 0.85, 0.7, 0.3, true),
             -- the color is picked from what is being cast, so its own is only a fallback
             targetcast = barDefaults(false, width, h5, 0.8, 0.3, 0.3, true),
@@ -260,6 +258,11 @@ local function layoutDefaults(show, x, y, gap, width, h1, h2, h3, h4, h5, h6, h7
             radius = 0, cols = 8, rows = 2, max = 16, hideTimer = false, zoom = 8, lineEdge = "top" }
         b.auraGap, b.auraGroupGap, b.auraLineGap = 2, 4, 1
     end
+    -- your health's class buffs: one row of what you can put on yourself (anchorTo "bar" / "line");
+    -- buffs and debuffs may hang on it (anchorTo "class")
+    l.bars.health.selfbuffs = { show = true, anchorTo = "bar", spot = "righttop", grow = "right", wrap = "auto",
+        x = 4, y = 0, size = 20, radius = 0, cols = 12, rows = 1, max = 12, hideTimer = false, zoom = 8,
+        lineEdge = "bottom" }
     -- small icons on the bar: PvP flag (in one of a few looks) and drinking; centered on a
     -- point of the bar, nudged by x/y
     -- anchorTo: "bar", or "name" / "level" (then it sits outside that box, on the side of point).
@@ -315,11 +318,11 @@ local function layoutDefaults(show, x, y, gap, width, h1, h2, h3, h4, h5, h6, h7
     l.bars.druidmana.colorMode = "power"
     -- the spell's or item's icon at one end: its corners (0, 12, 25, 50: as ns.ICON_MASKS) and
     -- zoom (% cut from each side); flash: the bar flashes once it is empty
-    for _, key in ipairs({ "castbar", "targetcast", "enchantmh", "enchantoh", "durability" }) do
+    for _, key in ipairs({ "castbar", "targetcast", "durability" }) do
         local b = l.bars[key]
         b.icon, b.iconSide, b.iconRadius, b.iconZoom = true, "left", 0, 8
     end
-    for _, key in ipairs({ "enchantmh", "enchantoh", "durability" }) do l.bars[key].flash = true end
+    l.bars.durability.flash = true
     -- what your target is casting. "Auto color": one color each for a cast you cannot stop, a
     -- heal, and everything else. autoSet: useProfile has moved an older profile, which always
     -- colored by kind, onto auto (once, so picking another mode sticks)
@@ -883,8 +886,6 @@ local BARS = {
         end,
     },
     -- only out of combat (and while placing the bars); see ns.wb
-    enchantmh = { label = "Main Hand Enchant", state = function() return ns.wb.shown("enchantmh"), 1 end },
-    enchantoh = { label = "Off Hand Enchant", state = function() return ns.wb.shown("enchantoh"), 1 end },
     durability = { label = "Durability", state = function() return ns.wb.shown("durability"), 1 end },
     druidmana = {
         label = "Druid Mana",
@@ -2221,6 +2222,86 @@ function ns.linePlace(o, alone, gap)
     return gp == "" and "CENTER" or gp, side[2], o.x, o.y + dy
 end
 
+------------------------------------------------------------------------------------------
+-- Class buffs: one row of what you can put on yourself -- your class's buffs, a poison or imbue
+-- on each weapon. Each shows once learned: as a plain buff while it is on you, flashing while it
+-- is not. A slot lists the spells that fill it, by id: the first rank's id says it is learned
+-- (ranks come in order), any of them on you fills it (matched by name: every rank, and the group
+-- version, count). weapon = 1 / 2: that hand's enchant, while a weapon is there.
+------------------------------------------------------------------------------------------
+ns.CLASS_BUFFS = {
+    WARRIOR = { { 6673, 469 } }, -- Battle / Commanding Shout
+    MAGE = { { 1459, 23028 }, { 168, 7302, 6117, 30482 } }, -- Arcane Intellect; an armor
+    PRIEST = { { 1243, 21562, 21564 }, { 588 }, { 14752, 27681 }, { 976, 27683 } }, -- Fortitude, Inner Fire, Spirit, Shadow Prot.
+    DRUID = { { 1126, 21849 }, { 467 }, { 16864 } }, -- Mark of the Wild, Thorns, Omen of Clarity
+    PALADIN = { { 19740, 19742, 20217, 1038, 19977, 20911, 25782, 25894, 25898, 25895, 25890, 25899 }, -- a blessing
+        { 465, 7294, 19746, 19876, 19888, 19891, 20218, 32223, 317920, 183435 } }, -- an aura
+    HUNTER = { { 13165, 13163, 5118, 13159, 20043, 13161, 34074, 61846, 109260 }, { 19506 } }, -- an aspect, Trueshot
+    WARLOCK = { { 687, 706, 28176 } }, -- Demon Skin / Armor, Fel Armor
+    SHAMAN = { { 324, 24398, 192106, 52127 }, -- Lightning / Water Shield; an imbue on each weapon
+        { weapon = 1, 8017, 8024, 8033, 8232, 51730, 318038, 33757, 382021 },
+        { weapon = 2, 8017, 8024, 8033, 8232, 51730, 318038, 33757, 382021 } },
+    -- a poison on each weapon (once the Poisons skill is learned); where poisons are buffs on you
+    -- (Mists on), a lethal and a non-lethal one
+    ROGUE = { { weapon = 1, 2842 }, { weapon = 2, 2842 },
+        { 2823, 8679, 315584, 381664 }, { 3408, 5761, 381637, 108211, 108215 } },
+    DEATHKNIGHT = { { 57330 } }, -- Horn of Winter
+    EVOKER = { { 364342 } }, -- Blessing of the Bronze
+}
+-- a spell's name and icon, or nil where this client has no such spell
+function ns.cbSpell(id)
+    local ok, name, icon = pcall(function()
+        if C_Spell and C_Spell.GetSpellInfo then
+            local i = C_Spell.GetSpellInfo(id)
+            return i and i.name, C_Spell.GetSpellTexture(id)
+        end
+        local n, _, ic = GetSpellInfo(id)
+        return n, ic
+    end)
+    if ok then return name, icon end
+end
+function ns.cbKnown(id)
+    local ok, v = pcall(function() return (IsPlayerSpell and IsPlayerSpell(id)) or (IsSpellKnown and IsSpellKnown(id)) end)
+    return ok and v and true or false
+end
+-- the row: { icon, aura } (on you), { icon, hand } (a weapon's enchant), { icon, missing }; nil
+-- when the game will not say (the icons then stay as they are)
+function ns.classBuffs()
+    local auras, have, out = ns.auraList("player", "HELPFUL", 40), {}, {}
+    if not auras then return nil end
+    for _, a in ipairs(auras) do
+        if not readable(a.name) then return nil end -- names kept secret (in combat): no guessing
+        have[a.name] = a
+    end
+    for _, e in ipairs(ns.CLASS_BUFFS[class] or {}) do
+        local known
+        for _, id in ipairs(e) do if not known and ns.cbKnown(id) then known = id end end
+        local _, icon = ns.cbSpell(known or 0)
+        if known and e.weapon then
+            local h = ns.wb.hand(e.weapon)
+            if h then out[#out + 1] = h.ms > 0 and { icon = h.icon, hand = h } or { icon = icon, missing = true } end
+        elseif known then
+            local a
+            for _, id in ipairs(e) do
+                local name = ns.cbSpell(id)
+                a = a or (name and have[name])
+            end
+            out[#out + 1] = a and { icon = a.icon, aura = a } or { icon = icon, missing = true }
+        end
+    end
+    return out
+end
+-- every frame: the missing ones flash; once a second: the row is looked at again (a weapon's
+-- enchant running out says nothing)
+function ns.cbTick(box, dt)
+    box.t, box.since = (box.t or 0) + dt, (box.since or 0) + dt
+    local a = 0.25 + 0.75 * math.abs(math.cos(box.t * 3))
+    for _, b in ipairs(box.icons or {}) do b:SetAlpha(b.missing and a or 1) end
+    if box.since < 1 then return end
+    box.since = 0
+    if box.host:IsShown() then pcall(ns.layoutAuras, box.host) end
+end
+
 -- Each group lives in a box as big as its icons; the box hangs on the bar or on the other
 -- group's box. Both on each other would hang in the air, so then buffs take the bar. One that
 -- hangs on an empty group borrows that group's own anchor on the bar while it is empty: the
@@ -2231,6 +2312,18 @@ function ns.layoutAuras(f)
     local unit = f.key == "health" and "player" or (UnitExists(f.unit) and f.unit)
     f.auraIcons = f.auraIcons or { buffs = {}, debuffs = {} }
     f.auraBoxes = f.auraBoxes or { buffs = CreateFrame("Frame", nil, f), debuffs = CreateFrame("Frame", nil, f) }
+    local keys, cb = { "buffs", "debuffs" }, nil
+    if c.selfbuffs and f.mode == "regular" then
+        keys[3] = "selfbuffs"
+        if not f.auraBoxes.selfbuffs then
+            f.auraIcons.selfbuffs = {}
+            cb = CreateFrame("Frame", nil, f)
+            cb.icons, cb.host = f.auraIcons.selfbuffs, f
+            cb:SetScript("OnUpdate", function(self, dt) ns.cbTick(self, dt) end)
+            f.auraBoxes.selfbuffs = cb
+        end
+        cb = f.auraBoxes.selfbuffs
+    end
     -- with target of target hung on enemy health, or your pet on your health, "the bar" is the
     -- two together (a pet on the left starts the block)
     local host, other = f, nil
@@ -2244,7 +2337,7 @@ function ns.layoutAuras(f)
         f.span:SetPoint("BOTTOMRIGHT", first == f and other or f, "BOTTOMRIGHT")
         host = f.span
     end
-    for _, k in ipairs({ "buffs", "debuffs" }) do
+    for _, k in ipairs(keys) do
         local o, icons, box = c[k], f.auraIcons[k], f.auraBoxes[k]
         local corner, g, w = ns.auraDirs(o)
         local step = o.size + c.auraGap
@@ -2254,13 +2347,16 @@ function ns.layoutAuras(f)
         local list = {}
         -- the options are open: a full grid to tune it by (never on a real nameplate)
         local dummy = o.show and ns.previewing() and not f.plate
-        if dummy then
+        if k == "selfbuffs" then
+            list = o.show and ns.classBuffs() or {}
+            if list and #list == 0 and dummy then list = ns.dummyAuras("buffs", 3) end
+        elseif dummy then
             list = ns.dummyAuras(k, max)
         elseif o.show and unit then
             list = ns.auraList(unit, k == "buffs" and "HELPFUL" or ns.debuffFilter(unit), max)
         end
         -- the game refusing (in combat) right after the preview: no stand-ins left behind
-        if not list and box.dummy then list = {} end
+        if not list and box.dummy and k ~= "selfbuffs" then list = {} end
         box.dummy = dummy
         if list then -- nil: the game refused, the icons stay as they are
             local n = math.min(#list, max)
@@ -2299,7 +2395,19 @@ function ns.layoutAuras(f)
                             .. file .. ".tga" or "Interface\\Buttons\\WHITE8X8")
                         b.cd:SetSwipeColor(0, 0, 0, 0.7)
                         b.cd:SetHideCountdownNumbers(o.hideTimer and true or false)
-                        ns.drawAura(b, unit, list[i] or nil)
+                        local e = list[i]
+                        b.missing = e and e.missing
+                        if k ~= "selfbuffs" or (e and e.aura) then
+                            ns.drawAura(b, unit, e and (e.aura or e) or nil)
+                        else -- a weapon's enchant (its time left) or a missing one
+                            pcall(b.tex.SetTexture, b.tex, e and e.icon or 134400)
+                            b.count:SetText("")
+                            pcall(b.cd.Clear, b.cd)
+                            local h = e and e.hand
+                            if h and h.max > 0 then
+                                b.cd:SetCooldown(GetTime() - (h.max - h.ms) / 1000, h.max / 1000)
+                            end
+                        end
                     end
                 end
             end
@@ -2311,6 +2419,17 @@ function ns.layoutAuras(f)
     -- both loose first: either may still hang on the other from last time (a loop, refused)
     f.auraBoxes.buffs:ClearAllPoints()
     f.auraBoxes.debuffs:ClearAllPoints()
+    if cb then -- the class buffs hang on the bar or the line, never on the others
+        local o = c.selfbuffs
+        local corner, _, _, sp = ns.auraDirs(o)
+        cb:ClearAllPoints()
+        if o.anchorTo == "line" then
+            local gp, hp, x, y = ns.linePlace(o, false, c.auraLineGap or 0)
+            cb:SetPoint(gp, host, hp, x, y)
+        else
+            cb:SetPoint(corner, host, sp[1], o.x, o.y)
+        end
+    end
     for _, k in ipairs({ "buffs", "debuffs" }) do -- now that both know how many they hold
         local o, box = c[k], f.auraBoxes[k]
         local other = k == "buffs" and "debuffs" or "buffs"
@@ -2318,7 +2437,11 @@ function ns.layoutAuras(f)
         local toOther = o.anchorTo == "other" and not (k == "buffs" and c.debuffs.anchorTo == "other")
         local into = f.auraBoxes[other]
         local alone = (into.n or 0) == 0
-        if o.anchorTo == "line" then -- on the center line; alone on it, centered
+        -- on the class buffs (or on the other group, empty and on them), the group gap away
+        if cb and (o.anchorTo == "class" or toOther and alone and c[other].anchorTo == "class") then
+            local gap = (cb.n or 0) > 0 and c.auraGroupGap or 0
+            box:SetPoint(corner, cb, sp[1], o.x + sp[2] * gap, o.y + sp[3] * gap)
+        elseif o.anchorTo == "line" then -- on the center line; alone on it, centered
             local gp, hp, x, y = ns.linePlace(o, alone, c.auraLineGap or 0)
             box:SetPoint(gp, host, hp, x, y)
         elseif toOther and alone and c[other].anchorTo == "line" then -- the empty one's place on the line
@@ -6252,15 +6375,12 @@ for _, e in ipairs({ "BAG_UPDATE", "BAG_UPDATE_DELAYED", "PLAYER_ENTERING_WORLD"
 end
 
 ------------------------------------------------------------------------------------------
--- Weapon enchant and durability bars on the Combat Display, out of combat only: what is left
--- of each hand's poison or imbue (a rogue or shaman sees an empty bar for a bare weapon, anyone
--- else only while something is on it), and the most worn item you have on. An empty bar flashes.
--- No call says how long an enchant lasts when fresh, so the longest time left seen since it
--- went on stands in for it.
+-- The durability bar on the Combat Display, out of combat only: the most worn item you have on;
+-- empty, it flashes. And each hand's poison or imbue, for the class buffs. No call says how long
+-- an enchant lasts when fresh, so the longest time left seen since it went on stands in for it.
 ------------------------------------------------------------------------------------------
-ns.wb = { KEYS = { enchantmh = 1, enchantoh = 2, durability = true } }
+ns.wb = { KEYS = { durability = true } } -- the weapons' enchants are in the class buffs now
 ns.wb.seen = {} -- [hand] = { max, last } in ms
-ns.wb.CAN = { ROGUE = true, SHAMAN = true }
 
 -- a hand's weapon: { icon, ms left (0: nothing on it) }, or nil (none; an off hand that is not a weapon)
 function ns.wb.hand(i)
@@ -6306,32 +6426,13 @@ end
 function ns.wb.shown(key)
     if ns.previewing() then return true end
     if ns.inCombat then return false end
-    if key == "durability" then return ns.wb.worn() ~= nil end
-    local h = ns.wb.hand(ns.wb.KEYS[key])
-    return (h and (h.ms > 0 or ns.wb.CAN[class])) and true or false
-end
-
-function ns.wb.clock(ms)
-    local sec = math.floor(ms / 1000)
-    if sec >= 3600 then return ("%dh %dm"):format(math.floor(sec / 3600), math.floor(sec % 3600 / 60)) end
-    if sec >= 60 then return ("%dm"):format(math.ceil(sec / 60)) end
-    return sec .. "s"
+    return ns.wb.worn() ~= nil
 end
 
 function ns.wb.fill(f)
-    local v, max, text, icon
-    if f.key == "durability" then
-        local d = ns.wb.worn()
-        v, max, icon = d and d.cur or 1, d and d.max or 1, d and d.icon
-        text = d and (math.floor(100 * v / max + 0.5) .. "%") or BARS.durability.label
-    else
-        local h = ns.wb.hand(ns.wb.KEYS[f.key])
-        if h then
-            v, max, icon, text = h.ms, h.max, h.icon, h.ms > 0 and ns.wb.clock(h.ms) or "None"
-        else -- placing the bars with no weapon there: a full bar and its name
-            v, max, text = 1, 1, BARS[f.key].label
-        end
-    end
+    local d = ns.wb.worn()
+    local v, max, icon = d and d.cur or 1, d and d.max or 1, d and d.icon
+    local text = d and (math.floor(100 * v / max + 0.5) .. "%") or BARS.durability.label
     f.segs[1]:SetMinMaxValues(0, max)
     f.segs[1]:SetValue(v)
     f.text:SetText(text)
@@ -8104,10 +8205,7 @@ local function buildConfig()
                 .. "be stopped the game tells us outright; whether it heals is matched by name, "
                 .. "from the list of heals a mob actually casts.")
         elseif ns.wb.KEYS[selected] then
-            onlyNote:SetText("\n\nOnly out of combat. " .. (selected == "durability"
-                and "Your most worn item: its icon, and how much of it is left."
-                or "The weapon's icon and how long its poison or imbue lasts. A rogue or shaman sees "
-                .. "an empty, flashing bar for a bare weapon; anyone else only while one is on."))
+            onlyNote:SetText("\n\nOnly out of combat. Your most worn item: its icon, and how much of it is left.")
         elseif selected == "flight" then
             onlyNote:SetText("Shows only while a griffin has you. Nothing in the game will say how "
                 .. "long a route takes, so the first time you fly one it is timed and written "
@@ -9078,6 +9176,7 @@ local function buildConfig()
             end
         end },
         { "Buffs and debuffs", ICON_R, function(add)
+            inBars(add, { "health" }, "radius", "selfbuffs")
             for _, s in ipairs({ "buffs", "debuffs" }) do
                 inBars(add, { "health", "enemyhealth" }, "radius", s)
                 for _, n in ipairs(ns.uf.SIZES) do add(db.unitframes["g" .. n][s], "radius") end
@@ -9091,7 +9190,7 @@ local function buildConfig()
         end },
         { "Bag slots", ICON_R, function(add) add(db.bags, "radius") end },
         { "Icons on bars", ICON_R, function(add)
-            inBars(add, { "castbar", "targetcast", "enchantmh", "enchantoh", "durability" }, "iconRadius")
+            inBars(add, { "castbar", "targetcast", "durability" }, "iconRadius")
         end },
         { "Text backgrounds", { { "None", 0 }, { "2 px", 2 }, { "4 px", 4 }, { "8 px", 8 },
             { "Pill (50% of height)", "pill" } }, function(add)
@@ -9310,7 +9409,7 @@ local function buildConfig()
 
     -- Buffs and debuffs dialog: a tab each (where it sits on the left, its size and grid on the
     -- right), the gaps they share underneath
-    local ad = ns.ui.Window(nil, 440, 660, "Buffs and debuffs")
+    local ad = ns.ui.Window(nil, 440, 690, "Buffs and debuffs")
     ad:SetParent(cfg)
     ad:ClearAllPoints()
     ad:SetPoint("TOPLEFT", cfg, "TOPRIGHT", 12, 0)
@@ -9321,24 +9420,31 @@ local function buildConfig()
         { "Right side, at the top", "righttop" }, { "Left side, at the top", "lefttop" },
         { "Top, center (grows both ways)", "topcenter" }, { "Bottom, center (grows both ways)", "bottomcenter" } }
     local auraTab, panes = 1, {}
-    for i, k in ipairs({ { "buffs", "Buffs" }, { "debuffs", "Debuffs" } }) do
+    -- the class buffs: your health only (enemy health picked, its tab goes)
+    local hasClass = function() return cur().selfbuffs ~= nil end
+    for i, k in ipairs({ { "buffs", "Buffs" }, { "debuffs", "Debuffs" }, { "selfbuffs", "Class buffs" } }) do
         local tab = button(ad, k[2], 100, 16 + (i - 1) * 104, -44, function() auraTab = i; changed() end)
         local pane = CreateFrame("Frame", nil, ad)
         pane:SetAllPoints(ad)
         panes[i] = pane
         onRefresh(function()
+            if auraTab == 3 and not hasClass() then auraTab = 1 end
+            if i == 3 then tab:SetShown(hasClass()) end
             pane:SetShown(auraTab == i)
             if auraTab == i then tab:LockHighlight() else tab:UnlockHighlight() end
         end)
         -- another bar picked: the dialog is hidden, its widgets read enemy health's defaults
-        local A = function() return cur()[k[1]] or DEFAULTS.regular.bars.enemyhealth[k[1]] end
+        local A = function() return cur()[k[1]] or DEFAULTS.regular.bars[i == 3 and "health" or "enemyhealth"][k[1]] end
         ry = -80
         check(pane, "Show " .. k[2]:lower(), 16, rrow(ROW), function() return A().show end, function(v) A().show = v end)
         label(pane, "Anchor to", "GameFontNormalSmall"):SetPoint("TOPLEFT", 16, rrow(18) - 4)
-        for _, to in ipairs({ { "bar", "The bar" }, { "other", i == 1 and "The debuffs" or "The buffs" },
-            { "line", "The center line" } }) do
-            check(pane, to[2], 16, rrow(ROW), function() return A().anchorTo == to[1] end,
+        local tos = i == 3 and { { "bar", "The bar" }, { "line", "The center line" } }
+            or { { "bar", "The bar" }, { "other", i == 1 and "The debuffs" or "The buffs" },
+                { "line", "The center line" }, { "class", "The class buffs" } }
+        for _, to in ipairs(tos) do
+            local box = check(pane, to[2], 16, rrow(ROW), function() return A().anchorTo == to[1] end,
                 function() A().anchorTo = to[1] end) -- a radio: ticking one is the choice
+            if to[1] == "class" then onRefresh(function() box:SetShown(hasClass()) end) end
         end
         local edge = dropdown(pane, "On the line", 16, rrow(DROP), { { "Bottom edge (above it)", "bottom" },
             { "Center", "center" }, { "Top edge (below it)", "top" } }, function() return A().lineEdge end,
@@ -9360,14 +9466,16 @@ local function buildConfig()
                 or { { "Auto", "auto" }, { "Left", "left" }, { "Right", "right" } }
         end, function() return A().wrap end, function(v) A().wrap = v end, textPreview)
         ry = -80
-        for _, r in ipairs({ { "x", "X", -200, 200 }, { "y", "Y", -200, 200 }, { "size", "Icon size", 8, 64 },
+        local sliders = { { "x", "X", -200, 200 }, { "y", "Y", -200, 200 }, { "size", "Icon size", 8, 64 },
             { "zoom", "Zoom (% cut from each side)", 0, 30 },
-            { "cols", "Columns", 1, 20 }, { "rows", "Rows", 1, 10 }, { "max", "Most icons", 1, 40 } }) do
+            { "cols", "Columns", 1, 20 }, { "rows", "Rows", 1, 10 }, { "max", "Most icons", 1, 40 } }
+        if i == 3 then sliders[5], sliders[6], sliders[7] = nil, nil, nil end -- one row, as many as you have
+        for _, r in ipairs(sliders) do
             slider(pane, r[2], 230, rrow(SLIDER), r[3], r[4], function() return A()[r[1]] end,
                 function(v) A()[r[1]] = v end)
         end
     end
-    local shared = ry - 10 - 74 -- the placement column is the longer one now: three radios, the line edge
+    local shared = ry - 10 - 74 - ROW -- the placement column is the longer one now: four radios, the line edge
     slider(ad, "Gap between icons", 16, shared, 0, 20, function() return cur().auraGap or 0 end,
         function(v) cur().auraGap = v end)
     slider(ad, "Gap between the groups", 230, shared, 0, 40, function() return cur().auraGroupGap or 0 end,
@@ -9377,7 +9485,8 @@ local function buildConfig()
         function(v) cur().auraLineGap = v end)
     local anote = label(ad, "Your health: all your buffs and debuffs. Enemy health: what Blizzard's target "
         .. "frame shows, all buffs and on an enemy your own debuffs. A group anchored to the other sits the "
-        .. "group gap away from it. On the center line, a group with the other one empty sits centered.",
+        .. "group gap away from it. On the center line, a group with the other one empty sits centered. "
+        .. "Class buffs: what you can put on yourself, once learned; one that is not on you flashes.",
         "GameFontDisableSmall")
     anote:SetPoint("TOPLEFT", 16, shared - SLIDER - 4)
     anote:SetWidth(408)
@@ -9613,7 +9722,7 @@ local function buildConfig()
         d:Hide()
         ns.wbDialog = d
         -- another bar picked: hidden, the widgets read the defaults
-        local O = function() return ns.wb.KEYS[selected] and cur() or DEFAULTS.regular.bars.enchantmh end
+        local O = function() return ns.wb.KEYS[selected] and cur() or DEFAULTS.regular.bars.durability end
         ry = -48
         check(d, "Show the icon", 16, rrow(ROW), function() return O().icon end, function(v) O().icon = v end)
         ns.wbMenus = {

@@ -3123,7 +3123,7 @@ assert(#bad == 32 and bp.evil == nil and bp.locked == true, "unknown key dropped
 assert(bp.other.hover.bar1 and bp.other.hover.nope == nil and bp.other.hover.bar2 == nil, "hover: known and true only")
 assert(bp.other.combatFont == "", "unknown combat font path refused")
 assert(bp.regular.gap == 2 and bp.regular.x == 0, "out-of-range numbers defaulted")
-assert(bp.regular.order[1] == "health" and bp.regular.order[2] == "castbar" and #bp.regular.order == 18, "order repaired")
+assert(bp.regular.order[1] == "health" and bp.regular.order[2] == "castbar" and #bp.regular.order == 16, "order repaired")
 local ns2 = bp.plates.bars.power.stops
 assert(#ns2 == 2 and ns2[1].pos == 10 and ns2[2].pos == 90 and ns2[1].color[1] == 1, "gradient points checked")
 local hb2 = bp.regular.bars.health
@@ -3228,7 +3228,7 @@ for _, m in ipairs({ "regular", "plates" }) do
     for _, k in ipairs(prof()[m].order) do seen[k] = true end
     assert(seen.health and seen.power and seen.combo and seen.druidmana and seen.castbar and seen.pethealth
         and seen.swing and seen.totems and seen.absorb and seen.flight and seen.targetcast
-        and seen.enemyhealth and #prof()[m].order == 18, "order intact")
+        and seen.enemyhealth and #prof()[m].order == 16, "order intact")
 end
 
 -- Totems: four element segments, each draining on its own; the bar is shaman-only and
@@ -3511,56 +3511,32 @@ login("ROGUE", 3)
 S.unitClasses = nil
 login("ROGUE", 3)
 
--- Weapon enchant and durability bars on the Combat Display: out of combat only, the time left
--- on each hand, your most worn item; an empty bar flashes
+-- The durability bar on the Combat Display: out of combat only, your most worn item; the weapon
+-- enchant bars are gone (the class buffs show those)
 do
     local R = prof().regular.bars
-    R.enchantmh.show, R.enchantoh.show, R.durability.show = true, true, true
-    S.weapons = { [16] = 501, [17] = 502, [5] = 505 }
-    S.mainEnchant, S.offEnchant, S.mainMs, S.offMs = true, false, 30 * 60000, 0
+    assert(R.enchantmh == nil and fr.enchantmh == nil and not tContains(prof().regular.order, "enchantmh"),
+        "no weapon enchant bars")
+    R.durability.show = true
+    S.weapons = { [16] = 501, [5] = 505 }
     S.dur = { [5] = { 20, 100 }, [16] = { 90, 100 } }
     GetInventoryItemDurability = function(slot) local d = S.dur[slot]; if d then return d[1], d[2] end end
-    C_Item.GetItemInfoInstant = function() return 1, nil, nil, nil, nil, 2 end -- a weapon
     fire("UNIT_MAXPOWER")
-    local mh, oh, du = fr.enchantmh, fr.enchantoh, fr.durability
-    assert(mh:IsShown() and mh.segs[1]._value == 30 * 60000 and mh.segs[1]._max == 30 * 60000
-        and mh.text._text == "30m" and mh.icon._tex == 501, "main hand: thirty minutes, its weapon's icon")
-    assert(oh:IsShown() and oh.segs[1]._value == 0 and oh.text._text == "None" and oh.wbEmpty, "a rogue's bare off hand: empty")
+    local du = fr.durability
     assert(du:IsShown() and du.text._text == "20%" and du.icon._tex == 505, "durability: the most worn item")
-    S.mainMs = 15 * 60000
+    R.durability.iconZoom, R.durability.iconRadius = 20, 50
+    fire("UNIT_MAXPOWER")
+    assert(du.icon._coords[1] == 0.2 and du.icon._coords[2] == 0.8 and du.icon.iconMask, "zoomed in, round")
+    S.dur[5] = { 0, 100 }
     ns.wb.ticker._scripts.OnUpdate(ns.wb.ticker, 1)
-    assert(mh.segs[1]._value == 15 * 60000 and mh.segs[1]._max == 30 * 60000 and mh.text._text == "15m", "it drains")
     ns.wb.ticker._scripts.OnUpdate(ns.wb.ticker, 0.3)
-    assert(oh._alpha < 1 and mh._alpha == 1, "the empty one flashes")
-    S.offEnchant, S.offMs = true, 5 * 60000 -- an imbue put on: a full bar on its own length
-    ns.wb.ticker._scripts.OnUpdate(ns.wb.ticker, 1)
-    assert(oh.segs[1]._max == 5 * 60000 and oh._alpha == 1 and not oh.wbEmpty, "put on: full, steady")
-    -- the icon: corners and zoom
-    R.enchantmh.iconZoom, R.enchantmh.iconRadius = 20, 50
-    fire("UNIT_MAXPOWER")
-    assert(mh.icon._coords[1] == 0.2 and mh.icon._coords[2] == 0.8 and mh.icon.iconMask, "zoomed in, round")
-    -- a fight: all three go
+    assert(du.wbEmpty and du._alpha < 1, "broken: it flashes")
     fire("PLAYER_REGEN_DISABLED")
-    assert(not mh:IsShown() and not oh:IsShown() and not du:IsShown(), "gone in combat")
+    assert(not du:IsShown(), "gone in combat")
     fire("PLAYER_REGEN_ENABLED")
-    assert(mh:IsShown() and du:IsShown(), "back after")
-    -- not a rogue or shaman: only while something is on it; a shield is no weapon
-    login("WARRIOR", 1)
-    R = prof().regular.bars
-    R.enchantmh.show, R.enchantoh.show = true, true
-    S.mainEnchant = false
-    C_Item.GetItemInfoInstant = function() return 1, nil, nil, nil, nil, 4 end -- armor
-    fire("UNIT_MAXPOWER")
-    assert(not fr.enchantmh:IsShown() and not fr.enchantoh:IsShown(), "a warrior, nothing on: no bars")
-    S.mainEnchant = true
-    fire("UNIT_MAXPOWER")
-    assert(fr.enchantmh:IsShown() and not fr.enchantoh:IsShown(), "a sharpening stone on: its bar; the shield none")
-    C_Item.GetItemInfoInstant, S.weapons, S.dur, GetInventoryItemDurability = nil, nil, nil, nil
-    S.mainEnchant, S.offEnchant = false, false
-    R.enchantmh.show, R.enchantoh.show = false, false
-    login("ROGUE", 3)
-    R = prof().regular.bars
-    R.enchantmh.show, R.enchantoh.show, R.durability.show = false, false, false
+    assert(du:IsShown(), "back after")
+    S.weapons, S.dur, GetInventoryItemDurability = nil, nil, nil
+    R.durability.show = false
     fire("UNIT_MAXPOWER")
 end
 
@@ -4559,6 +4535,48 @@ do
     T.sync(); ns.abBinds()
     GetInventoryItemID, C_Container.GetContainerItemID, C_Container.GetContainerNumSlots,
         C_Container.GetItemCooldown, C_Item.GetItemInfoInstant, EquipItemByName = unpack(keep)
+end
+
+-- Class buffs: one row of what you can put on yourself; on you a plain buff, missing it flashes
+do
+    local keep = { C_Spell.GetSpellInfo, S.known, S.auras, S.weapons, S.mainEnchant, S.mainMs, S.combat }
+    S.combat = nil
+    local NAMES = { [1459] = "Arcane Intellect", [23028] = "Arcane Brilliance", [168] = "Frost Armor",
+        [7302] = "Ice Armor", [6117] = "Mage Armor", [30482] = "Molten Armor", [2842] = "Poisons" }
+    C_Spell.GetSpellInfo = function(id) return NAMES[id] and { name = NAMES[id] } end
+    login("MAGE", 0)
+    S.known = { [1459] = true, [168] = true } -- not Molten Armor, not Brilliance
+    S.auras = { { name = "Arcane Brilliance", icon = 7, duration = 3600, expirationTime = S.time + 100 } }
+    local row = ns.classBuffs()
+    assert(#row == 2 and row[1].aura and row[1].aura.name == "Arcane Brilliance",
+        "the group version fills Arcane Intellect")
+    assert(row[2].missing and row[2].icon == 268, "no armor on: missing, with Frost Armor's icon")
+    S.known = {}
+    assert(#ns.classBuffs() == 0, "nothing learned: nothing shows")
+    -- drawn on your health: the missing one flashes
+    S.known = { [1459] = true, [168] = true }
+    local hp = prof().regular.bars.health
+    hp.show, hp.selfbuffs.show = true, true
+    hp.buffs.anchorTo = "class"
+    fire("UNIT_AURA", "player")
+    local f = ns.frames.health
+    local cb, icons = f.auraBoxes.selfbuffs, f.auraIcons.selfbuffs
+    assert(cb and cb.n == 2 and icons[1]:IsShown() and icons[2].missing and not icons[1].missing, "two icons, one missing")
+    ns.cbTick(cb, 0.5)
+    assert(icons[2]._alpha < 1 and icons[1]._alpha == 1, "the missing one flashes")
+    assert(f.auraBoxes.buffs._points[1][2] == cb, "buffs hang on the class buffs")
+    hp.buffs.anchorTo = "bar"
+    -- a rogue: a poison on each weapon there is
+    login("ROGUE", 3)
+    S.known, S.auras = { [2842] = true }, {}
+    S.weapons = { [16] = 555 }
+    S.mainEnchant, S.mainMs = true, 60000
+    row = ns.classBuffs()
+    assert(#row == 1 and row[1].hand and row[1].icon == 555, "the poisoned main hand; no off hand, no slot")
+    S.mainEnchant, S.mainMs = false, 0
+    row = ns.classBuffs()
+    assert(row[1].missing and row[1].icon == 100 + 2842, "the bare weapon flashes, with the Poisons icon")
+    C_Spell.GetSpellInfo, S.known, S.auras, S.weapons, S.mainEnchant, S.mainMs, S.combat = unpack(keep, 1, 7)
 end
 
 realPrint("smoke ok")
