@@ -333,6 +333,10 @@ local function layoutDefaults(show, x, y, gap, width, h1, h2, h3, h4, h5, h6, h7
     l.bars.swing.classes, l.bars.swing.classesSet = {}, false
     for _, t in ipairs(ns.ALL_CLASSES) do l.bars.swing.classes[t] = { main = true, off = false, ranged = false } end
     l.bars.health.heal, l.bars.health.healColor = false, { 0.4, 1, 0.5, 0.45 } -- incoming heals
+    -- DoT damage still to come, from what the combat log says each tick does (Classic clients)
+    for _, key in ipairs({ "health", "enemyhealth" }) do
+        l.bars[key].dots, l.bars[key].dotsColor = true, { 0, 0, 0, 0.5 }
+    end
     l.bars.power.cost, l.bars.power.costColor = false, { 1, 1, 1, 0.35 } -- what the cast will take
     -- combo points as circles (on): per point a background disc, the fill disc over it while the
     -- point is yours, a ring on top. size: px across; ring.width: its thickness; gap: between
@@ -1456,16 +1460,42 @@ local function layoutBar(f, n, width, over)
     -- place them, and a frame over the bar clips whatever runs past its edge. Only that frame
     -- clips: the bar itself must not, or every icon, buff and text hung outside it is cut off.
     local over = (f.key == "health" and c.heal) or (f.key == "power" and c.cost)
+    -- DoT damage still to come grows left from the health fill, over its end, the same way
+    local dots = (f.key == "health" or f.key == "enemyhealth") and not f.res and c.dots and ns.dotLog
+    if (over or dots) and n == 1 and not f.clip then
+        f.clip = CreateFrame("Frame", nil, f)
+        f.clip:SetAllPoints(f)
+        f.clip:SetClipsChildren(true)
+    end
+    if f.clip then f.clip:SetFrameLevel(f.segs[1]:GetFrameLevel() + 1) end
+    if dots and n == 1 then
+        local seg = f.segs[1]
+        if not f.dot then
+            f.dot = CreateFrame("StatusBar", nil, f.clip)
+            f.dot.text = f.dot:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+        end
+        local d, col = f.dot, c.dotsColor
+        d:SetFrameLevel(seg:GetFrameLevel() + 2) -- over the heals, should both meet
+        d:SetStatusBarTexture(c.texture)
+        d:SetStatusBarColor(col[1], col[2], col[3], col[4])
+        d:SetSize(seg:GetWidth(), seg:GetHeight())
+        d:ClearAllPoints()
+        d:SetReverseFill(true)
+        d:SetPoint("RIGHT", seg:GetStatusBarTexture(), "RIGHT", 0, 0)
+        -- the number just left of the darker stretch, in the bar's font
+        d.text:ClearAllPoints()
+        d.text:SetPoint("RIGHT", d:GetStatusBarTexture(), "LEFT", -2, 0)
+        local flags = c.outline and "OUTLINE" or ""
+        if not d.text:SetFont(c.font, c.fontSize, flags) then d.text:SetFont(FONTS[1][2], c.fontSize, flags) end
+        d.text:SetTextColor(unpack(c.textColor))
+        d:Show()
+    elseif f.dot then
+        f.dot:Hide()
+    end
     if over and n == 1 then
         local seg = f.segs[1]
-        if not f.over then
-            local clip = CreateFrame("Frame", nil, f)
-            clip:SetAllPoints(f)
-            clip:SetClipsChildren(true)
-            f.over = CreateFrame("StatusBar", nil, clip)
-        end
+        if not f.over then f.over = CreateFrame("StatusBar", nil, f.clip) end
         local o, col = f.over, f.key == "health" and c.healColor or c.costColor
-        o:GetParent():SetFrameLevel(seg:GetFrameLevel() + 1)
         o:SetFrameLevel(seg:GetFrameLevel() + 1)
         o:SetStatusBarTexture(c.texture)
         o:SetStatusBarColor(col[1], col[2], col[3], col[4])
@@ -1818,6 +1848,7 @@ function ns.fill(f)
         f.segs[1]:SetMinMaxValues(0, max)
         f.segs[1]:SetValue(v)
         if f.over and f.over:IsShown() then fillOverlay(f, max) end
+        if f.dot and f.dot:IsShown() then ns.fillDots(f, max) end
         if f.text:IsShown() and not pcall(setText, f.text, v) then f.text:SetText("") end
         if f.texts and not f.res then ns.fillTexts(f, v, max) end
     else
@@ -2161,9 +2192,9 @@ function ns.auraList(unit, filter, max)
             if not ok then return nil end
             a = d
         elseif UnitAura then -- older clients: plain values
-            local name, icon, count, _, duration, expires = UnitAura(unit, i, filter)
+            local name, icon, count, _, duration, expires, source = UnitAura(unit, i, filter)
             a = name and { name = name, icon = icon, applications = count, duration = duration,
-                expirationTime = expires }
+                expirationTime = expires, sourceUnit = source }
         end
         if type(a) ~= "table" then break end
         out[#out + 1] = a
@@ -8122,6 +8153,11 @@ local function buildConfig()
         function() return cur().heal end, function(v) cur().heal = v end)
     local healColor = swatch(barsPage, "Heal color", only.x, only:row(0) - ROW,
         function() return cur().healColor or { 0, 0, 0, 1 } end)
+    -- both health bars: DoT damage still to come, under their buttons
+    local dotsCheck = check(barsPage, "Show DoT damage left", only.x, only:row(0) - ROW - 4 * BUTTON,
+        function() return cur().dots end, function(v) cur().dots = v end)
+    local dotsColor = swatch(barsPage, "DoT color", only.x, only:row(0) - 2 * ROW - 4 * BUTTON,
+        function() return cur().dotsColor or { 0, 0, 0, 1 } end)
     local costCheck = check(barsPage, "Show the cast's cost", only.x, only:row(0),
         function() return cur().cost end, function(v) cur().cost = v end)
     local costColor = swatch(barsPage, "Cost color", only.x, only:row(0) - ROW,
@@ -8183,6 +8219,9 @@ local function buildConfig()
         heightSlider:SetShown(not fixed and (hungOn == "stack" or hungOn == "below"))
         healCheck:SetShown(selected == "health")
         healColor:SetShown(selected == "health")
+        local dotsOn = (selected == "health" or selected == "enemyhealth") and ns.dotLog
+        dotsCheck:SetShown(dotsOn)
+        dotsColor:SetShown(dotsOn)
         costCheck:SetShown(selected == "power")
         costColor:SetShown(selected == "power")
         regenButton:SetShown(selected == "power")
@@ -8233,7 +8272,7 @@ local function buildConfig()
             onlyNote:SetText(selected ~= "totems" and none and "Nothing extra for this one." or "")
         end
     end)
-    only:row(28) -- room for the four totem rows, which sit over the other controls
+    only:row(118) -- room for the four totem rows and the DoT rows, which sit over the other controls
     only:close()
 
     -- Column 3: colors and border
@@ -10291,6 +10330,64 @@ function ns.swingFromLog()
     if off then ns.startSwing(offSpeed, 1) else ns.startSwing(main, 0) end
 end
 
+-- DoT damage still to come: each DoT's last tick (a crit only until a plain one lands) times the
+-- ticks its debuff has left, the gap between ticks measured as they land. Keyed by spell name:
+-- Classic Era's log gives no spell IDs. Midnight keeps the log from addons, so there it is off.
+ns.dotLog = CombatLogGetCurrentEventInfo ~= nil and select(4, GetBuildInfo()) < 120000
+ns.dots = {} -- [target GUID] = { [spell name] = { [caster GUID] = { amount, every, at } } }
+
+function ns.dotFromLog()
+    local _, sub, _, source, _, _, _, dest, _, _, _, _, spell, _, amount, _, _, _, _, _, crit =
+        CombatLogGetCurrentEventInfo()
+    if sub == "UNIT_DIED" then ns.dots[dest] = nil return end
+    local missed = sub == "SPELL_PERIODIC_MISSED" -- still a tick, for the timing
+    if sub ~= "SPELL_PERIODIC_DAMAGE" and not missed then return end
+    local on = ns.dots[dest] or {}
+    ns.dots[dest] = on
+    on[spell] = on[spell] or {}
+    local d, now = on[spell][source], GetTime()
+    if not d then
+        if missed then return end
+        d = { amount = amount, every = 3, at = now } -- 3 s until a second tick says otherwise
+        on[spell][source] = d
+    else
+        local gap = math.floor((now - d.at) * 2 + 0.5) / 2 -- to the half second: lag
+        if gap >= 1 and gap <= 5 then d.every = gap end -- outside that: a new application
+        d.at = now
+        if not (missed or crit) then d.amount = amount end
+    end
+    for _, f in ipairs({ frames.health, frames.enemyhealth }) do
+        if f.dot and f.dot:IsShown() and UnitGUID(f.unit or "player") == dest then ns.fill(f) end
+    end
+end
+
+function ns.dotLeft(unit)
+    local on = ns.dots[UnitGUID(unit) or ""]
+    if not on then return 0 end
+    local now, sum = GetTime(), 0
+    for _, a in ipairs(ns.auraList(unit, "HARMFUL", 40) or {}) do
+        local by = on[a.name]
+        -- ponytail: a caster the game won't name takes any tick of that DoT's; two such alike DoTs
+        -- count one's ticks twice. Per-caster matching needs the caster's GUID on the aura.
+        local d = by and (a.sourceUnit and by[UnitGUID(a.sourceUnit) or ""] or select(2, next(by)))
+        local ends = a.expirationTime or 0
+        if d and ends > now then
+            sum = sum + d.amount * math.max(math.ceil((ends - now) / d.every - 0.1), 0)
+        end
+    end
+    return sum
+end
+
+-- An enemy player's health reads as a percent on Classic: the number shows, the stretch can't.
+function ns.fillDots(f, max)
+    local unit, left = f.unit or "player", 0
+    if UnitExists(unit) then left = ns.dotLeft(unit) end
+    local percent = UnitIsPlayer(unit) and not UnitIsUnit(unit, "player") and max == 100
+    f.dot:SetMinMaxValues(0, max)
+    f.dot:SetValue(percent and 0 or left)
+    f.dot.text:SetText(left > 0 and AbbreviateNumbers(left) or "")
+end
+
 local petEv = CreateFrame("Frame") -- same handler as ev, for pet unit events
 
 -- Auto-sell junk: gray items that have a sell price, one every 0.2 s while the merchant window
@@ -10389,7 +10486,8 @@ end)
 
 ev:SetScript("OnEvent", function(_, event, unit, arg2, arg3)
     if event == "COMBAT_LOG_EVENT_UNFILTERED" then -- by far the busiest, so asked first
-        safe(ns.swingFromLog)
+        if ns.swingLog then safe(ns.swingFromLog) end
+        if ns.dotLog then safe(ns.dotFromLog) end
     elseif event == "ADDON_LOADED" then
         if unit == ADDON then applyCombatFont() end
     elseif event == "PLAYER_LOGIN" then
@@ -10459,7 +10557,8 @@ ev:SetScript("OnEvent", function(_, event, unit, arg2, arg3)
             "GOSSIP_CLOSED", "PLAYER_LOGOUT", "UPDATE_BINDINGS" }) do
             listen(e)
         end
-        if ns.swingLog then listen("COMBAT_LOG_EVENT_UNFILTERED") end -- swings, where no PLAYER_SWING
+        -- swings, where no PLAYER_SWING; DoT ticks
+        if ns.swingLog or ns.dotLog then listen("COMBAT_LOG_EVENT_UNFILTERED") end
         inCombat = InCombatLockdown() -- a /reload mid-fight
         ns.inCombat = inCombat
         -- your own pick, else the profile your class is tied to, else Alpha
@@ -10475,11 +10574,13 @@ ev:SetScript("OnEvent", function(_, event, unit, arg2, arg3)
                 if event == "UNIT_AURA" then
                     safe(ns.layoutAuras, set.enemyhealth)
                     safe(ns.layoutTag, set.enemyhealth) -- drinking
+                    if set.enemyhealth.dot then safe(ns.fill, set.enemyhealth) end -- a DoT on or off
                 end
                 safe(ns.layoutBadges, set.enemyhealth)
             end
             if set.health:IsShown() and unit ~= "target" then
                 if event == "UNIT_AURA" then safe(ns.layoutAuras, set.health) end
+                if event == "UNIT_AURA" and set.health.dot then safe(ns.fill, set.health) end
                 if event == "UNIT_AURA" and set.power:IsShown() then safe(ns.layoutMealText, set.power) end
                 if event == "UNIT_AURA" then safe(ns.layoutMealText, set.health) end
                 safe(ns.layoutBadges, set.health)

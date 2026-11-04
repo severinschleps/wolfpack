@@ -3480,6 +3480,43 @@ assert(hb.over:IsShown() and hb.over._max == 1000 and hb.over._value == 250, "in
 assert(hb.over._reverseFill == false and hb.over._sbc[4] == 0.45, "grows right, in the heal color")
 S.incomingHeal = 0; fire("UNIT_HEAL_PREDICTION", "player")
 assert(hb.over._value == 0, "heals landed: nothing left to draw")
+-- DoT damage left: the last tick times the ticks the debuff has left, a darker stretch over the
+-- end of the health fill and the number beside it
+do
+    local eb, keepNpc, keepHP = ns.frames.enemyhealth, S.npc, S.targetHP
+    S.npc, S.targetHP = "Mob-1", 800
+    local keepRes = prof().regular.bars.enemyhealth.resource
+    prof().regular.bars.enemyhealth.show, prof().regular.bars.enemyhealth.resource = true, false
+    fire("UNIT_MAXPOWER")
+    fire("PLAYER_TARGET_CHANGED")
+    assert(eb.dot and eb.dot:IsShown() and eb.dot._reverseFill, "on by default on a Classic client, growing left")
+    local function tick(sub, amount, crit)
+        S.cleu = { 0, sub, false, "Player-1", "", 0, 0, "Mob-1", "", 0, 0, 172, "Corruption", 32, amount }
+        S.cleu[21] = crit
+        fire("COMBAT_LOG_EVENT_UNFILTERED")
+    end
+    S.debuffs = { { name = "Corruption", expirationTime = S.time + 12, sourceUnit = "player" } }
+    tick("SPELL_PERIODIC_DAMAGE", 50)
+    assert(eb.dot._value == 200 and eb.dot._max == 1000 and eb.dot.text._text == "200",
+        "12 s left at 3 s a tick: four more of 50, drawn on the first tick: " .. tostring(eb.dot._value))
+    S.time = S.time + 2
+    tick("SPELL_PERIODIC_DAMAGE", 90, true)
+    assert(eb.dot._value == 250, "a 2 s gap: five ticks in the 10 s left, a crit doesn't set the size")
+    S.time = S.time + 2
+    tick("SPELL_PERIODIC_MISSED")
+    assert(eb.dot._value == 200, "a resisted tick still counts down")
+    S.time = S.time + 1
+    fire("UNIT_HEALTH", "target")
+    assert(eb.dot._value == 200, "between ticks: the next one is still to come")
+    S.debuffs = {}; fire("UNIT_AURA", "target")
+    assert(eb.dot._value == 0 and eb.dot.text._text == "", "dispelled: nothing left")
+    tick("UNIT_DIED")
+    assert(ns.dots["Mob-1"] == nil, "a death forgets the ticks")
+    S.cleu, S.npc, S.targetHP = nil, keepNpc, keepHP
+    prof().regular.bars.enemyhealth.show, prof().regular.bars.enemyhealth.resource = false, keepRes
+    fire("UNIT_MAXPOWER")
+    fire("PLAYER_TARGET_CHANGED")
+end
 -- a client with no prediction calculator falls back to the plain call rather than drawing zero
 S.keptCalc, S.keptDetail = CreateUnitHealPredictionCalculator, UnitGetDetailedHealPrediction
 UnitGetDetailedHealPrediction = nil
