@@ -186,7 +186,7 @@ for i, s in ipairs(T.SLOTS) do
     b:SetScript("PreClick", function(self) T.press(self) end)
     b:SetScript("OnEnter", function(self)
         T.lit(self, true)
-        GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+        GameTooltip:SetOwner(self, T.TIP[T.o().flyout] or "ANCHOR_BOTTOM")
         GameTooltip:SetInventoryItem("player", s)
         GameTooltip:Show()
         if not (ns.ab and ns.ab.binding) then T.open(self) end
@@ -227,6 +227,9 @@ function T.sync()
     if not O then return end
     if InCombatLockdown() then T.pending = true return end
     T.pending = false
+    -- corners as your action bars' (the Colors page's Action buttons corners, set before these existed)
+    local ab = ns.profile().actionbars.bars[1]
+    if ab and ab.radius ~= nil then O.radius = ab.radius end
     local h, size, gap = T.holder, O.size, O.gap
     h:SetShown(O.show and true or false)
     if ns.abFadeSet then ns.abFadeSet(h, O.mouseover) end
@@ -269,97 +272,126 @@ T.clock = CreateFrame("Frame")
 T.clock:SetScript("OnUpdate", function(self, dt) if T.holder:IsShown() then T.tick(self, dt) end end)
 
 ------------------------------------------------------------------------------------------
--- The flyout: the list, top first. Click one to wear it in this button's slot; arrows reorder.
+-- The flyout: your trinkets as icons in a line out of the button, the list's first nearest it.
+-- Left-click: wear it in this button's slot. Right-click: one up the list; with Shift, one down.
+-- It touches the button and closes only a moment after the mouse has left both, so the way over
+-- to it is safe.
 ------------------------------------------------------------------------------------------
-local ROW, W = 26, 250
+local PAD, GAP = 4, 4
 T.flyout = CreateFrame("Frame", nil, UIParent)
 T.flyout:SetFrameStrata("DIALOG")
-T.flyout:SetWidth(W)
+T.flyout:EnableMouse(true) -- the gaps between icons count as on it
 T.flyout:Hide()
 if ns.ui and ns.ui.box then ns.ui.box(T.flyout, ns.ui.C.bg, ns.ui.C.border, 6) end
-T.flyout.title = T.flyout:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
-T.flyout.title:SetPoint("TOPLEFT", 8, -7)
-T.flyout.rows = {}
-T.flyout:SetScript("OnUpdate", function(self)
-    if not (self:IsMouseOver() or (self.owner and self.owner:IsMouseOver())) then self:Hide() end
+T.flyout.empty = T.flyout:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
+T.flyout.empty:SetPoint("CENTER")
+T.flyout.empty:SetText("No trinkets")
+T.flyout.icons = {}
+T.flyout:SetScript("OnUpdate", function(self, dt)
+    if self:IsMouseOver() or (self.owner and self.owner:IsMouseOver()) then self.away = 0 return end
+    self.away = (self.away or 0) + dt
+    if self.away > 0.4 then self:Hide() end
 end)
+T.flyout:SetScript("OnShow", function(self) self.away = 0 end)
 T.flyout:SetScript("OnHide", function(self) if self.owner then T.lit(self.owner, self.owner:IsMouseOver()) end end)
 
-local function row(k)
-    local r = T.flyout.rows[k]
-    if r then return r end
-    r = CreateFrame("Button", nil, T.flyout)
-    r:SetSize(W - 12, ROW - 2)
-    r:SetPoint("TOPLEFT", 6, -22 - (k - 1) * ROW)
-    r.hl = r:CreateTexture(nil, "HIGHLIGHT")
-    r.hl:SetAllPoints()
-    r.hl:SetColorTexture(1, 1, 1, 0.08)
-    r.icon = r:CreateTexture(nil, "ARTWORK")
-    r.icon:SetSize(ROW - 4, ROW - 4)
-    r.icon:SetPoint("LEFT", 2, 0)
-    r.icon:SetTexCoord(0.08, 0.92, 0.08, 0.92)
-    r.name = r:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-    r.name:SetPoint("LEFT", r.icon, "RIGHT", 6, 0)
-    r.name:SetWidth(W - 110)
-    r.name:SetJustifyH("LEFT")
-    r.name:SetWordWrap(false)
-    r.left = r:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
-    r.left:SetPoint("RIGHT", -44, 0)
-    for _, a in ipairs({ { "up", -1, "Interface\\Buttons\\Arrow-Up-Up", -22 }, { "down", 1, "Interface\\Buttons\\Arrow-Down-Up", -2 } }) do
-        local b = CreateFrame("Button", nil, r)
-        b:SetSize(18, 18)
-        b:SetPoint("RIGHT", a[4], 0)
-        b:SetNormalTexture(a[3])
-        b:SetScript("OnClick", function() T.move(r.id, a[2]); T.fill() end)
-        r[a[1]] = b
-    end
-    r:SetScript("OnClick", function(self) T.pick(T.flyout.owner.wpI, self.id); T.fill() end)
-    r:SetScript("OnEnter", function(self)
-        GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+-- where each next icon goes: out of the button, the way the list opens
+T.DIRS = { up = { "BOTTOM", 0, 1 }, down = { "TOP", 0, -1 }, left = { "RIGHT", -1, 0 }, right = { "LEFT", 1, 0 } }
+-- the button's own tooltip goes the other way, off the list
+T.TIP = { up = "ANCHOR_BOTTOM", down = "ANCHOR_TOP", left = "ANCHOR_RIGHT", right = "ANCHOR_LEFT" }
+
+local function icon(k)
+    local f = T.flyout
+    local c = f.icons[k]
+    if c then return c end
+    c = CreateFrame("Button", nil, f)
+    c:RegisterForClicks("LeftButtonUp", "RightButtonUp")
+    c.edge = c:CreateTexture(nil, "BACKGROUND")
+    c.edge:SetAllPoints()
+    c.tex = c:CreateTexture(nil, "ARTWORK")
+    c.tex:SetPoint("TOPLEFT", 1, -1)
+    c.tex:SetPoint("BOTTOMRIGHT", -1, 1)
+    c.mask = c:CreateMaskTexture()
+    c.mask:SetAllPoints(c.tex)
+    c.cd = CreateFrame("Cooldown", nil, c, "CooldownFrameTemplate")
+    c.cd:SetAllPoints(c.tex)
+    c.hl = c:CreateTexture(nil, "OVERLAY")
+    c.hl:SetAllPoints(c.tex)
+    c.hl:Hide()
+    c.num = c:CreateFontString(nil, "OVERLAY")
+    c.num:SetFont(STANDARD_TEXT_FONT or "Fonts\\FRIZQT__.TTF", 10, "OUTLINE")
+    c.num:SetPoint("BOTTOMLEFT", 2, 2)
+    c:SetScript("OnClick", function(self, btn)
+        if btn == "RightButton" then T.move(self.id, IsShiftKeyDown() and 1 or -1)
+        else T.pick(f.owner.wpI, self.id) end
+        T.fill()
+    end)
+    c:SetScript("OnEnter", function(self)
+        self.hl:Show()
+        local side = T.o().flyout
+        GameTooltip:SetOwner(self, (side == "left" or side == "right") and "ANCHOR_TOP" or "ANCHOR_RIGHT")
         pcall(GameTooltip.SetItemByID, GameTooltip, self.id)
+        GameTooltip:AddLine(("Click: wear as trinket %d%s"):format(f.owner and f.owner.wpI or 1,
+            InCombatLockdown() and " (after combat)" or ""), 0.4, 1, 0.4)
+        GameTooltip:AddLine("Right-click: up the list. Shift-right-click: down.", 0.6, 0.6, 0.6)
         GameTooltip:Show()
     end)
-    r:SetScript("OnLeave", function() GameTooltip:Hide() end)
-    T.flyout.rows[k] = r
-    return r
+    c:SetScript("OnLeave", function(self) self.hl:Hide(); GameTooltip:Hide() end)
+    f.icons[k] = c
+    return c
 end
 
+-- the icons, laid out again: their order, which are worn or picked, their cooldowns
 function T.fill()
-    local f, list = T.flyout, T.list()
+    local f, O, list = T.flyout, T.o(), T.list()
+    local size, d = O.size, T.DIRS[O.flyout] or T.DIRS.up
     local worn = { GetInventoryItemID("player", 13), GetInventoryItemID("player", 14) }
-    local held = f.owner and T.hold[f.owner.wpI]
-    f.title:SetText(("Trinket %d: click one to wear it here%s"):format(f.owner and f.owner.wpI or 1,
-        InCombatLockdown() and " (after combat)" or ""))
-    local info = api("GetItemInfo")
+    local me = f.owner and f.owner.wpI or 1
+    local held = T.hold[me]
+    local hc, z = O.hoverColor, O.zoom / 100
     for k, id in ipairs(list) do
-        local r = row(k)
-        r.id = id
-        r.icon:SetTexture((C_Item and C_Item.GetItemIconByID and C_Item.GetItemIconByID(id)) or (GetItemIcon and GetItemIcon(id)) or T.EMPTY)
-        local name = info and info(id)
-        local tag = worn[1] == id and "|cff66ff66[1]|r " or worn[2] == id and "|cff66ff66[2]|r " or ""
-        r.name:SetText(k .. ". " .. tag .. (name or ("Item " .. id)) .. (held and held.id == id and " |cffffd100(picked)|r" or ""))
-        local left = T.left(id)
-        r.left:SetText(left and left > 0 and ("%d s"):format(math.ceil(left)) or "")
-        r.up:SetShown(k > 1)
-        r.down:SetShown(k < #list)
-        r:Show()
+        local c = icon(k)
+        c.id = id
+        c:SetSize(size, size)
+        c:ClearAllPoints()
+        local at = PAD + (k - 1) * (size + GAP)
+        c:SetPoint(d[1], f, d[1], d[2] * at, d[3] * at)
+        c.tex:SetTexture((C_Item and C_Item.GetItemIconByID and C_Item.GetItemIconByID(id))
+            or (GetItemIcon and GetItemIcon(id)) or T.EMPTY)
+        ns.iconCorners(c.tex, c.mask, O.radius, { z, 1 - z, z, 1 - z })
+        ns.iconCorners(c.hl, c.mask, O.radius, { 0, 1, 0, 1 })
+        c.hl:SetColorTexture(hc[1], hc[2], hc[3], hc[4])
+        -- the border says where it is: picked for here (gold), worn here (green), worn in the other slot (blue)
+        local edge = (held and held.id == id) and { 1, 0.82, 0, 1 } or worn[me] == id and { 0.3, 1, 0.3, 1 }
+            or worn[3 - me] == id and { 0.35, 0.6, 1, 1 } or O.borderColor
+        c.edge:SetColorTexture(unpack(edge))
+        c.num:SetText(k)
+        local _, dur, start = T.left(id)
+        if c.wpStart ~= start or c.wpDur ~= dur then
+            pcall(c.cd.SetCooldown, c.cd, start or 0, dur or 0)
+            c.wpStart, c.wpDur = start, dur
+        end
+        c:Show()
     end
-    for k = #list + 1, #f.rows do f.rows[k]:Hide() end
-    f:SetHeight(28 + math.max(1, #list) * ROW)
-    if #list == 0 then f.title:SetText("No trinkets in your bags") end
+    for k = #list + 1, #f.icons do f.icons[k]:Hide() end
+    f.empty:SetShown(#list == 0)
+    local n = math.max(1, #list)
+    local long, short = 2 * PAD + n * size + (n - 1) * GAP, size + 2 * PAD
+    local across = d[3] == 0 -- opens to the left or right
+    f:SetSize(across and long or short, across and short or long)
 end
 
--- opened beside the button, on the side the Trinket manager page says
-T.SIDES = { up = { "BOTTOM", "TOP", 0, 4 }, down = { "TOP", "BOTTOM", 0, -4 }, left = { "RIGHT", "LEFT", -4, 0 },
-    right = { "LEFT", "RIGHT", 4, 0 } }
+-- opened beside the button, touching it, on the side the Trinket manager page says
+T.SIDES = { up = { "BOTTOM", "TOP" }, down = { "TOP", "BOTTOM" }, left = { "RIGHT", "LEFT" }, right = { "LEFT", "RIGHT" } }
 function T.open(b)
     local f, side = T.flyout, T.SIDES[T.o().flyout] or T.SIDES.up
     if f.owner and f.owner ~= b then T.lit(f.owner, false) end
     f.owner = b
     f:ClearAllPoints()
-    f:SetPoint(side[1], b, side[2], side[3], side[4])
+    f:SetPoint(side[1], b, side[2], 0, 0)
     T.fill()
     f:Show()
+    f.away = 0
 end
 
 -- an import string's list: item IDs only

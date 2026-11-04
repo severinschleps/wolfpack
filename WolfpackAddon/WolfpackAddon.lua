@@ -8533,8 +8533,9 @@ local function buildConfig()
             function(v) O().auto = v end)
         local n = label(pg, "Your trinkets form one list, top first: each button wears the first ready one. "
             .. "Used and on cooldown, it pulls the next; ready again, the higher one comes back. Off: only a "
-            .. "press on a trinket that is on cooldown pulls the next.\n\nHover a button for the list: the "
-            .. "arrows order it, a click wears that one here until you use it.\n\nThe game allows no gear "
+            .. "press on a trinket that is on cooldown pulls the next.\n\nHover a button for the list, as icons, "
+            .. "first nearest: a click wears that one here until you use it; right-click moves it up, "
+            .. "Shift-right-click down. Corners: the Colors page's, as your action bars'.\n\nThe game allows no gear "
             .. "changes in combat: those happen as it ends.", "GameFontDisableSmall")
         n:SetPoint("TOPLEFT", c1.x, c1:row(190))
         n:SetWidth(178)

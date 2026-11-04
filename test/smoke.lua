@@ -4317,8 +4317,15 @@ do
     T.sync()
     assert(T.holder:IsShown() and T.buttons[2]._point, "the two buttons, placed")
     -- the action bars' look, and a clear mark on the one under the mouse
-    O.radius, O.borderColor, O.hoverColor = 25, { 0, 0, 0, 1 }, { 1, 0.82, 0, 0.3 }
+    ;(function() -- a function of its own: this file's main chunk is at Lua's 200 locals
+    O.borderColor, O.hoverColor = { 0, 0, 0, 1 }, { 1, 0.82, 0, 0.3 }
+    local bars = prof().actionbars.bars
+    local bar1 = bars[1]
+    bars[1] = bar1 or {}
+    local keptR = bars[1].radius
+    bars[1].radius, O.radius = 25, 0 -- corners: your action bars' (the Colors page's Action buttons ones)
     T.sync()
+    assert(O.radius == 25, "the action bars' corners")
     local b1 = T.buttons[1]
     assert(b1.wpIcon._masks and b1.wpIcon._masks[b1.wpMask] and b1.wpHover._masks[b1.wpMask], "rounded, hover too")
     b1._scripts.OnEnter(b1)
@@ -4326,8 +4333,45 @@ do
     assert(not T.buttons[2].wpHover:IsShown(), "only that one")
     b1._scripts.OnLeave(b1)
     assert(not b1.wpHover:IsShown() and b1.wpEdge._color[1] == 0, "left: as it was")
+    -- the flyout: icons only, the list's first nearest the button; it waits for the mouse to cross over
+    O.flyout, O.size = "up", 36
+    S.mouseOver = true
+    T.open(b1)
+    local f, n = T.flyout, #T.list()
+    assert(f:IsShown() and f.icons[1]:IsShown() and f.icons[n]:IsShown() and not f.icons[n + 1],
+        "an icon per trinket")
+    assert(f.icons[1]._point[1] == "BOTTOM" and f.icons[2]._point[5] == 44 and f._point[2] == b1,
+        "first nearest, going up, touching the button")
+    assert(f.icons[1].tex._masks and f.icons[1].tex._masks[f.icons[1].mask], "the icons rounded as the buttons")
+    S.mouseOver = false
+    f._scripts.OnUpdate(f, 0.2)
+    assert(f:IsShown(), "on the way over: still open")
+    S.mouseOver = true
+    f._scripts.OnUpdate(f, 0.3)
+    S.mouseOver = false
+    f._scripts.OnUpdate(f, 0.3)
+    assert(f:IsShown(), "back on it: the wait starts again")
+    f._scripts.OnUpdate(f, 0.2)
+    assert(not f:IsShown(), "gone a moment after the mouse left both")
+    -- right-click: one up the list; Shift: one down; a click wears it here
+    T.open(b1)
+    local second = T.list()[2]
+    f.icons[2]._scripts.OnClick(f.icons[2], "RightButton")
+    assert(T.list()[1] == second, "right-click: up")
+    S.shift = true
+    f.icons[1]._scripts.OnClick(f.icons[1], "RightButton")
+    S.shift = nil
+    assert(T.list()[2] == second, "shift-right-click: down")
+    T.busyUntil = nil
+    f.icons[3]._scripts.OnClick(f.icons[3], "LeftButton")
+    assert(T.hold[1] and T.hold[1].id == T.list()[3], "a click: picked for this button")
+    T.hold[1] = nil
+    S.mouseOver = nil
     T.flyout:Hide()
+    bars[1].radius = keptR
+    if not bar1 then bars[1] = nil end
     O.radius = 0
+    end)()
     O.show, prof().actionbars.binds["trinket:1"] = false, nil
     T.sync(); ns.abBinds()
     GetInventoryItemID, C_Container.GetContainerItemID, C_Container.GetContainerNumSlots,
