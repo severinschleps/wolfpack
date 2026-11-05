@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!-- Moves the main checkout (what every game loads, through the AddOns symlinks) up to
+     origin/master whenever that ref changes: a push from any worktree is live at the next
+     /reload. Fast-forward only, so uncommitted work there is never touched; a refusal is logged.
+     Install: cp tools/wolfpack-sync.plist ~/Library/LaunchAgents/ &&
+     launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/wolfpack-sync.plist -->
+<plist version="1.0">
+<dict>
+    <key>Label</key><string>com.severin.wolfpack-sync</string>
+    <key>ProgramArguments</key>
+    <array>
+        <string>/bin/sh</string>
+        <string>-c</string>
+        <string>cd /Users/severin/Documents/sevdev/wolfpack || exit 0; [ "$(git symbolic-ref -q --short HEAD)" = master ] || exit 0; git update-index -q --refresh >/dev/null; git merge -q --ff-only origin/master 2>&amp;1 | sed "s/^/$(date '+%F %T') /"; true</string>
+    </array>
+    <key>EnvironmentVariables</key>
+    <dict><key>PATH</key><string>/opt/homebrew/bin:/usr/bin:/bin</string></dict>
+    <key>WatchPaths</key>
+    <array>
+        <string>/Users/severin/Documents/sevdev/wolfpack/.git/refs/remotes/origin</string>
+        <string>/Users/severin/Documents/sevdev/wolfpack/.git/packed-refs</string>
+    </array>
+    <key>RunAtLoad</key><true/>
+    <key>ThrottleInterval</key><integer>5</integer>
+    <key>StandardOutPath</key><string>/Users/severin/Library/Logs/wolfpack-sync.log</string>
+    <key>StandardErrorPath</key><string>/Users/severin/Library/Logs/wolfpack-sync.log</string>
+</dict>
+</plist>
