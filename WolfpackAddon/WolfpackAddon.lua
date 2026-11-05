@@ -2526,6 +2526,7 @@ function ns.layoutAuras(f)
                 b:SetFrameLevel(f:GetFrameLevel() + 6)
                 b:ClearAllPoints()
                 b:SetPoint(corner, box, corner, (g[1] * a + w[1] * l) * step, (g[2] * a + w[2] * l) * step)
+                ns.borrow.skin(b, o)
             end) elseif ns.borrow then ns.borrow.place({}, box, 0) end
             local along, lines = math.min(n, per) * step - c.auraGap, math.ceil(n / per) * step - c.auraGap
             box:SetSize(n > 0 and (across and along or lines) or 1, n > 0 and (across and lines or along) or 1)

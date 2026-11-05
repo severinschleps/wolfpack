@@ -916,6 +916,7 @@ eh.big.show, S.debuffs = true, nil; fire("UNIT_AURA", "target")
 S.bz = { new(), new(), new() }
 S.bz[1].auraInstanceID, S.bz[2].auraInstanceID, S.bz[3].auraInstanceID = 30, 10, 20
 S.bzList = S.bz
+S.bz[2].Icon, S.bz[2].Border, S.bz[2].Cooldown, S.bz[2].Count = new(), new(), new(), new()
 TargetFrame.auraPools = { EnumerateActiveByTemplate = function(_, t)
     local i, l = 0, t == "TargetDebuffFrameTemplate" and S.bzList or {}
     return function() i = i + 1; return l[i] end
@@ -925,6 +926,9 @@ assert(S.bz[2]._parent == db_ and S.bz[3]._parent == db_ and S.bz[1]._parent == 
     and S.bz[2]._point[4] == 0 and S.bz[3]._point[4] == 26 and S.bz[1]._point[4] == 52 and S.bz[2]._w == 24,
     "Blizzard's debuff buttons in the row, oldest first, while the game refuses us")
 assert(not di[1]:IsShown(), "ours stand down")
+assert(S.bz[2].Border._alpha == 0 and S.bz[2].Icon._coords[1] == 0.08 and S.bz[2].Icon._coords[2] == 0.92
+    and S.bz[2].Cooldown._swipeTex:find("WHITE8X8") and S.bz[2].Count._point[1] == "BOTTOMRIGHT",
+    "reskinned like ours: no border, the picture trimmed, our swipe, the count bottom right")
 S.bzList = { S.bz[2], S.bz[3] }; fire("UNIT_AURA", "target")
 assert(db_.n == 2 and S.bz[1]._parent == ns.borrow.away, "one gone: out of sight")
 S.combat, TargetFrame.auraPools, eh.debuffs.show = false, nil, false; fire("UNIT_AURA", "target")

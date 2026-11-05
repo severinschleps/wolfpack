@@ -48,6 +48,37 @@ function B.place(list, box, n, place)
     return n
 end
 
+-- One in the look of our own icons (the group's settings o): no border, the picture trimmed by
+-- its zoom and cut to its corners, the swipe in the same shape, its timer text as set, the
+-- stack count where ours has it. Only looks change; Blizzard keeps filling them.
+local function part(b, a, c) -- a child Blizzard's template may name either way, or not have
+    local v = rawget(b, a) or rawget(b, c)
+    return type(v) == "table" and v or nil
+end
+function B.skin(b, o)
+    local icon, cd, border, count = part(b, "Icon", "icon"), part(b, "Cooldown", "cooldown"), part(b, "Border", "border"),
+        part(b, "Count", "count")
+    if icon then
+        b.wpMask = b.wpMask or b:CreateMaskTexture()
+        b.wpMask:SetAllPoints(icon)
+        local z = (o.zoom or 8) / 100
+        ns.iconCorners(icon, b.wpMask, o.radius, { z, 1 - z, z, 1 - z })
+    end
+    if border then border:SetAlpha(0) end
+    if cd then
+        local file = ns.ICON_MASKS[o.radius]
+        cd:SetSwipeTexture(file and "Interface\\AddOns\\WolfpackAddon\\Media\\Icon\\" .. file .. ".tga"
+            or "Interface\\Buttons\\WHITE8X8")
+        cd:SetSwipeColor(0, 0, 0, 0.7)
+        cd:SetHideCountdownNumbers(o.hideTimer and true or false)
+    end
+    if count then
+        count:SetFontObject("NumberFontNormalSmall")
+        count:ClearAllPoints()
+        count:SetPoint("BOTTOMRIGHT", -1, 1)
+    end
+end
+
 -- after Blizzard has laid them out: into the rows again
 local function after()
     local f = ns.frames and ns.frames.enemyhealth
