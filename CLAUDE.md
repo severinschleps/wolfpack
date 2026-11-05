@@ -4,8 +4,9 @@
 
 Every game's `Interface/AddOns/WolfpackAddon` is a symlink to this repo's
 `WolfpackAddon/` (main checkout, not a worktree). A save is live at the next
-`/reload`, so there is no copy step. Work from a worktree goes live only once it
-is merged into the main checkout.
+`/reload`, so there is no copy step. Work from a worktree goes live once it is
+pushed: the Stop hook fast-forwards the main checkout to origin/master after every
+turn (never over uncommitted work there; it says so when it can't).
 
 `link-addons.sh` (local, gitignored) finds every `AddOns` folder under
 `/Users/severin/Games/World of Warcraft/` and (re)creates the links. Git hooks

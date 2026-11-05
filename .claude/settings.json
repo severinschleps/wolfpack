@@ -5,9 +5,9 @@
         "hooks": [
           {
             "type": "command",
-            "command": "cd \"$CLAUDE_PROJECT_DIR\" && { [ -x /Users/severin/Documents/sevdev/wolfpack/link-addons.sh ] && /Users/severin/Documents/sevdev/wolfpack/link-addons.sh >/dev/null; if ! out=$(luajit test/smoke.lua 2>&1 && luajit test/barstack.lua 2>&1); then jq -n --arg m \"Wolfpack test FAILED and the addon is live via symlink: $(printf '%s' \"$out\" | head -1)\" '{systemMessage: $m}'; fi; }",
+            "command": "cd \"$CLAUDE_PROJECT_DIR\" && { msg=\"\"; m=/Users/severin/Documents/sevdev/wolfpack; if [ \"$(git -C \"$m\" symbolic-ref -q --short HEAD)\" = master ] && ! git -C \"$m\" merge -q --ff-only origin/master >/dev/null 2>&1; then msg=\"The main checkout (what the game loads) could not catch up with origin/master: uncommitted changes in the same files, or commits of its own. Pull there. \"; fi; [ -x \"$m/link-addons.sh\" ] && \"$m/link-addons.sh\" >/dev/null; if ! out=$(luajit test/smoke.lua 2>&1 && luajit test/barstack.lua 2>&1); then msg=\"${msg}Wolfpack test FAILED and the addon is live via symlink: $(printf '%s' \"$out\" | head -1)\"; fi; [ -n \"$msg\" ] && jq -n --arg m \"$msg\" '{systemMessage: $m}'; true; }",
             "timeout": 60,
-            "statusMessage": "Testing Wolfpack and checking addon links"
+            "statusMessage": "Updating the game's copy, testing Wolfpack"
           }
         ]
       }
