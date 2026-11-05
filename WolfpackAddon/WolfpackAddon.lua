@@ -121,6 +121,9 @@ local function barDefaults(show, width, height, r, g, b, text)
         borderFrom = "shared",
         borderTexture = "Interface\\Buttons\\WHITE8X8", -- with "own": the border's texture
         textureFrom = "shared", -- the profile's shared texture, or "own" (texture above)
+        -- Combat Display: "" sits on the grid, else the element it hangs on (see ns.attached); its
+        -- own point on the other's, then x / y
+        attach = "", attachPoint = "TOP", attachRel = "BOTTOM",
     }
 end
 
@@ -260,8 +263,12 @@ local function layoutDefaults(show, x, y, gap, width, h1, h2, h3, h4, h5, h6, h7
             radius = 0, cols = 8, rows = 2, max = 16, hideTimer = false, zoom = 8, lineEdge = "top" }
         b.auraGap, b.auraGroupGap, b.auraLineGap = 2, 4, 1
         -- filters (see ns.auraPick): only yours; allow / block: names or spell IDs, comma-separated
-        for _, o in ipairs({ b.buffs, b.debuffs }) do o.mine, o.allow, o.block = false, "", "" end
-        b.big = { show = true, size = 36 } -- the crowd control icon above the cast bar (see ns.bigFor)
+        for _, o in ipairs({ b.buffs, b.debuffs }) do
+            o.mine, o.allow, o.block = false, "", ""
+            o.attach, o.attachPoint, o.attachRel = "", "TOP", "BOTTOM" -- the row (see ns.attached)
+        end
+        b.big = { show = true, size = 36, -- the crowd control icon above the cast bar (see ns.bigFor)
+            attach = "", attachPoint = "BOTTOM", attachRel = "TOP", x = 0, y = 0 }
     end
     -- your health's class buffs: one row of what you can put on yourself (anchorTo "bar" / "line");
     -- buffs and debuffs may hang on it (anchorTo "class")
@@ -3003,8 +3010,8 @@ end
 -- gap. The center column is L.centerWidth wide, yours and your target's as wide as the two
 -- health bars, the outer ones as your pet's and your target's target's bars. A bar keeps its own
 -- width, flush with its column's edge nearest the middle, and its x / y nudge it without
--- pushing the others. With no pet out your health takes the pet's room too; with no target of
--- target, enemy health takes that one's. "auras:" rows are the health bars' aura groups, "big:"
+-- pushing the others. Any element can leave the grid and hang on another (ns.attached).
+-- "auras:" rows are the health bars' aura groups, "big:"
 -- the crowd control icon of that health bar's unit (centered in its column).
 ns.GRID = {
     up = { left = { "castbar", "big:health" }, right = { "targetcast", "big:enemyhealth" }, outer = { "focushealth" } },
@@ -3085,6 +3092,63 @@ function ns.iconSlot(i)
     return ns.iconSlots[i]
 end
 
+-- An aura row's slot on the grid (its groups hang on it, see ns.gridAuras)
+function ns.auraSlot(row)
+    ns.auraSlots[row] = ns.auraSlots[row] or CreateFrame("Frame", nil, anchor)
+    return ns.auraSlots[row]
+end
+
+-- Any element can leave the grid and hang on another: its settings' attach is that element's
+-- key ("" = the grid), attachPoint its own point, attachRel the other's, x / y the nudge. Keys:
+-- a bar's, "auras:<row>", "big:<health bar>", "slot1".."slot3" (icon stacks), "display" (the
+-- whole frame). Where an element keeps those settings:
+ns.ATTACH_ROWS = { buffs = { "health", "buffs" }, debuffs = { "health", "debuffs" },
+    tbuffs = { "enemyhealth", "buffs" }, tdebuffs = { "enemyhealth", "debuffs" } }
+function ns.attachConf(key)
+    local B, row, big = db.regular.bars, key:match("^auras:(.+)"), key:match("^big:(.+)")
+    if row then return ns.ATTACH_ROWS[row] and B[ns.ATTACH_ROWS[row][1]][ns.ATTACH_ROWS[row][2]] end
+    if big then return B[big] and B[big].big end
+    return B[key]
+end
+-- hung on another, by a chain that ends somewhere: elements in a loop stay on the grid
+function ns.attached(key)
+    local seen, k = {}, key
+    while true do
+        local c = ns.attachConf(k)
+        local to = c and c.attach
+        if not to or to == "" then return k ~= key end
+        if seen[k] then return false end
+        local known = to == "display" or to:match("^slot[123]$") or ns.attachConf(to) ~= nil
+        if not known then return false end -- a name from somewhere else: the grid
+        seen[k], k = true, to
+    end
+end
+function ns.attachFrame(key, swings)
+    if key == "display" then return anchor end
+    local n, row, big = key:match("^slot(%d)$"), key:match("^auras:(.+)"), key:match("^big:(.+)")
+    if n then return ns.iconSlot(tonumber(n)) end
+    if row then return ns.auraSlot(row) end
+    if big then ns.bigFor(big); return ns.bigFrames[big] end
+    if key == "swing" then return swings[1] end
+    return frames[key]
+end
+-- what an element can hang on (not itself), for the options' menus
+function ns.attachTargets(self)
+    local out = { { "The grid", "" }, { "The whole Combat Display", "display" } }
+    for _, key in ipairs(db.regular.order) do out[#out + 1] = { BARS[key].label, key } end
+    for _, e in ipairs({ { "Your buffs", "auras:buffs" }, { "Your debuffs", "auras:debuffs" },
+        { "Target's buffs", "auras:tbuffs" }, { "Target's debuffs", "auras:tdebuffs" },
+        { "Your crowd control icon", "big:health" }, { "Target's crowd control icon", "big:enemyhealth" },
+        { "Icon stack 1", "slot1" }, { "Icon stack 2", "slot2" }, { "Icon stack 3", "slot3" } }) do
+        out[#out + 1] = e
+    end
+    for i = #out, 1, -1 do if out[i][2] == self then table.remove(out, i) end end
+    return out
+end
+ns.ATTACH_POINTS = { { "Top", "TOP" }, { "Bottom", "BOTTOM" }, { "Left", "LEFT" }, { "Right", "RIGHT" },
+    { "Center", "CENTER" }, { "Top left", "TOPLEFT" }, { "Top right", "TOPRIGHT" },
+    { "Bottom left", "BOTTOMLEFT" }, { "Bottom right", "BOTTOMRIGHT" } }
+
 -- an aura change: the icon drawn again; one coming or going reshapes the grid
 function ns.bigCheck(key)
     local f = ns.bigFrames[key]
@@ -3164,24 +3228,25 @@ local function stack(container, set, L, on, swings)
     local function put(f, col, w, top, h, c)
         items[#items + 1] = { f, xOf(col, w) + (c and c.x or 0), top + (c and c.y or 0), w, h }
     end
+    -- hung on another element (ns.attached): out of the grid, placed once the grid is
+    local hung = {} -- { frame, settings, the element it hangs on (else from the settings) }
+    local function hang(f, c, to) hung[#hung + 1] = { f, c, to } end
 
-    -- the line
-    local petOn, totOn = showing("pethealth"), showing("tothealth")
-    local line = {
-        { "pethealth", "pet", nil }, { "tothealth", "outer", nil },
-        { "health", "left", hw + ((B.pethealth.show and not petOn) and gap + B.pethealth.width or 0) },
-        { "enemyhealth", "right", ew + ((B.tothealth.show and not totOn) and gap + B.tothealth.width or 0) },
-    }
+    -- the line: every bar its own width
+    local line = { { "pethealth", "pet" }, { "tothealth", "outer" }, { "health", "left" }, { "enemyhealth", "right" } }
     local rowH, laid = 0, {}
     for _, e in ipairs(line) do
         local key, f = e[1], set[e[1]]
         local s, n = showing(key)
         f:SetShown(s)
-        if s then
-            laid[key] = bar(f, key, n, e[3])
+        if s and ns.attached(key) then
+            bar(f, key, n)
+            hang(f, B[key])
+        elseif s then
+            laid[key] = bar(f, key, n)
             rowH = math.max(rowH, laid[key])
-        elseif on and B[key].show then -- no such unit yet: its spot kept, for its click button
-            f.width = e[3] or B[key].width
+        elseif on and B[key].show and not ns.attached(key) then -- no such unit yet: its spot kept, for its click button
+            f.width = B[key].width
             f:SetSize(f.width, B[key].height)
             laid[key] = B[key].height
         end
@@ -3196,15 +3261,19 @@ local function stack(container, set, L, on, swings)
     end
 
     -- an aura row's slot: as wide as its column, as tall as its icons (nothing when there are none)
+    -- (hung elsewhere: its size here, its place with the others hung)
     local function auraRow(row, col, top, from)
-        local slot = ns.auraSlots[row] or CreateFrame("Frame", nil, container)
-        ns.auraSlots[row] = slot
+        local slot = ns.auraSlot(row)
         local h = ns.auraRowHeight(row)
         local w = col == "center" and cw or col == "left" and hw or ew
         slot.h = h
         slot:SetSize(w, math.max(h, 1))
         slot:ClearAllPoints()
-        slot:SetPoint("TOPLEFT", container, "TOP", xOf(col, w), top - from)
+        if ns.attached("auras:" .. row) then
+            hang(slot, ns.attachConf("auras:" .. row))
+        else
+            slot:SetPoint("TOPLEFT", container, "TOP", xOf(col, w), top - from)
+        end
         return h
     end
     -- the column's entries from the line outward: dir -1 down, 1 up
@@ -3214,7 +3283,7 @@ local function stack(container, set, L, on, swings)
         for _, key in ipairs(list) do
             local row = key:match("^auras:(.+)")
             if row then
-                local h = ns.auraRowHeight(row)
+                local h = ns.attached(key) and 0 or ns.auraRowHeight(row)
                 if h > 0 then
                     y = y + dir * gap
                     slotsAt[#slotsAt + 1] = { row, col, dir < 0 and y or y + h }
@@ -3225,7 +3294,9 @@ local function stack(container, set, L, on, swings)
             elseif key:match("^big:") then
                 local bk = key:sub(5)
                 local s, size = ns.bigFor(bk)
-                if s then
+                if s and ns.attached(key) then
+                    hang(ns.bigFrames[bk], ns.attachConf(key))
+                elseif s then
                     local colW = col == "left" and hw or ew
                     y = y + dir * gap
                     put(ns.bigFrames[bk], col, colW, dir < 0 and y or y + size, size)
@@ -3236,12 +3307,17 @@ local function stack(container, set, L, on, swings)
             elseif key == "swing" then -- one row per ticked weapon, sharing this bar's settings
                 local c = B.swing
                 local s = showing("swing")
+                local away, prev = ns.attached("swing"), nil -- hung elsewhere: the rows under each other
                 for i, kind in ipairs(SWING_TYPES) do
                     local sf = swings[i]
                     local mine = c.classes and c.classes[class or ""] or c -- your class's ticks
                     local rowShown = (s and mine[kind[1]] and (swingActive(kind[3]) or ns.previewing())) and true or false
                     sf:SetShown(rowShown)
-                    if rowShown then
+                    if rowShown and away then
+                        bar(sf, "swing", 1)
+                        hang(sf, prev and { attachPoint = "TOP", attachRel = "BOTTOM", x = 0, y = -gap } or c, prev)
+                        prev = sf
+                    elseif rowShown then
                         local h = bar(sf, "swing", 1)
                         y = y + dir * (gap + (dir < 0 and c.padTop or c.padBottom))
                         put(sf, col, sf.width, dir < 0 and y or y + h, h, c)
@@ -3253,7 +3329,10 @@ local function stack(container, set, L, on, swings)
                 local f, c = set[key], B[key]
                 local s, n = showing(key)
                 f:SetShown(s)
-                if s then
+                if s and ns.attached(key) then
+                    bar(f, key, n)
+                    hang(f, c)
+                elseif s then
                     local h = bar(f, key, n)
                     y = y + dir * (gap + (dir < 0 and c.padTop or c.padBottom))
                     put(f, col, f.width, dir < 0 and y or y + h, h, c)
@@ -3266,7 +3345,8 @@ local function stack(container, set, L, on, swings)
     -- the center column on the line: your target's debuffs; more than the line holds pushes the
     -- rest of that column down
     slotsAt[#slotsAt + 1] = { "tdebuffs", "center", rowH / 2 }
-    local below = math.min(-rowH / 2, rowH / 2 - ns.auraRowHeight("tdebuffs"))
+    local below = ns.attached("auras:tdebuffs") and -rowH / 2
+        or math.min(-rowH / 2, rowH / 2 - ns.auraRowHeight("tdebuffs"))
     for col, list in pairs(ns.GRID.down) do column(list, col, col == "center" and below or -rowH / 2, -1) end
 
     -- how far it all reaches, then everything placed from the top middle of the container
@@ -3286,6 +3366,12 @@ local function stack(container, set, L, on, swings)
         s:SetSize(cw / 3, 1)
         s:ClearAllPoints()
         s:SetPoint("BOTTOM", container, "TOP", -cw / 2 + (i - 0.5) * cw / 3, rowH / 2 + gap - top)
+    end
+    for _, h in ipairs(hung) do
+        local f, c = h[1], h[2]
+        f:ClearAllPoints()
+        f:SetPoint(c.attachPoint or "TOP", h[3] or ns.attachFrame(c.attach, swings), c.attachRel or "BOTTOM",
+            c.x or 0, c.y or 0)
     end
     for _, key in ipairs({ "health", "enemyhealth" }) do
         if set[key]:IsShown() then ns.gridAuras(set[key]) end
@@ -8206,6 +8292,21 @@ local function buildConfig()
         function() return cur().padBottom end, function(v) cur().padBottom = v end)
     slider(barsPage, "Offset X", size.x, size:row(SLIDER), -300, 300, function() return cur().x end, function(v) cur().x = v end)
     slider(barsPage, "Offset Y", size.x, size:row(SLIDER), -300, 300, function() return cur().y end, function(v) cur().y = v end)
+    -- Combat Display: on the grid, or hung on another element (then Offset X / Y from there)
+    local attachTo = dropdown(barsPage, "Anchored to", size.x, size:row(DROP),
+        function() return ns.attachTargets(selected) end,
+        function() return cur().attach or "" end, function(v) cur().attach = v end, textPreview)
+    local attachPt = dropdown(barsPage, "Its point", size.x, size:row(DROP), ns.ATTACH_POINTS,
+        function() return cur().attachPoint or "TOP" end, function(v) cur().attachPoint = v end, textPreview)
+    local attachRel = dropdown(barsPage, "On that element's", size.x, size:row(DROP), ns.ATTACH_POINTS,
+        function() return cur().attachRel or "BOTTOM" end, function(v) cur().attachRel = v end, textPreview)
+    ns.attachMenus = { attachTo, attachPt, attachRel }
+    onRefresh(function()
+        local here, away = mode == "regular", (cur().attach or "") ~= ""
+        attachTo:SetShown(here)
+        attachPt:SetShown(here and away)
+        attachRel:SetShown(here and away)
+    end)
     size:close()
 
     local only = group(barsPage, COL[2], size.cursor - 20, 202, "Just for this bar")
@@ -9586,7 +9687,7 @@ local function buildConfig()
 
     -- Buffs and debuffs dialog: a tab each (where it sits on the left, its size and grid on the
     -- right), the gaps they share underneath
-    local ad = ns.ui.Window(nil, 440, 740, "Buffs and debuffs")
+    local ad = ns.ui.Window(nil, 440, 900, "Buffs and debuffs")
     ad:SetParent(cfg)
     ad:ClearAllPoints()
     ad:SetPoint("TOPLEFT", cfg, "TOPRIGHT", 12, 0)
@@ -9694,8 +9795,27 @@ local function buildConfig()
         for _, r in ipairs(sliders) do
             local s = slider(pane, r[2], 230, rrow(SLIDER), r[3], r[4], function() return A()[r[1]] end,
                 function(v) A()[r[1]] = v end)
-            -- X / Y nudge it from where it hangs: nameplates only
-            if r[1] == "x" or r[1] == "y" then onRefresh(function() s:SetShown(mode ~= "regular") end) end
+            -- X / Y nudge it from where it hangs: nameplates, or a row hung on another element
+            if r[1] == "x" or r[1] == "y" then
+                onRefresh(function() s:SetShown(mode ~= "regular" or (A().attach or "") ~= "") end)
+            end
+        end
+        if i ~= 3 then -- the Combat Display's row: on the grid, or hung on another element
+            local rk = function() return "auras:" .. (selected == "enemyhealth" and "t" or "") .. k[1] end
+            local to = dropdown(pane, "Row anchored to", 230, rrow(DROP), function() return ns.attachTargets(rk()) end,
+                function() return A().attach or "" end, function(v) A().attach = v end, textPreview)
+            local pt = dropdown(pane, "Its point", 230, rrow(DROP), ns.ATTACH_POINTS,
+                function() return A().attachPoint or "TOP" end, function(v) A().attachPoint = v end, textPreview)
+            local rel = dropdown(pane, "On that element's", 230, rrow(DROP), ns.ATTACH_POINTS,
+                function() return A().attachRel or "BOTTOM" end, function(v) A().attachRel = v end, textPreview)
+            ns.attachMenus[#ns.attachMenus + 1], ns.attachMenus[#ns.attachMenus + 2] = to, pt
+            ns.attachMenus[#ns.attachMenus + 1] = rel
+            onRefresh(function()
+                local here, away = mode == "regular", (A().attach or "") ~= ""
+                to:SetShown(here)
+                pt:SetShown(here and away)
+                rel:SetShown(here and away)
+            end)
         end
     end
     local shared = ry - 10 - 74 - ROW -- the placement column is the longer one now: four radios, the line edge
@@ -9712,11 +9832,26 @@ local function buildConfig()
         function(v) BIG().size = v end)
     local bigShow = check(ad, "Crowd control icon", 230, shared - SLIDER - 4, function() return BIG().show end,
         function(v) BIG().show = v end)
+    shared = shared - SLIDER - ROW - 8
+    local bigTo = dropdown(ad, "Icon anchored to", 230, shared, function()
+        return ns.attachTargets("big:" .. (selected == "enemyhealth" and "enemyhealth" or "health"))
+    end, function() return BIG().attach or "" end, function(v) BIG().attach = v end, textPreview)
+    local bigPt = dropdown(ad, "Its point", 230, shared - DROP, ns.ATTACH_POINTS,
+        function() return BIG().attachPoint or "BOTTOM" end, function(v) BIG().attachPoint = v end, textPreview)
+    local bigRel = dropdown(ad, "On that element's", 230, shared - 2 * DROP, ns.ATTACH_POINTS,
+        function() return BIG().attachRel or "TOP" end, function(v) BIG().attachRel = v end, textPreview)
+    ns.attachMenus[#ns.attachMenus + 1], ns.attachMenus[#ns.attachMenus + 2] = bigTo, bigPt
+    ns.attachMenus[#ns.attachMenus + 1] = bigRel
     onRefresh(function()
-        bigSize:SetShown(mode == "regular")
-        bigShow:SetShown(mode == "regular")
+        local here = mode == "regular"
+        local away = here and (BIG().attach or "") ~= ""
+        bigSize:SetShown(here)
+        bigShow:SetShown(here)
+        bigTo:SetShown(here)
+        bigPt:SetShown(away)
+        bigRel:SetShown(away)
     end)
-    shared = shared - ROW - 8
+    shared = shared - 3 * DROP + SLIDER + 4
     local anote = label(ad, "Your health: all your buffs and debuffs. Enemy health: what Blizzard's target "
         .. "frame shows, all buffs and on an enemy your own debuffs. A group anchored to the other sits the "
         .. "group gap away from it. On the center line, a group with the other one empty sits centered. "

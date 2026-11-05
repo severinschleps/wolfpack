@@ -606,6 +606,27 @@ fire("UNIT_MAXPOWER")
 assert(fr.power._point[5] == -38, "space below combo")
 prof().regular.bars.combo.padBottom = 0
 fire("UNIT_MAXPOWER")
+-- any element can leave the grid and hang on another: power under your health's left end
+S.PWR = prof().regular.bars.power
+S.PWR.attach, S.PWR.attachPoint, S.PWR.attachRel, S.PWR.y = "health", "TOPLEFT", "BOTTOMLEFT", -3
+fire("UNIT_MAXPOWER")
+assert(fr.power._point[1] == "TOPLEFT" and fr.power._point[2] == fr.health and fr.power._point[3] == "BOTTOMLEFT"
+    and fr.power._point[5] == -3 and WolfpackAddonFrame._h == 32, "power hangs on health; the middle column closes up")
+-- two on each other is a loop: both stay on the grid
+prof().regular.bars.health.attach = "power"; fire("UNIT_MAXPOWER")
+assert(fr.power._point[2] == WolfpackAddonFrame and fr.health._point[2] == WolfpackAddonFrame, "a loop: the grid")
+prof().regular.bars.health.attach, S.PWR.attach = "", "nothing-by-that-name"; fire("UNIT_MAXPOWER")
+assert(fr.power._point[2] == WolfpackAddonFrame, "an unknown element: the grid")
+-- a row too: your debuffs on the whole display's bottom
+S.PWR.attach, S.PWR.y = "", 0
+prof().regular.bars.health.debuffs.attach = "display"
+prof().regular.bars.health.debuffs.attachPoint, prof().regular.bars.health.debuffs.attachRel = "TOP", "BOTTOM"
+fire("UNIT_MAXPOWER")
+assert(ns.auraSlots.debuffs._point[2] == WolfpackAddonFrame and ns.auraSlots.debuffs._point[3] == "BOTTOM",
+    "a row hung on the display")
+assert(#ns.attachTargets("power") > 10 and ns.attachTargets("power")[1][2] == "", "the menu: the grid first, not itself")
+for _, e in ipairs(ns.attachTargets("power")) do assert(e[2] ~= "power", "never itself") end
+prof().regular.bars.health.debuffs.attach = ""; fire("UNIT_MAXPOWER")
 
 -- Druid: caster = no combo, no extra mana; cat = both; bear = mana only
 login("DRUID", 0)
@@ -1009,7 +1030,7 @@ ns.totPoll._scripts.OnUpdate(ns.totPoll, 1)
 assert(S.tf.segs[1]._value == 77, "health polled")
 UnitHealth = S.realHP
 S.units.targettarget = nil; fire("UNIT_TARGET", "target")
-assert(not S.tf:IsShown() and ef._w == 220 + 2 + 90 and ef._point[4] == 112, "no target of target: enemy health grows right")
+assert(not S.tf:IsShown() and ef._w == 220 and ef._point[4] == 112, "no target of target: enemy health keeps its width")
 S.units.targettarget = true; fire("UNIT_TARGET", "target")
 assert(S.tf.tag_name:IsShown(), "its name, by default")
 S.TT.tagName = false; fire("UNIT_TARGET", "target")
@@ -1017,11 +1038,11 @@ assert(not S.tf.tag_name:IsShown(), "name hidden")
 S.TT.tagName, S.TT.show = true, false
 S.units.targettarget = nil; fire("UNIT_TARGET", "target")
 assert(ef._w == 220, "target of target turned off: no room kept for it")
--- Your pet: left of your health, in a column of its own; with none out, your health grows left
+-- Your pet: left of your health, in a column of its own; with none out, your health keeps its width
 S.PB = prof().regular.bars.pethealth
 S.PB.show = true; fire("UNIT_PET", "player")
-assert(not fr.pethealth:IsShown() and fr.health._w == 220 + 2 + 120 and fr.health._point[4] == -112 - 342,
-    "no pet: your health takes its room")
+assert(not fr.pethealth:IsShown() and fr.health._w == 220 and fr.health._point[4] == -332,
+    "no pet: your health as it is")
 S.petHP = 100; fire("UNIT_PET", "player")
 S.pf = fr.pethealth
 assert(S.pf:IsShown() and S.pf._point[4] == -334 - 120 and S.pf._w == 120 and fr.health._w == 220
@@ -1193,7 +1214,7 @@ assert(WolfpackAddonFrame._h == 48 and pb._point[4] == -454 and pb._point[5] == 
 S.petHP = 120; fire("UNIT_HEALTH", "pet")
 assert(pb.segs[1]._value == 120 and fr.health.segs[1]._value == SECRET, "pet updates on its own")
 S.petHP = nil; fire("UNIT_PET", "player")
-assert(not pb:IsShown() and WolfpackAddonFrame._h == 48 and fr.health._w == 342, "pet gone: your health takes its room")
+assert(not pb:IsShown() and WolfpackAddonFrame._h == 48 and fr.health._w == 220, "pet gone: your health as it is")
 prof().regular.bars.pethealth.show = false
 
 -- Status icon on your health bar: the combat icon in a fight, else rested while resting
@@ -2228,7 +2249,7 @@ assert(store.profiles["PvP 2"] and prof() == store.profiles["PvP 2"], "same name
 store.profiles["PvP 2"], store.parents["PvP 2"] = nil, nil
 ns.useProfile("PvP")
 local dds = {} -- step 1's parent, texture, bar color, border color, kill icon, loot icon, combat icon, attach
-for _, f in ipairs(created) do if f._gen and f ~= ns.copyFromMenu and f ~= ns.childPick and f ~= ns.countSpotMenus[1] and f ~= ns.countSpotMenus[2] and f ~= ns.sharedBorderTexMenu and f ~= ns.ownBorderTexMenu and f ~= ns.shineMenus[1] and f ~= ns.shineMenus[2] and f ~= ns.resPlaceMenu and f ~= ns.resPointMenu and f ~= ns.sitsMenu and f ~= ns.xpMenu and f ~= ns.borderFromMenu and f ~= ns.sharedRadiusMenu and f ~= ns.fontMenus[1] and f ~= ns.fontMenus[2] and f ~= ns.fontMenus[3] and f ~= ns.fontMenus[4] and f ~= ns.textureFromMenu and f ~= ns.sharedTextureMenu and not (f._parent == ns.pages.actionbars) then dds[#dds + 1] = f end end
+for _, f in ipairs(created) do if f._gen and f ~= ns.copyFromMenu and f ~= ns.childPick and f ~= ns.countSpotMenus[1] and f ~= ns.countSpotMenus[2] and f ~= ns.sharedBorderTexMenu and f ~= ns.ownBorderTexMenu and f ~= ns.shineMenus[1] and f ~= ns.shineMenus[2] and f ~= ns.resPlaceMenu and f ~= ns.resPointMenu and f ~= ns.attachMenus[1] and f ~= ns.attachMenus[2] and f ~= ns.attachMenus[3] and f ~= ns.xpMenu and f ~= ns.borderFromMenu and f ~= ns.sharedRadiusMenu and f ~= ns.fontMenus[1] and f ~= ns.fontMenus[2] and f ~= ns.fontMenus[3] and f ~= ns.fontMenus[4] and f ~= ns.textureFromMenu and f ~= ns.sharedTextureMenu and not (f._parent == ns.pages.actionbars) then dds[#dds + 1] = f end end
 assert(dds[1] == ns.parentPick, "step 1 comes first")
 do
     local names = {}
