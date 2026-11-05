@@ -299,7 +299,8 @@ C_UnitAuras = {
     -- in combat this client throws instead of answering, like the live one does
     GetAuraDataByIndex = function(unit, i, filter)
         assert(not S.combat, "aura data is secret in combat")
-        if filter == "HARMFUL" then return (S.debuffs or {})[i] end
+        if S.filters then S.filters[filter] = true end
+        if filter:find("^HARMFUL") then return (S.debuffs or {})[i] end
         return (S.auras or {})[i]
     end,
     -- the game's own list of what you can take off; its entries may hold secret fields
@@ -850,6 +851,24 @@ assert(not bi[1]:IsShown() and bb._w == 1, "no buffs, no icons, a box of 1 px")
 S.auras = {}
 eh.debuffs.show = false; fire("UNIT_AURA", "target")
 assert(not di[1]:IsShown() and fr.combo._point[5] == -20, "debuffs off: the middle column back up")
+-- filters: only yours, a list of the only ones, a list of never these (names in any case, or IDs)
+eh.debuffs.show = true
+S.debuffs = { { icon = 1, name = "Rend", sourceUnit = "player" }, { icon = 2, name = "Sunder Armor", sourceUnit = "target" },
+    { icon = 3, name = "Hamstring", spellId = 1715, sourceUnit = "player" } }
+fire("UNIT_AURA", "target")
+assert(di[3]:IsShown(), "all three by default")
+eh.debuffs.mine, S.filters = true, {}; fire("UNIT_AURA", "target")
+assert(S.filters["HARMFUL|PLAYER"] and di[1].tex._tex == 1 and di[2].tex._tex == 3 and not di[3]:IsShown(),
+    "only mine: the game is asked for yours, and Sunder (theirs) goes")
+eh.debuffs.mine, eh.debuffs.allow, S.filters = false, " sunder armor , 1715", nil; fire("UNIT_AURA", "target")
+assert(di[1].tex._tex == 2 and di[2].tex._tex == 3 and not di[3]:IsShown(), "only these: by name or ID")
+eh.debuffs.allow, eh.debuffs.block = "", "Rend"; fire("UNIT_AURA", "target")
+assert(di[1].tex._tex == 2 and di[2].tex._tex == 3 and not di[3]:IsShown(), "never these")
+eh.debuffs.max, eh.debuffs.block = 1, "Sunder Armor"; fire("UNIT_AURA", "target")
+assert(di[1].tex._tex == 1 and not di[2]:IsShown(), "most icons counts what is left")
+eh.debuffs.max, S.debuffs[1].name = 16, SECRET; S.debuffs[2].name = SECRET; fire("UNIT_AURA", "target")
+assert(di[3]:IsShown(), "a secret name can't be checked: it shows")
+eh.debuffs.block, eh.debuffs.show, S.debuffs = "", false, nil; fire("UNIT_AURA", "target")
 -- grow up or down: a line is a column (rows icons tall); new columns go along the bar's edge
 -- when growing straight away from it, else away from the bar
 S.auras = { { icon = 1 }, { icon = 2 }, { icon = 3 } }

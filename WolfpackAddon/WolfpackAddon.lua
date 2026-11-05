@@ -259,6 +259,8 @@ local function layoutDefaults(show, x, y, gap, width, h1, h2, h3, h4, h5, h6, h7
         b.debuffs = { show = true, anchorTo = "other", spot = "topleft", grow = "right", wrap = "auto", x = 0, y = 0, size = 24,
             radius = 0, cols = 8, rows = 2, max = 16, hideTimer = false, zoom = 8, lineEdge = "top" }
         b.auraGap, b.auraGroupGap, b.auraLineGap = 2, 4, 1
+        -- filters (see ns.auraPick): only yours; allow / block: names or spell IDs, comma-separated
+        for _, o in ipairs({ b.buffs, b.debuffs }) do o.mine, o.allow, o.block = false, "", "" end
     end
     -- your health's class buffs: one row of what you can put on yourself (anchorTo "bar" / "line");
     -- buffs and debuffs may hang on it (anchorTo "class")
@@ -2226,6 +2228,41 @@ function ns.auraList(unit, filter, max)
     return out
 end
 
+-- A group's filters over what the game listed, then its most icons. o.mine: only what you (or
+-- your pet) put on; o.allow: names or spell IDs, comma-separated -- any there, only those show;
+-- o.block: never these. ponytail: a name or caster kept secret (in combat on modern clients)
+-- can't be judged, so that aura shows; the game's own |PLAYER filter does "mine" regardless.
+ns.MINE = { player = true, pet = true, vehicle = true }
+ns.auraSets = {}
+function ns.auraSet(s)
+    if not s or s == "" then return nil end
+    local set = ns.auraSets[s]
+    if not set then
+        set = {}
+        for e in s:gmatch("[^,]+") do
+            e = e:match("^%s*(.-)%s*$"):lower()
+            if e ~= "" then set[e] = true end
+        end
+        ns.auraSets[s] = set
+    end
+    return next(set) and set or nil
+end
+function ns.auraPick(list, o, max)
+    local allow, block, out = ns.auraSet(o.allow), ns.auraSet(o.block), {}
+    for _, a in ipairs(list) do
+        local keep = true
+        if o.mine and readable(a.sourceUnit) and not ns.MINE[a.sourceUnit or ""] then keep = false end
+        if keep and readable(a.name) and (allow or block) then
+            local n, id = (a.name or ""):lower(), a.spellId and readable(a.spellId) and tostring(a.spellId)
+            local named = function(set) return set[n] or (id and set[id]) end
+            if (allow and not named(allow)) or (block and named(block)) then keep = false end
+        end
+        if keep then out[#out + 1] = a end
+        if #out >= max then break end
+    end
+    return out
+end
+
 -- Stand-ins while the options are open: as many as the group can hold, with running timers and
 -- a stack count here and there, so size, zoom, timer text and the grid can all be judged.
 ns.DUMMY_ICONS = {
@@ -2397,7 +2434,10 @@ function ns.layoutAuras(f)
         elseif dummy then
             list = ns.dummyAuras(k, max)
         elseif o.show and unit then
-            list = ns.auraList(unit, k == "buffs" and "HELPFUL" or ns.debuffFilter(unit), max)
+            local filter = k == "buffs" and "HELPFUL" or ns.debuffFilter(unit)
+            if o.mine and not filter:find("PLAYER") then filter = filter .. "|PLAYER" end
+            list = ns.auraList(unit, filter, (ns.auraSet(o.allow) or ns.auraSet(o.block)) and 40 or max)
+            if list then list = ns.auraPick(list, o, max) end
         end
         -- the game refusing (in combat) right after the preview: no stand-ins left behind
         if not list and box.dummy and k ~= "selfbuffs" then list = {} end
@@ -9463,21 +9503,56 @@ local function buildConfig()
         local A = function() return cur()[k[1]] or DEFAULTS.regular.bars[i == 3 and "health" or "enemyhealth"][k[1]] end
         ry = -80
         check(pane, "Show " .. k[2]:lower(), 16, rrow(ROW), function() return A().show end, function(v) A().show = v end)
-        label(pane, "Anchor to", "GameFontNormalSmall"):SetPoint("TOPLEFT", 16, rrow(18) - 4)
+        -- where it hangs: nameplates only (the Combat Display's grid gives each group its row)
+        local placing, top = {}, ry
+        local anchorLabel = label(pane, "Anchor to", "GameFontNormalSmall")
+        anchorLabel:SetPoint("TOPLEFT", 16, rrow(18) - 4)
+        placing[1] = anchorLabel
         local tos = i == 3 and { { "bar", "The bar" }, { "line", "The center line" } }
             or { { "bar", "The bar" }, { "other", i == 1 and "The debuffs" or "The buffs" },
                 { "line", "The center line" }, { "class", "The class buffs" } }
         for _, to in ipairs(tos) do
             local box = check(pane, to[2], 16, rrow(ROW), function() return A().anchorTo == to[1] end,
                 function() A().anchorTo = to[1] end) -- a radio: ticking one is the choice
-            if to[1] == "class" then onRefresh(function() box:SetShown(hasClass()) end) end
+            placing[#placing + 1] = box
+            if to[1] == "class" then onRefresh(function() box:SetShown(hasClass() and mode ~= "regular") end) end
         end
         local edge = dropdown(pane, "On the line", 16, rrow(DROP), { { "Bottom edge (above it)", "bottom" },
             { "Center", "center" }, { "Top edge (below it)", "top" } }, function() return A().lineEdge end,
             function(v) A().lineEdge = v end, textPreview)
         -- hung on the class buffs while they are on the line: it lines up there too
-        onRefresh(function() edge:SetShown(A().anchorTo == "line" or A().anchorTo == "class"
-            and cur().selfbuffs ~= nil and cur().selfbuffs.anchorTo == "line") end)
+        onRefresh(function() edge:SetShown(mode ~= "regular" and (A().anchorTo == "line" or A().anchorTo == "class"
+            and cur().selfbuffs ~= nil and cur().selfbuffs.anchorTo == "line")) end)
+        onRefresh(function()
+            for j, w in ipairs(placing) do
+                if j < 5 or i == 3 then w:SetShown(mode ~= "regular") end -- the class radio sees to itself
+            end
+        end)
+        -- what shows (not the class buffs: those are what you can cast): yours only, and lists
+        if i ~= 3 then
+            local below = ry
+            ry = top
+            local filters = { check(pane, "Only mine", 16, rrow(ROW), function() return A().mine end,
+                function(v) A().mine = v end) }
+            for _, f in ipairs({ { "allow", "Only these (names or IDs, commas)" }, { "block", "Never these" } }) do
+                local l = label(pane, f[2], "GameFontNormalSmall")
+                l:SetPoint("TOPLEFT", 16, rrow(16))
+                local tb = ns.ui.Input(pane, 196)
+                tb:SetPoint("TOPLEFT", 16, rrow(30))
+                tb:SetScript("OnEnterPressed", function(self) self:ClearFocus() end)
+                tb:SetScript("OnEscapePressed", function(self) self:SetText(A()[f[1]] or ""); self:ClearFocus() end)
+                tb:HookScript("OnEditFocusLost", function(self)
+                    A()[f[1]] = self:GetText()
+                    changed()
+                end)
+                onRefresh(function() if not tb:HasFocus() then tb:SetText(A()[f[1]] or "") end end)
+                filters[#filters + 1], filters[#filters + 2] = l, tb
+            end
+            ns.auraFilters = ns.auraFilters or {}
+            ns.auraFilters[k[1]] = filters
+            onRefresh(function() for _, w in ipairs(filters) do w:SetShown(mode == "regular") end end)
+            ry = math.min(ry, below)
+        end
         check(pane, "Hide timer text", 16, rrow(ROW), function() return A().hideTimer end,
             function(v) A().hideTimer = v end)
         dropdown(pane, "Starts at", 16, rrow(DROP), SPOTS, function() return A().spot end,
@@ -9499,8 +9574,10 @@ local function buildConfig()
             { "cols", "Columns", 1, 20 }, { "rows", "Rows", 1, 10 }, { "max", "Most icons", 1, 40 } }
         if i == 3 then sliders[5], sliders[6], sliders[7] = nil, nil, nil end -- one row, as many as you have
         for _, r in ipairs(sliders) do
-            slider(pane, r[2], 230, rrow(SLIDER), r[3], r[4], function() return A()[r[1]] end,
+            local s = slider(pane, r[2], 230, rrow(SLIDER), r[3], r[4], function() return A()[r[1]] end,
                 function(v) A()[r[1]] = v end)
+            -- X / Y nudge it from where it hangs: nameplates only
+            if r[1] == "x" or r[1] == "y" then onRefresh(function() s:SetShown(mode ~= "regular") end) end
         end
     end
     local shared = ry - 10 - 74 - ROW -- the placement column is the longer one now: four radios, the line edge
@@ -9514,7 +9591,9 @@ local function buildConfig()
     local anote = label(ad, "Your health: all your buffs and debuffs. Enemy health: what Blizzard's target "
         .. "frame shows, all buffs and on an enemy your own debuffs. A group anchored to the other sits the "
         .. "group gap away from it. On the center line, a group with the other one empty sits centered. "
-        .. "Class buffs: what you can put on yourself, once learned; one that is not on you flashes.",
+        .. "Class buffs: what you can put on yourself, once learned; one that is not on you flashes. "
+        .. "Combat Display: each group has its row; Only mine and the lists pick what shows there. A name "
+        .. "the game keeps secret in combat can't be checked, so that one shows.",
         "GameFontDisableSmall")
     anote:SetPoint("TOPLEFT", 16, shared - SLIDER - 4)
     anote:SetWidth(408)
