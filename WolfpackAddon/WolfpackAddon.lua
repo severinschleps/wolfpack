@@ -719,11 +719,11 @@ function ft.hook()
     for _, name in ipairs({ "TakeTaxiNode", "TaxiNodeOnButtonEnter" }) do
         if type(_G[name]) == "function" then ft.hooked[#ft.hooked + 1] = name end
     end
-    pcall(hooksecurefunc, "TakeTaxiNode", function(slot) safe(ft.taking, slot) end)
+    pcall(hooksecurefunc, "TakeTaxiNode", function(slot) pcall(ft.taking, slot) end) -- (safe comes later)
     -- some builds route the click through the map frame's own handler instead
     pcall(function()
         if TaxiFrame and TaxiFrame.TakeTaxiNode then
-            hooksecurefunc(TaxiFrame, "TakeTaxiNode", function(_, slot) safe(ft.taking, slot) end)
+            hooksecurefunc(TaxiFrame, "TakeTaxiNode", function(_, slot) pcall(ft.taking, slot) end)
             ft.hooked[#ft.hooked + 1] = "TaxiFrame:TakeTaxiNode"
         end
     end)
