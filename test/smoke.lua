@@ -521,6 +521,7 @@ for _, v in ipairs({ "11509", "16001", "20506", "50504", "120105" }) do
 end
 assert(loadfile("WolfpackAddon/WolfpackAddon.lua"))("WolfpackAddon", ns)
 assert(loadfile("WolfpackAddon/Dots.lua"))("WolfpackAddon", ns) -- next in the toc
+assert(loadfile("WolfpackAddon/Borrow.lua"))("WolfpackAddon", ns)
 assert(loadfile("WolfpackAddon/Macros.lua"))("WolfpackAddon", ns) -- next in the toc
 UseInventoryItem = function() end -- the game's: Trinkets.lua watches it
 assert(loadfile("WolfpackAddon/Trinkets.lua"))("WolfpackAddon", ns)
@@ -910,6 +911,24 @@ assert(not S.big:IsShown() and ef._point[5] == 0, "no crowd control: gone, the g
 eh.big.show, S.debuffs = false, { { icon = 13, name = "Kidney Shot" } }; fire("UNIT_AURA", "target")
 assert(not S.big:IsShown(), "turned off")
 eh.big.show, S.debuffs = true, nil; fire("UNIT_AURA", "target")
+-- a client that keeps auras from addons in combat (Forever): your target's rows take Blizzard's
+-- own target frame buttons, oldest aura first, never reading them; ours stand down
+S.bz = { new(), new(), new() }
+S.bz[1].auraInstanceID, S.bz[2].auraInstanceID, S.bz[3].auraInstanceID = 30, 10, 20
+S.bzList = S.bz
+TargetFrame.auraPools = { EnumerateActiveByTemplate = function(_, t)
+    local i, l = 0, t == "TargetDebuffFrameTemplate" and S.bzList or {}
+    return function() i = i + 1; return l[i] end
+end }
+eh.debuffs.show, S.combat = true, true; fire("UNIT_AURA", "target")
+assert(S.bz[2]._parent == db_ and S.bz[3]._parent == db_ and S.bz[1]._parent == db_ and db_.n == 3
+    and S.bz[2]._point[4] == 0 and S.bz[3]._point[4] == 26 and S.bz[1]._point[4] == 52 and S.bz[2]._w == 24,
+    "Blizzard's debuff buttons in the row, oldest first, while the game refuses us")
+assert(not di[1]:IsShown(), "ours stand down")
+S.bzList = { S.bz[2], S.bz[3] }; fire("UNIT_AURA", "target")
+assert(db_.n == 2 and S.bz[1]._parent == ns.borrow.away, "one gone: out of sight")
+S.combat, TargetFrame.auraPools, eh.debuffs.show = false, nil, false; fire("UNIT_AURA", "target")
+assert(S.bz[2]._parent == ns.borrow.away, "a client that answers: ours again, Blizzard's put away")
 -- grow up or down: a line is a column (rows icons tall); new columns go along the bar's edge
 -- when growing straight away from it, else away from the bar
 S.auras = { { icon = 1 }, { icon = 2 }, { icon = 3 } }

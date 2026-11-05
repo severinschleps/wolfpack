@@ -2450,7 +2450,14 @@ function ns.layoutAuras(f)
             if list and #list == 0 and dummy then list = ns.dummyAuras("buffs", 3) end
         elseif dummy then
             list = ns.dummyAuras(k, max)
-        elseif o.show and unit then
+        end
+        -- a client that keeps auras from addons in combat: your target's rows show Blizzard's
+        -- own target frame icons instead (see Borrow.lua); ours stand down
+        local borrowed = not dummy and o.show and k ~= "selfbuffs" and f.mode == "regular"
+            and f.key == "enemyhealth" and ns.borrow and ns.borrow.on() and ns.borrow.buttons(k)
+        if borrowed then
+            list = {}
+        elseif k ~= "selfbuffs" and not dummy and o.show and unit then
             local filter = k == "buffs" and "HELPFUL" or ns.debuffFilter(unit)
             if o.mine and not filter:find("PLAYER") then filter = filter .. "|PLAYER" end
             list = ns.auraList(unit, filter, (ns.auraSet(o.allow) or ns.auraSet(o.block)) and 40 or max)
@@ -2512,6 +2519,14 @@ function ns.layoutAuras(f)
                     end
                 end
             end
+            if borrowed then n = ns.borrow.place(borrowed, box, math.min(#borrowed, max), function(b, i, count)
+                local a, l = (i - 1) % per, math.floor((i - 1) / per)
+                if corner == "TOP" or corner == "BOTTOM" then a = a - (math.min(per, count - l * per) - 1) / 2 end
+                b:SetSize(o.size, o.size)
+                b:SetFrameLevel(f:GetFrameLevel() + 6)
+                b:ClearAllPoints()
+                b:SetPoint(corner, box, corner, (g[1] * a + w[1] * l) * step, (g[2] * a + w[2] * l) * step)
+            end) elseif ns.borrow then ns.borrow.place({}, box, 0) end
             local along, lines = math.min(n, per) * step - c.auraGap, math.ceil(n / per) * step - c.auraGap
             box:SetSize(n > 0 and (across and along or lines) or 1, n > 0 and (across and lines or along) or 1)
             box.n = n
