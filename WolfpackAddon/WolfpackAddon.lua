@@ -261,6 +261,7 @@ local function layoutDefaults(show, x, y, gap, width, h1, h2, h3, h4, h5, h6, h7
         b.auraGap, b.auraGroupGap, b.auraLineGap = 2, 4, 1
         -- filters (see ns.auraPick): only yours; allow / block: names or spell IDs, comma-separated
         for _, o in ipairs({ b.buffs, b.debuffs }) do o.mine, o.allow, o.block = false, "", "" end
+        b.big = { show = true, size = 36 } -- the crowd control icon above the cast bar (see ns.bigFor)
     end
     -- your health's class buffs: one row of what you can put on yourself (anchorTo "bar" / "line");
     -- buffs and debuffs may hang on it (anchorTo "class")
@@ -2994,9 +2995,10 @@ end
 -- health bars, the outer ones as your pet's and your target's target's bars. A bar keeps its own
 -- width, flush with its column's edge nearest the middle, and its x / y nudge it without
 -- pushing the others. With no pet out your health takes the pet's room too; with no target of
--- target, enemy health takes that one's. "auras:" rows are the health bars' aura groups.
+-- target, enemy health takes that one's. "auras:" rows are the health bars' aura groups, "big:"
+-- the crowd control icon of that health bar's unit (centered in its column).
 ns.GRID = {
-    up = { left = { "castbar" }, right = { "targetcast" }, outer = { "focushealth" } },
+    up = { left = { "castbar", "big:health" }, right = { "targetcast", "big:enemyhealth" }, outer = { "focushealth" } },
     down = { left = { "auras:buffs", "auras:debuffs" },
         center = { "combo", "totems", "power", "druidmana", "swing", "ammo", "experience", "flight",
             "durability", "absorb" },
@@ -3006,6 +3008,72 @@ ns.GRID = {
 ns.AURA_ROWS = { buffs = { "health", "selfbuffs", "buffs" }, debuffs = { "health", "debuffs" },
     tbuffs = { "enemyhealth", "buffs" }, tdebuffs = { "enemyhealth", "debuffs" } }
 ns.auraSlots = {}
+
+-- The big icon above each cast bar: the crowd control on you / your target that matters most.
+-- 1 stun, 2 incapacitate (sheep, sap...), 3 fear, horror and charm, 4 silence; a tie goes to the
+-- one that lasts longer. By name: a spell's ranks share it. ponytail: English names (every client
+-- here is enUS), and a name kept secret (in combat on modern clients) can't be matched.
+ns.CC = {}
+for p, names in ipairs({
+    { "Cheap Shot", "Kidney Shot", "Bash", "Hammer of Justice", "Charge Stun", "Intercept Stun", "Intercept",
+        "Concussion Blow", "Shockwave", "War Stomp", "Pounce", "Maim", "Impact", "Deep Freeze", "Blackout",
+        "Intimidation", "Shadowfury", "Inferno Effect", "Gnaw", "Revenge Stun", "Mace Stun Effect",
+        "Starfire Stun", "Stoneclaw Stun", "Holy Wrath", "Fist of Justice", "Axe Toss", "Ravage" },
+    { "Polymorph", "Sap", "Gouge", "Hibernate", "Shackle Undead", "Freezing Trap Effect", "Freezing Trap",
+        "Repentance", "Seduction", "Scatter Shot", "Blind", "Wyvern Sting", "Hex", "Banish", "Cyclone",
+        "Dragon's Breath", "Sleep", "Paralysis", "Ring of Frost", "Freezing Arrow Effect", "Sleep Walk" },
+    { "Fear", "Psychic Scream", "Howl of Terror", "Intimidating Shout", "Death Coil", "Scare Beast",
+        "Turn Undead", "Turn Evil", "Psychic Horror", "Mind Control", "Terrify", "Hungering Cold" },
+    { "Silence", "Counterspell - Silenced", "Spell Lock", "Garrote - Silence", "Arcane Torrent", "Strangulate",
+        "Silencing Shot", "Kick - Silenced", "Shield Bash - Silenced", "Gag Order", "Solar Beam", "Avenger's Shield" },
+}) do
+    for _, n in ipairs(names) do ns.CC[n] = p end
+end
+function ns.bigAura(unit)
+    local best, bp
+    for _, a in ipairs(ns.auraList(unit, "HARMFUL", 40) or {}) do
+        local p = readable(a.name) and ns.CC[a.name]
+        local longer = best and readable(a.expirationTime) and readable(best.expirationTime)
+            and (a.expirationTime or 0) > (best.expirationTime or 0)
+        if p and (not bp or p < bp or (p == bp and longer)) then best, bp = a, p end
+    end
+    return best
+end
+
+-- its frame for your health / enemy health, drawn: whether it shows, and its size
+ns.BIG_UNIT, ns.bigFrames = { health = "player", enemyhealth = "target" }, {}
+function ns.bigFor(key)
+    local c, f = db.regular.bars[key].big, ns.bigFrames[key]
+    if not f then
+        f = CreateFrame("Frame", nil, anchor)
+        f.tex = f:CreateTexture(nil, "ARTWORK")
+        f.tex:SetAllPoints()
+        f.tex:SetTexCoord(0.08, 0.92, 0.08, 0.92)
+        f.cd = CreateFrame("Cooldown", nil, f, "CooldownFrameTemplate")
+        f.cd:SetAllPoints()
+        f.cd:SetReverse(true)
+        ns.bigFrames[key] = f
+    end
+    local on = c and c.show and frames[key]:IsShown()
+    local a = on and ns.bigAura(ns.BIG_UNIT[key])
+    if on and not a and ns.previewing() then a = { icon = 136071 } end -- placing it: a sheep
+    f:SetShown(a and true or false)
+    if a then
+        f:SetSize(c.size, c.size)
+        pcall(f.tex.SetTexture, f.tex, a.icon)
+        pcall(f.cd.Clear, f.cd)
+        if readable(a.duration) and readable(a.expirationTime) and (a.duration or 0) > 0 then
+            f.cd:SetCooldown(a.expirationTime - a.duration, a.duration)
+        end
+    end
+    return a and true or false, c and c.size or 0
+end
+-- an aura change: the icon drawn again; one coming or going reshapes the grid
+function ns.bigCheck(key)
+    local f = ns.bigFrames[key]
+    local was = f and f:IsShown() or false
+    if ns.bigFor(key) ~= was then ns.relayout() end
+end
 
 -- how tall an aura row's icons stand (0: none showing)
 function ns.auraRowHeight(row)
@@ -3135,6 +3203,17 @@ local function stack(container, set, L, on, swings)
                     y = y + dir * h
                 else
                     slotsAt[#slotsAt + 1] = { row, col, y }
+                end
+            elseif key:match("^big:") then
+                local bk = key:sub(5)
+                local s, size = ns.bigFor(bk)
+                if s then
+                    local colW = col == "left" and hw or ew
+                    y = y + dir * gap
+                    put(ns.bigFrames[bk], col, colW, dir < 0 and y or y + size, size)
+                    local it = items[#items]
+                    it[2], it[4] = it[2] + (colW - size) / 2, size
+                    y = y + dir * size
                 end
             elseif key == "swing" then -- one row per ticked weapon, sharing this bar's settings
                 local c = B.swing
@@ -9475,7 +9554,7 @@ local function buildConfig()
 
     -- Buffs and debuffs dialog: a tab each (where it sits on the left, its size and grid on the
     -- right), the gaps they share underneath
-    local ad = ns.ui.Window(nil, 440, 690, "Buffs and debuffs")
+    local ad = ns.ui.Window(nil, 440, 740, "Buffs and debuffs")
     ad:SetParent(cfg)
     ad:ClearAllPoints()
     ad:SetPoint("TOPLEFT", cfg, "TOPRIGHT", 12, 0)
@@ -9588,12 +9667,24 @@ local function buildConfig()
     shared = shared - SLIDER - 6
     slider(ad, "Gap from the center line", 16, shared, 0, 40, function() return cur().auraLineGap or 0 end,
         function(v) cur().auraLineGap = v end)
+    -- Combat Display: the crowd control icon over this bar's column (another bar: the defaults)
+    local BIG = function() return cur().big or DEFAULTS.regular.bars.health.big end
+    local bigSize = slider(ad, "Crowd control icon size", 230, shared, 12, 96, function() return BIG().size end,
+        function(v) BIG().size = v end)
+    local bigShow = check(ad, "Crowd control icon", 230, shared - SLIDER - 4, function() return BIG().show end,
+        function(v) BIG().show = v end)
+    onRefresh(function()
+        bigSize:SetShown(mode == "regular")
+        bigShow:SetShown(mode == "regular")
+    end)
+    shared = shared - ROW - 8
     local anote = label(ad, "Your health: all your buffs and debuffs. Enemy health: what Blizzard's target "
         .. "frame shows, all buffs and on an enemy your own debuffs. A group anchored to the other sits the "
         .. "group gap away from it. On the center line, a group with the other one empty sits centered. "
         .. "Class buffs: what you can put on yourself, once learned; one that is not on you flashes. "
         .. "Combat Display: each group has its row; Only mine and the lists pick what shows there. A name "
-        .. "the game keeps secret in combat can't be checked, so that one shows.",
+        .. "the game keeps secret in combat can't be checked, so that one shows. Crowd control icon: the "
+        .. "stun, sheep, fear or silence on this bar's unit that matters most, over its cast bar.",
         "GameFontDisableSmall")
     anote:SetPoint("TOPLEFT", 16, shared - SLIDER - 4)
     anote:SetWidth(408)
@@ -10593,13 +10684,14 @@ ev:SetScript("OnEvent", function(_, event, unit, arg2, arg3)
             if set.enemyhealth:IsShown() and unit == "target" then
                 if event == "UNIT_AURA" then
                     safe(ns.layoutAuras, set.enemyhealth)
+                    safe(ns.bigCheck, "enemyhealth")
                     safe(ns.layoutTag, set.enemyhealth) -- drinking
                     if set.enemyhealth.dot then safe(ns.fill, set.enemyhealth) end -- a DoT on or off
                 end
                 safe(ns.layoutBadges, set.enemyhealth)
             end
             if set.health:IsShown() and unit ~= "target" then
-                if event == "UNIT_AURA" then safe(ns.layoutAuras, set.health) end
+                if event == "UNIT_AURA" then safe(ns.layoutAuras, set.health); safe(ns.bigCheck, "health") end
                 if event == "UNIT_AURA" and set.health.dot then safe(ns.fill, set.health) end
                 if event == "UNIT_AURA" and set.power:IsShown() then safe(ns.layoutMealText, set.power) end
                 if event == "UNIT_AURA" then safe(ns.layoutMealText, set.health) end

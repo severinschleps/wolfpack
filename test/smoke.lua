@@ -869,6 +869,21 @@ assert(di[1].tex._tex == 1 and not di[2]:IsShown(), "most icons counts what is l
 eh.debuffs.max, S.debuffs[1].name = 16, SECRET; S.debuffs[2].name = SECRET; fire("UNIT_AURA", "target")
 assert(di[3]:IsShown(), "a secret name can't be checked: it shows")
 eh.debuffs.block, eh.debuffs.show, S.debuffs = "", false, nil; fire("UNIT_AURA", "target")
+-- the crowd control icon over your target's cast bar: the kind that matters most (a stun over a
+-- silence), centered in the column, the grid making room above the line
+S.debuffs = { { icon = 11, name = "Silence", duration = 5, expirationTime = 105 }, { icon = 12, name = "Sunder Armor" },
+    { icon = 13, name = "Kidney Shot", duration = 6, expirationTime = 106 } }
+fire("UNIT_AURA", "target")
+S.big = ns.bigFrames.enemyhealth
+assert(S.big:IsShown() and S.big.tex._tex == 13 and S.big._w == 36 and S.big._point[4] == 112 + (220 - 36) / 2
+    and S.big._point[5] == 0 and ef._point[5] == -38, "a stun over a silence, above enemy health")
+S.debuffs = { { icon = 11, name = "Silence" }, { icon = 12, name = "Sunder Armor" } }; fire("UNIT_AURA", "target")
+assert(S.big.tex._tex == 11, "a silence alone shows")
+S.debuffs = { { icon = 12, name = "Sunder Armor" } }; fire("UNIT_AURA", "target")
+assert(not S.big:IsShown() and ef._point[5] == 0, "no crowd control: gone, the grid closes up")
+eh.big.show, S.debuffs = false, { { icon = 13, name = "Kidney Shot" } }; fire("UNIT_AURA", "target")
+assert(not S.big:IsShown(), "turned off")
+eh.big.show, S.debuffs = true, nil; fire("UNIT_AURA", "target")
 -- grow up or down: a line is a column (rows icons tall); new columns go along the bar's edge
 -- when growing straight away from it, else away from the bar
 S.auras = { { icon = 1 }, { icon = 2 }, { icon = 3 } }
