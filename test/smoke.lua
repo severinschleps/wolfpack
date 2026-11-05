@@ -587,15 +587,18 @@ do
     o.ring.width, o.fill.from = 2, "bar"
 end
 
--- Extra space above / below a bar pushes the rest of the stack
-local hp = prof().regular.bars.health
-hp.padBottom = 10
+-- The grid: health on the center line (18 high, so 9 above it), combo points then power below it
+-- in the middle column, the gap (2) between. Extra space above / below a bar pushes the rest of
+-- its column.
+assert(fr.health._point[5] == 0 and fr.combo._point[5] == -20 and fr.power._point[5] == -34
+    and WolfpackAddonFrame._h == 48, "the line, then combo and power below it")
+prof().regular.bars.power.padTop = 6
 fire("UNIT_MAXPOWER")
-assert(fr.power._point[5] == -30 and WolfpackAddonFrame._h == 58, "space below health")
-hp.padBottom, prof().regular.bars.power.padTop = 0, 6
+assert(fr.power._point[5] == -40 and WolfpackAddonFrame._h == 54, "space above power")
+prof().regular.bars.power.padTop, prof().regular.bars.combo.padBottom = 0, 4
 fire("UNIT_MAXPOWER")
-assert(fr.power._point[5] == -26, "space above power")
-prof().regular.bars.power.padTop = 0
+assert(fr.power._point[5] == -38, "space below combo")
+prof().regular.bars.combo.padBottom = 0
 fire("UNIT_MAXPOWER")
 
 -- Druid: caster = no combo, no extra mana; cat = both; bear = mana only
@@ -631,30 +634,31 @@ assert(store.profiles.Alpha and store.chars["WARRIORChar - Realm"] == "Alpha"
 S.perClass = true -- from here on each test class keeps a profile of its own
 login("WARRIOR", 1)
 
--- Per-bar offsets move only that bar; the next bar keeps its slot (18 + 2 = 20, then 20 + 14 + 2 = 36)
+-- Per-bar offsets move only that bar; the next bar keeps its slot. The middle column is 220
+-- wide, so its bars' left edge is at -110.
 S.secret = true
 login("ROGUE", 3)
 local R = prof().regular.bars
 R.power.x, R.power.y = 5, -3
+R.combo.y = 2
 fire("UNIT_MAXPOWER")
 local pp, cp = fr.power._point, fr.combo._point
-assert(pp[1] == "TOP" and pp[2] == WolfpackAddonFrame and pp[4] == 5 and pp[5] == -23, "power offset")
-assert(cp[4] == 0 and cp[5] == -36, "combo keeps its slot")
-R.power.x, R.power.y = 0, 0
+assert(pp[1] == "TOPLEFT" and pp[2] == WolfpackAddonFrame and pp[3] == "TOP" and pp[4] == -105 and pp[5] == -37,
+    "power offset")
+assert(cp[4] == -110 and cp[5] == -18, "combo: its own nudge")
+R.power.x, R.power.y, R.combo.y = 0, 0, 0
 
--- Enemy health: in the stack while you have a target, its resource always right under it
+-- Enemy health: right of the middle column while you have a target; its resource can sit inside
 local eh, ef = prof().regular.bars.enemyhealth, fr.enemyhealth
 local rf = ef.resFrame
+R.tothealth.show, R.pethealth.show, eh.resource = false, false, true
 fire("PLAYER_TARGET_CHANGED")
-assert(not ef:IsShown(), "off until you turn it on")
-eh.show = true
-fire("PLAYER_TARGET_CHANGED")
-assert(not ef:IsShown(), "no target")
+assert(eh.show and not ef:IsShown(), "on by default, hidden with no target")
 S.targetHP = 500
 fire("PLAYER_TARGET_CHANGED")
 assert(ef:IsShown() and ef.segs[1]._value == 500 and ef.segs[1]._max == 1000 and ef.texts.current._text == "500" and not ef.text:IsShown(),
     "target values")
-assert(ef._point[1] == "TOP" and ef._point[5] == -20, "its own slot, right after your health")
+assert(ef._point[1] == "TOPLEFT" and ef._point[4] == 112 and ef._point[5] == 0, "on the line, right of the middle")
 -- three numbers, each optional, each in its own spot, size and color
 local et = ef.texts
 assert(et.current:IsShown() and not et.percent:IsShown() and not et.currentmax:IsShown(), "current only, as before")
@@ -681,7 +685,7 @@ fire("PLAYER_TARGET_CHANGED")
 assert(rf:IsShown() and rf._point[1] == "BOTTOM" and rf._point[2] == ef and rf._point[3] == "BOTTOM"
     and rf._point[4] == 0 and rf._point[5] == 3, "the resource sits inside it, 3 up from its bottom")
 assert(rf:GetFrameLevel() > ef:GetFrameLevel(), "drawn over the health bar")
-assert(ef._h == 18 and rf._h == 4 and rf._w == 198 and fr.power._point[5] == -20 - 18 - 2,
+assert(ef._h == 18 and rf._h == 4 and rf._w == 198 and fr.power._point[5] == -34,
     "4 tall, 90% of 220 wide, and the slot is just the health bar")
 assert(rf.segs[1]._sbc[1] == 1 and rf.segs[1]._sbc[2] == 1 and rf.segs[1]._sbc[3] == 0,
     "the resource wears its power's color (energy, your yellow)")
@@ -802,7 +806,8 @@ eh.pvpIcon = { show = true, style = "faction", anchorTo = "bar", point = "TOPLEF
     text = "PvP", textColor = { 1, 0.25, 0.25, 1 } }
 S.auras, UnitIsPVP, UnitIsPVPFreeForAll = nil, nil, nil
 fire("UNIT_AURA", "target")
--- buffs and debuffs: each group in a box; buffs hang above the bar, debuffs above the buffs
+-- buffs and debuffs: each group in a box on its row of the grid; your target's buffs under its
+-- power (right column), its debuffs on the line in the middle column
 S.auras = { { icon = 111, duration = 10, expirationTime = 20 }, { icon = 112, applications = 3 } }
 S.debuffs = { { icon = 221 } }
 fire("UNIT_AURA", "target")
@@ -810,27 +815,21 @@ local bi, di = ef.auraIcons.buffs, ef.auraIcons.debuffs
 local bb, db_ = ef.auraBoxes.buffs, ef.auraBoxes.debuffs
 assert(bi[1]:IsShown() and bi[2]:IsShown() and bi[1].tex._tex == 111 and bi[2].count._text == 3
     and bi[1].cd._cd[1] == 10 and bi[1].cd._cd[2] == 10, "the target's buffs, with timer and stacks")
-assert(bb._point[1] == "BOTTOMLEFT" and bb._point[2] == ef and bb._point[3] == "TOPLEFT" and bb._point[5] == 2
-    and bb._w == 42 and bb._h == 20, "the buff box: above the bar, as big as two icons and a gap")
+assert(bb._point[1] == "TOPLEFT" and bb._point[2] == ns.auraSlots.tbuffs and bb._w == 42 and bb._h == 20,
+    "the buff box: on its row, as big as two icons and a gap")
 assert(bi[2]._point[2] == bb and bi[2]._point[4] == 22, "icons grow right, 20 + 2 apart")
-assert(di[1].tex._tex == 221 and db_._point[2] == bb and db_._point[3] == "TOPLEFT" and db_._point[5] == 4,
-    "debuffs hang on the buffs, a group gap up")
+assert(di[1].tex._tex == 221 and db_._point[1] == "TOP" and db_._point[2] == ns.auraSlots.tdebuffs
+    and ns.auraSlots.tdebuffs._point[5] == 0, "debuffs: in the middle, from the line's top")
+-- the middle column makes room for the debuffs (24 high, 6 more than the line's 18)
+assert(fr.combo._point[5] == -20 - 6, "the middle column pushed down")
 -- options open (or unlocked): dummies fill each group's grid, with timers and stacks, to tune by
 prof().locked = false; fire("UNIT_AURA", "target")
 assert(bi[8]:IsShown() and bi[1].tex._tex:find("Spell_Holy_WordFortitude") and di[16]:IsShown()
     and bi[1].cd._cd and bi[3].count._text == 3, "a full grid of stand-ins: 8 buffs, 16 debuffs")
 prof().locked = true; fire("UNIT_AURA", "target")
 assert(bi[1].tex._tex == 111 and not bi[3]:IsShown(), "closed again: the real ones")
--- debuffs on the bar, buffs on the debuffs: the other way round
-eh.debuffs.anchorTo, eh.buffs.anchorTo, eh.buffs.spot = "bar", "other", "right"
+eh.buffs.cols, eh.buffs.rows, eh.buffs.spot = 1, 2, "above_right"
 fire("UNIT_AURA", "target")
-assert(db_._point[2] == ef and bb._point[2] == db_ and bb._point[1] == "TOPLEFT" and bb._point[3] == "TOPRIGHT"
-    and bb._point[4] == 4, "buffs to the right of the debuffs, a group gap across")
--- both on each other: buffs take the bar, nothing hangs in the air
-eh.debuffs.anchorTo = "other"; fire("UNIT_AURA", "target")
-assert(bb._point[2] == ef and db_._point[2] == bb, "a loop is broken at the buffs")
-eh.buffs.anchorTo, eh.buffs.spot, eh.debuffs.spot = "bar", "above_right", "below_left"
-eh.buffs.cols, eh.buffs.rows = 1, 2; fire("UNIT_AURA", "target")
 assert(bi[2]._point[4] == 0 and bi[2]._point[5] == 22 and bb._h == 42, "one column: the second buff goes up a row")
 eh.buffs.max = 1; fire("UNIT_AURA", "target")
 assert(bi[1]:IsShown() and not bi[2]:IsShown(), "most icons caps it")
@@ -847,72 +846,38 @@ assert(not bi[1].tex._masks[bi[1].mask] and bi[1].cd._swipeTex:find("WHITE8X8"),
 S.combat = true; S.auras = {}; fire("UNIT_AURA", "target")
 assert(bi[1]:IsShown(), "the game refuses: the icons stay")
 S.combat = false; fire("UNIT_AURA", "target")
-assert(not bi[1]:IsShown() and bb._w == 1, "no buffs, no icons, a box of 1 px (never none: see below)")
--- the game draws nothing hung on a frame of no size, so debuffs never hang on empty buffs: they
--- take the buffs' own anchor on the bar until buffs show up again
-assert(di[1]:IsShown() and db_._point[1] == "TOPRIGHT" and db_._point[2] == ef and db_._point[3] == "TOPLEFT"
-    and db_._point[4] == eh.buffs.x and db_._point[5] == eh.buffs.y, "debuffs take the buffs' anchor")
-eh.buffs.show = false; S.auras = { { icon = 111 } }; fire("UNIT_AURA", "target")
-assert(db_._point[2] == ef and db_._point[3] == "TOPLEFT", "buffs turned off counts as empty")
-eh.buffs.show = true; fire("UNIT_AURA", "target")
-assert(db_._point[2] == bb and db_._point[5] == -4, "buffs back: debuffs hang on them again (below, a gap down)")
+assert(not bi[1]:IsShown() and bb._w == 1, "no buffs, no icons, a box of 1 px")
 S.auras = {}
 eh.debuffs.show = false; fire("UNIT_AURA", "target")
-assert(not di[1]:IsShown(), "debuffs off")
+assert(not di[1]:IsShown() and fr.combo._point[5] == -20, "debuffs off: the middle column back up")
 -- grow up or down: a line is a column (rows icons tall); new columns go along the bar's edge
 -- when growing straight away from it, else away from the bar
 S.auras = { { icon = 1 }, { icon = 2 }, { icon = 3 } }
-eh.debuffs.show = false
 eh.buffs = { show = true, anchorTo = "bar", spot = "topright", grow = "up", x = 0, y = 0, size = 20, radius = 0,
     cols = 2, rows = 2, max = 4, hideTimer = false }
 fire("UNIT_AURA", "target")
-assert(bb._point[1] == "BOTTOMRIGHT" and bb._point[3] == "TOPRIGHT", "starts at the bar's top right corner")
 assert(bi[2]._point[1] == "BOTTOMRIGHT" and bi[2]._point[4] == 0 and bi[2]._point[5] == 22, "the next one goes up")
 assert(bi[3]._point[4] == -22 and bi[3]._point[5] == 0, "a new column: inward, to the left")
 assert(bb._w == 42 and bb._h == 42, "two columns of two")
 eh.buffs.spot, eh.buffs.grow = "righttop", "down"; fire("UNIT_AURA", "target")
-assert(bb._point[1] == "TOPLEFT" and bb._point[3] == "TOPRIGHT" and bi[2]._point[5] == -22
-    and bi[3]._point[4] == 22 and bi[3]._point[5] == 0, "right side, down, new columns away to the right")
+assert(bi[2]._point[5] == -22 and bi[3]._point[4] == 22 and bi[3]._point[5] == 0, "down, new columns to the right")
 -- grow then wrap, both chosen: up then left, right then down
 eh.buffs.spot, eh.buffs.grow, eh.buffs.wrap = "topleft", "up", "left"; fire("UNIT_AURA", "target")
 assert(bi[1]._point[1] == "BOTTOMRIGHT" and bi[2]._point[5] == 22 and bi[3]._point[4] == -22
     and bi[3]._point[5] == 0, "up, then a new column to the left")
 eh.buffs.grow, eh.buffs.wrap = "right", "down"; fire("UNIT_AURA", "target")
-assert(bi[1]._point[1] == "TOPLEFT" and bi[2]._point[4] == 22 and bi[3]._point[5] == -22,
-    "right, then a new row down (into the bar: asked for)")
+assert(bi[1]._point[1] == "TOPLEFT" and bi[2]._point[4] == 22 and bi[3]._point[5] == -22, "right, then a new row down")
 eh.buffs.wrap = "left"; fire("UNIT_AURA", "target")
 assert(bi[3]._point[5] == 22, "a wrap along the growing makes no sense: auto")
 eh.buffs.wrap = "auto"
--- the center line: right of the bar, buffs above it and debuffs below, a gap each way; alone, centered
-eh.buffs.anchorTo, eh.buffs.spot, eh.buffs.y, eh.buffs.lineEdge = "line", "righttop", 0, "bottom"
-eh.debuffs.anchorTo, eh.debuffs.spot, eh.debuffs.y, eh.debuffs.lineEdge = "line", "righttop", 0, "top"
-eh.debuffs.show, eh.auraLineGap = true, 3
-S.debuffs = { { icon = 221 } }; fire("UNIT_AURA", "target")
-assert(bb._point[1] == "BOTTOMLEFT" and bb._point[2] == ef and bb._point[3] == "RIGHT" and bb._point[5] == 3,
-    "buffs: bottom edge on the line, 3 above it")
-assert(db_._point[1] == "TOPLEFT" and db_._point[3] == "RIGHT" and db_._point[5] == -3, "debuffs: top edge, 3 below")
-S.debuffs = {}; fire("UNIT_AURA", "target")
-assert(bb._point[1] == "LEFT" and bb._point[3] == "RIGHT" and bb._point[5] == 0, "buffs alone: centered on the line")
-S.debuffs, S.auras = { { icon = 221 } }, {}; fire("UNIT_AURA", "target")
-assert(db_._point[1] == "LEFT" and db_._point[5] == 0, "debuffs alone: centered too")
-eh.buffs.spot = "lefttop"; eh.debuffs.anchorTo = "other"; S.auras = {}; fire("UNIT_AURA", "target")
-assert(db_._point[1] == "RIGHT" and db_._point[3] == "LEFT", "hung on empty buffs on the line: their place, centered")
-S.auras = { { icon = 1 }, { icon = 2 }, { icon = 3 } }
-eh.debuffs.anchorTo, eh.debuffs.spot, eh.debuffs.lineEdge, eh.debuffs.show = "other", "topleft", "top", false
-eh.buffs.anchorTo, eh.buffs.spot, eh.buffs.lineEdge, eh.buffs.y, eh.auraLineGap = "bar", "topright", "bottom", 0, 1
-S.debuffs = nil
 -- the old one-in-all choice converts by itself
 eh.buffs.spot, eh.buffs.grow = "below_left", nil; fire("UNIT_AURA", "target")
-assert(eh.buffs.spot == "bottomright" and eh.buffs.grow == "left" and bb._point[1] == "TOPRIGHT"
-    and bb._point[3] == "BOTTOMRIGHT", "below_left: the bottom right corner, growing left")
--- top center: each line centered on the bar's top edge, spread both ways; new rows go up
+assert(eh.buffs.spot == "bottomright" and eh.buffs.grow == "left", "below_left: the bottom right corner, growing left")
+-- top center: each line centered, spread both ways; new rows go up
 eh.buffs.spot, eh.buffs.grow = "topcenter", "up"; fire("UNIT_AURA", "target")
-assert(bb._point[1] == "BOTTOM" and bb._point[3] == "TOP", "the box sits centered on the top edge")
 assert(bi[1]._point[1] == "BOTTOM" and bi[1]._point[4] == -11 and bi[2]._point[4] == 11
     and bi[1]._point[5] == 0, "two in a row: one each side of the middle (grow ignored)")
 assert(bi[3]._point[4] == 0 and bi[3]._point[5] == 22, "the lone one on the next row up: centered")
-eh.buffs.spot = "bottomcenter"; fire("UNIT_AURA", "target")
-assert(bb._point[1] == "TOP" and bb._point[3] == "BOTTOM" and bi[3]._point[5] == -22, "bottom center: rows go down")
 eh.buffs = { show = true, anchorTo = "bar", spot = "topleft", grow = "right", wrap = "auto", x = 0, y = 2, size = 20, radius = 0,
     cols = 8, rows = 1, max = 8, hideTimer = false, zoom = 8 }
 eh.debuffs = { show = true, anchorTo = "other", spot = "topleft", grow = "right", x = 0, y = 0, size = 24, radius = 0,
@@ -962,17 +927,7 @@ eh.resource = false
 fire("PLAYER_TARGET_CHANGED")
 assert(not rf:IsShown(), "resource off")
 eh.resource = true
-
--- Beside your health: the two share its width and its height
-eh.beside = true
-fire("PLAYER_TARGET_CHANGED")
-local tp, hp = ef._point, fr.health._point
-assert(ef:IsShown() and tp[1] == "TOPLEFT" and tp[2] == fr.health and tp[3] == "TOPRIGHT" and tp[4] == 2,
-    "beside health")
-assert(fr.health._w == 109 and ef._w == 109, "220 wide, 2 gap: two halves of 109")
-assert(hp[1] == "TOPLEFT" and hp[3] == "TOP" and hp[4] == -110, "player half starts at the bar's left edge")
-assert(ef._h == 18 and rf._h == 4 and rf._w == 98, "as tall as your health; the resource 90% of its half")
-assert(fr.power._point[5] == -20, "and it no longer takes a slot in the stack")
+-- Enemy health's color
 prof().regular.bars.health.colorMode, eh.colorMode = "class", "class"
 S.targetClass = "MAGE"; fire("PLAYER_TARGET_CHANGED")
 assert(ef.segs[1]._sbc[1] == 0.8 and fr.health.segs[1]._sbc[1] == 1, "NPC target: custom color, you: class")
@@ -999,23 +954,15 @@ UnitReaction, S.reaction, eh.colorMode = nil, nil, "custom"
 fire("PLAYER_TARGET_CHANGED")
 S.targetHP = 250; fire("UNIT_HEALTH", "target")
 assert(ef.segs[1]._value == 250 and fr.health.segs[1]._value == SECRET, "target updates, player keeps its own")
--- Target of target: right of enemy health (its height, own width), below it (the two share the
--- slot), or in the stack; enemy health's buffs then hang on the two together
-S.saved = { eh.beside, eh.show }
-eh.show, eh.beside = true, true
+-- Target of target: right of enemy health, in a column of its own (its own width). With none,
+-- enemy health takes its room as well.
 S.TT = prof().regular.bars.tothealth
 S.units = S.units or {}
 S.units.targettarget = true
 S.TT.show = true; fire("UNIT_TARGET", "target")
 S.tf = fr.tothealth
-assert(S.tf:IsShown() and S.tf._point[1] == "TOPLEFT" and S.tf._point[2] == ef and S.tf._point[3] == "TOPRIGHT"
-    and S.tf._point[4] == prof().regular.gap and S.tf._w == 90 and S.tf._h == ef._h, "right of enemy health: its height, own width")
-assert(ef.span and ef.auraBoxes.buffs._point[2] == ef.span and ef.span._points[2][2] == S.tf,
-    "enemy buffs hang on enemy health and its target together")
-S.TT.anchor = "below"; fire("UNIT_TARGET", "target")
-assert(S.tf._point[2] == ef and S.tf._point[3] == "BOTTOMLEFT" and S.tf._point[5] == -prof().regular.gap and S.tf._w == ef._w,
-    "below: enemy health's width")
-assert(ef._h == 18 - S.TT.height - prof().regular.gap, "beside you, the two together as tall as your health")
+assert(S.tf:IsShown() and S.tf._point[1] == "TOPLEFT" and S.tf._point[4] == 110 + 2 + 220 + 2 and S.tf._w == 90
+    and ef._w == 220, "right of enemy health, its own width")
 -- its health is asked for (nothing tells), five times a second
 S.realHP = UnitHealth
 UnitHealth = function(u) return u == "targettarget" and 77 or S.realHP(u) end
@@ -1023,55 +970,47 @@ ns.totPoll._scripts.OnUpdate(ns.totPoll, 1)
 assert(S.tf.segs[1]._value == 77, "health polled")
 UnitHealth = S.realHP
 S.units.targettarget = nil; fire("UNIT_TARGET", "target")
-assert(not S.tf:IsShown() and ef._h == 18, "no target of target: enemy health takes it all back")
-S.units.targettarget = true
+assert(not S.tf:IsShown() and ef._w == 220 + 2 + 90 and ef._point[4] == 112, "no target of target: enemy health grows right")
+S.units.targettarget = true; fire("UNIT_TARGET", "target")
 assert(S.tf.tag_name:IsShown(), "its name, by default")
 S.TT.tagName = false; fire("UNIT_TARGET", "target")
 assert(not S.tf.tag_name:IsShown(), "name hidden")
-S.TT.tagName = true
-S.TT.anchor = "stack"; fire("UNIT_TARGET", "target")
-assert(S.tf:IsShown() and S.tf._point[2] == WolfpackAddonFrame, "in the stack like any other bar")
-S.TT.show, S.TT.anchor = false, "right"
-S.units.targettarget = nil
--- Your pet below your health: as wide as it, the bars below move down, and enemy health beside
--- you grows to match the two
+S.TT.tagName, S.TT.show = true, false
+S.units.targettarget = nil; fire("UNIT_TARGET", "target")
+assert(ef._w == 220, "target of target turned off: no room kept for it")
+-- Your pet: left of your health, in a column of its own; with none out, your health grows left
 S.PB = prof().regular.bars.pethealth
-S.petHP, S.PB.show, S.PB.anchor = 100, true, "below"; fire("UNIT_PET", "player")
+S.PB.show = true; fire("UNIT_PET", "player")
+assert(not fr.pethealth:IsShown() and fr.health._w == 220 + 2 + 120 and fr.health._point[4] == -112 - 342,
+    "no pet: your health takes its room")
+S.petHP = 100; fire("UNIT_PET", "player")
 S.pf = fr.pethealth
-assert(S.pf:IsShown() and S.pf._point[1] == "TOPLEFT" and S.pf._point[2] == fr.health and S.pf._point[3] == "BOTTOMLEFT"
-    and S.pf._w == fr.health._w, "under your health, as wide as it")
-assert(ef._h == 18 + prof().regular.gap + S.PB.height, "enemy health beside you: your health and pet together")
-assert(fr.power._point[5] == -(18 + prof().regular.gap + S.PB.height + prof().regular.gap), "the stack makes room")
-S.units.targettarget, S.TT.show, S.TT.anchor = true, true, "below"; fire("UNIT_TARGET", "target")
-assert(ef._h == 18 + prof().regular.gap + S.PB.height - S.TT.height - prof().regular.gap, "and target of target below shares that")
-S.units.targettarget, S.TT.show, S.TT.anchor = nil, false, "right"
-S.PB.anchor = "left"; fire("UNIT_PET", "player")
-assert(S.pf._point[1] == "TOPRIGHT" and S.pf._point[3] == "TOPLEFT" and S.pf._point[4] == -prof().regular.gap and S.pf._h == fr.health._h,
-    "left of your health, its height")
-assert(fr.health.span and fr.health.auraBoxes.buffs._point[2] == fr.health.span
-    and fr.health.span._points[1][2] == S.pf and fr.health.span._points[2][2] == fr.health,
-    "your buffs hang on pet and health together, the pet starting the block")
-S.PB.anchor = "below"; fire("UNIT_PET", "player")
-assert(fr.health.span._points[1][2] == fr.health and fr.health.span._points[2][2] == S.pf, "below: health starts it")
-S.PB.anchor = "left"
-S.petHP = nil; fire("UNIT_PET", "player")
-assert(not S.pf:IsShown(), "no pet: gone")
-assert(fr.health.auraBoxes.buffs._point[2] == fr.health, "no pet: back on your health")
-S.PB.anchor = "stack"
-eh.beside, eh.show = S.saved[1], S.saved[2]
+assert(S.pf:IsShown() and S.pf._point[4] == -334 - 120 and S.pf._w == 120 and fr.health._w == 220
+    and fr.health._point[4] == -332, "your pet left of your health")
+S.petHP, S.PB.show = nil, false; fire("UNIT_PET", "player")
+assert(fr.health._w == 220, "pet bar off: your health its own width")
+-- Your target's power: a bar of its own under enemy health
+S.EP = fr.enemypower
+assert(S.EP:IsShown() and S.EP._point[4] == 112 and S.EP._point[5] == -20, "under enemy health")
+S.EP.segs[1]._value = nil; fire("UNIT_POWER_FREQUENT", "target")
+assert(S.EP.segs[1]._value == SECRET and S.EP.segs[1]._sbc[1] == 1 and S.EP.segs[1]._sbc[3] == 0,
+    "follows the target's power, in its color (energy, your yellow)")
+-- Focus: above target of target's column
+S.units.focus = true; fire("PLAYER_FOCUS_CHANGED")
+assert(fr.focushealth:IsShown() and fr.focushealth._point[4] == 334 and fr.focushealth._point[5] == 0
+    and fr.health._point[5] == -20, "focus: above the line on the right; the frame now starts at its top")
+S.units.focus = nil; fire("PLAYER_FOCUS_CHANGED")
+assert(not fr.focushealth:IsShown(), "no focus: gone")
 fire("PLAYER_TARGET_CHANGED")
 rf.segs[1]._value = nil; fire("UNIT_POWER_FREQUENT", "target")
 assert(rf.segs[1]._value == SECRET, "its resource follows the target's power")
-assert(WolfpackAddonFrame._w == 220, "stack width ignores the enemy bar")
 S.targetHP = nil; fire("PLAYER_TARGET_CHANGED")
-assert(not ef:IsShown() and fr.health._w == 220 and fr.health._point[1] == "TOP", "target gone: full width again")
-eh.show, eh.beside = false, false
+assert(not ef:IsShown() and not S.EP:IsShown() and fr.health._w == 220, "target gone")
 
--- the old "Target health beside it" switch becomes Enemy Health beside you
-prof().regular.bars.health.target = true
+-- the old "Target health beside it" switch turns Enemy Health on
+prof().regular.bars.health.target, eh.show = true, false
 fire("PLAYER_LOGIN")
-assert(eh.show and eh.beside and not prof().regular.bars.health.target, "old switch carried over")
-eh.show, eh.beside = false, false
+assert(eh.show and not prof().regular.bars.health.target, "old switch carried over")
 
 -- Background color and gradient points: one slice per pair of points, masked by the bar's fill
 local gb = prof().regular.bars.health
@@ -1108,25 +1047,25 @@ table.remove(gb.stops, 2)
 fire("UNIT_MAXPOWER")
 assert(not gs.slices[1]:IsShown() and gs._sbc[1] == 0.2, "gradient off: solid color again")
 
--- Grow direction: pinning the bottom edge makes the stack grow upwards instead
+-- The frame is pinned by the center line: its top sits as far above x / y as the bars reach
 local R1 = prof().regular
-assert(WolfpackAddonFrame._point[1] == "TOP", "grows down by default")
-R1.grow = "up"
 fire("PLAYER_ENTERING_WORLD")
-assert(WolfpackAddonFrame._point[1] == "BOTTOM" and WolfpackAddonFrame._point[4] == R1.x, "pinned by its bottom")
+assert(WolfpackAddonFrame._point[1] == "TOP" and WolfpackAddonFrame._point[4] == R1.x
+    and WolfpackAddonFrame._point[5] == R1.y + 9, "the line at x / y, half the health bar above it")
 local mover2
 for _, f in ipairs(created) do if f._scripts.OnMouseUp and f._scripts.OnDragStart and not f._name then mover2 = f end end
 mover2._scripts.OnDragStart(mover2); mover2._scripts.OnDragStop(mover2)
-assert(R1.y == -40, "drag stores the bottom edge (60 - 100)")
-R1.grow, R1.x, R1.y = "down", 0, -120
+assert(R1.y == 41, "drag stores the line (top 150, 9 above the line, from 100)")
+R1.x, R1.y = 0, -120
 fire("PLAYER_ENTERING_WORLD")
 
--- Cast bar: out of the stack while idle, joins it while casting; channels drain; icon side
+-- Cast bar: away while idle, above your health while casting; channels drain; icon side
 local cb = fr.castbar
-assert(not cb:IsShown() and WolfpackAddonFrame._h == 48, "idle: out of the stack")
+assert(not cb:IsShown() and WolfpackAddonFrame._h == 48, "idle: away")
 S.cast = "Fireball"; fire("UNIT_SPELLCAST_START", "player")
 local cs = cb.segs[1]
-assert(cb:IsShown() and WolfpackAddonFrame._h == 64 and cb._point[5] == -50, "casting: joins the stack")
+assert(cb:IsShown() and WolfpackAddonFrame._h == 64 and cb._point[5] == 0 and cb._point[4] == -332
+    and fr.health._point[5] == -16, "casting: above your health, growing up from the line")
 assert(cs._timer == "castDuration" and cs._dir == 0, "cast fills up")
 assert(cb.text._text == "Fireball" and cb.text:IsShown() and cb.icon._tex == 136116 and cb.icon:IsShown(), "name + icon")
 assert(cs._w == 204 and cs._point[4] == 16 and cb.icon._point[1] == "LEFT", "icon left: bar starts after 14 + 2")
@@ -1201,16 +1140,18 @@ prof().locked = true
 sw.classes[S.class].off, sw.classes[S.class].ranged = false, false
 fire("UNIT_MAXPOWER")
 
--- Pet health: only with a pet; own value; joins the stack (48 + 2 + 10)
+-- Pet health: only with a pet; own value; on the line, left of your health
 local pb = fr.pethealth
+prof().regular.bars.pethealth.show = true; fire("UNIT_PET", "player")
 assert(not pb:IsShown() and WolfpackAddonFrame._h == 48, "no pet: no bar")
 S.petHP = 300; fire("UNIT_PET", "player")
 assert(pb:IsShown() and pb.segs[1]._value == 300 and pb.segs[1]._max == 1000 and pb.text._text == "300", "pet bar")
-assert(WolfpackAddonFrame._h == 60 and pb._point[5] == -50, "joins the stack")
+assert(WolfpackAddonFrame._h == 48 and pb._point[4] == -454 and pb._point[5] == -4, "on the line, centered on it")
 S.petHP = 120; fire("UNIT_HEALTH", "pet")
 assert(pb.segs[1]._value == 120 and fr.health.segs[1]._value == SECRET, "pet updates on its own")
 S.petHP = nil; fire("UNIT_PET", "player")
-assert(not pb:IsShown() and WolfpackAddonFrame._h == 48, "pet gone")
+assert(not pb:IsShown() and WolfpackAddonFrame._h == 48 and fr.health._w == 342, "pet gone: your health takes its room")
+prof().regular.bars.pethealth.show = false
 
 -- Status icon on your health bar: the combat icon in a fight, else rested while resting
 local st, sti = prof().regular.bars.health.statusIcon, nil
@@ -1311,8 +1252,11 @@ S.auras, S.debuffs = { { icon = 501 }, { icon = 502 } }, { { icon = 601 } }
 fire("UNIT_AURA", "player")
 S.hb2, S.hd2 = fr.health.auraIcons.buffs, fr.health.auraIcons.debuffs
 assert(S.hb2[1]:IsShown() and S.hb2[2].tex._tex == 502 and S.hd2[1].tex._tex == 601, "your buffs and debuffs")
-assert(fr.health.auraBoxes.buffs._point[2] == fr.health and fr.health.auraBoxes.debuffs._point[2]
-    == fr.health.auraBoxes.buffs, "above your bar, debuffs over the buffs")
+-- rows under your health: buffs (after the class buffs), then debuffs, each its icons' height
+assert(fr.health.auraBoxes.buffs._point[2] == ns.auraSlots.buffs and fr.health.auraBoxes.debuffs._point[2]
+    == ns.auraSlots.debuffs, "your buffs and debuffs on their rows")
+assert(ns.auraSlots.buffs._point[4] == -332 and ns.auraSlots.buffs._point[5] == -20
+    and ns.auraSlots.debuffs._point[5] == -20 - 20 - 2, "under your health, buffs first, the gap between")
 prof().regular.bars.health.buffs.show = false; fire("UNIT_AURA", "player")
 assert(not S.hb2[1]:IsShown() and S.hd2[1]:IsShown(), "each switches on its own")
 prof().regular.bars.health.buffs.show = true
@@ -1611,16 +1555,14 @@ R0.playerMenu = true; fire("UNIT_MAXPOWER")
 local ck, cp = WolfpackAddonClicker, WolfpackAddonClickerPower
 assert(ck._template == "SecureUnitButtonTemplate" and ck._attr.unit == "player" and ck._attr.type2 == "togglemenu", "menu button")
 assert(cp._attr.unit == "player" and cp._attr.type2 == "togglemenu", "one on the power bar too")
-assert(ck._point[1] == "TOP" and ck._point[2] == UIParent and ck._point[3] == "CENTER" and ck._point[4] == R0.x
-    and ck._point[5] == R0.y and ck._w == 220 and ck._h == 18 and ck:IsShown(), "exactly over your health bar")
-assert(cp._point[4] == R0.x and cp._point[5] == R0.y - 20 and cp._w == 220 and cp._h == 14, "and over power, under it")
-R0.grow = "up"; fire("UNIT_MAXPOWER")
-assert(ck._point[5] == R0.y + WolfpackAddonFrame._h, "growing up: counted from the group's top all the same")
-R0.grow = "down"
--- enemy health beside yours: the health button covers your half only, target or not
-R0.bars.enemyhealth.show, R0.bars.enemyhealth.beside = true, true; fire("UNIT_MAXPOWER")
-assert(ck._point[1] == "TOPLEFT" and ck._point[4] == R0.x - 110 and ck._w == (220 - R0.gap) / 2, "your half")
-R0.bars.enemyhealth.show, R0.bars.enemyhealth.beside = false, false
+-- over your health on the line (left of the middle column), and over power below it
+R0.bars.pethealth.show, R0.bars.tothealth.show = false, false; fire("UNIT_MAXPOWER")
+S.top0 = R0.y + ns.gridTop -- the frame's top edge
+assert(ck._point[1] == "TOPLEFT" and ck._point[2] == UIParent and ck._point[3] == "CENTER" and ck._point[4] == R0.x - 332
+    and ck._point[5] == S.top0 + fr.health._point[5] and ck._w == 220 and ck._h == 18 and ck:IsShown(),
+    "exactly over your health bar")
+assert(cp._point[4] == R0.x - 110 and cp._point[5] == S.top0 + fr.power._point[5] and cp._w == 220 and cp._h == 14,
+    "and over power")
 -- a hidden bar takes its button with it
 R0.bars.power.show = false; fire("UNIT_MAXPOWER")
 assert(ck:IsShown() and not cp:IsShown(), "power hidden: no button there")
@@ -1638,42 +1580,34 @@ assert(not ck:IsShown() and not cp:IsShown(), "both off")
 R0.playerMouseover = true; fire("UNIT_MAXPOWER")
 assert(ck:IsShown() and ck._attr.unit == "player" and not ck._attr.type1 and not ck._attr.type2, "mouseover only: no clicks")
 R0.playerMouseover = false; fire("UNIT_MAXPOWER")
--- enemy health: its own button, unit "target", right-click menu only, shown by the unit watch
+-- enemy health: its own button, unit "target", right-click menu only, shown by the unit watch;
+-- placed with no target yet, where the bar will be
 local ct = WolfpackAddonClickerTarget
 assert(ct and ct._attr.unit == "target" and ct._attr.type2 == "togglemenu" and not ct._attr.type1, "target menu button")
-R0.bars.enemyhealth.show, R0.bars.enemyhealth.beside = true, true; fire("UNIT_MAXPOWER")
-local half = (220 - R0.gap) / 2
-assert(ct._watched and ct._point[1] == "TOPLEFT" and ct._point[4] == R0.x - 110 + half + R0.gap
-    and ct._w == half and ct._h == 18, "beside: over the enemy half, watched for a target")
+R0.bars.enemyhealth.show = true; fire("UNIT_MAXPOWER")
+assert(ct._watched and ct._point[1] == "TOPLEFT" and ct._point[4] == R0.x + 112 and ct._w == 220 and ct._h == 18,
+    "right of the middle column, watched for a target")
 R0.targetMenu = false; fire("UNIT_MAXPOWER")
 assert(not ct._watched and not ct:IsShown(), "option off: gone")
-R0.targetMenu, R0.bars.enemyhealth.show, R0.bars.enemyhealth.beside = true, false, false; fire("UNIT_MAXPOWER")
+R0.targetMenu, R0.bars.enemyhealth.show = true, false; fire("UNIT_MAXPOWER")
 assert(not ct._watched, "enemy health hidden: no button")
--- your pet and your target's target: a menu each, shown by the unit watch; hung on another bar,
--- theirs hangs on that bar's button
+-- your pet and your target's target: a menu each, shown by the unit watch, on their own columns
 S.PB, S.TT = R0.bars.pethealth, R0.bars.tothealth
-S.PB.show, S.PB.anchor, S.petHP = true, "left", 100; fire("UNIT_PET", "player")
+S.PB.show, S.petHP = true, 100; fire("UNIT_PET", "player")
 S.cpet = WolfpackAddonClickerPet
 assert(S.cpet and S.cpet._attr.unit == "pet" and S.cpet._attr.type2 == "togglemenu" and S.cpet._watched,
     "pet: a menu, while there is a pet")
 assert(S.cpet._attr.type1 == "target", "left click targets your pet")
-assert(S.cpet._point[1] == "TOPRIGHT" and S.cpet._point[2] == WolfpackAddonClicker and S.cpet._point[3] == "TOPLEFT"
-    and S.cpet._point[4] == -R0.gap and S.cpet._w == S.PB.width and S.cpet._h == WolfpackAddonClicker._h,
-    "left of your health's button, its height")
-S.PB.anchor = "below"; fire("UNIT_PET", "player")
-assert(S.cpet._point[1] == "TOPLEFT" and S.cpet._point[3] == "BOTTOMLEFT" and S.cpet._point[5] == -R0.gap
-    and S.cpet._w == WolfpackAddonClicker._w and S.cpet._h == S.PB.height, "below it, its width")
+assert(S.cpet._point[2] == UIParent and S.cpet._point[4] == R0.x - 334 - S.PB.width and S.cpet._w == S.PB.width,
+    "over the pet's column")
 R0.petMenu = false; fire("UNIT_PET", "player")
 assert(not S.cpet._watched, "pet menu off")
-R0.petMenu, S.PB.show, S.PB.anchor, S.petHP = true, false, "stack", nil
-R0.bars.enemyhealth.show, S.TT.show, S.TT.anchor = true, true, "right"; fire("UNIT_MAXPOWER")
+R0.petMenu, S.PB.show, S.petHP = true, false, nil
+R0.bars.enemyhealth.show, S.TT.show = true, true; fire("UNIT_MAXPOWER")
 S.ctot = WolfpackAddonClickerToT
-assert(S.ctot and S.ctot._attr.unit == "targettarget" and S.ctot._attr.type1 == "target" and S.ctot._watched and S.ctot._point[2] == WolfpackAddonClickerTarget
-    and S.ctot._point[3] == "TOPRIGHT" and S.ctot._point[4] == R0.gap, "target of target: right of enemy health's button")
-S.TT.anchor = "below"; fire("UNIT_MAXPOWER")
-assert(S.ctot._point[1] == "BOTTOMLEFT" and S.ctot._point[3] == "BOTTOMLEFT" and S.ctot._h == S.TT.height
-    and S.ctot:GetFrameLevel() > WolfpackAddonClickerTarget:GetFrameLevel(), "below: the bottom of enemy health's slot, over its button")
-S.TT.show, S.TT.anchor, R0.bars.enemyhealth.show = false, "right", false; fire("UNIT_MAXPOWER")
+assert(S.ctot and S.ctot._attr.unit == "targettarget" and S.ctot._attr.type1 == "target" and S.ctot._watched
+    and S.ctot._point[4] == R0.x + 334 and S.ctot._w == S.TT.width, "target of target: over its column")
+S.TT.show, R0.bars.enemyhealth.show = false, false; fire("UNIT_MAXPOWER")
 
 -- Quest mobs: sword for open kill objectives, bag for open item objectives, from the tooltip
 local L = Enum.TooltipDataLineType
@@ -2057,7 +1991,11 @@ SlashCmdList.WOLFPACKADDON("")
 local boxes = {} -- profile name, gap, group X/Y, width, height, extra above/below, offset X/Y, border,
 -- text size, quest row X/Y/spacing, kill size, loot size, highlight opacity, icon size/X/Y
 for _, f in ipairs(created) do if f._kind == "EditBox" then boxes[#boxes + 1] = f end end
-local nameBox, gapBox, xBox, yBox = boxes[1], boxes[2], boxes[3], boxes[4]
+local nameBox, gapBox, xBox, yBox = boxes[1], boxes[2], boxes[4], boxes[5]
+boxes[3]._text = "180"; boxes[3]._scripts.OnEnterPressed(boxes[3])
+assert(prof().regular.centerWidth == 180 and fr.combo._w == 220 and fr.power._point[4] == -110, "the middle column: bars keep their width")
+assert(fr.health._point[4] == -90 - 2 - 220, "your health moves in with it")
+prof().regular.centerWidth = 220
 gapBox._text = "7"; gapBox._scripts.OnEnterPressed(gapBox)
 assert(prof().regular.gap == 7 and gapBox._text == "7", "typed gap")
 gapBox._text = "999"; gapBox._scripts.OnEditFocusLost(gapBox)
@@ -2074,14 +2012,15 @@ assert(prof().regular.y == -50 and yBox._text == "-50", "junk input ignored")
 local mover -- the unnamed frame with drag + right-click handlers
 for _, f in ipairs(created) do if f._scripts.OnMouseUp and f._scripts.OnDragStart and not f._name then mover = f end end
 mover._scripts.OnDragStart(mover); mover._scripts.OnUpdate(mover); mover._scripts.OnDragStop(mover)
-assert(prof().regular.x == 0 and prof().regular.y == 50 and not mover._scripts.OnUpdate, "drag stores coordinates")
+assert(prof().regular.x == 0 and prof().regular.y == 50 - ns.gridTop and not mover._scripts.OnUpdate,
+    "drag stores the line (the top, less what is above the line)")
 
 -- Sidebar: Nameplates is the enemy nameplate, its health bar and its cast bar, apart from
 -- Combat Display; the bar picked there comes back on leaving
 byText("Nameplates")._scripts.OnClick(byText("Nameplates"), "LeftButton")
 assert(gapBox._text == "2" and xBox._text == "0" and yBox._text == "0", "the nameplate's own values")
 gapBox._text = "4"; gapBox._scripts.OnEnterPressed(gapBox)
-boxes[5]._text = "130"; boxes[5]._scripts.OnEnterPressed(boxes[5])
+boxes[6]._text = "130"; boxes[6]._scripts.OnEnterPressed(boxes[6])
 assert(prof().plates.gap == 4 and prof().plates.bars.enemyhealth.width == 130, "nameplate edits")
 assert(ns.np.preview:IsShown() and ns.np.preview.width == 130 and ns.np.preview._point[2] == ns.cfg,
     "a preview plate beside the window while the page is open")
@@ -2089,7 +2028,7 @@ assert(not byText("Target bars") and byText("Health"), "one nameplate: no second
 ns.tagAnchorMenus.name:GenerateMenu()
 assert(#ns.tagAnchorMenus.name._items == 9 and ns.tagAnchorMenus.name._items[4].sel(), "nine anchor points, Top picked")
 byText("Cast bar")._scripts.OnClick(byText("Cast bar"), "LeftButton")
-boxes[5]._text = "100"; boxes[5]._scripts.OnEnterPressed(boxes[5])
+boxes[6]._text = "100"; boxes[6]._scripts.OnEnterPressed(boxes[6])
 assert(prof().plates.bars.targetcast.width == 100 and prof().plates.bars.enemyhealth.width == 130, "its cast bar")
 assert(ns.np.preview.castBar:IsShown() and ns.np.preview.castBar.width == 100, "previewed under it")
 assert(prof().regular.gap == 30 and prof().regular.x == 0 and prof().regular.bars.health.width == 220, "regular untouched")
@@ -2097,8 +2036,8 @@ assert(prof().regular.gap == 30 and prof().regular.x == 0 and prof().regular.bar
 local function click(t) byText(t)._scripts.OnClick(byText(t), "LeftButton") end
 click("Targeted")
 byText("Health")._scripts.OnClick(byText("Health"), "LeftButton")
-assert(boxes[5]._text == tostring(prof().platesTarget.bars.enemyhealth.width), "the targeted look's values")
-boxes[5]._text = "160"; boxes[5]._scripts.OnEnterPressed(boxes[5])
+assert(boxes[6]._text == tostring(prof().platesTarget.bars.enemyhealth.width), "the targeted look's values")
+boxes[6]._text = "160"; boxes[6]._scripts.OnEnterPressed(boxes[6])
 assert(prof().platesTarget.bars.enemyhealth.width == 160 and prof().plates.bars.enemyhealth.width == 130,
     "edits the targeted look only")
 assert(ns.np.preview.mode == "platesTarget" and ns.np.preview.width == 160, "the preview wears it")
@@ -2106,9 +2045,9 @@ click("Trail")
 assert(ns.trailPage:IsShown() and not ns.pages.combat:IsShown(), "the trail opens in place of a bar")
 click("Standard")
 assert(ns.pages.combat:IsShown() and not ns.trailPage:IsShown() and ns.np.preview.mode == "plates"
-    and boxes[5]._text == "130", "back on the standard look")
+    and boxes[6]._text == "130", "back on the standard look")
 byText("Combat Display")._scripts.OnClick(byText("Combat Display"), "LeftButton")
-assert(not ns.np.preview:IsShown() and boxes[5]._text == "220", "back on Combat Display's health bar")
+assert(not ns.np.preview:IsShown() and boxes[6]._text == "220", "back on Combat Display's health bar")
 -- every sidebar entry is really there, opens its page, and that page has settings on it
 -- the class pages are gone: no Mage, Rogue, Shaman or Warlock entry, nor their settings
 for _, name in ipairs({ "Mage", "Warlock", "Shaman" }) do assert(not byText(name), name .. " is gone") end
@@ -2123,7 +2062,7 @@ assert(ns.cfg._w == 680, "a third narrower than the old 998")
 local function regionWithText(page, text)
     for _, r in ipairs({ page:GetRegions() }) do if r._text == text then return r end end
 end
-local colors, bars = regionWithText(ns.pages.combat, "Colors"), regionWithText(ns.pages.combat, "Bars, top to bottom")
+local colors, bars = regionWithText(ns.pages.combat, "Colors"), regionWithText(ns.pages.combat, "Bars")
 assert(bars._point[2] == 28 and bars._point[3] == -112, "column 1 stays")
 assert(colors._point[1] == "TOPLEFT" and colors._point[2] == ns.pages.combat and colors._point[4] == 28
     and colors._point[5] < -400, "column 3 moved under column 1")
@@ -2461,11 +2400,12 @@ prof().other.hideGryphons = true; fire("UNIT_MAXPOWER")
 assert(caps.LeftEndCap.Texture._alpha == 0 and caps.RightEndCap.Texture._alpha == 0, "hidden")
 prof().other.hideGryphons = false; fire("UNIT_MAXPOWER")
 assert(caps.LeftEndCap.Texture._alpha == 1, "shown again")
-local opBox = boxes[37] -- highlight opacity (%), after the party/raid one and the target trail's nine
+local opBox = boxes[38] -- highlight opacity (%), after the party/raid one and the target trail's nine
 opBox._text = "60"; opBox._scripts.OnEnterPressed(opBox)
 assert(math.abs(prof().regular.highlight.color[4] - 0.6) < 1e-9 and opBox._text == "60", "opacity typed")
 -- Enemy health's resource settings open in a window beside the options, only for that bar
 byText("Combat Display")._scripts.OnClick(byText("Combat Display"), "LeftButton")
+prof().regular.bars.enemyhealth.resource = true -- off by default: Enemy Power is a bar of its own
 local rb = byText("Resource settings")
 byText("Enemy Health")._scripts.OnClick(byText("Enemy Health"), "LeftButton")
 assert(rb:IsShown() and not ns.resDialog:IsShown(), "a button for it, closed")
@@ -3130,7 +3070,7 @@ assert(#bad == 32 and bp.evil == nil and bp.locked == true, "unknown key dropped
 assert(bp.other.hover.bar1 and bp.other.hover.nope == nil and bp.other.hover.bar2 == nil, "hover: known and true only")
 assert(bp.other.combatFont == "", "unknown combat font path refused")
 assert(bp.regular.gap == 2 and bp.regular.x == 0, "out-of-range numbers defaulted")
-assert(bp.regular.order[1] == "health" and bp.regular.order[2] == "castbar" and #bp.regular.order == 16, "order repaired")
+assert(bp.regular.order[1] == "health" and bp.regular.order[2] == "castbar" and #bp.regular.order == 18, "order repaired")
 local ns2 = bp.plates.bars.power.stops
 assert(#ns2 == 2 and ns2[1].pos == 10 and ns2[2].pos == 90 and ns2[1].color[1] == 1, "gradient points checked")
 local hb2 = bp.regular.bars.health
@@ -3235,7 +3175,7 @@ for _, m in ipairs({ "regular", "plates" }) do
     for _, k in ipairs(prof()[m].order) do seen[k] = true end
     assert(seen.health and seen.power and seen.combo and seen.druidmana and seen.castbar and seen.pethealth
         and seen.swing and seen.totems and seen.absorb and seen.flight and seen.targetcast
-        and seen.enemyhealth and #prof()[m].order == 16, "order intact")
+        and seen.enemyhealth and #prof()[m].order == 18, "order intact")
 end
 
 -- Totems: four element segments, each draining on its own; the bar is shaman-only and
@@ -3749,20 +3689,14 @@ C_Container.GetContainerNumFreeSlots = function(bag) return 0, bag == 2 and 1 or
 C_Container.GetContainerNumSlots = function(bag) return 4 end
 C_Item = C_Item or {}
 C_Item.GetItemMaxStackSizeByID = function() return 200 end
-S.AM.show, S.AM.anchor, S.AM.width = true, "right", 60; fire("UNIT_MAXPOWER")
+S.AM.show, S.AM.width = true, 60; fire("UNIT_MAXPOWER")
 assert(not ns.hn.panel:IsShown(), "no panel any more")
 S.af = fr.ammo
-assert(S.af:IsShown() and S.af._w == 60 and fr.power._w == S.PW.width - 60 - prof().regular.gap
-    and S.af._point[2] == fr.power and S.af._point[3] == "TOPRIGHT", "right of the power bar, sharing its width")
+assert(S.af:IsShown() and S.af._w == 60 and fr.power._w == S.PW.width and S.af._point[2] == WolfpackAddonFrame
+    and S.af._point[4] == -30 and S.af._point[5] < fr.power._point[5], "in the middle column under power, its own width")
 assert(S.af.segs[1]._value == 143 and S.af.segs[1]._max == 800 and S.af.text._text == "143",
     "143 arrows, of a quiver of 4 x 200")
 assert(S.af.segs[1]._sbc[1] == 0.67, "the hunter class color")
-S.AM.anchor = "left"; fire("UNIT_MAXPOWER")
-assert(S.af._point[2] == WolfpackAddonFrame and fr.power._point[4] == S.PW.x - S.PW.width / 2 + 60 + prof().regular.gap,
-    "or on its left")
-S.AM.anchor = "stack"; fire("UNIT_MAXPOWER")
-assert(fr.power._w == S.PW.width and S.af._point[1] == "TOP", "in the stack: a bar like any other")
-S.AM.anchor = "right"
 S.dot = fr.pethealth.happyDot
 assert(S.dot and S.dot:IsShown() and S.dot.tex._vertex[2] == 0.85 and S.dot.tex._masks[S.dot.mask],
     "a happy pet: a green round dot on its bar")
@@ -4686,19 +4620,10 @@ do
     assert(cb and cb.n == 2 and icons[1]:IsShown() and icons[2].missing and not icons[1].missing, "two icons, one missing")
     ns.cbTick(cb, 0.5)
     assert(icons[2]._alpha < 1 and icons[1]._alpha == 1, "the missing one flashes")
-    assert(f.auraBoxes.buffs._points[1][2] == cb, "buffs hang on the class buffs")
-    -- the class buffs on the center line: buffs hung on them line up there too, on their own edge
-    hp.selfbuffs.anchorTo, hp.selfbuffs.lineEdge, hp.selfbuffs.spot, hp.selfbuffs.y = "line", "center", "topleft", 3
-    hp.buffs.lineEdge, hp.buffs.x, hp.buffs.y, hp.auraLineGap, hp.auraGroupGap = "bottom", 0, 0, 1, 4
-    fire("UNIT_AURA", "player")
+    -- the class buffs open the buffs row; your other buffs follow them, the group gap apart
     local pt = f.auraBoxes.buffs._points[1]
-    assert(pt[1] == "BOTTOMLEFT" and pt[2] == cb and pt[3] == "RIGHT" and pt[4] == 4 and pt[5] == 1 - 3,
-        "beside them, its bottom edge on the line")
-    hp.selfbuffs.spot = "lefttop" -- they grow left: the buffs go on, left of them
-    fire("UNIT_AURA", "player")
-    pt = f.auraBoxes.buffs._points[1]
-    assert(pt[1] == "BOTTOMRIGHT" and pt[3] == "LEFT" and pt[4] == -4, "left of them")
-    hp.selfbuffs.anchorTo, hp.selfbuffs.spot, hp.selfbuffs.y = "bar", "righttop", 0
+    assert(cb._points[1][2] == ns.auraSlots.buffs and pt[1] == "TOPLEFT" and pt[2] == cb and pt[3] == "TOPRIGHT"
+        and pt[4] == hp.auraGroupGap, "buffs after the class buffs, on one row")
     hp.buffs.anchorTo = "bar"
     -- a rogue: a poison on each weapon there is
     login("ROGUE", 3)

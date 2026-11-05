@@ -188,9 +188,10 @@ end
 
 local function layoutDefaults(show, x, y, gap, width, h1, h2, h3, h4, h5, h6, h7, h8, h9, h10)
     local l = {
-        x = x, y = y, gap = gap, grow = "down", -- "up": the group's bottom edge stays put instead
+        -- centerWidth: the Combat Display's middle column (your target's debuffs, power...)
+        x = x, y = y, gap = gap, centerWidth = width,
         order = { "health", "enemyhealth", "tothealth", "power", "combo", "druidmana", "castbar", "targetcast", "pethealth",
-            "swing", "totems", "absorb", "flight", "experience", "ammo", "durability" },
+            "swing", "totems", "absorb", "flight", "experience", "ammo", "durability", "enemypower", "focushealth" },
         bars = {
             health = barDefaults(show, width, h1, 0.2, 0.8, 0.2, show),
             power = barDefaults(show, width, h2, 1, 0.85, 0.1, show),
@@ -210,18 +211,19 @@ local function layoutDefaults(show, x, y, gap, width, h1, h2, h3, h4, h5, h6, h7
             durability = barDefaults(false, width, h2, 0.85, 0.7, 0.3, true),
             -- the color is picked from what is being cast, so its own is only a fallback
             targetcast = barDefaults(false, width, h5, 0.8, 0.3, 0.3, true),
-            -- your target's health; its resource (mana, rage...) always sits right under it
-            enemyhealth = barDefaults(false, width, h1, 0.8, 0.25, 0.2, show),
-            -- your target's target; it can hang below or right of enemy health instead of stacking
-            tothealth = barDefaults(false, width, math.max(4, math.floor(h1 * 0.4)), 0.8, 0.25, 0.2, false),
+            -- your target's health
+            enemyhealth = barDefaults(show, width, h1, 0.8, 0.25, 0.2, show),
+            -- your target's target, right of enemy health
+            tothealth = barDefaults(show, width, h1, 0.8, 0.25, 0.2, false),
+            enemypower = barDefaults(show, width, h2, 0.2, 0.4, 1, show), -- your target's resource
+            focushealth = barDefaults(show, 90, h1, 0.8, 0.25, 0.2, false), -- your focus
         },
     }
-    -- beside: right of your health bar, the two sharing its width and its height. The resource
-    -- sits inside the health bar: width in percent of it, x/y from its bottom center.
+    -- The resource sits inside the health bar: width in percent of it, x/y from its bottom center.
     -- Health, power and enemy health: three numbers, each with its own switch, spot, size and
     -- color (the bar's font and outline). textsSet: useProfile has moved an older profile's text
     -- size and color onto "current" (once).
-    for _, key in ipairs({ "health", "power", "enemyhealth", "experience" }) do
+    for _, key in ipairs({ "health", "power", "enemyhealth", "experience", "enemypower" }) do
         local function num(show, anchor, x)
             return { show = show, anchor = anchor, x = x, y = 0, size = 10, color = { 1, 1, 1, 1 } }
         end
@@ -230,7 +232,7 @@ local function layoutDefaults(show, x, y, gap, width, h1, h2, h3, h4, h5, h6, h7
         l.bars[key].textsSet = false
     end
     local eh = l.bars.enemyhealth
-    eh.beside, eh.resource = false, true
+    eh.resource = false -- inside the bar: nameplates have it; the Combat Display has Enemy Power
     eh.resHeight, eh.resWidth, eh.resX, eh.resY = math.max(2, math.floor(h1 / 4)), 90, 0, 3
     -- resPlace "inside": drawn over the bar at its point resPoint; "outside": hung on the bar's
     -- edge at resPoint (BOTTOM: underneath it, TOPLEFT: above its left end...)
@@ -272,35 +274,33 @@ local function layoutDefaults(show, x, y, gap, width, h1, h2, h3, h4, h5, h6, h7
     -- drinking: the name reads "Drinking!" instead, flashing, in this color
     eh.drinking = { show = true, color = { 0.35, 0.75, 1, 1 } }
     eh.eating = { show = true, color = { 1, 0.8, 0.3, 1 } } -- ... and "Eating!" while it eats
-    -- target of target: anchor "stack" (like any bar), "below" enemy health (the two then share
-    -- enemy health's height: your health's while beside it) or "right" of it (its height, own
-    -- width). It has enemy health's level and name, the name shown.
-    -- your pet: anchor "stack", "below" your health (your health's width; enemy health beside you
-    -- grows to match the two), or "left" / "right" of it (its height, own width)
-    l.bars.pethealth.anchor = "stack"
     -- hunters: a dot on the pet bar in its happiness color, the ammo count on the power bar
     l.bars.pethealth.happy = { show = true, point = "LEFT", x = 6, y = 0, size = 8 }
+    l.bars.pethealth.width = 120 -- its own column, left of your health
     -- while you drink: a text of your own on the power bar (the bar's font)
     l.bars.power.drinkText = { show = true, text = "Drinking", point = "LEFT", x = 4, y = 0, size = 10,
         color = { 0.35, 0.75, 1, 1 } }
     -- ... and while you eat, the same on your health bar
     l.bars.health.eatText = { show = true, text = "Eating", point = "LEFT", x = 4, y = 0, size = 10,
         color = { 1, 0.8, 0.3, 1 } }
-    -- the ammo bar: beside the power bar ("left" / "right": the two share its width) or in the stack
-    l.bars.ammo.anchor, l.bars.ammo.colorMode, l.bars.ammo.hunterSet = "right", "class", false
-    local tt = l.bars.tothealth
-    tt.anchor, tt.width, tt.colorMode = "right", 90, "class"
+    l.bars.ammo.colorMode, l.bars.ammo.hunterSet = "class", false
+    l.bars.enemypower.colorMode = "power"
+    local tt, fo = l.bars.tothealth, l.bars.focushealth
+    tt.width, tt.colorMode, fo.colorMode = 90, "class", "class"
     local function copy(v)
         if type(v) ~= "table" then return v end
         local t = {}
         for k, x in pairs(v) do t[k] = copy(x) end
         return t
     end
-    for _, k in ipairs({ "tagLevel", "tagName", "tagFont", "tagSize", "tagOutline", "tagAnchor", "tagX", "tagY",
-        "tagNameColor", "nameAnchor", "nameX", "nameY", "tagAttach", "tagBg", "nameBg", "drinking", "eating" }) do
-        tt[k] = copy(eh[k])
+    -- both wear enemy health's level and name, the name shown
+    for _, b in ipairs({ tt, fo }) do
+        for _, k in ipairs({ "tagLevel", "tagName", "tagFont", "tagSize", "tagOutline", "tagAnchor", "tagX", "tagY",
+            "tagNameColor", "nameAnchor", "nameX", "nameY", "tagAttach", "tagBg", "nameBg", "drinking", "eating" }) do
+            b[k] = copy(eh[k])
+        end
+        b.tagLevel, b.tagName, b.nameX = false, true, 4
     end
-    tt.tagLevel, tt.tagName, tt.nameX = false, true, 4
     -- your health: a status icon (the combat icon in a fight, else rested while resting) and
     -- your own PvP flag
     -- resting: the Zzz icon, or your own text (bar's font and size, its own color), whose letters
@@ -500,8 +500,9 @@ DEFAULTS.hunter = {
     color = { 1, 1, 1, 1 }, lowColor = { 1, 0.4, 0.4, 1 },
 }
 
--- the old "Target health beside it" switch; useProfile turns it into Enemy Health beside you
+-- the old "Target health beside it" switch; useProfile turns it into Enemy Health
 DEFAULTS.regular.bars.health.target = false
+DEFAULTS.regular.gridSet = false -- see useProfile
 DEFAULTS.regular.hidePlayerFrame = false -- hide Blizzard's player unit frame
 DEFAULTS.regular.hideTargetFrame = false -- hide Blizzard's target unit frame
 DEFAULTS.regular.hideXPBar = false       -- hide Blizzard's experience bar
@@ -895,8 +896,26 @@ local BARS = {
             return UnitHealth(unit), UnitHealthMax(unit)
         end,
     },
+    -- your target's mana, rage, energy...: a bar of its own under enemy health
+    enemypower = {
+        label = "Enemy Power",
+        state = function() return (UnitExists("target") or ns.previewing()) and true or false, 1 end,
+        value = function(unit)
+            if not UnitExists(unit) then return 1, 1 end -- previewing: a full bar
+            local t = UnitPowerType(unit)
+            return UnitPower(unit, t), UnitPowerMax(unit, t)
+        end,
+    },
+    focushealth = {
+        label = "Focus",
+        state = function() return (UnitExists("focus") or ns.previewing()) and true or false, 1 end,
+        value = function(unit)
+            if not UnitExists(unit) then return 1, 1 end -- previewing: a full bar
+            return UnitHealth(unit), UnitHealthMax(unit)
+        end,
+    },
     -- only out of combat (and while placing the bars); see ns.wb
-    durability = { label = "Durability", state = function() return ns.wb.shown("durability"), 1 end },
+    durability ={ label = "Durability", state = function() return ns.wb.shown("durability"), 1 end },
     druidmana = {
         label = "Druid Mana",
         -- in caster form the power bar already is mana
@@ -915,20 +934,16 @@ local anchor = CreateFrame("Frame", "WolfpackAddonFrame", UIParent)
 anchor:SetMovable(true)
 anchor:SetClampedToScreen(true)
 
--- The pinned edge decides which way the stack grows when a bar joins or leaves: pin the top and
--- it grows down, pin the bottom and it grows up.
-local function growEdge(L) return L.grow == "up" and "BOTTOM" or "TOP" end
-
+-- Position = the middle of the center line, in pixels from the screen center. The frame is all
+-- of the bars, ns.gridTop of it above the line (see stack).
 local function place()
     anchor:ClearAllPoints()
-    anchor:SetPoint(growEdge(db.regular), UIParent, "CENTER", db.regular.x, db.regular.y)
+    anchor:SetPoint("TOP", UIParent, "CENTER", db.regular.x, db.regular.y + (ns.gridTop or 0))
 end
 
--- Position = the pinned edge's center, in pixels from the screen center.
 local function coords()
     local ux, uy = UIParent:GetCenter()
-    local edge = db.regular.grow == "up" and anchor:GetBottom() or anchor:GetTop()
-    return math.floor(anchor:GetCenter() - ux + 0.5), math.floor(edge - uy + 0.5)
+    return math.floor(anchor:GetCenter() - ux + 0.5), math.floor(anchor:GetTop() - (ns.gridTop or 0) - uy + 0.5)
 end
 
 -- Drag handle shown while unlocked; sits above the bars.
@@ -976,7 +991,7 @@ for key in pairs(BARS) do
 end
 -- Enemy health reads your target; its resource bar sits inside it and wears its look
 for _, set in ipairs({ frames }) do
-    set.tothealth.unit = "targettarget"
+    set.tothealth.unit, set.focushealth.unit, set.enemypower.unit = "targettarget", "focus", "target"
     local f = set.enemyhealth
     f.unit = "target"
     f.resFrame = newBar(f, "enemyhealth", f.mode)
@@ -2342,19 +2357,6 @@ function ns.cbTick(box, dt)
     if box.host:IsShown() then pcall(ns.layoutAuras, box.host) end
 end
 
--- A group hung on the class buffs while they sit on the center line: next along the line from
--- them (the way they grow), with its own edge on the line. Their point on it is known, so the
--- difference between the two is the offset.
-local function lineV(gp) return gp:match("^TOP") and "TOP" or gp:match("^BOTTOM") and "BOTTOM" or "" end
-function ns.besideOnLine(co, o, gap, lineGap, cb)
-    local cgp, _, _, cy = ns.linePlace(co, false, lineGap)
-    local bgp, _, _, by = ns.linePlace(o, false, lineGap)
-    local cv, bv = lineV(cgp), lineV(bgp)
-    if (ns.LINE_SIDES[co.spot] or ns.LINE_SIDES.righttop)[1] == "RIGHT" then -- they grow left
-        return bv .. "RIGHT", cb, cv .. "LEFT", o.x - gap, by - cy
-    end
-    return bv .. "LEFT", cb, cv .. "RIGHT", o.x + gap, by - cy
-end
 
 -- Each group lives in a box as big as its icons; the box hangs on the bar or on the other
 -- group's box. Both on each other would hang in the air, so then buffs take the bar. One that
@@ -2378,19 +2380,7 @@ function ns.layoutAuras(f)
         end
         cb = f.auraBoxes.selfbuffs
     end
-    -- with target of target hung on enemy health, or your pet on your health, "the bar" is the
-    -- two together (a pet on the left starts the block)
-    local host, other = f, nil
-    if f.mode == "regular" and f.key == "enemyhealth" and ns.totPlaced() then other = frames.tothealth end
-    if f.mode == "regular" and f.key == "health" and ns.petPlaced() then other = frames.pethealth end
-    if other then
-        local first = (other == frames.pethealth and db.regular.bars.pethealth.anchor == "left") and other or f
-        f.span = f.span or CreateFrame("Frame", nil, f)
-        f.span:ClearAllPoints()
-        f.span:SetPoint("TOPLEFT", first, "TOPLEFT")
-        f.span:SetPoint("BOTTOMRIGHT", first == f and other or f, "BOTTOMRIGHT")
-        host = f.span
-    end
+    local host = f
     for _, k in ipairs(keys) do
         local o, icons, box = c[k], f.auraIcons[k], f.auraBoxes[k]
         local corner, g, w = ns.auraDirs(o)
@@ -2470,20 +2460,10 @@ function ns.layoutAuras(f)
             box.n = n
         end
     end
+    if f.mode == "regular" then return ns.gridAuras(f) end -- rows of the Combat Display's grid
     -- both loose first: either may still hang on the other from last time (a loop, refused)
     f.auraBoxes.buffs:ClearAllPoints()
     f.auraBoxes.debuffs:ClearAllPoints()
-    if cb then -- the class buffs hang on the bar or the line, never on the others
-        local o = c.selfbuffs
-        local corner, _, _, sp = ns.auraDirs(o)
-        cb:ClearAllPoints()
-        if o.anchorTo == "line" then
-            local gp, hp, x, y = ns.linePlace(o, false, c.auraLineGap or 0)
-            cb:SetPoint(gp, host, hp, x, y)
-        else
-            cb:SetPoint(corner, host, sp[1], o.x, o.y)
-        end
-    end
     for _, k in ipairs({ "buffs", "debuffs" }) do -- now that both know how many they hold
         local o, box = c[k], f.auraBoxes[k]
         local other = k == "buffs" and "debuffs" or "buffs"
@@ -2491,15 +2471,7 @@ function ns.layoutAuras(f)
         local toOther = o.anchorTo == "other" and not (k == "buffs" and c.debuffs.anchorTo == "other")
         local into = f.auraBoxes[other]
         local alone = (into.n or 0) == 0
-        -- on the class buffs (or on the other group, empty and on them), the group gap away
-        if cb and (o.anchorTo == "class" or toOther and alone and c[other].anchorTo == "class") then
-            local gap = (cb.n or 0) > 0 and c.auraGroupGap or 0
-            if c.selfbuffs.anchorTo == "line" then -- beside them on the line, on its own edge of it
-                box:SetPoint(ns.besideOnLine(c.selfbuffs, o, gap, c.auraLineGap or 0, cb))
-            else
-                box:SetPoint(corner, cb, sp[1], o.x + sp[2] * gap, o.y + sp[3] * gap)
-            end
-        elseif o.anchorTo == "line" then -- on the center line; alone on it, centered
+        if o.anchorTo == "line" then -- on the center line; alone on it, centered
             local gp, hp, x, y = ns.linePlace(o, alone, c.auraLineGap or 0)
             box:SetPoint(gp, host, hp, x, y)
         elseif toOther and alone and c[other].anchorTo == "line" then -- the empty one's place on the line
@@ -2687,79 +2659,6 @@ function ns.layoutBadges(f)
         end
     end
     if f.tag_name then ns.centerTag(f) end -- a PvP tag beside the name widens the row
-end
-
-------------------------------------------------------------------------------------------
--- Target of target, hung on enemy health (your Combat Display only; on nameplates it stacks)
-------------------------------------------------------------------------------------------
-function ns.totPlaced()
-    local t = db.regular.bars.tothealth
-    return (t.show and t.anchor ~= "stack" and (UnitExists("targettarget") or ns.previewing())) and true or false
-end
-function ns.totBelow() return ns.totPlaced() and db.regular.bars.tothealth.anchor == "below" end
-function ns.totShare() return db.regular.bars.tothealth.height + db.regular.gap end -- what it takes below
-
--- the ammo bar beside the power bar (your Combat Display only)
-function ns.ammoBeside()
-    local a = db.regular.bars.ammo
-    return (a.show and a.anchor ~= "stack" and BARS.ammo.state()) and true or false
-end
-
--- your pet, hung on your health
-function ns.petPlaced()
-    local c = db.regular.bars.pethealth
-    return (c.show and c.anchor ~= "stack" and (UnitExists("pet") or ns.previewing())) and true or false
-end
-function ns.petBelow() return ns.petPlaced() and db.regular.bars.pethealth.anchor == "below" end
-
--- Below your health it is part of the stack: placed right under it, as wide as it is; returns
--- the room it takes.
-function ns.petUnder(hf)
-    if not ns.petBelow() then return 0 end
-    local c, pf, gap = db.regular.bars.pethealth, frames.pethealth, db.regular.gap
-    pf:Show()
-    layoutBar(pf, 1, hf.width)
-    pf:ClearAllPoints()
-    pf:SetPoint("TOPLEFT", hf, "BOTTOMLEFT", 0, -gap)
-    ns.fill(pf)
-    ns.layoutHappy(pf)
-    return gap + c.height
-end
-
-function ns.placePet()
-    local c, pf, hf, gap = db.regular.bars.pethealth, frames.pethealth, frames.health, db.regular.gap
-    if c.anchor == "stack" then return end
-    local on = (ns.petPlaced() and hf:IsShown()) and true or false
-    pf:SetShown(on)
-    if not on or c.anchor == "below" then return end -- below: the stack placed it
-    layoutBar(pf, 1, c.width, { height = hf:GetHeight() }) -- your health's height, its own width
-    pf:ClearAllPoints()
-    if c.anchor == "left" then
-        pf:SetPoint("TOPRIGHT", hf, "TOPLEFT", -gap, 0)
-    else
-        pf:SetPoint("TOPLEFT", hf, "TOPRIGHT", gap, 0)
-    end
-    ns.fill(pf)
-    ns.layoutHappy(pf)
-end
-
-function ns.placeToT()
-    local c, tf, ef = db.regular.bars.tothealth, frames.tothealth, frames.enemyhealth
-    if c.anchor == "stack" then return end
-    local on = (ns.totPlaced() and ef:IsShown()) and true or false
-    tf:SetShown(on)
-    if not on then return end
-    local gap = db.regular.gap
-    tf:ClearAllPoints()
-    if c.anchor == "below" then -- enemy health's width, its own height
-        layoutBar(tf, 1, ef.width)
-        tf:SetPoint("TOPLEFT", ef, "BOTTOMLEFT", 0, -gap)
-    else -- enemy health's height, its own width
-        layoutBar(tf, 1, c.width, { height = ef:GetHeight() })
-        tf:SetPoint("TOPLEFT", ef, "TOPRIGHT", gap, 0)
-    end
-    ns.fill(tf)
-    ns.layoutTag(tf)
 end
 
 ------------------------------------------------------------------------------------------
@@ -3048,85 +2947,208 @@ local function questLogChanged()
     for unit in pairs(plateUnits) do evalQuest(unit) end
 end
 
--- Lays out one stack: shown bars in order, touching with the gap. Each bar sits in its slot
--- plus its own x/y offset; offsets don't push the other bars around.
-local function stack(container, set, L, on, swings)
-    local w, h = 0, 0
-    for _, key in ipairs(L.order) do
-        local f, c = set[key], L.bars[key]
-        local shown, n = BARS[key].state()
-        shown = (on and shown and c.show) and true or false
-        if key == "enemyhealth" and c.beside and L == db.regular then shown = false end -- Refresh places it
-        if key == "experience" and c.hideInCombat and ns.inCombat and not ns.previewing() then shown = false end
-        -- hung on another bar (your Combat Display only): placed with that bar, or by Refresh
-        local hung = L == db.regular and (key == "tothealth" or key == "pethealth" or key == "ammo")
-            and c.anchor ~= "stack"
-        if key == "swing" then -- one row per ticked weapon, sharing this bar's settings
-            for i, kind in ipairs(SWING_TYPES) do
-                local sf = swings[i]
-                local mine = c.classes and c.classes[class or ""] or c -- your class's ticks
-                local rowShown = (shown and mine[kind[1]] and (swingActive(kind[3]) or ns.previewing())) and true or false
-                sf:SetShown(rowShown)
-                if rowShown then
-                    layoutBar(sf, 1)
-                    ns.fill(sf)
-                    if h > 0 then h = h + L.gap end
-                    h = h + c.padTop
-                    sf:ClearAllPoints()
-                    sf:SetPoint("TOP", container, "TOP", c.x, c.y - h)
-                    h = h + c.height + c.padBottom
-                    w = math.max(w, c.width)
+-- The Combat Display, in columns around a center line. On the line: your pet, your health, your
+-- target's debuffs (the center column), your target's health and your target's target. Above
+-- it everything grows up from the line, below it down, and a bar that isn't showing leaves no
+-- gap. The center column is L.centerWidth wide, yours and your target's as wide as the two
+-- health bars, the outer ones as your pet's and your target's target's bars. A bar keeps its own
+-- width, flush with its column's edge nearest the middle, and its x / y nudge it without
+-- pushing the others. With no pet out your health takes the pet's room too; with no target of
+-- target, enemy health takes that one's. "auras:" rows are the health bars' aura groups.
+ns.GRID = {
+    up = { left = { "castbar" }, right = { "targetcast" }, outer = { "focushealth" } },
+    down = { left = { "auras:buffs", "auras:debuffs" },
+        center = { "combo", "totems", "power", "druidmana", "swing", "ammo", "experience", "flight",
+            "durability", "absorb" },
+        right = { "enemypower", "auras:tbuffs" } },
+}
+-- each aura row: its groups, left to right, on which health bar
+ns.AURA_ROWS = { buffs = { "health", "selfbuffs", "buffs" }, debuffs = { "health", "debuffs" },
+    tbuffs = { "enemyhealth", "buffs" }, tdebuffs = { "enemyhealth", "debuffs" } }
+ns.auraSlots = {}
+
+-- how tall an aura row's icons stand (0: none showing)
+function ns.auraRowHeight(row)
+    local r, h = ns.AURA_ROWS[row], 0
+    if not frames[r[1]]:IsShown() then return 0 end
+    local boxes = frames[r[1]].auraBoxes
+    for i = 2, #r do
+        local box = boxes and boxes[r[i]]
+        if box and (box.n or 0) > 0 then h = math.max(h, box:GetHeight()) end
+    end
+    return h
+end
+
+-- An aura row's groups on its slot, side by side from its left; a row grown or shrunk since the
+-- grid last measured it has the grid laid out again.
+function ns.gridAuras(f)
+    local gap = db.regular.bars[f.key].auraGroupGap or 0
+    for row, r in pairs(ns.AURA_ROWS) do
+        local slot = ns.auraSlots[row]
+        if r[1] == f.key and slot then
+            local prev
+            for i = 2, #r do
+                local box = f.auraBoxes[r[i]]
+                if box then
+                    box:ClearAllPoints()
+                    if row == "tdebuffs" then
+                        box:SetPoint("TOP", slot, "TOP")
+                    elseif prev and (prev.n or 0) > 0 then
+                        box:SetPoint("TOPLEFT", prev, "TOPRIGHT", gap, 0)
+                    else
+                        box:SetPoint("TOPLEFT", slot, "TOPLEFT")
+                    end
+                    prev = box
                 end
             end
-            shown = false
-        end
-        if hung then shown = false else f:SetShown(shown) end
-        if shown then
-            -- f.split: the player health bar shares its width with the enemy health bar
-            -- target of target below enemy health: the two share enemy health's slot
-            local over = key == "enemyhealth" and L == db.regular and ns.totBelow()
-                and { height = math.max(2, c.height - ns.totShare()) } or nil
-            -- the ammo bar beside the power bar: the two share its width
-            local ammo = key == "power" and L == db.regular and ns.ammoBeside()
-            local aw = ammo and math.min(L.bars.ammo.width, c.width - L.gap - 1) or 0
-            local width = f.split and (c.width - L.gap) / 2 or (ammo and c.width - aw - L.gap) or nil
-            layoutBar(f, n, width, over)
-            ns.fill(f)
-            if h > 0 then h = h + L.gap end
-            h = h + c.padTop
-            f:ClearAllPoints()
-            if f.split then
-                f:SetPoint("TOPLEFT", container, "TOP", c.x - c.width / 2, c.y - h)
-            elseif ammo then
-                local left = c.x - c.width / 2
-                local af = frames.ammo
-                af:Show()
-                layoutBar(af, 1, aw, { height = c.height })
-                af:ClearAllPoints()
-                if L.bars.ammo.anchor == "left" then
-                    af:SetPoint("TOPLEFT", container, "TOP", left, c.y - h)
-                    f:SetPoint("TOPLEFT", container, "TOP", left + aw + L.gap, c.y - h)
-                else
-                    f:SetPoint("TOPLEFT", container, "TOP", left, c.y - h)
-                    af:SetPoint("TOPLEFT", f, "TOPRIGHT", L.gap, 0)
-                end
-                ns.fill(af)
-            else
-                f:SetPoint("TOP", container, "TOP", c.x, c.y - h)
-            end
-            if f.resFrame or key == "tothealth" then ns.layoutTag(f) end
-            if f.resFrame then ns.layoutRes(f) end
-            if ns.AURA_BARS[key] then ns.layoutAuras(f) end
-            if ns.BADGES[key] then ns.layoutBadges(f) end
-            if key == "pethealth" then ns.layoutHappy(f) end
-            if ns.MEAL_TEXTS[key] then ns.layoutMealText(f) end
-            h = h + (f.circleH or c.height)
-            if key == "health" and L == db.regular then h = h + ns.petUnder(f) end -- your pet below it
-            h = h + c.padBottom
-            w = math.max(w, c.width)
+            if not ns.gridding and ns.auraRowHeight(row) ~= slot.h then ns.relayout() end
         end
     end
-    container:SetSize(h > 0 and w or 20, h > 0 and h or 10) -- keeps an empty stack grabbable while unlocked
+end
+
+local function stack(container, set, L, on, swings)
+    ns.gridding = true -- the aura rows get measured here: no second pass asked for meanwhile
+    local B, gap = L.bars, L.gap
+    local items = {} -- { frame, left edge, top edge (both from the line's middle), width, height }
+    local function showing(key)
+        local s, n = BARS[key].state()
+        s = on and s and B[key].show
+        if key == "experience" and B[key].hideInCombat and ns.inCombat and not ns.previewing() then s = false end
+        return s and true or false, n
+    end
+    -- lays one bar out at `width` (its own when nil); returns its height
+    local function bar(f, key, n, width)
+        layoutBar(f, n, width)
+        ns.fill(f)
+        if f.resFrame or key == "tothealth" or key == "focushealth" then ns.layoutTag(f) end
+        if f.resFrame then ns.layoutRes(f) end
+        if ns.BADGES[key] then ns.layoutBadges(f) end
+        if key == "pethealth" then ns.layoutHappy(f) end
+        if ns.MEAL_TEXTS[key] then ns.layoutMealText(f) end
+        return f.circleH or B[key].height
+    end
+    local cw, hw, ew = L.centerWidth or B.health.width, B.health.width, B.enemyhealth.width
+    local inner = { center = 0, left = -cw / 2 - gap, right = cw / 2 + gap,
+        pet = -cw / 2 - 2 * gap - hw, outer = cw / 2 + 2 * gap + ew }
+    local function xOf(col, w) -- the left edge, flush with the column's inner edge
+        if col == "center" then return -w / 2 end
+        if col == "left" or col == "pet" then return inner[col] - w end
+        return inner[col]
+    end
+    local function put(f, col, w, top, h, c)
+        items[#items + 1] = { f, xOf(col, w) + (c and c.x or 0), top + (c and c.y or 0), w, h }
+    end
+
+    -- the line
+    local petOn, totOn = showing("pethealth"), showing("tothealth")
+    local line = {
+        { "pethealth", "pet", nil }, { "tothealth", "outer", nil },
+        { "health", "left", hw + ((B.pethealth.show and not petOn) and gap + B.pethealth.width or 0) },
+        { "enemyhealth", "right", ew + ((B.tothealth.show and not totOn) and gap + B.tothealth.width or 0) },
+    }
+    local rowH, laid = 0, {}
+    for _, e in ipairs(line) do
+        local key, f = e[1], set[e[1]]
+        local s, n = showing(key)
+        f:SetShown(s)
+        if s then
+            laid[key] = bar(f, key, n, e[3])
+            rowH = math.max(rowH, laid[key])
+        elseif on and B[key].show then -- no such unit yet: its spot kept, for its click button
+            f.width = e[3] or B[key].width
+            f:SetSize(f.width, B[key].height)
+            laid[key] = B[key].height
+        end
+    end
+    rowH = math.max(rowH, B.health.height)
+    for _, e in ipairs(line) do
+        local key = e[1]
+        if laid[key] then put(set[key], e[2], set[key].width, laid[key] / 2, laid[key], B[key]) end
+    end
+    for _, key in ipairs({ "health", "enemyhealth" }) do
+        if set[key]:IsShown() then ns.layoutAuras(set[key]) end
+    end
+
+    -- an aura row's slot: as wide as its column, as tall as its icons (nothing when there are none)
+    local function auraRow(row, col, top, from)
+        local slot = ns.auraSlots[row] or CreateFrame("Frame", nil, container)
+        ns.auraSlots[row] = slot
+        local h = ns.auraRowHeight(row)
+        local w = col == "center" and cw or col == "left" and hw or ew
+        slot.h = h
+        slot:SetSize(w, math.max(h, 1))
+        slot:ClearAllPoints()
+        slot:SetPoint("TOPLEFT", container, "TOP", xOf(col, w), top - from)
+        return h
+    end
+    -- the column's entries from the line outward: dir -1 down, 1 up
+    local slotsAt = {}
+    local function column(list, col, from, dir)
+        local y = from
+        for _, key in ipairs(list) do
+            local row = key:match("^auras:(.+)")
+            if row then
+                local h = ns.auraRowHeight(row)
+                if h > 0 then
+                    y = y + dir * gap
+                    slotsAt[#slotsAt + 1] = { row, col, dir < 0 and y or y + h }
+                    y = y + dir * h
+                else
+                    slotsAt[#slotsAt + 1] = { row, col, y }
+                end
+            elseif key == "swing" then -- one row per ticked weapon, sharing this bar's settings
+                local c = B.swing
+                local s = showing("swing")
+                for i, kind in ipairs(SWING_TYPES) do
+                    local sf = swings[i]
+                    local mine = c.classes and c.classes[class or ""] or c -- your class's ticks
+                    local rowShown = (s and mine[kind[1]] and (swingActive(kind[3]) or ns.previewing())) and true or false
+                    sf:SetShown(rowShown)
+                    if rowShown then
+                        local h = bar(sf, "swing", 1)
+                        y = y + dir * (gap + (dir < 0 and c.padTop or c.padBottom))
+                        put(sf, col, sf.width, dir < 0 and y or y + h, h, c)
+                        y = y + dir * (h + (dir < 0 and c.padBottom or c.padTop))
+                    end
+                end
+                set.swing:Hide()
+            else
+                local f, c = set[key], B[key]
+                local s, n = showing(key)
+                f:SetShown(s)
+                if s then
+                    local h = bar(f, key, n)
+                    y = y + dir * (gap + (dir < 0 and c.padTop or c.padBottom))
+                    put(f, col, f.width, dir < 0 and y or y + h, h, c)
+                    y = y + dir * (h + (dir < 0 and c.padBottom or c.padTop))
+                end
+            end
+        end
+    end
+    for col, list in pairs(ns.GRID.up) do column(list, col, rowH / 2, 1) end
+    -- the center column on the line: your target's debuffs; more than the line holds pushes the
+    -- rest of that column down
+    slotsAt[#slotsAt + 1] = { "tdebuffs", "center", rowH / 2 }
+    local below = math.min(-rowH / 2, rowH / 2 - ns.auraRowHeight("tdebuffs"))
+    for col, list in pairs(ns.GRID.down) do column(list, col, col == "center" and below or -rowH / 2, -1) end
+
+    -- how far it all reaches, then everything placed from the top middle of the container
+    local top, bottom, reach = rowH / 2, -rowH / 2, 10
+    for _, it in ipairs(items) do
+        top, bottom = math.max(top, it[3]), math.min(bottom, it[3] - it[5])
+        reach = math.max(reach, -it[2], it[2] + it[4])
+    end
+    for _, s in ipairs(slotsAt) do top = math.max(top, s[3]) end
+    for _, it in ipairs(items) do
+        it[1]:ClearAllPoints()
+        it[1]:SetPoint("TOPLEFT", container, "TOP", it[2], it[3] - top)
+    end
+    for _, s in ipairs(slotsAt) do auraRow(s[1], s[2], s[3], top) end
+    for _, key in ipairs({ "health", "enemyhealth" }) do
+        if set[key]:IsShown() then ns.gridAuras(set[key]) end
+    end
+    ns.gridTop, ns.gridding = top, false
+    container:SetSize(reach * 2, top - bottom)
 end
 
 ------------------------------------------------------------------------------------------
@@ -3700,48 +3722,36 @@ end
 -- left targets you, right opens the menu. Their "unit" attribute is also what makes the game
 -- treat you as @mouseover while the cursor is on them. ponytail: not children of the bars (that
 -- would lock the bars' layout in combat), so their size and spot follow them out of combat only
--- -- read from where the stack put each bar, and where the group sits. With enemy health beside
--- yours, the health one covers only your half, whether there is a target yet or not.
--- The enemy health bar has one too (unit "target", right-click menu). The game's unit watch shows
--- it only while you have a target, in combat as well; ponytail: its spot is the bar's last one
--- out of combat, which is off only if the stack changes shape mid-fight.
--- Your pet and your target's target have one each too (right-click menu, unit watch). Hung on
--- another bar, theirs hangs on that bar's button (secure on secure, so that is allowed in combat).
+-- -- read from where the grid put each bar, and where the frame sits.
+-- Enemy health, your pet and your target's target have one each too (right-click menu, left
+-- click targets the pet and the target's target). The game's unit watch shows them only while
+-- that unit is there, in combat as well; ponytail: the spot is the bar's last one out of combat
+-- (the grid places their bars while hidden too), off only if the grid changes shape mid-fight.
 ns.clickers = {}
 local CLICKERS = { health = { "WolfpackAddonClicker", "player" }, power = { "WolfpackAddonClickerPower", "player" },
     enemyhealth = { "WolfpackAddonClickerTarget", "target" }, pethealth = { "WolfpackAddonClickerPet", "pet" },
     tothealth = { "WolfpackAddonClickerToT", "targettarget" } }
-local HUNG_ON = { pethealth = "health", tothealth = "enemyhealth" }
+local TARGETS = { pethealth = true, tothealth = true }
 function ns.syncClickers()
     local R = db.regular
-    local eh = R.bars.enemyhealth
-    local beside = eh.show and eh.beside
-    local top = R.grow == "up" and R.y + anchor:GetHeight() or R.y -- the group's top edge
+    local top = R.y + (ns.gridTop or 0) -- the frame's top edge
     local player = (R.playerMenu or R.playerTarget or R.playerMouseover) and true or false
     local want = { health = player, power = player, enemyhealth = R.targetMenu, pethealth = R.petMenu,
         tothealth = R.totMenu }
-    local function hungWanted(key) return want[key] and R.bars[key].show and R.bars[key].anchor ~= "stack" end
     for _, key in ipairs({ "health", "power", "enemyhealth", "pethealth", "tothealth" }) do
         local b, f, mine = R.bars[key], frames[key], CLICKERS[key][2] == "player"
         local c = ns.clickers[key]
-        -- also made for a bar whose pet / target of target hangs on it, to hang that one on
-        local need = want[key] or (key == "health" and hungWanted("pethealth"))
-            or (key == "enemyhealth" and hungWanted("tothealth"))
-        if need and not c then
+        if want[key] and not c then
             c = CreateFrame("Button", CLICKERS[key][1], UIParent, "SecureUnitButtonTemplate")
             c:SetAttribute("unit", CLICKERS[key][2])
             c:RegisterForClicks("LeftButtonUp", "RightButtonUp")
             ns.clickers[key] = c
         end
         if c then
-            -- left click targets: you (if asked), your pet, your target's target
-            local targets = HUNG_ON[key] or (mine and R.playerTarget)
-            c:SetAttribute("type1", targets and "target" or nil)
+            c:SetAttribute("type1", (TARGETS[key] or (mine and R.playerTarget)) and "target" or nil)
             c:SetAttribute("type2", (not mine or R.playerMenu) and "togglemenu" or nil)
-            local host = HUNG_ON[key] and b.anchor ~= "stack" and ns.clickers[HUNG_ON[key]]
-            local point, _, _, x, y = (key == "enemyhealth" and beside and frames.health or f):GetPoint(1)
-            local placed = host or point ~= nil
-            local on = want[key] and db.locked and placed -- unlocked: dragging wins
+            local point, _, _, x, y = f:GetPoint(1)
+            local on = want[key] and db.locked and point ~= nil -- unlocked: dragging wins
                 and (mine and f:IsShown() or not mine and b.show)
             if mine then
                 c:SetShown(on or false)
@@ -3751,36 +3761,10 @@ function ns.syncClickers()
                 UnregisterUnitWatch(c)
                 c:Hide()
             end
-            if placed then
-                local w, h = f:GetWidth(), b.height
+            if point then
                 c:ClearAllPoints()
-                if host then
-                    c:SetFrameLevel(host:GetFrameLevel() + 1)
-                    if b.anchor == "below" and key == "tothealth" then -- the bottom of enemy health's slot
-                        w = host:GetWidth()
-                        c:SetPoint("BOTTOMLEFT", host, "BOTTOMLEFT")
-                    elseif b.anchor == "below" then -- your pet: under your health
-                        w = host:GetWidth()
-                        c:SetPoint("TOPLEFT", host, "BOTTOMLEFT", 0, -R.gap)
-                    else
-                        w, h = b.width, host:GetHeight()
-                        if b.anchor == "left" then
-                            c:SetPoint("TOPRIGHT", host, "TOPLEFT", -R.gap, 0)
-                        else
-                            c:SetPoint("TOPLEFT", host, "TOPRIGHT", R.gap, 0)
-                        end
-                    end
-                elseif beside and key ~= "power" then -- the two halves of your health bar's width
-                    local hb = R.bars.health
-                    w, h = (hb.width - R.gap) / 2, hb.height
-                    -- enemy health beside you also spans a pet below your health
-                    if key == "enemyhealth" and ns.petBelow() then h = h + R.bars.pethealth.height + R.gap end
-                    local left = R.x + hb.x - hb.width / 2 + (key == "enemyhealth" and w + R.gap or 0)
-                    c:SetPoint("TOPLEFT", UIParent, "CENTER", left, top + y)
-                else
-                    c:SetPoint(point, UIParent, "CENTER", R.x + x, top + y)
-                end
-                c:SetSize(w, h)
+                c:SetPoint(point, UIParent, "CENTER", R.x + x, top + y)
+                c:SetSize(f:GetWidth(), b.height)
             end
         end
     end
@@ -4422,31 +4406,9 @@ function mini.syncMinimap()
 end
 
 local function Refresh()
-    if not moving then place() end -- keeps the pinned edge right after any settings change
     ft.tick() -- takeoff and landing, so a route gets timed whether the bar is shown or not
-    local health = frames.health
-    local eh, ef = db.regular.bars.enemyhealth, frames.enemyhealth
-    health.split = (eh.show and eh.beside and (UnitExists("target") or ns.previewing())) and true or false
     stack(anchor, frames, db.regular, true, swingFrames.regular)
-    if health.split and health:IsShown() then
-        -- the other half of your health bar's width, and all of its height
-        ef:Show()
-        local pc = db.regular.bars.pethealth
-        local hh = db.regular.bars.health.height + (ns.petBelow() and pc.height + db.regular.gap or 0)
-        layoutBar(ef, 1, health.width, { height = ns.totBelow() and math.max(2, hh - ns.totShare()) or hh })
-        ns.fill(ef)
-        ef:ClearAllPoints()
-        ef:SetPoint("TOPLEFT", health, "TOPRIGHT", db.regular.gap, 0)
-        ns.layoutRes(ef)
-        ns.layoutTag(ef)
-        ns.layoutAuras(ef)
-        ns.layoutBadges(ef)
-    end
-    ns.placeToT()
-    ns.placePet()
-    if not (ns.ammoBeside() and frames.power:IsShown()) and db.regular.bars.ammo.anchor ~= "stack" then
-        frames.ammo:Hide()
-    end
+    if not moving then place() end -- the line stays put, however far up the bars now reach
     for _, h in pairs(questHolders) do styleQuest(h) end
     mover:SetShown(not db.locked)
     moverHint:SetFormattedText(HINT, db.regular.x, db.regular.y)
@@ -4475,6 +4437,16 @@ local function safe(fn, ...)
         ns.errored = true
         print("|cffff5555Wolfpack Addon error:|r " .. tostring(err))
     end
+end
+
+-- an aura row grew or shrank: the grid again, once, after whatever else changes this frame
+function ns.relayout()
+    if ns.gridding or ns.relayoutPending then return end
+    ns.relayoutPending = true
+    C_Timer.After(0, function()
+        ns.relayoutPending = false
+        safe(Refresh)
+    end)
 end
 
 ------------------------------------------------------------------------------------------
@@ -7050,7 +7022,12 @@ useProfile = function(name)
     end
     if db.regular.bars.health.target then
         db.regular.bars.health.target = false
-        db.regular.bars.enemyhealth.show, db.regular.bars.enemyhealth.beside = true, true
+        db.regular.bars.enemyhealth.show = true
+    end
+    -- the Combat Display became a grid around a center line (see stack), with your target's power
+    -- a bar of its own: the strip inside enemy health goes, once
+    if not db.regular.gridSet then
+        db.regular.bars.enemyhealth.resource, db.regular.gridSet = false, true
     end
     applyCombatFont() -- the font travels with the profile
     if ns.mac and ns.mac.ready then safe(ns.mac.sync) end -- this profile's macros into the game's slots
@@ -8008,8 +7985,8 @@ local function buildConfig()
             -- Plates: one bar, enemy health, on every nameplate
             local one = plateMode() -- the nameplate's two bars: health, then its cast bar
             sel:SetShown(not one or plateList()[i] ~= nil)
-            up:SetShown(not one)
-            down:SetShown(not one)
+            up:SetShown(false) -- ponytail: the grid places every bar now; the arrows go with the next page rework
+            down:SetShown(false)
             local key = one and (plateList()[i] or "enemyhealth") or L().order[i]
             sel:SetText(one and ns.PLATE_LABELS[key] or BARS[key].label)
             local trailOpen = one and ns.npTrail
@@ -8023,7 +8000,7 @@ local function buildConfig()
     local gapSlider = slider(barsPage, "Gap between bars", bars.x, bars:row(SLIDER), 0, 30,
         function() return L().gap end, function(v) L().gap = v end)
     onRefresh(function() bars.title:SetText(mode == "platesTarget" and "Your target's nameplate"
-        or mode == "plates" and "Nameplate" or "Bars, top to bottom") end)
+        or mode == "plates" and "Nameplate" or "Bars") end)
     bars:close()
 
     local grp = group(barsPage, COL[1], bars.cursor - 20, 202, "Group position")
@@ -8031,18 +8008,12 @@ local function buildConfig()
     groupNote:SetPoint("TOPLEFT", grp.x, grp:row(16))
     onRefresh(function()
         groupNote:SetText(plateMode() and "the bar's center, from the nameplate's"
-            or (L().grow == "up" and "bottom-center" or "top-center")
-            .. (mode == "regular" and ", from the screen center" or ", from under the nameplate"))
+            or mode == "regular" and "the center line's middle, from the screen center"
+            or "top-center, from under the nameplate")
     end)
-    local grow = button(barsPage, "", 186, grp.x, grp:row(BUTTON), function()
-        L().grow = L().grow == "up" and "down" or "up"
-        place()
-        changed()
-    end)
-    onRefresh(function()
-        grow:SetText("Grows: " .. (L().grow == "up" and "Upwards" or "Downwards"))
-        grow:SetShown(not plateMode())
-    end)
+    local centerSlider = slider(barsPage, "Middle column width", grp.x, grp:row(SLIDER), 40, 600,
+        function() return L().centerWidth or L().bars.health.width end, function(v) L().centerWidth = v end)
+    onRefresh(function() centerSlider:SetShown(mode == "regular") end)
     local function xr() return mode == "regular" and math.floor(UIParent:GetWidth() / 2) or 200 end
     local function yr() return mode == "regular" and math.floor(UIParent:GetHeight() / 2) or 200 end
     slider(barsPage, "X (left / right)", grp.x, grp:row(SLIDER), function() return -xr() end, xr,
@@ -8095,19 +8066,8 @@ local function buildConfig()
     size:close()
 
     local only = group(barsPage, COL[2], size.cursor - 20, 202, "Just for this bar")
-    local beside = check(barsPage, "Beside your health", only.x, only:row(ROW),
-        function() return cur().beside end, function(v) cur().beside = v end)
-    -- target of target and your pet: in the stack, or hung on enemy health / your health
-    local SITS = {
-        tothealth = { { "In the stack", "stack" }, { "Below enemy health", "below" }, { "Right of enemy health", "right" } },
-        pethealth = { { "In the stack", "stack" }, { "Below your health", "below" }, { "Left of your health", "left" },
-            { "Right of your health", "right" } },
-        ammo = { { "In the stack", "stack" }, { "Left of the power bar", "left" }, { "Right of the power bar", "right" } },
-    }
-    local sits = dropdown(barsPage, "Sits", only.x, only:row(0), function() return SITS[selected] or {} end,
-        function() return cur().anchor end, function(v) cur().anchor = v end, textPreview)
-    ns.sitsMenu = sits
-    -- target of target: its name at a click (the rest of it is in the Level and name window)
+    only:row(ROW) -- the rows below count from here
+    -- target of target and focus: their name at a click (the rest of it is in the Level and name window)
     -- the experience bar: what it tracks, and when it stays away
     local xpSource = dropdown(barsPage, "Shows", only.x, only:row(0), { { "Experience", "xp" },
         { "Watched faction", "rep" }, { "Honor", "honor" }, { "Experience, then faction at the top", "auto" } },
@@ -8200,17 +8160,17 @@ local function buildConfig()
     local onlyNote = label(barsPage, "", "GameFontDisableSmall")
     onlyNote:SetPoint("TOPLEFT", only.x, only:row(16))
     onRefresh(function()
-        beside:SetShown(selected == "enemyhealth" and mode == "regular")
         resCheck:SetShown(selected == "enemyhealth")
         local resOn = selected == "enemyhealth" and cur().resource or false
         resButton:SetShown(resOn)
         if not (resOn and (section == "combat" or section == "nameplates")) then ns.resDialog:Hide() end
         local ehOn = selected == "enemyhealth" and (section == "combat" or section == "nameplates")
-        tagButton:SetShown(selected == "enemyhealth" or selected == "tothealth")
+        local named = selected == "tothealth" or selected == "focushealth"
+        tagButton:SetShown(selected == "enemyhealth" or named)
         auraButton:SetShown(selected == "enemyhealth" or selected == "health")
         iconButton:SetShown(selected == "enemyhealth")
         if not ehOn then ns.iconDialog:Hide() end
-        if not ((selected == "enemyhealth" or selected == "tothealth") and (section == "combat" or section == "nameplates")) then
+        if not ((selected == "enemyhealth" or named) and (section == "combat" or section == "nameplates")) then
             ns.tagDialog:Hide()
         end
         if not (ns.AURA_BARS[selected] and (section == "combat" or section == "nameplates")) then
@@ -8220,17 +8180,10 @@ local function buildConfig()
         if not (selected == "health" and (section == "combat" or section == "nameplates")) then
             ns.statusDialog:Hide()
         end
-        -- beside your health it takes half your health bar's width and all of its height
-        local fixed = selected == "enemyhealth" and mode == "regular" and cur().beside or false
-        -- hung: below takes the host's width, beside it the host's height
-        local hungOn = SITS[selected] and mode == "regular" and cur().anchor or "stack"
-        sits:SetShown(SITS[selected] ~= nil and mode == "regular")
-        totName:SetShown(selected == "tothealth")
+        totName:SetShown(named)
         xpCombat:SetShown(selected == "experience")
         xpSource:SetShown(selected == "experience")
         xpTop:SetShown(selected == "experience" and cur().source == "xp")
-        widthSlider:SetShown(not fixed and hungOn ~= "below")
-        heightSlider:SetShown(not fixed and (hungOn == "stack" or hungOn == "below"))
         healCheck:SetShown(selected == "health")
         healColor:SetShown(selected == "health")
         local dotsOn = (selected == "health" or selected == "enemyhealth") and ns.dotsOn
@@ -10467,6 +10420,7 @@ ns.totPoll:SetScript("OnUpdate", function(self, elapsed)
     self.wait = 0.2
     for _, set in ipairs({ frames }) do
         if set.tothealth:IsShown() then safe(ns.fill, set.tothealth) end
+        if set.focushealth:IsShown() then safe(ns.fill, set.focushealth) end -- nothing says either
     end
 end)
 
@@ -10535,6 +10489,7 @@ ev:SetScript("OnEvent", function(_, event, unit, arg2, arg3)
         listen("UNIT_AURA", "target", "player") -- buffs and debuffs on both health bars; drinking
         listen("UNIT_FACTION", "target", "player") -- PvP flags
         listen("UNIT_TARGET", "target") -- your target's target changed: target of target
+        listen("PLAYER_FOCUS_CHANGED")
         for _, e in ipairs({ "PLAYER_ENTERING_WORLD", "UPDATE_SHAPESHIFT_FORM", "PLAYER_TARGET_CHANGED",
             "NAME_PLATE_UNIT_ADDED", "NAME_PLATE_UNIT_REMOVED", "QUEST_LOG_UPDATE", "PLAYER_REGEN_ENABLED",
             "QUEST_DETAIL", "QUEST_ACCEPT_CONFIRM", "QUEST_PROGRESS", "QUEST_COMPLETE", "GOSSIP_SHOW", "QUEST_GREETING",
@@ -10614,6 +10569,7 @@ ev:SetScript("OnEvent", function(_, event, unit, arg2, arg3)
         if unit == "target" then -- only the enemy resource bars read your target's power
             for _, set in ipairs({ frames }) do
                 if set.enemyhealth.resFrame:IsShown() then safe(ns.fill, set.enemyhealth.resFrame) end
+                if set.enemypower:IsShown() then safe(ns.fill, set.enemypower) end
             end
         else
             fillShown("power", "combo", "druidmana")
