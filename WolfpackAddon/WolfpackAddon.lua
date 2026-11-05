@@ -5312,8 +5312,11 @@ function ns.bags.bar(on)
             if _G[n] then list[#list + 1] = _G[n] end
         end
     end
-    -- the keyring button at the bar's left end while ours shows the keys, else back home
-    if KeyRingButton then list[#list + 1] = KeyRingButton end
+    -- the keyring button at the bar's left end while ours shows the keys, else back home. Where
+    -- the game's bag bar holds it already (Forever), it stays in there: moving it leaves a hole.
+    local ring, p = KeyRingButton, KeyRingButton and (KeyRingButton.wpHome and KeyRingButton.wpHome.parent or KeyRingButton:GetParent())
+    while p and p ~= BagsBar do p = p:GetParent() end
+    if ring and not (BagsBar and p) then list[#list + 1] = ring end
     for i, w in ipairs(list) do
         if on and w == KeyRingButton and not B.keys() then on = false end
         if on then

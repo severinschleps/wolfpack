@@ -2754,6 +2754,11 @@ assert(BagsBar._parent == UIParent and BagsBar._point[2] == "MicroButtonAndBagsB
     B.sync()
     assert(KeyRingButton._parent == f and KeyRingButton._point[2] == BagsBar and not f.keys:IsShown(),
         "the keyring button on the bar")
+    KeyRingButton.wpHome, KeyRingButton._parent = nil, BagsBar -- Forever: the game's bar holds it
+    B.sync()
+    assert(KeyRingButton._parent == BagsBar and not KeyRingButton.wpHome, "a keyring in the game's bar stays there")
+    KeyRingButton._parent = UIParent
+    B.sync()
     ring._shown = true
     B.sync()
     local key = B.holders[-2].buttons[1]
