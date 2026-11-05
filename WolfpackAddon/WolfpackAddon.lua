@@ -478,12 +478,6 @@ DEFAULTS.micro = { show = false, anchor = "screen", point = "BOTTOMRIGHT", side 
 DEFAULTS.tooltip = { mode = "game", point = "BOTTOMRIGHT", x = -100, y = 120 }
 -- the macro library (Macros.lua): in the profile, so it travels in a string and a child inherits it
 DEFAULTS.macros = { tabs = {}, deleted = {} }
--- the Trinket manager (Trinkets.lua): its two buttons, and queue, your trinkets by priority (item IDs),
--- of which rotation, the ones the list swaps in (new ones are not)
--- and the action bars' look (see ns.AB_BAR), plus hoverColor: the button under the mouse
-DEFAULTS.trinkets = { show = false, auto = true, point = "CENTER", x = 0, y = -220, size = 36, gap = 4,
-    vertical = false, flyout = "up", queue = {}, rotation = {}, radius = 0, zoom = 8, borderSize = 1, borderColor = { 0, 0, 0, 1 },
-    keyFont = FONTS[1][2], keySize = 11, mouseover = false, hoverColor = { 1, 0.82, 0, 0.3 } }
 
 DEFAULTS.unitframes = { show = false, replace = true, fontSize = 10, power = true, powerHeight = 4,
     pets = true, petHeight = 14, roleIcon = true, marker = true,
@@ -516,31 +510,6 @@ DEFAULTS.regular.gridSet = false -- see useProfile
 DEFAULTS.regular.hidePlayerFrame = false -- hide Blizzard's player unit frame
 DEFAULTS.regular.hideTargetFrame = false -- hide Blizzard's target unit frame
 DEFAULTS.regular.hideXPBar = false       -- hide Blizzard's experience bar
-DEFAULTS.regular.hideActionBars = false  -- hide Blizzard's action bars
-
--- Action bars of your own. They share the game's 120 action slots: each bar owns a fixed run of
--- them from `first`, so resizing one never moves the spells on another. binds: action slot ->
--- key, applied as override bindings (the game's own key settings stay as they are).
-ns.AB_POOL = 120
-ns.AB_BAR = { first = 1, rows = 1, cols = 12, size = 36, gap = 4, radius = 0, zoom = 8, borderSize = 1,
-    borderColor = { 0, 0, 0, 1 }, grow = "rightdown", point = "BOTTOM", x = 0, y = 60,
-    keyFont = FONTS[1][2], keySize = 11, macroFont = FONTS[1][2], macroSize = 10, macroText = true,
-    hideEmpty = false, -- hideEmpty: a slot with nothing in it shows no button (they show while dragging)
-    mouseover = false, -- mouseover: the bar fades in only under the mouse (its keys work either way)
-    slotBg = true } -- slotBg: the game's dark square behind the icon (seen in the corners of a rounded one)
-DEFAULTS.actionbars = { bars = {}, binds = {}, seeded = false }
--- Stance and pet bars: Blizzard's own buttons, moved into a bar of yours. anchorTo: "screen", "bar:N"
--- (one of your bars) or the other of the two; side: where on it ("above", "below", "left", "right").
-for _, key in ipairs({ "stance", "pet" }) do
-    local b = {}
-    for k, v in pairs(ns.AB_BAR) do b[k] = type(v) == "table" and { unpack(v) } or v end
-    b.show, b.cols, b.size, b.anchorTo, b.side, b.y = false, 10, 30, "bar:1", "above", 0
-    b.align = "center" -- along that side: "start" (left / top), "center" or "end" (right / bottom)
-    b.first = nil
-    DEFAULTS.actionbars[key] = b
-end
-DEFAULTS.regular.hideStanceBar = false
-DEFAULTS.regular.hidePetBar = false
 DEFAULTS.regular.hideBlizzCastbar = false -- hide Blizzard's player cast bar
 DEFAULTS.regular.hideBlizzCombo = false -- hide Blizzard's own combo points (see ns.blizzCombo)
 DEFAULTS.regular.playerMenu = false      -- right-click on the bars opens the player menu
@@ -945,8 +914,6 @@ ns.frames = frames
 -- and its options page leaves the sidebar.
 ns.LOAD = {
     { "combat", "Combat Display", "Your bars around the center line: health, power, casts, your target." },
-    { "actionbars", "Action bars", "Wolfpack's own action bars and their key binds." },
-    { "trinkets", "Trinket manager", "Picking trinkets from a menu on an action bar." },
     { "bags", "Bags and bank", "One window for your bags, the bank in the same look." },
     { "nameplates", "Nameplates", "Enemy nameplates, their cast bars and the quest mob icons." },
     { "unitframes", "Unit frames", "Your party and raid frames." },
@@ -3426,25 +3393,6 @@ hider:Hide()
 ns.unitFrameHides = { { "PlayerFrame", "hidePlayerFrame" }, { "TargetFrame", "hideTargetFrame" },
     { "MainStatusTrackingBarContainer", "hideXPBar" }, { "StatusTrackingBarManager", "hideXPBar" },
     { "MainMenuExpBar", "hideXPBar" }, { "MainMenuBarMaxLevelBar", "hideXPBar" } }
-for _, name in ipairs({ "MultiBarBottomLeft", "MultiBarBottomRight", "MultiBarLeft", "MultiBarRight",
-    "MultiBar5", "MultiBar6", "MultiBar7" }) do
-    table.insert(ns.unitFrameHides, { name, "hideActionBars" })
-end
-if MainMenuBarArtFrame then -- classic: the main bar also holds bags and menu, so only its buttons and art go
-    for i = 1, 12 do table.insert(ns.unitFrameHides, { "ActionButton" .. i, "hideActionBars" }) end
-    for _, name in ipairs({ "MainMenuBarTexture0", "MainMenuBarTexture1", "MainMenuBarTexture2", "MainMenuBarTexture3",
-        "MainMenuBarLeftEndCap", "MainMenuBarRightEndCap", "ActionBarUpButton", "ActionBarDownButton",
-        "MainMenuBarPageNumber" }) do
-        table.insert(ns.unitFrameHides, { name, "hideActionBars" })
-    end
-else
-    table.insert(ns.unitFrameHides, { "MainActionBar", "hideActionBars" })
-    table.insert(ns.unitFrameHides, { "MainMenuBar", "hideActionBars" })
-end
-for _, u in ipairs({ { "StanceBar", "hideStanceBar" }, { "StanceBarFrame", "hideStanceBar" },
-    { "ShapeshiftBarFrame", "hideStanceBar" }, { "PetActionBar", "hidePetBar" }, { "PetActionBarFrame", "hidePetBar" } }) do
-    table.insert(ns.unitFrameHides, u)
-end
 ns.unitFrameParents = {}
 local castHidden, castParent, castHooked
 
@@ -3511,126 +3459,13 @@ local function syncProtected()
         end
     end
     ns.syncClickers()
-    ns.syncActionBars()
 end
 
 ------------------------------------------------------------------------------------------
--- Action bars: secure buttons of the game's own action button template, built, placed and
--- bound out of combat only (the game allows nothing else). ponytail: laid out on every
--- refresh out of combat; cheap enough, and nothing to keep in step.
+-- Button helpers the bags and the micro menu share (what is left of the action bars, which
+-- are gone from the addon)
 ------------------------------------------------------------------------------------------
-ns.ab = { frames = {}, buttons = {}, owner = CreateFrame("Frame") }
-
--- The slots bar i may use: from its first up to the next bar's first.
-function ns.abRoom(i)
-    local bars = db.actionbars.bars
-    local b, limit = bars[i], ns.AB_POOL + 1
-    for _, o in ipairs(bars) do
-        if o.first > b.first and o.first < limit then limit = o.first end
-    end
-    return limit - b.first
-end
-function ns.abCount(i)
-    local b = db.actionbars.bars[i]
-    return math.max(0, math.min(b.rows * b.cols, ns.abRoom(i)))
-end
-
--- A new bar on the first free slot, 12 wide or as much as fits there; nil when the pool is used up.
-function ns.abNew()
-    local bars = db.actionbars.bars
-    for slot = 1, ns.AB_POOL do
-        local taken = false
-        for i, b in ipairs(bars) do
-            if slot >= b.first and slot < b.first + ns.abCount(i) then taken = true end
-        end
-        if not taken then
-            -- corners as the others' (one for all action buttons, on the Colors page)
-            local b1 = bars[1] or {}
-            local bar = merge({ first = slot, y = 60 + 44 * #bars, radius = b1.radius, keyFont = b1.keyFont,
-                macroFont = b1.macroFont }, ns.AB_BAR)
-            bars[#bars + 1] = bar
-            bar.cols = math.min(12, ns.abRoom(#bars))
-            return #bars
-        end
-    end
-end
-
-function ns.abUsed()
-    local n = 0
-    for i in ipairs(db.actionbars.bars) do n = n + ns.abCount(i) end
-    return n
-end
-
--- A key as short as fits a button: SHIFT-1 -> S1, META-E -> ME, BUTTON4 -> B4
-function ns.abKeyText(slot)
-    local key = db.actionbars.binds[tostring(slot)]
-    -- a trinket button with no key of its own: the key of the bar button its macro sits on
-    local t = not key and ns.trink and tostring(slot):match("^trinket:(%d)$")
-    if t then key = ns.trink.barKey(tonumber(t)) end
-    if not key then return "" end
-    -- M: the Mac's Command key, so mouse buttons are B (BUTTON4 -> B4)
-    return (key:gsub("ALT%-", "A"):gsub("CTRL%-", "C"):gsub("SHIFT%-", "S"):gsub("META%-", "M"):gsub("NUMPAD", "N")
-        :gsub("MOUSEWHEELUP", "WU"):gsub("MOUSEWHEELDOWN", "WD"):gsub("BUTTON", "B"))
-end
-function ns.abHotkey(b)
-    if not b.wpKey then return end
-    local slot = b.wpSlot or b:GetAttribute("action")
-    if b.wpBlizz and not db.actionbars.binds[tostring(slot)] then return end -- the game's own key text
-    b.wpKey:SetText(ns.abKeyText(slot))
-    b.wpKey:Show()
-end
-
--- Keybind mode on a button: hovering makes it the target; the middle and side mouse buttons and
--- the wheel bind there too (left and right stay for clicking Done and dragging spells).
-function ns.abHooks(b)
-    b:HookScript("OnEnter", function(self) if ns.ab.binding then ns.ab.target = self end end)
-    b:HookScript("OnLeave", function(self) if ns.ab.target == self then ns.ab.target = nil end end)
-    b:HookScript("OnMouseDown", function(self, btn)
-        local n = btn == "MiddleButton" and 3 or tonumber((btn or ""):match("^Button(%d+)$"))
-        if ns.ab.binding and n then
-            ns.ab.target = self
-            ns.abKey("BUTTON" .. n)
-        end
-    end)
-    b:HookScript("OnMouseWheel", function(self, delta)
-        if ns.ab.binding then
-            ns.ab.target = self
-            ns.abKey(delta > 0 and "MOUSEWHEELUP" or "MOUSEWHEELDOWN")
-        end
-    end)
-end
-
-function ns.abButton(f, i, j)
-    local name = ("WolfpackActionBar%dButton%d"):format(i, j)
-    local b = CreateFrame("CheckButton", name, f, "ActionBarButtonTemplate")
-    b:RegisterForClicks("AnyUp", "AnyDown") -- the template keeps the one the key-down setting wants
-    b:SetAttribute("showgrid", 1) -- empty slots show, to drag spells onto (unless the bar hides them)
-    b.showgrid = 1
-    b.wpIcon = rawget(b, "icon") or _G[name .. "Icon"] or b:CreateTexture(nil, "ARTWORK")
-    b.wpKey = rawget(b, "HotKey") or _G[name .. "HotKey"] or b:CreateFontString(nil, "OVERLAY")
-    b.wpName = rawget(b, "Name") or _G[name .. "Name"] or b:CreateFontString(nil, "OVERLAY")
-    b.wpEdge = b:CreateTexture(nil, "BACKGROUND", nil, -8)
-    b.wpEdge:SetAllPoints()
-    b.wpEdgeMask, b.wpMask = b:CreateMaskTexture(), b:CreateMaskTexture()
-    b.wpEdgeMask:SetAllPoints(b.wpEdge)
-    b.wpMask:SetAllPoints(b.wpIcon)
-    local mask = rawget(b, "IconMask") -- modern buttons round their icon off; ours set their own
-    if mask then pcall(b.wpIcon.RemoveMaskTexture, b.wpIcon, mask) end
-    -- the game writes its own key text over ours when bindings change: write ours back
-    if type(rawget(b, "UpdateHotkeys")) == "function" then hooksecurefunc(b, "UpdateHotkeys", ns.abHotkey) end
-    -- The template works out b.action as the button is made, so inside our code: it stays tainted.
-    -- A right-click reads it (the pet autocast check) and the game blocked the action (taint log,
-    -- anniversary). A secure snippet renames that click first; it is used as any click.
-    if SecureHandlerWrapScript then
-        ns.ab.header = ns.ab.header or CreateFrame("Frame", nil, UIParent, "SecureHandlerBaseTemplate")
-        SecureHandlerWrapScript(b, "OnClick", ns.ab.header, ns.AB_RIGHT)
-    end
-    ns.abHooks(b)
-    return b
-end
-ns.AB_RIGHT = [[ if button == "RightButton" then return "WolfpackRight" end ]]
-
--- Buttons are scaled to size, never resized: the game's template draws its highlight, glow,
+-- Buttons are scaled to size, never resized: the game's templates draw their highlight, glow,
 -- cooldown and slot art at fixed sizes, which spilled into the gap on a smaller button (seen in
 -- game). So a button keeps its own size, and offsets, border and text are divided by the scale.
 function ns.abScale(b, size)
@@ -3643,53 +3478,10 @@ function ns.abScale(b, size)
     return s
 end
 
-function ns.abLook(b, bar, slot, blizz)
-    local nt = b:GetNormalTexture()
-    if nt then nt:SetAlpha(0) end -- the game's frame art: the border is ours
-    local sc = b.wpScale or 1
-    local t, z = bar.borderSize / sc, bar.zoom / 100
-    b.wpEdge:SetColorTexture(unpack(bar.borderColor))
-    b.wpEdge:SetShown(t > 0)
-    b.wpIcon:ClearAllPoints()
-    b.wpIcon:SetPoint("TOPLEFT", b, "TOPLEFT", t, -t)
-    b.wpIcon:SetPoint("BOTTOMRIGHT", b, "BOTTOMRIGHT", -t, t)
-    ns.iconCorners(b.wpIcon, b.wpMask, bar.radius, { z, 1 - z, z, 1 - z })
-    ns.iconCorners(b.wpEdge, b.wpEdgeMask, bar.radius, { 0, 1, 0, 1 })
-    -- the slot's own dark background: shown, or gone so only our border and the icon are left
-    local name = b:GetName() or ""
-    for _, art in ipairs({ rawget(b, "SlotBackground") or false, rawget(b, "SlotArt") or false,
-        _G[name .. "FloatingBG"] or false }) do -- each client has some of them
-        if art then art:SetAlpha(bar.slotBg == false and 0 or 1) end
-    end
-    -- the red auto-attack / Auto Shot flash: the template fits it to its frame art, which is
-    -- hidden here, so it goes over the icon instead, rounded like it (its own atlas coords kept)
-    local fl = rawget(b, "Flash") or _G[(b:GetName() or "") .. "Flash"]
-    if fl then
-        fl:ClearAllPoints()
-        fl:SetAllPoints(b.wpIcon)
-        local round = ns.ICON_MASKS[bar.radius] and true or false
-        if round ~= (fl.wpMasked or false) then
-            if round then fl:AddMaskTexture(b.wpMask) else fl:RemoveMaskTexture(b.wpMask) end
-            fl.wpMasked = round
-        end
-    end
-    if not b.wpKey:SetFont(bar.keyFont, bar.keySize / sc, "OUTLINE") then
-        b.wpKey:SetFont(FONTS[1][2], bar.keySize / sc, "OUTLINE")
-    end
-    if blizz then return ns.abHotkey(b) end -- the game keeps its own buttons up to date
-    if not b.wpName:SetFont(bar.macroFont, bar.macroSize / sc, "OUTLINE") then
-        b.wpName:SetFont(FONTS[1][2], bar.macroSize / sc, "OUTLINE")
-    end
-    b.wpName:SetShown(bar.macroText and true or false)
-    if not (pcall(b.UpdateAction, b, true)) then pcall(ActionButton_UpdateAction, b) end
-    ns.abHotkey(b)
-end
-
--- A mouseover bar: faded out, in under the cursor, while dragging something to it, in keybind mode
--- and with the options open. Only its alpha changes, which the game allows in combat too; the
--- buttons stay clickable and their keys work while it is faded.
+-- A mouseover row: faded out, in under the cursor and with the options open. Only its alpha
+-- changes, which the game allows in combat too; its buttons stay clickable while it is faded.
 function ns.abFade(self, elapsed)
-    local want = (self:IsMouseOver() or ns.ab.dragging or ns.ab.binding or ns.previewing()) and 1 or 0
+    local want = (self:IsMouseOver() or ns.previewing()) and 1 or 0
     local a = self:GetAlpha()
     if a ~= want then self:SetAlpha(a + (want - a) * math.min(1, (elapsed or 1) * 10)) end
     if math.abs(self:GetAlpha() - want) < 0.02 then self:SetAlpha(want) end
@@ -3698,290 +3490,6 @@ function ns.abFadeSet(f, on)
     f:SetScript("OnUpdate", on and ns.abFade or nil)
     if not on then f:SetAlpha(1) end
 end
-
--- each next button goes this way (x), each next row that way (y)
-ns.AB_GROW = { rightdown = { 1, -1 }, rightup = { 1, 1 }, leftdown = { -1, -1 }, leftup = { -1, 1 } }
-function ns.syncActionBars()
-    if not ns.loads("actionbars") then return end
-    if InCombatLockdown() then return end
-    local A, ab = db.actionbars, ns.ab
-    for i, bar in ipairs(A.bars) do
-        local f = ab.frames[i] or CreateFrame("Frame", "WolfpackActionBar" .. i, UIParent)
-        ab.frames[i] = f
-        f:Show()
-        local n, step = ns.abCount(i), bar.size + bar.gap
-        local g = ns.AB_GROW[bar.grow] or ns.AB_GROW.rightdown
-        local corner = (g[2] < 0 and "TOP" or "BOTTOM") .. (g[1] > 0 and "LEFT" or "RIGHT")
-        f:SetSize(math.max(1, math.min(n, bar.cols) * step - bar.gap), math.max(1, math.ceil(n / bar.cols) * step - bar.gap))
-        f:ClearAllPoints()
-        f:SetPoint(bar.point, UIParent, bar.point, bar.x, bar.y)
-        ns.abFadeSet(f, bar.mouseover)
-        ab.buttons[i] = ab.buttons[i] or {}
-        local list = ab.buttons[i]
-        for j = 1, math.max(n, #list) do
-            local b = list[j]
-            if not b and j <= n then
-                b = ns.abButton(f, i, j)
-                list[j] = b
-            end
-            if b then
-                local slot = bar.first + j - 1
-                -- hiding empty ones: the template shows them again while a spell is dragged
-                local grid = bar.hideEmpty and 0 or 1
-                b:SetAttribute("showgrid", grid)
-                b.showgrid = grid
-                -- something on the cursor (a spell, an item): every slot shows, to drop it on
-                b:SetShown(j <= n and (not bar.hideEmpty or ns.ab.dragging or HasAction(slot)) and true or false)
-                if j <= n then
-                    b:SetAttribute("action", slot)
-                    b.wpSlot = slot
-                    b.wpScale = ns.abScale(b, bar.size)
-                    b:ClearAllPoints()
-                    b:SetPoint(corner, f, corner, g[1] * ((j - 1) % bar.cols) * step / b.wpScale,
-                        g[2] * math.floor((j - 1) / bar.cols) * step / b.wpScale)
-                    ns.abLook(b, bar, slot)
-                end
-            end
-        end
-    end
-    for i = #A.bars + 1, #ab.frames do ab.frames[i]:Hide() end
-    ns.syncSpecialBars()
-    ns.abBinds()
-end
-
--- Stance and pet bars. Blizzard's buttons are moved in (and given back, where they were, when
--- the bar is turned off); Blizzard goes on updating them. The pet bar shows while you have a pet,
--- by the game's own state driver, so that holds in combat too. ponytail: given back, a button
--- keeps this bar's look until /reload.
-ns.AB_SPECIAL = {
-    stance = { name = "WolfpackStanceBar", containers = { "StanceBar", "StanceBarFrame", "ShapeshiftBarFrame" },
-        buttons = { "StanceButton", "ShapeshiftButton" } },
-    pet = { name = "WolfpackPetBar", containers = { "PetActionBar", "PetActionBarFrame" }, buttons = { "PetActionButton" },
-        driver = "[pet] show; hide" },
-}
-ns.ab.special = { stance = { saved = {} }, pet = { saved = {} } }
--- per side: its point and the bar's, for start / center / end along it, and which way the gap goes
-ns.AB_SIDES = {
-    above = { start = { "BOTTOMLEFT", "TOPLEFT" }, center = { "BOTTOM", "TOP" }, ["end"] = { "BOTTOMRIGHT", "TOPRIGHT" }, 0, 1 },
-    below = { start = { "TOPLEFT", "BOTTOMLEFT" }, center = { "TOP", "BOTTOM" }, ["end"] = { "TOPRIGHT", "BOTTOMRIGHT" }, 0, -1 },
-    left = { start = { "TOPRIGHT", "TOPLEFT" }, center = { "RIGHT", "LEFT" }, ["end"] = { "BOTTOMRIGHT", "BOTTOMLEFT" }, -1, 0 },
-    right = { start = { "TOPLEFT", "TOPRIGHT" }, center = { "LEFT", "RIGHT" }, ["end"] = { "BOTTOMLEFT", "BOTTOMRIGHT" }, 1, 0 },
-}
-
-function ns.abBlizzButton(key, i)
-    for _, prefix in ipairs(ns.AB_SPECIAL[key].buttons) do
-        if _G[prefix .. i] then return _G[prefix .. i] end
-    end
-end
-
--- what a stance or pet bar hangs on: one of your bars, the other of the two, or nil (the screen)
-function ns.abTarget(o)
-    local n = tonumber((o.anchorTo or ""):match("^bar:(%d+)$"))
-    if n then return db.actionbars.bars[n] and ns.ab.frames[n] end
-    local other = ns.ab.special[o.anchorTo or ""]
-    return other and other.frame and db.actionbars[o.anchorTo].show and other.frame or nil
-end
-
-function ns.syncSpecialBars()
-    if not ns.loads("actionbars") then return end
-    if InCombatLockdown() or ns.ab.placing then return end
-    ns.ab.placing = true -- giving buttons back makes Blizzard lay its bar out, which calls here
-    for _, key in ipairs({ "stance", "pet" }) do
-        local o, spec, st = db.actionbars[key], ns.AB_SPECIAL[key], ns.ab.special[key]
-        if o.show then
-            local f = st.frame or CreateFrame("Frame", spec.name, UIParent, "SecureHandlerStateTemplate")
-            st.frame = f
-            if spec.driver then
-                if not st.driven then RegisterStateDriver(f, "visibility", spec.driver) end
-                st.driven = true
-            else
-                f:Show()
-            end
-            ns.abFadeSet(f, o.mouseover)
-            local n, step = math.min(o.rows * o.cols, 10), o.size + o.gap
-            local g = ns.AB_GROW[o.grow] or ns.AB_GROW.rightdown
-            local corner = (g[2] < 0 and "TOP" or "BOTTOM") .. (g[1] > 0 and "LEFT" or "RIGHT")
-            f:SetSize(math.max(1, math.min(n, o.cols) * step - o.gap), math.max(1, math.ceil(n / o.cols) * step - o.gap))
-            for i = 1, 10 do
-                local b = ns.abBlizzButton(key, i)
-                if b then
-                    if not st.saved[i] then
-                        local pts = {}
-                        for p = 1, b:GetNumPoints() do pts[p] = { b:GetPoint(p) } end
-                        st.saved[i] = { parent = b:GetParent(), points = pts, scale = b:GetScale() }
-                        if not b.wpBlizz then -- once per button: what ours have too
-                            local name = b:GetName() or ""
-                            b.wpBlizz, b.wpSlot = true, key .. ":" .. i
-                            b.wpIcon = rawget(b, "icon") or _G[name .. "Icon"] or b:CreateTexture(nil, "ARTWORK")
-                            b.wpKey = rawget(b, "HotKey") or _G[name .. "HotKey"] or b:CreateFontString(nil, "OVERLAY")
-                            b.wpEdge = b:CreateTexture(nil, "BACKGROUND", nil, -8)
-                            b.wpEdge:SetAllPoints()
-                            b.wpEdgeMask, b.wpMask = b:CreateMaskTexture(), b:CreateMaskTexture()
-                            b.wpEdgeMask:SetAllPoints(b.wpEdge)
-                            b.wpMask:SetAllPoints(b.wpIcon)
-                            ns.abHooks(b)
-                        end
-                    end
-                    b:SetParent(i <= n and f or hider)
-                    if i <= n then
-                        b.wpScale = ns.abScale(b, o.size)
-                        b:ClearAllPoints()
-                        b:SetPoint(corner, f, corner, g[1] * ((i - 1) % o.cols) * step / b.wpScale,
-                            g[2] * math.floor((i - 1) / o.cols) * step / b.wpScale)
-                        ns.abLook(b, o, nil, true)
-                    end
-                end
-            end
-            -- Blizzard lays its bar out again now and then (a new form), which would take them back
-            for _, c in ipairs(spec.containers) do
-                local box = _G[c]
-                if box and not st.hooked then
-                    for _, m in ipairs({ "Layout", "UpdateGridLayout" }) do
-                        if type(box[m]) == "function" then
-                            hooksecurefunc(box, m, function() pcall(ns.syncSpecialBars) end)
-                        end
-                    end
-                end
-            end
-            st.hooked = true
-        elseif st.frame then -- turned off: the buttons go back where they were
-            for i, sv in pairs(st.saved) do
-                local b = ns.abBlizzButton(key, i)
-                b:SetParent(sv.parent)
-                b:SetScale(sv.scale or 1)
-                b:ClearAllPoints()
-                for _, pt in ipairs(sv.points) do b:SetPoint(unpack(pt)) end
-            end
-            st.saved = {}
-            if st.driven then UnregisterStateDriver(st.frame, "visibility") end
-            st.driven = false
-            st.frame:Hide()
-            for _, c in ipairs(spec.containers) do
-                local box = _G[c]
-                if box then pcall(function() (box.UpdateGridLayout or box.Layout)(box) end) end
-            end
-        end
-    end
-    -- anchored after both exist: either may hang on the other
-    for _, key in ipairs({ "stance", "pet" }) do
-        local o, f = db.actionbars[key], ns.ab.special[key].frame
-        if o.show and f then
-            f:ClearAllPoints()
-            local to, side = ns.abTarget(o), ns.AB_SIDES[o.side] or ns.AB_SIDES.above
-            if to and to ~= f then
-                local pts = side[o.align] or side.center
-                f:SetPoint(pts[1], to, pts[2], o.x + side[1] * o.gap, o.y + side[2] * o.gap)
-            else
-                f:SetPoint(o.point, UIParent, o.point, o.x, o.y)
-            end
-        end
-    end
-    ns.ab.placing = false
-end
-
--- /wp binds: each of your keys, and what the game really does with it (another addon's binding
--- on the same key would show up here instead of the button)
-function ns.BindReport()
-    local any = false
-    for slot, key in pairs(db.actionbars.binds) do
-        any = true
-        local ok, action = pcall(GetBindingAction, key, true)
-        print(("|cff88ccffWolfpack|r %s -> slot %s: %s"):format(key, slot, ok and tostring(action) or "?"))
-    end
-    if not any then print("|cff88ccffWolfpack|r no keys bound on your action bars yet") end
-end
-
--- isPriority: over other addons' override bindings on the same key, not only the game's own
-function ns.abBinds()
-    if InCombatLockdown() then return end
-    local owner = ns.ab.owner
-    ClearOverrideBindings(owner)
-    for i, bar in ipairs(db.actionbars.bars) do
-        for j, b in ipairs(ns.ab.buttons[i] or {}) do
-            local key = b:IsShown() and db.actionbars.binds[tostring(bar.first + j - 1)]
-            if key then SetOverrideBindingClick(owner, true, key, b:GetName(), "LeftButton") end
-        end
-    end
-    for _, kind in ipairs({ "stance", "pet" }) do
-        for i = 1, 10 do
-            local key, b = db.actionbars.binds[kind .. ":" .. i], ns.abBlizzButton(kind, i)
-            if key and b and b:GetName() then SetOverrideBindingClick(owner, true, key, b:GetName(), "LeftButton") end
-        end
-    end
-    for i, b in ipairs(ns.ab.buttons.trinket or {}) do -- the Trinket manager's two
-        local key = db.trinkets.show and db.actionbars.binds["trinket:" .. i]
-        local to = b.wpKeyButton or b -- its key twin: down or up as your key-down setting says
-        if key then SetOverrideBindingClick(owner, true, key, to:GetName(), "LeftButton") end
-    end
-end
-
--- Quick keybind mode: hover a button and press a key to bind it there, Escape to unbind; Escape
--- off the buttons (or Done) ends it. A key already on another of these buttons moves here.
-ns.AB_MODIFIERS = { LSHIFT = true, RSHIFT = true, LCTRL = true, RCTRL = true, LALT = true, RALT = true,
-    LMETA = true, RMETA = true } -- META: the Mac's Command key
-function ns.abKey(key)
-    if ns.AB_MODIFIERS[key] then return end
-    local t, binds = ns.ab.target, db.actionbars.binds
-    if key == "ESCAPE" and not t then return ns.abBindMode(false) end
-    if not t or InCombatLockdown() then return end
-    local slot = tostring(t.wpSlot or t:GetAttribute("action"))
-    if key == "ESCAPE" then
-        binds[slot] = nil
-    else
-        -- the game's own chord builder where there is one (it knows Command); else the same by hand
-        local ok, full = pcall(CreateKeyChordStringUsingMetaKeyState, key)
-        if not (ok and type(full) == "string") then
-            local meta = IsMetaKeyDown and IsMetaKeyDown()
-            full = (IsAltKeyDown() and "ALT-" or "") .. (IsControlKeyDown() and "CTRL-" or "")
-                .. (IsShiftKeyDown() and "SHIFT-" or "") .. (meta and "META-" or "") .. key
-        end
-        for s, k in pairs(binds) do if k == full then binds[s] = nil end end
-        binds[slot] = full
-    end
-    ns.abBinds()
-    for _, list in pairs(ns.ab.buttons) do for _, b in ipairs(list) do ns.abHotkey(b) end end
-    if t.wpBlizz and t.wpKey then t.wpKey:SetText(ns.abKeyText(slot)) end
-end
-
-function ns.abBindMode(on)
-    local ab = ns.ab
-    if not ab.binder then
-        local f = CreateFrame("Frame", nil, UIParent)
-        f:SetFrameStrata("DIALOG")
-        f:SetSize(360, 64)
-        f:SetPoint("TOP", UIParent, "TOP", 0, -120)
-        ns.ui.box(f, ns.ui.C.bg, ns.ui.C.border, 8)
-        local text = f:CreateFontString(nil, "OVERLAY")
-        text:SetFontObject(ns.ui.TEXT)
-        text:SetPoint("TOP", 0, -12)
-        text:SetText("Keybind mode: hover a button, press a key,\nmouse button or wheel. Escape on it unbinds.")
-        local done = ns.ui.Button(f, "Done", 80)
-        done:SetPoint("BOTTOMRIGHT", -10, 8)
-        done:SetScript("OnClick", function() ns.abBindMode(false) end)
-        f:EnableKeyboard(true)
-        f:SetScript("OnKeyDown", function(_, key) ns.abKey(key) end)
-        f:Hide()
-        ab.binder = f
-    end
-    if InCombatLockdown() and on then return end -- buttons can't change in combat
-    ab.binding, ab.target = on and true or false, nil
-    ab.binder:SetShown(on and true or false)
-    if InCombatLockdown() then return end
-    -- while binding: the wheel lands on the buttons, and a click on one of yours casts nothing
-    for _, list in pairs(ab.buttons) do
-        for _, b in ipairs(list) do
-            b:EnableMouseWheel(on and true or false)
-            if on then b:RegisterForClicks() else b:RegisterForClicks("AnyUp", "AnyDown") end
-        end
-    end
-    for _, kind in ipairs({ "stance", "pet" }) do
-        for i = 1, 10 do
-            local b = ns.abBlizzButton(kind, i)
-            if b and b.wpBlizz then b:EnableMouseWheel(on and true or false) end
-        end
-    end
-end
-
 -- Secure unit buttons over your health and power bars, clicking like Blizzard's player frame:
 -- left targets you, right opens the menu. Their "unit" attribute is also what makes the game
 -- treat you as @mouseover while the cursor is on them. ponytail: not children of the bars (that
@@ -6786,7 +6294,6 @@ changed = function()
     safe(ns.micro.sync)
     safe(ns.tip.sync)
     safe(ns.blizzCombo)
-    if ns.trink then safe(ns.trink.sync) end
     safe(ns.tip.preview, cfg and cfg:IsShown() and section == "tooltip")
     -- the Unit frames page's stand-ins: as many as its tab says (General: 5), set before they're laid out
     ns.uf.preview = section == "unitframes" and (tonumber(ns.ufTab) or 5) or nil
@@ -7229,12 +6736,6 @@ useProfile = function(name)
         db.regular.bars.pethealth.happy.show = (H.show and H.pet) and true or false
         db.regular.bars.ammo.hunterSet = true
     end
-    local AB = db.actionbars
-    if not AB.seeded then -- one bar to start with: the first twelve slots, at the bottom
-        AB.bars[1] = AB.bars[1] or merge({}, ns.AB_BAR)
-        AB.seeded = true
-    end
-    for _, bar in ipairs(AB.bars) do merge(bar, ns.AB_BAR) end
     local P = db.colors
     if not P.bordersSet then -- a bar that already had a border or rounded corners keeps them as its own
         for _, m in ipairs({ "regular", "plates", "platesTarget" }) do
@@ -7425,19 +6926,6 @@ local function sanitize(src, template)
                 end
             end
             if #out.stops < 2 then out.stops = sanitize(nil, def) end
-        elseif k == "bars" and next(def) == nil then -- action bars: a list, each a bar's settings
-            out.bars = {}
-            for _, b in ipairs(type(v) == "table" and v or {}) do
-                if type(b) == "table" and #out.bars < 20 then out.bars[#out.bars + 1] = sanitize(b, ns.AB_BAR) end
-            end
-        elseif k == "binds" then -- action slot -> key
-            out.binds = {}
-            for slot, key in pairs(type(v) == "table" and v or {}) do
-                local n = tonumber(slot)
-                local kind, i = tostring(slot):match("^(%a+):(%d+)$")
-                local ok = (n and n >= 1 and n <= ns.AB_POOL) or ((kind == "stance" or kind == "pet") and tonumber(i) <= 10) or (kind == "trinket" and tonumber(i) <= 2)
-                if ok and type(key) == "string" and #key <= 40 then out.binds[n and tostring(n) or slot] = key end
-            end
         elseif k == "hover" then -- a map: only known elements, only true
             out.hover = {}
             for _, e in ipairs(HOVER_FRAMES) do
@@ -7476,8 +6964,6 @@ local function sanitize(src, template)
             end
         elseif k == "macros" then
             out.macros = ns.mac.clean(v)
-        elseif k == "queue" or k == "rotation" then
-            out[k] = ns.trink.clean(v)
         elseif k == "platesTarget" and v == nil then -- from before the targeted look: the standard one
             out[k] = sanitize(src.plates, def)
         elseif type(def) == "table" then
@@ -7672,13 +7158,6 @@ StaticPopupDialogs.WOLFPACKADDON_RESET = {
         place()
         changed()
     end,
-    timeout = 0, whileDead = true, hideOnEscape = true,
-}
-
-StaticPopupDialogs.WOLFPACKADDON_DELBAR = {
-    text = "Delete action bar %s? Its spells stay in their action slots.",
-    button1 = YES, button2 = NO,
-    OnAccept = function(_, i) table.remove(db.actionbars.bars, i); changed() end,
     timeout = 0, whileDead = true, hideOnEscape = true,
 }
 
@@ -8119,8 +7598,8 @@ local function buildConfig()
     shelf("Interface")
     -- a part unticked on the Load page leaves the list, the rest close up
     local side, sideTop = {}, y
-    for _, e in ipairs({ { "combat", "Combat Display" }, { "actionbars", "Action bars" },
-        { "trinkets", "   Trinket manager" }, { "bags", "Bags" }, { "nameplates", "Nameplates" }, { "unitframes", "Unit frames" },
+    for _, e in ipairs({ { "combat", "Combat Display" },
+        { "bags", "Bags" }, { "nameplates", "Nameplates" }, { "unitframes", "Unit frames" },
         { "micro", "Micro menu" }, { "tooltip", "Tooltip" }, { "macros", "Macros" }, { "other", "Other" }, { "barstack", "Bar Stack" } }) do
         side[#side + 1] = { e[1], entry(e[1], e[2], e[3]) }
     end
@@ -8128,7 +7607,7 @@ local function buildConfig()
     onRefresh(function()
         local at = sideTop
         for _, s in ipairs(side) do
-            local on = s[1] == "other" or (ns.loads(s[1]) and (s[1] ~= "trinkets" or ns.loads("actionbars")))
+            local on = s[1] == "other" or ns.loads(s[1])
             s[2]:SetShown(on)
             if on then
                 s[2]:ClearAllPoints()
@@ -8157,20 +7636,17 @@ local function buildConfig()
     otherPage:SetAllPoints(barsPage)
     local colorPage = CreateFrame("Frame", nil, content)
     colorPage:SetAllPoints(barsPage)
-    local actionPage = CreateFrame("Frame", nil, content)
-    actionPage:SetAllPoints(barsPage)
     -- Bar Stack builds its own editor (BarStack/Config.lua) into this page, under the title
     local bsPage = CreateFrame("Frame", nil, content)
     bsPage:SetAllPoints(barsPage)
     bsPage.need = 100 + ns.ui.BS_H
-    ns.pages = { combat = barsPage, nameplates = questPage, other = otherPage, profile = profilePage, colors = colorPage, actionbars = actionPage,
+    ns.pages = { combat = barsPage, nameplates = questPage, other = otherPage, profile = profilePage, colors = colorPage,
         bags = CreateFrame("Frame", nil, content), unitframes = CreateFrame("Frame", nil, content),
         macros = CreateFrame("Frame", nil, content), micro = CreateFrame("Frame", nil, content),
-        tooltip = CreateFrame("Frame", nil, content), trinkets = CreateFrame("Frame", nil, content),
+        tooltip = CreateFrame("Frame", nil, content),
         load = CreateFrame("Frame", nil, content) }
     ns.pages.load:SetAllPoints(barsPage)
     ns.pages.tooltip:SetAllPoints(barsPage)
-    ns.pages.trinkets:SetAllPoints(barsPage)
     ns.pages.macros:SetAllPoints(barsPage)
     ns.pages.micro:SetAllPoints(barsPage)
     ns.pages.bags:SetAllPoints(barsPage)
@@ -8208,14 +7684,12 @@ local function buildConfig()
         title:SetText(section == "other" and "Other"
             or section == "profile" and "Profiles"
             or section == "colors" and "Colors and borders"
-            or section == "actionbars" and "Action bars"
             or section == "bags" and "Bags"
             or section == "unitframes" and "Unit frames"
             or section == "barstack" and "Bar Stack"
             or section == "macros" and "Macros"
             or section == "micro" and "Micro menu"
             or section == "tooltip" and "Tooltip"
-            or section == "trinkets" and "Trinket manager"
             or section == "load" and "Load"
             or "Combat Display")
         for _, t in ipairs(tabs) do t:SetShown(np) end
@@ -8227,12 +7701,10 @@ local function buildConfig()
         bsPage:SetShown(section == "barstack")
         profilePage:SetShown(section == "profile")
         colorPage:SetShown(section == "colors")
-        actionPage:SetShown(section == "actionbars")
         ns.pages.bags:SetShown(section == "bags")
         ns.pages.macros:SetShown(section == "macros")
         ns.pages.micro:SetShown(section == "micro")
         ns.pages.tooltip:SetShown(section == "tooltip")
-        ns.pages.trinkets:SetShown(section == "trinkets")
         ns.pages.load:SetShown(section == "load")
         ns.pages.unitframes:SetShown(uf and ns.ufTab == "general")
         local page = section == "barstack" and bsPage or ns.pages[section]
@@ -8930,132 +8402,6 @@ local function buildConfig()
     -- anything placed on the page itself right of column 2 shifts left and down, and whatever
     -- hangs off those moves with it.
     ----------------------------------------------------------------------------------
-    -- Action bars page: the bar picked here, its layout, its look; keybinds; Blizzard's bars
-    ----------------------------------------------------------------------------------
-    local abSel = 1
-    -- no bar picked (all deleted): the widgets read and write a scratch copy, never the defaults
-    local scratch = merge({}, ns.AB_BAR)
-    local AB = function()
-        if abSel == "stance" or abSel == "pet" then return db.actionbars[abSel] end
-        return db.actionbars.bars[abSel] or scratch
-    end
-    ns.abIsSpecial = function() return abSel == "stance" or abSel == "pet" end
-    local special = ns.abIsSpecial
-    local abc = group(actionPage, COL[1], TOP, 202, "Bars")
-    ns.abMenu = dropdown(actionPage, "Bar", abc.x, abc:row(DROP), function()
-        local list = {}
-        for i, b in ipairs(db.actionbars.bars) do
-            list[i] = { ("Bar %d (slots %d-%d)"):format(i, b.first, b.first + math.max(ns.abCount(i), 1) - 1), i }
-        end
-        list[#list + 1] = { "Stance bar", "stance" }
-        list[#list + 1] = { "Pet bar", "pet" }
-        return list
-    end, function() return abSel end, function(v) abSel = v end, textPreview)
-    local abRow = abc:row(BUTTON)
-    button(actionPage, "New bar", 87, abc.x, abRow, function()
-        local i = ns.abNew()
-        if i then abSel = i end
-        changed()
-    end)
-    button(actionPage, "Delete bar", 87, abc.x + 91, abRow, function()
-        if db.actionbars.bars[abSel] then StaticPopup_Show("WOLFPACKADDON_DELBAR", abSel, nil, abSel) end
-    end)
-    local abUsed = label(actionPage, "", "GameFontDisableSmall")
-    abUsed:SetPoint("TOPLEFT", abc.x, abc:row(44))
-    abUsed:SetWidth(178)
-    abUsed:SetJustifyH("LEFT")
-    onRefresh(function()
-        if not special() and not db.actionbars.bars[abSel] then abSel = math.max(1, #db.actionbars.bars) end
-        local room = not special() and db.actionbars.bars[abSel] and ns.abRoom(abSel)
-        abUsed:SetText(("%d of %d action slots in use.%s"):format(ns.abUsed(), ns.AB_POOL,
-            room and AB().rows * AB().cols > room and ("\nThis bar has room for " .. room .. " here.") or ""))
-    end)
-    abc:row(6)
-    button(actionPage, "Quick keybind mode", 178, abc.x, abc:row(BUTTON), function()
-        cfg:Hide()
-        ns.abBindMode(true)
-    end)
-    check(actionPage, "Hide Blizzard's action bars", abc.x, abc:row(ROW),
-        function() return db.regular.hideActionBars end, function(v) db.regular.hideActionBars = v end)
-    check(actionPage, "Hide Blizzard's stance bar", abc.x, abc:row(ROW),
-        function() return db.regular.hideStanceBar end, function(v) db.regular.hideStanceBar = v end)
-    check(actionPage, "Hide Blizzard's pet bar", abc.x, abc:row(ROW),
-        function() return db.regular.hidePetBar end, function(v) db.regular.hidePetBar = v end)
-    local abNote = label(actionPage, "Bars, keys and hiding change out of combat only: the game allows "
-        .. "nothing else. Drag spells onto the buttons as usual.", "GameFontDisableSmall")
-    abNote:SetPoint("TOPLEFT", abc.x, abc:row(44))
-    abNote:SetWidth(178)
-    abNote:SetJustifyH("LEFT")
-    abc:close()
-
-    local abl = group(actionPage, COL[1], abc.cursor - 20, 202, "Layout")
-    -- stance and pet bars: on or off, and what they hang on
-    local w = {} -- this page's widgets, in one local: the builder is at Lua's 200-local ceiling
-    w.show = check(actionPage, "Show this bar", abl.x, abl:row(0), function() return AB().show end,
-        function(v) AB().show = v end)
-    w.to = dropdown(actionPage, "Anchor to", abl.x, abl:row(0) - ROW, function()
-        local list = { { "The screen", "screen" } }
-        for i in ipairs(db.actionbars.bars) do list[#list + 1] = { "Bar " .. i, "bar:" .. i } end
-        list[#list + 1] = abSel == "pet" and { "Stance bar", "stance" } or { "Pet bar", "pet" }
-        return list
-    end, function() return AB().anchorTo end, function(v) AB().anchorTo = v end, textPreview)
-    w.side = dropdown(actionPage, "On its", abl.x, abl:row(0) - ROW - DROP, { { "Top", "above" },
-        { "Bottom", "below" }, { "Left", "left" }, { "Right", "right" } }, function() return AB().side end,
-        function(v) AB().side = v end, textPreview)
-    w.align = dropdown(actionPage, "Aligned", abl.x, abl:row(0) - ROW - 2 * DROP, function()
-        local across = AB().side == "left" or AB().side == "right"
-        return { { across and "Top" or "Left", "start" }, { "Centered", "center" }, { across and "Bottom" or "Right", "end" } }
-    end, function() return AB().align end, function(v) AB().align = v end, textPreview)
-    ns.abSpecialMenus = { w.to, w.side, w.align }
-    onRefresh(function()
-        w.show:SetShown(special())
-        w.to:SetShown(special())
-        w.side:SetShown(special() and AB().anchorTo ~= "screen")
-        w.align:SetShown(special() and AB().anchorTo ~= "screen")
-    end)
-    abl:row(ROW + 3 * DROP) -- room for the stance / pet controls (empty for your own bars)
-    for _, r in ipairs({ { "rows", "Rows", 1, 12 }, { "cols", "Columns", 1, 24 }, { "size", "Button size", 16, 64 },
-        { "gap", "Gap", 0, 20 } }) do
-        slider(actionPage, r[2], abl.x, abl:row(SLIDER), r[3], r[4], function() return AB()[r[1]] end,
-            function(v) AB()[r[1]] = v end)
-    end
-    dropdown(actionPage, "Grows", abl.x, abl:row(DROP), { { "Right, then down", "rightdown" },
-        { "Right, then up", "rightup" }, { "Left, then down", "leftdown" }, { "Left, then up", "leftup" } },
-        function() return AB().grow end, function(v) AB().grow = v end, textPreview)
-    w.point = dropdown(actionPage, "Anchored to the screen's", abl.x, abl:row(DROP), { { "Center", "CENTER" },
-        { "Top (centered)", "TOP" }, { "Bottom (centered)", "BOTTOM" }, { "Left (centered)", "LEFT" },
-        { "Right (centered)", "RIGHT" }, { "Top left", "TOPLEFT" }, { "Top right", "TOPRIGHT" },
-        { "Bottom left", "BOTTOMLEFT" }, { "Bottom right", "BOTTOMRIGHT" } },
-        function() return AB().point end, function(v) AB().point = v end, textPreview)
-    onRefresh(function() w.point:SetShown(not special() or AB().anchorTo == "screen") end)
-    slider(actionPage, "X", abl.x, abl:row(SLIDER), -1500, 1500, function() return AB().x end, function(v) AB().x = v end)
-    slider(actionPage, "Y", abl.x, abl:row(SLIDER), -1000, 1000, function() return AB().y end, function(v) AB().y = v end)
-    abl:close()
-
-    local abk = group(actionPage, COL[2], TOP, 202, "Look")
-    slider(actionPage, "Zoom (% cut from each side)", abk.x, abk:row(SLIDER), 0, 30, function() return AB().zoom end,
-        function(v) AB().zoom = v end)
-    slider(actionPage, "Border width", abk.x, abk:row(SLIDER), 0, 6, function() return AB().borderSize end,
-        function(v) AB().borderSize = v end)
-    swatch(actionPage, "Action border color", abk.x, abk:row(SWATCH), function() return AB().borderColor end)
-    check(actionPage, "Show slot background", abk.x, abk:row(ROW), function() return AB().slotBg ~= false end,
-        function(v) AB().slotBg = v end)
-    abk:close()
-
-    local abt = group(actionPage, COL[2], abk.cursor - 20, 202, "Text")
-    slider(actionPage, "Keybind size", abt.x, abt:row(SLIDER), 6, 24, function() return AB().keySize end,
-        function(v) AB().keySize = v end)
-    check(actionPage, "Hide empty buttons", abt.x, abt:row(ROW), function() return AB().hideEmpty end,
-        function(v) AB().hideEmpty = v end)
-    check(actionPage, "Show only on mouseover", abt.x, abt:row(ROW), function() return AB().mouseover end,
-        function(v) AB().mouseover = v end)
-    check(actionPage, "Show macro names", abt.x, abt:row(ROW), function() return AB().macroText end,
-        function(v) AB().macroText = v end)
-    slider(actionPage, "Macro name size", abt.x, abt:row(SLIDER), 6, 24, function() return AB().macroSize end,
-        function(v) AB().macroSize = v end)
-    abt:close()
-
-    ----------------------------------------------------------------------------------
     -- Tooltip page (a function of its own: buildConfig is at Lua's limit of 200 locals)
     ----------------------------------------------------------------------------------
     ;(function()
@@ -9171,60 +8517,6 @@ local function buildConfig()
         swatch(pg, "Panel color", c3.x, c3:row(SWATCH), function() return O().bg end)
         swatch(pg, "Button background", c3.x, c3:row(SWATCH), function() return O().buttonBg end)
         swatch(pg, "Border color", c3.x, c3:row(SWATCH), function() return O().borderColor end)
-        c3:close()
-    end)()
-
-    ----------------------------------------------------------------------------------
-    -- Trinket manager page (Trinkets.lua; a function of its own: buildConfig's 200 locals)
-    ----------------------------------------------------------------------------------
-    ;(function()
-        local pg, O = ns.pages.trinkets, function() return db.trinkets end
-        local c1 = group(pg, COL[1], TOP, 202, "Trinket manager")
-        check(pg, "Show the two trinket buttons", c1.x, c1:row(ROW), function() return O().show end,
-            function(v) O().show = v end)
-        check(pg, "Swap automatically", c1.x, c1:row(ROW), function() return O().auto end,
-            function(v) O().auto = v end)
-        local n = label(pg, "Your trinkets form one list, top first: each button wears the first ready one "
-            .. "in the rotation. Used and on cooldown, it pulls the next; ready again, the higher one comes back. "
-            .. "Off: only a press on a trinket that is on cooldown pulls the next.\n\nHover a button for the "
-            .. "list, as icons, first nearest: a click wears that one here until you use it. Beside each, arrows "
-            .. "move it in the list and a toggle puts it in the rotation (new ones start out). Drag a button onto an action bar for a macro that uses its slot.\n\nThe game allows no gear "
-            .. "changes in combat: those happen as it ends.", "GameFontDisableSmall")
-        n:SetPoint("TOPLEFT", c1.x, c1:row(220))
-        n:SetWidth(178)
-        n:SetJustifyH("LEFT")
-        button(pg, "Set keys (quick keybind mode)", 178, c1.x, c1:row(BUTTON), function()
-            cfg:Hide()
-            ns.abBindMode(true)
-        end)
-        c1:close()
-        local c2 = group(pg, COL[2], TOP, 202, "Position and look")
-        dropdown(pg, "Point of the screen", c2.x, c2:row(DROP), { { "Top left", "TOPLEFT" }, { "Top", "TOP" },
-            { "Top right", "TOPRIGHT" }, { "Left", "LEFT" }, { "Center", "CENTER" }, { "Right", "RIGHT" },
-            { "Bottom left", "BOTTOMLEFT" }, { "Bottom", "BOTTOM" }, { "Bottom right", "BOTTOMRIGHT" } },
-            function() return O().point end, function(v) O().point = v end, textPreview)
-        slider(pg, "X offset", c2.x, c2:row(SLIDER), -1600, 1600, function() return O().x end, function(v) O().x = v end)
-        slider(pg, "Y offset", c2.x, c2:row(SLIDER), -1000, 1000, function() return O().y end, function(v) O().y = v end)
-        slider(pg, "Button size", c2.x, c2:row(SLIDER), 20, 80, function() return O().size end, function(v) O().size = v end)
-        slider(pg, "Gap", c2.x, c2:row(SLIDER), 0, 20, function() return O().gap end, function(v) O().gap = v end)
-        check(pg, "One above the other", c2.x, c2:row(ROW), function() return O().vertical end,
-            function(v) O().vertical = v end)
-        dropdown(pg, "The list opens", c2.x, c2:row(DROP), { { "Above", "up" }, { "Below", "down" },
-            { "To the left", "left" }, { "To the right", "right" } }, function() return O().flyout end,
-            function(v) O().flyout = v end, textPreview)
-        c2:close()
-        -- the action bars' look, and the hover
-        local c3 = group(pg, COL[2], c2.cursor - 20, 202, "Look")
-        slider(pg, "Zoom (% cut from each side)", c3.x, c3:row(SLIDER), 0, 30, function() return O().zoom end,
-            function(v) O().zoom = v end)
-        slider(pg, "Border width", c3.x, c3:row(SLIDER), 0, 6, function() return O().borderSize end,
-            function(v) O().borderSize = v end)
-        swatch(pg, "Border color", c3.x, c3:row(SWATCH), function() return O().borderColor end)
-        swatch(pg, "Under the mouse", c3.x, c3:row(SWATCH), function() return O().hoverColor end)
-        slider(pg, "Keybind size", c3.x, c3:row(SLIDER), 6, 24, function() return O().keySize end,
-            function(v) O().keySize = v end)
-        check(pg, "Show only on mouseover", c3.x, c3:row(ROW), function() return O().mouseover end,
-            function(v) O().mouseover = v end)
         c3:close()
     end)()
 
@@ -9566,12 +8858,6 @@ local function buildConfig()
                 for _, n in ipairs(ns.uf.SIZES) do add(db.unitframes["g" .. n][s], "radius") end
             end
         end },
-        { "Action buttons", ICON_R, function(add)
-            for _, b in ipairs(db.actionbars.bars) do add(b, "radius") end
-            add(db.actionbars.stance, "radius")
-            add(db.actionbars.pet, "radius")
-            add(db.trinkets, "radius")
-        end },
         { "Bag slots", ICON_R, function(add) add(db.bags, "radius") end },
         { "Icons on bars", ICON_R, function(add)
             inBars(add, { "castbar", "targetcast", "durability" }, "iconRadius")
@@ -9607,14 +8893,6 @@ local function buildConfig()
                 for _, b in pairs(set) do if type(b) == "table" and b.font ~= nil then add(b, "font") end end
                 if set.enemyhealth then add(set.enemyhealth, "tagFont") end -- level and name
             end
-        end },
-        { "Action buttons", function(add)
-            local AB = db.actionbars
-            for _, b in ipairs({ AB.stance, AB.pet, unpack(AB.bars) }) do
-                add(b, "keyFont")
-                add(b, "macroFont")
-            end
-            add(db.trinkets, "keyFont")
         end },
         { "Bag counts", function(add) add(db.bags, "font") end },
         { "Quest numbers", function(add)
@@ -10602,7 +9880,6 @@ SlashCmdList.WOLFPACKADDON = function(msg)
     if msg:find("flight") then return safe(ns.FlightReport) end
     if msg:find("heal") then return safe(ns.HealReport) end
     if msg:find("cast") then return safe(ns.CastReport) end
-    if msg:find("bind") then return safe(ns.BindReport) end
     safe(ns.ToggleConfig)
 end
 
@@ -10964,9 +10241,9 @@ ev:SetScript("OnEvent", function(_, event, unit, arg2, arg3)
         for _, e in ipairs({ "PLAYER_ENTERING_WORLD", "UPDATE_SHAPESHIFT_FORM", "PLAYER_TARGET_CHANGED",
             "NAME_PLATE_UNIT_ADDED", "NAME_PLATE_UNIT_REMOVED", "QUEST_LOG_UPDATE", "PLAYER_REGEN_ENABLED",
             "QUEST_DETAIL", "QUEST_ACCEPT_CONFIRM", "QUEST_PROGRESS", "QUEST_COMPLETE", "GOSSIP_SHOW", "QUEST_GREETING",
-            "PLAYER_REGEN_DISABLED", "PLAYER_UPDATE_RESTING", "PLAYER_XP_UPDATE", "PLAYER_LEVEL_UP", "UPDATE_FACTION", "HONOR_XP_UPDATE", "ACTIONBAR_SHOWGRID",
-            "ACTIONBAR_HIDEGRID", "CURSOR_CHANGED", "ACTIONBAR_SLOT_CHANGED", "PLAYER_SWING", "PLAYER_TOTEM_UPDATE", "MERCHANT_SHOW", "MERCHANT_CLOSED",
-            "GOSSIP_CLOSED", "PLAYER_LOGOUT", "UPDATE_BINDINGS" }) do
+            "PLAYER_REGEN_DISABLED", "PLAYER_UPDATE_RESTING", "PLAYER_XP_UPDATE", "PLAYER_LEVEL_UP", "UPDATE_FACTION", "HONOR_XP_UPDATE",
+            "PLAYER_SWING", "PLAYER_TOTEM_UPDATE", "MERCHANT_SHOW", "MERCHANT_CLOSED",
+            "GOSSIP_CLOSED", "PLAYER_LOGOUT" }) do
             listen(e)
         end
         -- swings, where no PLAYER_SWING; DoT ticks
@@ -10998,27 +10275,6 @@ ev:SetScript("OnEvent", function(_, event, unit, arg2, arg3)
                 if event == "UNIT_AURA" then safe(ns.layoutMealText, set.health) end
                 safe(ns.layoutBadges, set.health)
             end
-        end
-    elseif event == "ACTIONBAR_SLOT_CHANGED" then
-        -- a spell dropped on a slot lands after the drag has ended: look at empty slots again
-        -- then. Many come at once (login, a talent swap): one look for all of them.
-        if not ns.ab.slotPending then
-            ns.ab.slotPending = true
-            C_Timer.After(0.05, function()
-                ns.ab.slotPending = false
-                safe(ns.syncActionBars)
-                if ns.trink then safe(ns.trink.keys) end -- its macro on a bar: that button's key
-            end)
-        end
-    elseif event == "UPDATE_BINDINGS" then
-        if ns.trink then safe(ns.trink.keys) end
-    elseif event == "ACTIONBAR_SHOWGRID" or event == "ACTIONBAR_HIDEGRID" or event == "CURSOR_CHANGED" then
-        -- dragging something that can go on an action button: hidden empty slots show for it
-        local ok, what = pcall(GetCursorInfo)
-        local drag = event == "ACTIONBAR_SHOWGRID" or (event == "CURSOR_CHANGED" and ok and what ~= nil)
-        if drag ~= (ns.ab.dragging or false) then
-            ns.ab.dragging = drag
-            safe(Refresh)
         end
     elseif event == "PLAYER_XP_UPDATE" or event == "HONOR_XP_UPDATE" then
         fillShown("experience")
@@ -11102,7 +10358,7 @@ ev:SetScript("OnEvent", function(_, event, unit, arg2, arg3)
     else
         if event == "PLAYER_ENTERING_WORLD" and ns.mac then ns.mac.ready = true; safe(ns.mac.sync) end -- the macro library
         if event == "PLAYER_ENTERING_WORLD" then
-            safe(ns.micro.sync); safe(ns.tip.sync); safe(ns.blizzCombo); safe(ns.trink.sync)
+            safe(ns.micro.sync); safe(ns.tip.sync); safe(ns.blizzCombo)
         end
         if event == "NAME_PLATE_UNIT_ADDED" then safe(plateAdded, unit) end
         if event == "NAME_PLATE_UNIT_REMOVED" then safe(plateRemoved, unit) end
