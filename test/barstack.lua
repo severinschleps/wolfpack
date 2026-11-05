@@ -339,6 +339,12 @@ realLayout()
 pa = BS.stacks[gA.id]._point
 assert(pa[1] == "BOTTOM" and pa[2] == slot2 and pa[3] == "BOTTOM" and pa[4] == 3, "in icon stack 2, growing up")
 ns.iconSlot = nil
+-- the Combat Display unticked on the Load page: a group hung on it stands on the screen instead
+gA.stack.anchor = "top"
+ns.loads = function(k) return k ~= "combat" end
+realLayout()
+assert(BS.stacks[gA.id]._point[2] == UIParent, "no Combat Display: on the screen")
+ns.loads = nil
 gA.stack.anchor, gB.stack.anchor = "screen", "screen"
 realLayout()
 assert(BS.stacks[gA.id]._point[2] == UIParent, "back on the screen")

@@ -400,6 +400,9 @@ end
 -- Wolfpack's Combat Display, when the group hangs on one of its edges; or one of its three icon
 -- stacks (slot1..slot3) over its middle column
 function BS.AnchorFrame(s)
+  -- the Combat Display unticked on the Load page: never placed, so nothing could hang on it;
+  -- the group stands on the screen instead (its x / y from the screen's middle)
+  if ns.loads and not ns.loads("combat") then return nil end
   local n = tonumber(tostring(s.anchor):match("^slot(%d)$"))
   if n then return ns.iconSlot and ns.iconSlot(n) or nil end
   return s.anchor ~= "screen" and WolfpackAddonFrame or nil
