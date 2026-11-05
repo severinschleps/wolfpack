@@ -397,6 +397,9 @@ local function hookViewers()
   end
 end
 
+-- Wolfpack's Combat Display, when the group hangs on one of its edges
+function BS.AnchorFrame(s) return s.anchor ~= "screen" and WolfpackAddonFrame or nil end
+
 -- One frame per group, made the first time the group is laid out.
 local function stackFor(g)
   if stacks[g.id] then return stacks[g.id] end
@@ -419,6 +422,13 @@ local function stackFor(g)
         local s, sc = g2.stack, st:GetScale()
         local x, y = st:GetCenter()
         local ux, uy = UIParent:GetCenter()
+        local cd = BS.AnchorFrame(s)
+        if cd then -- from the edge's middle, in the stack's own units
+          local r, top = cd:GetEffectiveScale() / st:GetEffectiveScale(), s.anchor == "top"
+          local edge = (top and cd:GetTop() or cd:GetBottom()) * r
+          ux, uy, y = cd:GetCenter() * r, edge, top and st:GetBottom() or st:GetTop()
+          sc = 1
+        end
         s.point = "CENTER"
         s.x, s.y = math.floor(x - ux / sc + 0.5), math.floor(y - uy / sc + 0.5)
       end
@@ -446,7 +456,13 @@ function BS.Layout()
     local st, s, bars = stackFor(g), g.stack, BS.LoadedBars(g)
     liveStacks[st] = #bars > 0 -- a group with nothing loaded on this character stays hidden
     st:ClearAllPoints()
-    st:SetPoint(s.point, UIParent, s.point, s.x, s.y)
+    local cd = BS.AnchorFrame(s)
+    if cd then -- hung on the edge: below the bottom, above the top
+      local top = s.anchor == "top"
+      st:SetPoint(top and "BOTTOM" or "TOP", cd, top and "TOP" or "BOTTOM", s.x, s.y)
+    else
+      st:SetPoint(s.point, UIParent, s.point, s.x, s.y)
+    end
     st:SetScale(s.scale)
     st:SetAlpha(s.alpha)
     st.edit.label:SetText(g.name)

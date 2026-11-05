@@ -244,6 +244,7 @@ local function mock()
         return function(self, v, yes, no) rawset(self, "_fromBool", { v, yes, no }) end
       end
       if k == "SetShown" then return function(self, v) rawset(self, "_shown", v) end end
+      if k == "SetPoint" then return function(self, ...) rawset(self, "_point", { ... }) end end
       if k == "Hide" then return function(self) rawset(self, "_shown", false) end end
       if k == "Show" then return function(self) rawset(self, "_shown", true) end end
       if k == "SetText" then return function(self, v) rawset(self, "_text", v) end end
@@ -320,6 +321,20 @@ assert(#BS.placed == 1 and rawget(BS.stacks[gB.id], "_shown") == false, "Avatar'
 BS.SetLoaded(gB.bars[1], true)
 realLayout()
 assert(#BS.placed == 2 and rawget(BS.stacks[gB.id], "_shown") == true, "ticked again, it is back")
+-- a group on the Combat Display's top or bottom edge hangs on that frame, so it moves as it grows
+local keptUI = UIParent
+WolfpackAddonFrame, UIParent = mock(), mock()
+assert(BS.NormalizeGroup({ stack = { anchor = "middle" } }).stack.anchor == "screen", "an unknown anchor is the screen")
+gA.stack.anchor, gA.stack.x, gA.stack.y = "top", 3, 4
+gB.stack.anchor, gB.stack.x, gB.stack.y = "bottom", 0, -4
+realLayout()
+local pa, pb = BS.stacks[gA.id]._point, BS.stacks[gB.id]._point
+assert(pa[1] == "BOTTOM" and pa[2] == WolfpackAddonFrame and pa[3] == "TOP" and pa[4] == 3 and pa[5] == 4, "above its top")
+assert(pb[1] == "TOP" and pb[2] == WolfpackAddonFrame and pb[3] == "BOTTOM" and pb[5] == -4, "below its bottom")
+gA.stack.anchor, gB.stack.anchor = "screen", "screen"
+realLayout()
+assert(BS.stacks[gA.id]._point[2] == UIParent, "back on the screen")
+UIParent = keptUI
 
 -- an aura icon's frame has Blizzard's Show / Hide / SetAlpha counted, for /bs check
 hooksecurefunc = function(t, m, fn)
@@ -744,5 +759,12 @@ local pooled = { GetSpellID = function() return 772 end }
 assert(BS.FrameSpell(pooled) == 772)
 pooled.GetSpellID = function() error("secret") end
 assert(BS.FrameSpell(pooled) == 772, "the frame is still Rend's, so it stays in the bar")
+
+-- the window's Anchored to: picking an edge of the Combat Display starts the group just off it
+local anchorMenu = menuStarting("The screen")
+assert(anchorMenu and anchorMenu[2].text == "Combat Display, top", "the Anchored to menu")
+anchorMenu[2].set()
+local sA = BS.profile.groups[1].stack
+assert(sA.anchor == "top" and sA.x == 0 and sA.y == 4 and anchorMenu[2].isSel(), "picking the top starts on that edge")
 
 print("barstack ok")

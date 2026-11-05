@@ -31,13 +31,16 @@ end
 -- px sits behind it, and `radius` rounds both (0 square, 12 / 25 small and medium, 50 a circle).
 local ICON_DEFAULTS = { zoom = 8, border = 2, color = { 0, 0, 0, 1 }, radius = 12 }
 BS.RADII = { [0] = true, [12] = true, [25] = true, [50] = true }
-local STACK_DEFAULTS = { point = "CENTER", x = 0, y = -180, scale = 1, alpha = 1, showInCombat = true, showOutOfCombat = true }
+-- anchor: "screen" (x / y from its center), or "top" / "bottom": on that edge of Wolfpack's Combat
+-- Display, x / y from the edge's middle, so it moves along as the display grows or shrinks.
+local STACK_DEFAULTS = { point = "CENTER", anchor = "screen", x = 0, y = -180, scale = 1, alpha = 1, showInCombat = true, showOutOfCombat = true }
 local BAR_DEFAULTS = {
   name = "New bar", offset = { x = 0, y = 0 }, size = { w = 36, h = 36 }, -- one icon; the bar is n of them
   orientation = "horizontal", icons = {},
   gap = 8, -- px between icons
 }
 local ENUMS = { orientation = { horizontal = true, vertical = true } }
+BS.ANCHORS = { screen = true, top = true, bottom = true }
 -- An icon: what it looks like, and when it shows.
 --   look   "custom": a picture of our own -- `texture` (file ID, path or spell name), else the
 --          spell's picture; `swipe` plays the spell's cooldown over it.
@@ -151,6 +154,7 @@ function BS.NormalizeGroup(g, i)
   if type(g.id) ~= "string" then g.id = newID("g") end
   local s = g.stack
   s.point = "CENTER" -- the only anchor we ever write
+  if not BS.ANCHORS[s.anchor] then s.anchor = "screen" end
   s.x, s.y = Clamp(s.x, -4000, 4000), Clamp(s.y, -4000, 4000)
   s.scale, s.alpha = Clamp(s.scale, 0.3, 3), Clamp(s.alpha, 0, 1)
   local bars = {}

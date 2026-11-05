@@ -577,12 +577,25 @@ local function build(parent)
     function() return S().scale end, function(v) S().scale = BS.Clamp(v, 0.3, 3) end)
   slider(groupSliders, f, "Opacity", x, -242, 206, 0, 1, 0.05,
     function() return S().alpha end, function(v) S().alpha = BS.Clamp(v, 0, 1) end)
-  slider(groupSliders, f, "Position X", x, -288, 206, -1000, 1000, 1,
+  -- on the Combat Display's top or bottom it moves along as that grows; picking one starts at the edge
+  text(f, "Anchored to", x, -288)
+  f.anchor = dropdown(f, x, -304, 206, function()
+    local out = {}
+    for _, e in ipairs({ { "The screen", "screen", -180 }, { "Combat Display, top", "top", 4 },
+      { "Combat Display, bottom", "bottom", -4 } }) do
+      out[#out + 1] = { e[1], function() return S().anchor == e[2] end, function()
+        local s = S()
+        if s.anchor ~= e[2] then s.anchor, s.x, s.y = e[2], 0, e[3]; changed() end
+      end }
+    end
+    return out
+  end)
+  slider(groupSliders, f, "Position X", x, -340, 206, -1000, 1000, 1,
     function() return S().x end, function(v) S().x = BS.Clamp(v, -3000, 3000) end)
-  slider(groupSliders, f, "Position Y", x, -334, 206, -600, 600, 1,
+  slider(groupSliders, f, "Position Y", x, -386, 206, -600, 600, 1,
     function() return S().y end, function(v) S().y = BS.Clamp(v, -3000, 3000) end)
-  f.inCombat = checkbox(f, "Show in combat", x, -388, function(on) S().showInCombat = on; changed() end)
-  f.outCombat = checkbox(f, "Show out of combat", x, -414, function(on) S().showOutOfCombat = on; changed() end)
+  f.inCombat = checkbox(f, "Show in combat", x, -440, function(on) S().showInCombat = on; changed() end)
+  f.outCombat = checkbox(f, "Show out of combat", x, -466, function(on) S().showOutOfCombat = on; changed() end)
 
   -- column 2: its bars (top = top layer, the arrows or a drag reorder them)
   x = C2 + 12
@@ -683,6 +696,7 @@ function BS.RefreshConfig()
 
   local s = G().stack
   for _, sl in ipairs(groupSliders) do sl.sync() end
+  f.anchor:GenerateMenu()
   f.inCombat:SetChecked(s.showInCombat)
   f.outCombat:SetChecked(s.showOutOfCombat)
   f.preview:SetChecked(BS.preview == true)
