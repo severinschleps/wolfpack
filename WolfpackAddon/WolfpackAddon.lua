@@ -267,7 +267,7 @@ local function layoutDefaults(show, x, y, gap, width, h1, h2, h3, h4, h5, h6, h7
     -- buffs and debuffs may hang on it (anchorTo "class")
     l.bars.health.selfbuffs = { show = true, anchorTo = "bar", spot = "righttop", grow = "right", wrap = "auto",
         x = 4, y = 0, size = 20, radius = 0, cols = 12, rows = 1, max = 12, hideTimer = false, zoom = 8,
-        lineEdge = "bottom" }
+        lineEdge = "bottom", weapons = true } -- weapons: every weapon's enchant, any class (ns.classBuffs)
     -- small icons on the bar: PvP flag (in one of a few looks) and drinking; centered on a
     -- point of the bar, nudged by x/y
     -- anchorTo: "bar", or "name" / "level" (then it sits outside that box, on the side of point).
@@ -2366,10 +2366,12 @@ function ns.classBuffs()
         if not readable(a.name) then return nil end -- names kept secret (in combat): no guessing
         have[a.name] = a
     end
+    local hands = {} -- weapons your class's own enchant already stands for
     for _, e in ipairs(ns.CLASS_BUFFS[class] or {}) do
         local known
         for _, id in ipairs(e) do if not known and ns.cbKnown(id) then known = id end end
         local _, icon = ns.cbSpell(known or 0)
+        if known and e.weapon then hands[e.weapon] = true end
         if known and e.weapon then
             local h = ns.wb.hand(e.weapon)
             if h then out[#out + 1] = h.ms > 0 and { icon = h.icon, hand = h } or { icon = icon, missing = true } end
@@ -2380,6 +2382,13 @@ function ns.classBuffs()
                 a = a or (name and have[name])
             end
             out[#out + 1] = a and { icon = a.icon, aura = a } or { icon = icon, missing = true }
+        end
+    end
+    -- every other weapon you hold: its stone, oil or poison with the time left, or bare, flashing
+    if db.regular.bars.health.selfbuffs.weapons then
+        for i = 1, 2 do
+            local h = not hands[i] and ns.wb.hand(i)
+            if h then out[#out + 1] = h.ms > 0 and { icon = h.icon, hand = h } or { icon = h.icon, missing = true } end
         end
     end
     return out
@@ -9630,6 +9639,13 @@ local function buildConfig()
             ns.auraFilters = ns.auraFilters or {}
             ns.auraFilters[k[1]] = filters
             onRefresh(function() for _, w in ipairs(filters) do w:SetShown(mode == "regular") end end)
+            ry = math.min(ry, below)
+        else -- the class buffs: every weapon's enchant too, whatever your class
+            local below = ry
+            ry = top
+            ns.weaponsCheck = check(pane, "Every weapon's enchant", 16, rrow(ROW), function() return A().weapons end,
+                function(v) A().weapons = v end)
+            onRefresh(function() ns.weaponsCheck:SetShown(mode == "regular") end)
             ry = math.min(ry, below)
         end
         check(pane, "Hide timer text", 16, rrow(ROW), function() return A().hideTimer end,

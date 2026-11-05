@@ -4659,6 +4659,18 @@ do
     assert(cb._points[1][2] == ns.auraSlots.buffs and pt[1] == "TOPLEFT" and pt[2] == cb and pt[3] == "TOPRIGHT"
         and pt[4] == hp.auraGroupGap, "buffs after the class buffs, on one row")
     hp.buffs.anchorTo = "bar"
+    -- every weapon you hold too, whatever the class: bare, it flashes in its own picture; with a
+    -- stone or oil on, its time left
+    S.weapons, S.mainEnchant, S.mainMs = { [16] = 777 }, false, 0
+    hp.selfbuffs.weapons = true -- (on by default; the options test above clicked every box)
+    row = ns.classBuffs()
+    assert(#row == 3 and row[3].missing and row[3].icon == 777, "a bare main hand flashes")
+    S.mainEnchant, S.mainMs = true, 30000
+    row = ns.classBuffs()
+    assert(row[3].hand and row[3].icon == 777 and not row[3].missing, "an oil on it: shown, with its time")
+    hp.selfbuffs.weapons = false
+    assert(#ns.classBuffs() == 2, "turned off: your class's own only")
+    hp.selfbuffs.weapons, S.weapons, S.mainEnchant, S.mainMs = true, nil, false, 0
     -- a rogue: a poison on each weapon there is
     login("ROGUE", 3)
     S.known, S.auras = { [2842] = true }, {}
