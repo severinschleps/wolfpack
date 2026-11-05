@@ -3021,7 +3021,7 @@ local function questLogChanged()
 end
 
 -- The Combat Display, in columns around a center line. On the line: your pet, your health, your
--- target's debuffs (the center column), your target's health and your target's target. Above
+-- target's health and your target's target (the center column holds nothing there). Above
 -- it everything grows up from the line, below it down, and a bar that isn't showing leaves no
 -- gap. The center column is L.centerWidth wide, yours and your target's as wide as the two
 -- health bars, the outer ones as your pet's and your target's target's bars. A bar keeps its own
@@ -3034,7 +3034,7 @@ ns.GRID = {
     down = { left = { "auras:buffs", "auras:debuffs" },
         center = { "combo", "totems", "power", "druidmana", "swing", "ammo", "experience", "flight",
             "durability", "absorb" },
-        right = { "enemypower", "auras:tbuffs" } },
+        right = { "auras:tbuffs", "auras:tdebuffs", "enemypower" } }, -- as yours: buffs, then debuffs
 }
 -- each aura row: its groups, left to right, on which health bar
 ns.AURA_ROWS = { buffs = { "health", "selfbuffs", "buffs" }, debuffs = { "health", "debuffs" },
@@ -3196,9 +3196,7 @@ function ns.gridAuras(f)
                 local box = f.auraBoxes[r[i]]
                 if box then
                     box:ClearAllPoints()
-                    if row == "tdebuffs" then
-                        box:SetPoint("TOP", slot, "TOP")
-                    elseif prev and (prev.n or 0) > 0 then
+                    if prev and (prev.n or 0) > 0 then
                         box:SetPoint("TOPLEFT", prev, "TOPRIGHT", gap, 0)
                     else
                         box:SetPoint("TOPLEFT", slot, "TOPLEFT")
@@ -3358,12 +3356,7 @@ local function stack(container, set, L, on, swings)
         end
     end
     for col, list in pairs(ns.GRID.up) do column(list, col, rowH / 2, 1) end
-    -- the center column on the line: your target's debuffs; more than the line holds pushes the
-    -- rest of that column down
-    slotsAt[#slotsAt + 1] = { "tdebuffs", "center", rowH / 2 }
-    local below = ns.attached("auras:tdebuffs") and -rowH / 2
-        or math.min(-rowH / 2, rowH / 2 - ns.auraRowHeight("tdebuffs"))
-    for col, list in pairs(ns.GRID.down) do column(list, col, col == "center" and below or -rowH / 2, -1) end
+    for col, list in pairs(ns.GRID.down) do column(list, col, -rowH / 2, -1) end
 
     -- how far it all reaches, then everything placed from the top middle of the container
     local top, bottom, reach = rowH / 2, -rowH / 2, 10

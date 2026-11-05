@@ -835,7 +835,7 @@ eh.pvpIcon = { show = true, style = "faction", anchorTo = "bar", point = "TOPLEF
 S.auras, UnitIsPVP, UnitIsPVPFreeForAll = nil, nil, nil
 fire("UNIT_AURA", "target")
 -- buffs and debuffs: each group in a box on its row of the grid; your target's buffs under its
--- power (right column), its debuffs on the line in the middle column
+-- health (right column), its debuffs under them
 S.auras = { { icon = 111, duration = 10, expirationTime = 20 }, { icon = 112, applications = 3 } }
 S.debuffs = { { icon = 221 } }
 fire("UNIT_AURA", "target")
@@ -846,10 +846,12 @@ assert(bi[1]:IsShown() and bi[2]:IsShown() and bi[1].tex._tex == 111 and bi[2].c
 assert(bb._point[1] == "TOPLEFT" and bb._point[2] == ns.auraSlots.tbuffs and bb._w == 42 and bb._h == 20,
     "the buff box: on its row, as big as two icons and a gap")
 assert(bi[2]._point[2] == bb and bi[2]._point[4] == 22, "icons grow right, 20 + 2 apart")
-assert(di[1].tex._tex == 221 and db_._point[1] == "TOP" and db_._point[2] == ns.auraSlots.tdebuffs
-    and ns.auraSlots.tdebuffs._point[5] == 0, "debuffs: in the middle, from the line's top")
--- the middle column makes room for the debuffs (24 high, 6 more than the line's 18)
-assert(fr.combo._point[5] == -20 - 6, "the middle column pushed down")
+-- as on your side: buffs right under enemy health, debuffs under them, its power after
+assert(ns.auraSlots.tbuffs._point[4] == 112 and ns.auraSlots.tbuffs._point[5] == -20, "buffs under enemy health")
+assert(di[1].tex._tex == 221 and db_._point[1] == "TOPLEFT" and db_._point[2] == ns.auraSlots.tdebuffs
+    and ns.auraSlots.tdebuffs._point[4] == 112 and ns.auraSlots.tdebuffs._point[5] == -20 - 20 - 2,
+    "debuffs under the buffs")
+assert(fr.combo._point[5] == -20, "the middle as it was")
 -- options open (or unlocked): dummies fill each group's grid, with timers and stacks, to tune by
 prof().locked = false; fire("UNIT_AURA", "target")
 assert(bi[8]:IsShown() and bi[1].tex._tex:find("Spell_Holy_WordFortitude") and di[16]:IsShown()
@@ -877,7 +879,7 @@ S.combat = false; fire("UNIT_AURA", "target")
 assert(not bi[1]:IsShown() and bb._w == 1, "no buffs, no icons, a box of 1 px")
 S.auras = {}
 eh.debuffs.show = false; fire("UNIT_AURA", "target")
-assert(not di[1]:IsShown() and fr.combo._point[5] == -20, "debuffs off: the middle column back up")
+assert(not di[1]:IsShown() and ns.auraSlots.tdebuffs.h == 0, "debuffs off: their row takes no room")
 -- filters: only yours, a list of the only ones, a list of never these (names in any case, or IDs)
 eh.debuffs.show = true
 S.debuffs = { { icon = 1, name = "Rend", sourceUnit = "player" }, { icon = 2, name = "Sunder Armor", sourceUnit = "target" },
