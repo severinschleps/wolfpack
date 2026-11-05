@@ -10190,6 +10190,25 @@ function ns.AuraReport(spellName)
     report("GetUnitAuras HELPFUL", function() return A.GetUnitAuras("player", "HELPFUL|PLAYER", 40) end)
     report("GetUnitAuras HARMFUL|RAID", function() return A.GetUnitAuras("player", "HARMFUL|RAID", 8) end)
     report("GetAuraDataByIndex(1)", A.GetAuraDataByIndex, "player", 1, "HELPFUL|PLAYER")
+    -- what the Combat Display's rows read, as they read it, on you and your target
+    for _, unit in ipairs({ "player", "target" }) do
+        for _, filter in ipairs({ "HELPFUL", "HARMFUL", "HARMFUL|PLAYER" }) do
+            local list = ns.auraList(unit, filter, 40)
+            local icons = 0
+            for _, a in ipairs(list or {}) do if readable(a.icon) then icons = icons + 1 end end
+            say(("rows read %s %s: %s"):format(unit, filter, list == nil and "refused"
+                or (#list .. " auras, " .. icons .. " with a readable icon")))
+        end
+    end
+    -- and what Blizzard's own target frame is showing right now
+    local tf, shown = TargetFrame, 0
+    pcall(function()
+        for _, pool in pairs(tf.auraPools and tf.auraPools.pools or {}) do
+            for b in pool:EnumerateActive() do if b:IsShown() then shown = shown + 1 end end
+        end
+    end)
+    say(("Blizzard's target frame: %s, %d aura icons shown"):format(tf and (tf:IsVisible() and "visible"
+        or "hidden") or "none", shown))
 end
 
 -- /wp pet -- which of the happiness routes, if any, this build still answers on.
