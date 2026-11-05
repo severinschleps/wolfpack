@@ -331,6 +331,14 @@ realLayout()
 local pa, pb = BS.stacks[gA.id]._point, BS.stacks[gB.id]._point
 assert(pa[1] == "BOTTOM" and pa[2] == WolfpackAddonFrame and pa[3] == "TOP" and pa[4] == 3 and pa[5] == 4, "above its top")
 assert(pb[1] == "TOP" and pb[2] == WolfpackAddonFrame and pb[3] == "BOTTOM" and pb[5] == -4, "below its bottom")
+-- or in one of its three icon stacks over the middle column, growing up from its bottom
+local slot2 = mock()
+ns.iconSlot = function(i) return i == 2 and slot2 or nil end
+gA.stack.anchor = "slot2"
+realLayout()
+pa = BS.stacks[gA.id]._point
+assert(pa[1] == "BOTTOM" and pa[2] == slot2 and pa[3] == "BOTTOM" and pa[4] == 3, "in icon stack 2, growing up")
+ns.iconSlot = nil
 gA.stack.anchor, gB.stack.anchor = "screen", "screen"
 realLayout()
 assert(BS.stacks[gA.id]._point[2] == UIParent, "back on the screen")
@@ -762,7 +770,8 @@ assert(BS.FrameSpell(pooled) == 772, "the frame is still Rend's, so it stays in 
 
 -- the window's Anchored to: picking an edge of the Combat Display starts the group just off it
 local anchorMenu = menuStarting("The screen")
-assert(anchorMenu and anchorMenu[2].text == "Combat Display, top", "the Anchored to menu")
+assert(anchorMenu and anchorMenu[2].text == "Combat Display, top" and anchorMenu[5].text == "Combat Display, icon stack 2",
+  "the Anchored to menu: the screen, an edge, an icon stack")
 anchorMenu[2].set()
 local sA = BS.profile.groups[1].stack
 assert(sA.anchor == "top" and sA.x == 0 and sA.y == 4 and anchorMenu[2].isSel(), "picking the top starts on that edge")

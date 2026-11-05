@@ -3077,6 +3077,14 @@ function ns.bigFor(key)
     end
     return a and true or false, c and c.size or 0
 end
+-- The three icon stacks over the middle column, a third of it each, their bottom the gap above
+-- the line: Bar Stack groups hang there (its Anchored to) and grow up from it.
+ns.iconSlots = {}
+function ns.iconSlot(i)
+    ns.iconSlots[i] = ns.iconSlots[i] or CreateFrame("Frame", nil, anchor)
+    return ns.iconSlots[i]
+end
+
 -- an aura change: the icon drawn again; one coming or going reshapes the grid
 function ns.bigCheck(key)
     local f = ns.bigFrames[key]
@@ -3272,6 +3280,12 @@ local function stack(container, set, L, on, swings)
         it[1]:SetPoint("TOPLEFT", container, "TOP", it[2], it[3] - top)
     end
     for _, s in ipairs(slotsAt) do auraRow(s[1], s[2], s[3], top) end
+    for i = 1, 3 do
+        local s = ns.iconSlot(i)
+        s:SetSize(cw / 3, 1)
+        s:ClearAllPoints()
+        s:SetPoint("BOTTOM", container, "TOP", -cw / 2 + (i - 0.5) * cw / 3, rowH / 2 + gap - top)
+    end
     for _, key in ipairs({ "health", "enemyhealth" }) do
         if set[key]:IsShown() then ns.gridAuras(set[key]) end
     end

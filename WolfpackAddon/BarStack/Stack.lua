@@ -397,8 +397,13 @@ local function hookViewers()
   end
 end
 
--- Wolfpack's Combat Display, when the group hangs on one of its edges
-function BS.AnchorFrame(s) return s.anchor ~= "screen" and WolfpackAddonFrame or nil end
+-- Wolfpack's Combat Display, when the group hangs on one of its edges; or one of its three icon
+-- stacks (slot1..slot3) over its middle column
+function BS.AnchorFrame(s)
+  local n = tonumber(tostring(s.anchor):match("^slot(%d)$"))
+  if n then return ns.iconSlot and ns.iconSlot(n) or nil end
+  return s.anchor ~= "screen" and WolfpackAddonFrame or nil
+end
 
 -- One frame per group, made the first time the group is laid out.
 local function stackFor(g)
@@ -424,9 +429,10 @@ local function stackFor(g)
         local ux, uy = UIParent:GetCenter()
         local cd = BS.AnchorFrame(s)
         if cd then -- from the edge's middle, in the stack's own units
+          -- (an icon stack: from its bottom, the group's bottom on it, like the top edge's)
           local r, top = cd:GetEffectiveScale() / st:GetEffectiveScale(), s.anchor == "top"
           local edge = (top and cd:GetTop() or cd:GetBottom()) * r
-          ux, uy, y = cd:GetCenter() * r, edge, top and st:GetBottom() or st:GetTop()
+          ux, uy, y = cd:GetCenter() * r, edge, s.anchor ~= "bottom" and st:GetBottom() or st:GetTop()
           sc = 1
         end
         s.point = "CENTER"
@@ -457,7 +463,9 @@ function BS.Layout()
     liveStacks[st] = #bars > 0 -- a group with nothing loaded on this character stays hidden
     st:ClearAllPoints()
     local cd = BS.AnchorFrame(s)
-    if cd then -- hung on the edge: below the bottom, above the top
+    if cd and s.anchor:match("^slot") then -- an icon stack: growing up from its bottom
+      st:SetPoint("BOTTOM", cd, "BOTTOM", s.x, s.y)
+    elseif cd then -- hung on the edge: below the bottom, above the top
       local top = s.anchor == "top"
       st:SetPoint(top and "BOTTOM" or "TOP", cd, top and "TOP" or "BOTTOM", s.x, s.y)
     else

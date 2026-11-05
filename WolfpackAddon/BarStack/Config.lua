@@ -582,7 +582,8 @@ local function build(parent)
   f.anchor = dropdown(f, x, -304, 206, function()
     local out = {}
     for _, e in ipairs({ { "The screen", "screen", -180 }, { "Combat Display, top", "top", 4 },
-      { "Combat Display, bottom", "bottom", -4 } }) do
+      { "Combat Display, bottom", "bottom", -4 }, { "Combat Display, icon stack 1", "slot1", 0 },
+      { "Combat Display, icon stack 2", "slot2", 0 }, { "Combat Display, icon stack 3", "slot3", 0 } }) do
       out[#out + 1] = { e[1], function() return S().anchor == e[2] end, function()
         local s = S()
         if s.anchor ~= e[2] then s.anchor, s.x, s.y = e[2], 0, e[3]; changed() end

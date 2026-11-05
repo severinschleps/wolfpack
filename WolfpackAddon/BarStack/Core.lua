@@ -32,7 +32,8 @@ end
 local ICON_DEFAULTS = { zoom = 8, border = 2, color = { 0, 0, 0, 1 }, radius = 12 }
 BS.RADII = { [0] = true, [12] = true, [25] = true, [50] = true }
 -- anchor: "screen" (x / y from its center), or "top" / "bottom": on that edge of Wolfpack's Combat
--- Display, x / y from the edge's middle, so it moves along as the display grows or shrinks.
+-- Display, x / y from the edge's middle, so it moves along as the display grows or shrinks; or
+-- "slot1".."slot3": one of its icon stacks over the middle column, growing up from its bottom.
 local STACK_DEFAULTS = { point = "CENTER", anchor = "screen", x = 0, y = -180, scale = 1, alpha = 1, showInCombat = true, showOutOfCombat = true }
 local BAR_DEFAULTS = {
   name = "New bar", offset = { x = 0, y = 0 }, size = { w = 36, h = 36 }, -- one icon; the bar is n of them
@@ -40,7 +41,7 @@ local BAR_DEFAULTS = {
   gap = 8, -- px between icons
 }
 local ENUMS = { orientation = { horizontal = true, vertical = true } }
-BS.ANCHORS = { screen = true, top = true, bottom = true }
+BS.ANCHORS = { screen = true, top = true, bottom = true, slot1 = true, slot2 = true, slot3 = true }
 -- An icon: what it looks like, and when it shows.
 --   look   "custom": a picture of our own -- `texture` (file ID, path or spell name), else the
 --          spell's picture; `swipe` plays the spell's cooldown over it.

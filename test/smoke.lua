@@ -593,6 +593,11 @@ end
 -- its column.
 assert(fr.health._point[5] == 0 and fr.combo._point[5] == -20 and fr.power._point[5] == -34
     and WolfpackAddonFrame._h == 48, "the line, then combo and power below it")
+-- the three icon stacks (Bar Stack groups hang there): thirds of the middle column, the gap above the line
+assert(ns.iconSlots[2]._point[1] == "BOTTOM" and ns.iconSlots[2]._point[2] == WolfpackAddonFrame
+    and ns.iconSlots[2]._point[4] == 0 and ns.iconSlots[2]._point[5] == 2
+    and math.abs(ns.iconSlots[1]._point[4] + 220 / 3) < 0.01 and math.abs(ns.iconSlots[1]._w - 220 / 3) < 0.01,
+    "icon stacks over the middle column")
 prof().regular.bars.power.padTop = 6
 fire("UNIT_MAXPOWER")
 assert(fr.power._point[5] == -40 and WolfpackAddonFrame._h == 54, "space above power")
