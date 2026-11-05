@@ -297,6 +297,7 @@ function T.paint()
 end
 
 function T.sync()
+    if not ns.loads("trinkets") or not ns.loads("actionbars") then return end
     local O = T.o()
     if not O then return end
     if InCombatLockdown() then T.pending = true return end

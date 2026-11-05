@@ -685,6 +685,7 @@ function BS.SetEditing(on)
 end
 
 function BS.Init()
+  if ns.loads and not ns.loads("barstack") then return end -- unloaded on the Load page: never starts
   BS.ready = true
   if EventRegistry then
     EventRegistry:RegisterCallback("EditMode.Enter", function() BS.SetEditing(true) end, BS)

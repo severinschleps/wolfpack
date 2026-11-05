@@ -449,6 +449,7 @@ ShowUIPanel = function(f) S.shownPanel = f end
 PlayerFrame = new()
 PlayerFrame._parent = UIParent
 TargetFrame = new()
+ReloadUI = function() S.reloaded = (S.reloaded or 0) + 1 end
 TargetFrame._parent = UIParent
 MainMenuExpBar = new()
 MainMenuExpBar._parent = UIParent
@@ -3259,6 +3260,7 @@ for _, f in ipairs(created) do
     end
 end
 prof().colors.borderShade = 25 -- poked to 42 above, like every slider
+WolfpackAddonDB.load = {} -- the Load page was poked too: everything loads again
 for _, m in ipairs({ "regular", "plates" }) do
     local seen = {}
     for _, k in ipairs(prof()[m].order) do seen[k] = true end
@@ -4759,4 +4761,39 @@ do
     ns.configOpen = false; fire("UNIT_MAXPOWER")
 end
 
+
+-- The Load page: what starts at all, for every character; unticked parts start nothing and
+-- leave the sidebar
+do
+    local L = WolfpackAddonDB.load
+    assert(type(L) == "table" and ns.loads("combat") and ns.loads("bags"), "everything loads by default")
+    L.combat = false; fire("UNIT_MAXPOWER")
+    assert(not WolfpackAddonFrame:IsShown() and not fr.health:IsShown() and not fr.power:IsShown(),
+        "Combat Display off: no bars")
+    fire("UNIT_HEALTH", "player"); fire("UNIT_AURA", "player") -- events for bars that never were: nothing breaks
+    assert(not ns.errored, "quiet")
+    L.combat = nil; fire("UNIT_MAXPOWER")
+    assert(WolfpackAddonFrame:IsShown() and fr.health:IsShown(), "back")
+    prof().bags.show, L.bags = true, false
+    assert(not ns.bags.on(), "bags off however the profile has them")
+    L.bags, prof().bags.show = nil, false
+    -- the page: a tick per part, and the sidebar without the unloaded ones
+    byText("Load")._scripts.OnClick(byText("Load"), "LeftButton")
+    local bagsCheck
+    for _, f in ipairs(created) do
+        if type(rawget(f, "Text")) == "table" and f.Text._text == "Bags and bank" then bagsCheck = f end
+    end
+    assert(ns.pages.load:IsShown() and bagsCheck and byText("Reload now"), "the page")
+    bagsCheck.GetChecked = function() return false end
+    bagsCheck._scripts.OnClick(bagsCheck)
+    assert(L.bags == false, "unticked: off")
+    local bagsEntry
+    for _, s in ipairs(ns.sideEntries) do if s[1] == "bags" then bagsEntry = s[2] end end
+    assert(bagsEntry and not bagsEntry:IsShown(), "its page leaves the sidebar")
+    bagsCheck.GetChecked = function() return true end
+    bagsCheck._scripts.OnClick(bagsCheck)
+    assert(L.bags == nil and bagsEntry:IsShown(), "ticked again: back")
+    byText("Reload now")._scripts.OnClick(byText("Reload now"), "LeftButton")
+    assert((S.reloaded or 0) > 0, "Reload now reloads")
+end
 realPrint("smoke ok")

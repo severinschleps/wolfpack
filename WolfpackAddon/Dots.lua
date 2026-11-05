@@ -277,6 +277,7 @@ if ns.dotCasts then
     ev:RegisterUnitEvent("UNIT_COMBAT", "target")
     ev:RegisterEvent("PLAYER_TARGET_CHANGED")
     ev:SetScript("OnEvent", function(_, event, ...)
+        if not ns.dotsOn then return end -- unloaded on the Load page
         local ok, err = pcall(function(...)
             if event == "UNIT_SPELLCAST_SENT" then ns.dotSent(select(4, ...)) -- unit, target, castGUID, id
             elseif event == "UNIT_SPELLCAST_SUCCEEDED" then ns.dotCast(select(2, ...), select(3, ...))

@@ -111,6 +111,7 @@ end
 
 -- the library into the game's slots: General, then your class's tab
 function M.sync()
+    if not ns.loads("macros") then return end
     if not M.db() then return end
     if InCombatLockdown() then M.pending = true return end
     M.pending = false

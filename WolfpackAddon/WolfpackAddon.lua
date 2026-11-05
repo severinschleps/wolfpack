@@ -940,6 +940,29 @@ local BARS = {
 local frames = {}
 ns.frames = frames
 
+-- What loads at all (the Load page): account-wide in WolfpackAddonDB.load, [key] = false for
+-- off; a change takes a /reload. An unloaded part starts nothing: no events, no frames, no hooks,
+-- and its options page leaves the sidebar.
+ns.LOAD = {
+    { "combat", "Combat Display", "Your bars around the center line: health, power, casts, your target." },
+    { "actionbars", "Action bars", "Wolfpack's own action bars and their key binds." },
+    { "trinkets", "Trinket manager", "Picking trinkets from a menu on an action bar." },
+    { "bags", "Bags and bank", "One window for your bags, the bank in the same look." },
+    { "nameplates", "Nameplates", "Enemy nameplates, their cast bars and the quest mob icons." },
+    { "unitframes", "Unit frames", "Your party and raid frames." },
+    { "micro", "Micro menu", "Blizzard's menu buttons in a row of ours." },
+    { "tooltip", "Tooltip", "Where the tooltip shows." },
+    { "macros", "Macros", "The macro library." },
+    { "minimap", "Minimap", "Square shape, border, button tray and info bar." },
+    { "barstack", "Bar Stack", "Bars from Blizzard's Cooldown Manager icons." },
+    { "dots", "DoT damage left", "On both health bars: what your DoTs will still do." },
+    { "hunter", "Hunter", "Ammunition and your pet's happiness." },
+}
+function ns.loads(key)
+    local s = WolfpackAddonDB
+    return not (type(s) == "table" and type(s.load) == "table" and s.load[key] == false)
+end
+
 local anchor = CreateFrame("Frame", "WolfpackAddonFrame", UIParent)
 anchor:SetMovable(true)
 anchor:SetClampedToScreen(true)
@@ -2971,6 +2994,7 @@ local function evalQuest(unit)
 end
 
 local function plateAdded(unit)
+    if not ns.loads("nameplates") then return end
     local ok, plate = pcall(C_NamePlate.GetNamePlateForUnit, unit)
     if not ok or not plate or plate:IsForbidden() then return end
     local h = questHolders[plate]
@@ -3678,6 +3702,7 @@ end
 -- each next button goes this way (x), each next row that way (y)
 ns.AB_GROW = { rightdown = { 1, -1 }, rightup = { 1, 1 }, leftdown = { -1, -1 }, leftup = { -1, 1 } }
 function ns.syncActionBars()
+    if not ns.loads("actionbars") then return end
     if InCombatLockdown() then return end
     local A, ab = db.actionbars, ns.ab
     for i, bar in ipairs(A.bars) do
@@ -3758,6 +3783,7 @@ function ns.abTarget(o)
 end
 
 function ns.syncSpecialBars()
+    if not ns.loads("actionbars") then return end
     if InCombatLockdown() or ns.ab.placing then return end
     ns.ab.placing = true -- giving buttons back makes Blizzard lay its bar out, which calls here
     for _, key in ipairs({ "stance", "pet" }) do
@@ -3974,7 +4000,7 @@ function ns.syncClickers()
     local R = db.regular
     local top = R.y + (ns.gridTop or 0) -- the frame's top edge
     local player = (R.playerMenu or R.playerTarget or R.playerMouseover) and true or false
-    local want = { health = player, power = player, enemyhealth = R.targetMenu, pethealth = R.petMenu,
+    local want = not ns.loads("combat") and {} or { health = player, power = player, enemyhealth = R.targetMenu, pethealth = R.petMenu,
         tothealth = R.totMenu }
     for _, key in ipairs({ "health", "power", "enemyhealth", "pethealth", "tothealth" }) do
         local b, f, mine = R.bars[key], frames[key], CLICKERS[key][2] == "player"
@@ -4633,6 +4659,7 @@ function mini.minimapOffset()
 end
 
 function mini.syncMinimap()
+    if not ns.loads("minimap") then return end
     if not Minimap then return end
     if InCombatLockdown() then return end -- the cluster is theirs, and off limits in a fight
     mini.minimapShape()
@@ -4645,8 +4672,15 @@ end
 
 local function Refresh()
     ft.tick() -- takeoff and landing, so a route gets timed whether the bar is shown or not
-    stack(anchor, frames, db.regular, true, swingFrames.regular)
-    if not moving then place() end -- the line stays put, however far up the bars now reach
+    if ns.loads("combat") then
+        anchor:Show()
+        stack(anchor, frames, db.regular, true, swingFrames.regular)
+        if not moving then place() end -- the line stays put, however far up the bars now reach
+    else -- not loaded: every bar hidden, so nothing that fills shown bars touches them
+        anchor:Hide()
+        for _, f in pairs(frames) do f:Hide() end
+        for _, f in ipairs(swingFrames.regular) do f:Hide() end
+    end
     for _, h in pairs(questHolders) do styleQuest(h) end
     mover:SetShown(not db.locked)
     moverHint:SetFormattedText(HINT, db.regular.x, db.regular.y)
@@ -4693,7 +4727,7 @@ end
 -- allows any time). Plates are recycled: each keeps its bar, given to whichever unit it shows.
 ------------------------------------------------------------------------------------------
 ns.np = { units = {}, bars = {}, seen = {} } -- unit -> bar; plate -> bar; units with a plate
-function ns.np.on() return db and db.plates.bars.enemyhealth.show and true or false end
+function ns.np.on() return db and db.plates.bars.enemyhealth.show and ns.loads("nameplates") and true or false end
 
 function ns.np.bar(parent)
     local f = newBar(parent, "enemyhealth", "plates")
@@ -5051,7 +5085,7 @@ end)
 ns.bags = { holders = {}, order = { "main", "quest", "reagent", "ammo", "soul", "trade" },
     labels = { quest = "Quest items", reagent = "Reagents", ammo = "Ammunition", soul = "Soul shards",
         trade = "Profession bags" } }
-function ns.bags.on() return db and db.bags.show and true or false end
+function ns.bags.on() return db and db.bags.show and ns.loads("bags") and true or false end
 function ns.bags.api(name) return (C_Container and C_Container[name]) or _G[name] end
 
 -- backpack and bags, plus the reagent bag where the game has one (elsewhere bag 5 is the bank's)
@@ -5810,6 +5844,7 @@ function ns.tip.place(tt, parent)
     end
 end
 function ns.tip.sync()
+    if not ns.loads("tooltip") then return end
     if not ns.tip.hooked and type(GameTooltip_SetDefaultAnchor) == "function" then
         hooksecurefunc("GameTooltip_SetDefaultAnchor", function(tt, parent) safe(ns.tip.place, tt, parent) end)
         ns.tip.hooked = true
@@ -5863,6 +5898,7 @@ function ns.micro.bagBar(side)
 end
 
 function ns.micro.sync()
+    if not ns.loads("micro") then return end
     local o, U = db and db.micro, ns.micro
     if not o or (not o.show and not U.frame) then return end
     if InCombatLockdown() then U.pending = true return end
@@ -5964,7 +6000,7 @@ ns.uf.ROLE_COORDS = { TANK = { 0, 19 / 64, 22 / 64, 41 / 64 }, HEALER = { 20 / 6
 ns.uf.DUMMY_CLASSES = { "WARRIOR", "PRIEST", "MAGE", "ROGUE", "DRUID", "PALADIN", "HUNTER", "WARLOCK", "SHAMAN" }
 ns.uf.BLIZZ = { "PartyFrame", "CompactPartyFrame", "CompactRaidFrameContainer", "CompactRaidFrameManager",
     "PartyMemberFrame1", "PartyMemberFrame2", "PartyMemberFrame3", "PartyMemberFrame4" }
-function ns.uf.on() return db and db.unitframes.show and true or false end
+function ns.uf.on() return db and db.unitframes.show and ns.loads("unitframes") and true or false end
 function ns.uf.dummy() return ns.uf.on() and ns.configOpen and ns.uf.preview and true or false end
 -- the settings for a group of n players: the smallest size it fits in
 ns.uf.SIZES = { 5, 10, 20, 40 }
@@ -6627,6 +6663,7 @@ function ns.layoutMealText(f)
 end
 
 function hn.refresh()
+    if not ns.loads("hunter") then return end
     if not db then return end
     hn.panel:Hide()
     -- ammo coming or going changes the layout; otherwise the bar just fills
@@ -8077,13 +8114,29 @@ local function buildConfig()
 
     entry("profile", "Profiles")
     entry("colors", "Colors & borders")
+    entry("load", "Load")
     y = y - 12
     shelf("Interface")
+    -- a part unticked on the Load page leaves the list, the rest close up
+    local side, sideTop = {}, y
     for _, e in ipairs({ { "combat", "Combat Display" }, { "actionbars", "Action bars" },
         { "trinkets", "   Trinket manager" }, { "bags", "Bags" }, { "nameplates", "Nameplates" }, { "unitframes", "Unit frames" },
         { "micro", "Micro menu" }, { "tooltip", "Tooltip" }, { "macros", "Macros" }, { "other", "Other" }, { "barstack", "Bar Stack" } }) do
-        entry(e[1], e[2], e[3])
+        side[#side + 1] = { e[1], entry(e[1], e[2], e[3]) }
     end
+    ns.sideEntries = side
+    onRefresh(function()
+        local at = sideTop
+        for _, s in ipairs(side) do
+            local on = s[1] == "other" or (ns.loads(s[1]) and (s[1] ~= "trinkets" or ns.loads("actionbars")))
+            s[2]:SetShown(on)
+            if on then
+                s[2]:ClearAllPoints()
+                s[2]:SetPoint("TOPLEFT", 12, at)
+                at = at - 28
+            end
+        end
+    end)
 
     ns.sidebarBottom = y
     local divider = cfg:CreateTexture(nil, "ARTWORK")
@@ -8113,7 +8166,9 @@ local function buildConfig()
     ns.pages = { combat = barsPage, nameplates = questPage, other = otherPage, profile = profilePage, colors = colorPage, actionbars = actionPage,
         bags = CreateFrame("Frame", nil, content), unitframes = CreateFrame("Frame", nil, content),
         macros = CreateFrame("Frame", nil, content), micro = CreateFrame("Frame", nil, content),
-        tooltip = CreateFrame("Frame", nil, content), trinkets = CreateFrame("Frame", nil, content) }
+        tooltip = CreateFrame("Frame", nil, content), trinkets = CreateFrame("Frame", nil, content),
+        load = CreateFrame("Frame", nil, content) }
+    ns.pages.load:SetAllPoints(barsPage)
     ns.pages.tooltip:SetAllPoints(barsPage)
     ns.pages.trinkets:SetAllPoints(barsPage)
     ns.pages.macros:SetAllPoints(barsPage)
@@ -8161,6 +8216,7 @@ local function buildConfig()
             or section == "micro" and "Micro menu"
             or section == "tooltip" and "Tooltip"
             or section == "trinkets" and "Trinket manager"
+            or section == "load" and "Load"
             or "Combat Display")
         for _, t in ipairs(tabs) do t:SetShown(np) end
         local trail = np and sub == "targeted" and ns.npTrail
@@ -8177,6 +8233,7 @@ local function buildConfig()
         ns.pages.micro:SetShown(section == "micro")
         ns.pages.tooltip:SetShown(section == "tooltip")
         ns.pages.trinkets:SetShown(section == "trinkets")
+        ns.pages.load:SetShown(section == "load")
         ns.pages.unitframes:SetShown(uf and ns.ufTab == "general")
         local page = section == "barstack" and bsPage or ns.pages[section]
         if uf and ns.ufTab ~= "general" then page = ns.pages["uf" .. ns.ufTab] end
@@ -9029,6 +9086,46 @@ local function buildConfig()
                 or "Tooltips open at this point of the screen, moved by X / Y. A sample shows while this page is open.")
         end)
         c:close()
+    end)()
+
+    ----------------------------------------------------------------------------------
+    -- Load page: which parts of the addon start at all (account-wide, see ns.loads)
+    ----------------------------------------------------------------------------------
+    ;(function()
+        local pg = ns.pages.load
+        local function L() return WolfpackAddonDB.load end
+        local at = {} -- what each part was when the UI loaded: a change waits for the reload
+        for _, e in ipairs(ns.LOAD) do at[e[1]] = ns.loads(e[1]) end
+        local half = math.ceil(#ns.LOAD / 2)
+        local cards = {}
+        for i, col in ipairs({ { 1, half }, { half + 1, #ns.LOAD } }) do
+            local c = group(pg, COL[i], TOP, 202, i == 1 and "What loads" or "")
+            for j = col[1], col[2] do
+                local e = ns.LOAD[j]
+                check(pg, e[2], c.x, c:row(ROW), function() return L()[e[1]] ~= false end,
+                    function(v) if v then L()[e[1]] = nil else L()[e[1]] = false end end)
+                local n = label(pg, e[3], "GameFontDisableSmall")
+                n:SetPoint("TOPLEFT", c.x + 4, c:row(30))
+                n:SetWidth(174)
+                n:SetJustifyH("LEFT")
+            end
+            cards[i] = c:close()
+        end
+        local low = math.min(cards[1].cursor, cards[2].cursor)
+        local r = group(pg, COL[1], low - 28, 412, "Apply")
+        local n = label(pg, "", "GameFontNormalSmall")
+        n:SetPoint("TOPLEFT", r.x, r:row(20))
+        n:SetWidth(388)
+        n:SetJustifyH("LEFT")
+        ns.loadReload = button(pg, "Reload now", 140, r.x, r:row(BUTTON), function() ReloadUI() end)
+        onRefresh(function()
+            local pending = false
+            for _, e in ipairs(ns.LOAD) do pending = pending or (ns.loads(e[1]) ~= at[e[1]]) end
+            n:SetText(pending and "|cffffcc33Changed: takes effect after a reload.|r"
+                or "Unticked parts start nothing at all and leave the sidebar. For every character.")
+        end)
+        r:close()
+        pg.need = -r.cursor + 20
     end)()
 
     ----------------------------------------------------------------------------------
@@ -10807,6 +10904,8 @@ ev:SetScript("OnEvent", function(_, event, unit, arg2, arg3)
         store = type(WolfpackAddonDB) == "table" and WolfpackAddonDB.profiles and WolfpackAddonDB
             or { profiles = {}, chars = {} }
         WolfpackAddonDB = store
+        store.load = type(store.load) == "table" and store.load or {} -- the Load page: what starts
+        if not ns.loads("dots") then ns.dotsOn, ns.dotLog, ns.dotCasts = false, false, false end
         store.minimapAngle = store.minimapAngle or 220
         store.classProfiles = store.classProfiles or {} -- [class token] = profile name
         store.parents, store.overrides = store.parents or {}, store.overrides or {} -- see ns.inh
