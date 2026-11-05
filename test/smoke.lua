@@ -1028,12 +1028,16 @@ assert(S.pf:IsShown() and S.pf._point[4] == -334 - 120 and S.pf._w == 120 and fr
     and fr.health._point[4] == -332, "your pet left of your health")
 S.petHP, S.PB.show = nil, false; fire("UNIT_PET", "player")
 assert(fr.health._w == 220, "pet bar off: your health its own width")
--- Your target's power: a bar of its own under enemy health
+-- Your target's power: a bar of its own under enemy health, or inset in it (enemy health's
+-- resource strip, one switch for both)
+eh.resource = false; fire("PLAYER_TARGET_CHANGED")
 S.EP = fr.enemypower
-assert(S.EP:IsShown() and S.EP._point[4] == 112 and S.EP._point[5] == -20, "under enemy health")
+assert(S.EP:IsShown() and not rf:IsShown() and S.EP._point[4] == 112 and S.EP._point[5] == -20, "under enemy health")
 S.EP.segs[1]._value = nil; fire("UNIT_POWER_FREQUENT", "target")
 assert(S.EP.segs[1]._value == SECRET and S.EP.segs[1]._sbc[1] == 1 and S.EP.segs[1]._sbc[3] == 0,
     "follows the target's power, in its color (energy, your yellow)")
+eh.resource = true; fire("PLAYER_TARGET_CHANGED")
+assert(not S.EP:IsShown() and rf:IsShown() and rf._point[2] == ef, "inside enemy health: the strip, the bar out of the grid")
 -- Focus: above target of target's column
 S.units.focus = true; fire("PLAYER_FOCUS_CHANGED")
 assert(fr.focushealth:IsShown() and fr.focushealth._point[4] == 334 and fr.focushealth._point[5] == 0

@@ -3139,6 +3139,7 @@ local function stack(container, set, L, on, swings)
         local s, n = BARS[key].state()
         s = on and s and B[key].show
         if key == "experience" and B[key].hideInCombat and ns.inCombat and not ns.previewing() then s = false end
+        if key == "enemypower" and B.enemyhealth.resource then s = false end -- inset in enemy health instead
         return s and true or false, n
     end
     -- lays one bar out at `width` (its own when nil); returns its height
@@ -8223,6 +8224,10 @@ local function buildConfig()
         function() return cur().tagName end, function(v) cur().tagName = v end)
     local resCheck = check(barsPage, "Show its resource", only.x, only:row(0),
         function() return cur().resource end, function(v) cur().resource = v end)
+    -- Enemy Power, the other way to switch the same: inset in enemy health (its resource strip)
+    -- instead of a bar of its own
+    local insetCheck = check(barsPage, "Inside enemy health", only.x, only:row(0),
+        function() return L().bars.enemyhealth.resource end, function(v) L().bars.enemyhealth.resource = v end)
     local resButton = button(barsPage, "Resource settings", 186, only.x, only:row(0) - ROW, function()
         ns.toggleDialog(ns.resDialog)
     end)
@@ -8303,6 +8308,7 @@ local function buildConfig()
     onlyNote:SetPoint("TOPLEFT", only.x, only:row(16))
     onRefresh(function()
         resCheck:SetShown(selected == "enemyhealth")
+        insetCheck:SetShown(selected == "enemypower" and mode == "regular")
         local resOn = selected == "enemyhealth" and cur().resource or false
         resButton:SetShown(resOn)
         if not (resOn and (section == "combat" or section == "nameplates")) then ns.resDialog:Hide() end
@@ -8366,6 +8372,9 @@ local function buildConfig()
                 .. "nothing covers, in range, or too far.")
         elseif selected == "enemyhealth" then
             onlyNote:SetText("") -- the resource sliders stand where this note would
+        elseif selected == "enemypower" then
+            onlyNote:SetText("\n\nInside enemy health it is the bar's resource strip, out of the grid: its "
+                .. "size, spot (inside, or hung on an edge) and look are under Enemy Health, Resource settings.")
         elseif selected == "targetcast" then
             onlyNote:SetText("What your target is casting. With Bar color \"By kind of cast\" it takes "
                 .. "the color of the kind, from the Colors page: one you cannot stop, a heal, or "
