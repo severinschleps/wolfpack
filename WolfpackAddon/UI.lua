@@ -21,7 +21,7 @@ local C = {
   danger = { 0.973, 0.443, 0.443, 1 },
 }
 ui.C = C
-ui.BS_H = 940 -- Bar Stack's editor, on its page of the options window (it scrolls)
+ui.BS_H = 1040 -- Bar Stack's editor, on its page of the options window (it scrolls)
 
 local ROUND = "Interface\\AddOns\\" .. ADDON .. "\\Media\\Round\\r"
 local FACE = "Interface\\AddOns\\" .. ADDON .. "\\Fonts\\FiraSans-Medium.ttf"

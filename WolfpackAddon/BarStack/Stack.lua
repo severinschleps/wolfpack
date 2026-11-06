@@ -196,16 +196,16 @@ end
 
 -- Where spell j sits inside its bar: one icon's slot (size is per icon), x/y from the bar's top-left.
 local function slot(b, j)
-  local horiz, w, h = b.orientation ~= "vertical", b.size.w, b.size.h
+  local horiz, w, h = b.orientation ~= "vertical", BS.IconSize(b)
   return horiz and (j - 1) * (w + b.gap) or 0, horiz and 0 or -(j - 1) * (h + b.gap), w, h
 end
 
 -- The whole bar: one slot per icon, along the way the icons run.
 function BS.BarSize(b)
   local n = math.max(1, #b.icons)
-  local gaps = (n - 1) * (b.gap or 0)
-  if b.orientation == "vertical" then return b.size.w, b.size.h * n + gaps end
-  return b.size.w * n + gaps, b.size.h
+  local gaps, w, h = (n - 1) * (b.gap or 0), BS.IconSize(b)
+  if b.orientation == "vertical" then return w, h * n + gaps end
+  return w * n + gaps, h
 end
 
 -- A cooldown swipe over one of our own icons. The cooldown is secret in combat, but WoW hands

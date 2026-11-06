@@ -34,9 +34,12 @@ BS.RADII = { [0] = true, [12] = true, [25] = true, [50] = true }
 -- anchor: "screen" (x / y from its center), or "top" / "bottom": on that edge of Wolfpack's Combat
 -- Display, x / y from the edge's middle, so it moves along as the display grows or shrinks; or
 -- "slot1".."slot3": one of its icon stacks over the middle column, growing up from its bottom.
-local STACK_DEFAULTS = { point = "CENTER", anchor = "screen", x = 0, y = -180, scale = 1, alpha = 1, showInCombat = true, showOutOfCombat = true }
+-- size: one icon, for every bar of the group that has no size of its own. class: the class file
+-- name ("WARLOCK") the group shows on; nil for every class.
+local STACK_DEFAULTS = { point = "CENTER", anchor = "screen", x = 0, y = -180, scale = 1, alpha = 1,
+  showInCombat = true, showOutOfCombat = true, size = { w = 36, h = 36 } }
 local BAR_DEFAULTS = {
-  name = "New bar", offset = { x = 0, y = 0 }, size = { w = 36, h = 36 }, -- one icon; the bar is n of them
+  name = "New bar", offset = { x = 0, y = 0 }, -- size: one icon (the bar is n of them); nil = the group's
   orientation = "horizontal", icons = {},
   gap = 8, -- px between icons
 }
@@ -132,15 +135,24 @@ function BS.NormalizeBar(b)
   local icons = {}
   for _, ic in ipairs(b.icons) do icons[#icons + 1] = BS.NormalizeIcon(ic) end
   b.icons = icons
+  if type(b.size) ~= "table" then b.size = nil end
   -- size was once the whole bar; it is one icon now. An older bar's size is cut into its icons,
   -- along the way the icons run, so it looks the same as before.
-  if not b.perIcon then
+  if b.size and not b.perIcon then
     local n = math.max(1, #icons)
     if b.orientation == "vertical" then b.size.h = b.size.h / n else b.size.w = b.size.w / n end
-    b.perIcon = true
   end
-  b.size.w, b.size.h = Clamp(math.floor(b.size.w + 0.5), 1, 2000), Clamp(math.floor(b.size.h + 0.5), 1, 2000)
+  b.perIcon = true
+  if b.size then b.size.w, b.size.h = Clamp(math.floor((tonumber(b.size.w) or 1) + 0.5), 1, 2000),
+    Clamp(math.floor((tonumber(b.size.h) or 1) + 0.5), 1, 2000) end
   return b
+end
+
+-- One icon of the bar: its own size, else its group's.
+function BS.IconSize(b)
+  local g = not b.size and BS.profile and BS.GroupOf(b)
+  local s = b.size or g and g.stack.size or STACK_DEFAULTS.size
+  return s.w, s.h
 end
 
 -- What the window and /bs check call an icon.
@@ -151,6 +163,7 @@ end
 
 -- A group is one stack on screen: its own position, scale and combat rules, and its own bars.
 function BS.NormalizeGroup(g, i)
+  local hadSize = type(g.stack) == "table" and type(g.stack.size) == "table"
   fill(g, { name = "Stack " .. (i or 1), stack = STACK_DEFAULTS, bars = {} })
   if type(g.id) ~= "string" then g.id = newID("g") end
   local s = g.stack
@@ -158,11 +171,21 @@ function BS.NormalizeGroup(g, i)
   if not BS.ANCHORS[s.anchor] then s.anchor = "screen" end
   s.x, s.y = Clamp(s.x, -4000, 4000), Clamp(s.y, -4000, 4000)
   s.scale, s.alpha = Clamp(s.scale, 0.3, 3), Clamp(s.alpha, 0, 1)
+  s.size.w, s.size.h = Clamp(math.floor(s.size.w + 0.5), 1, 2000), Clamp(math.floor(s.size.h + 0.5), 1, 2000)
+  if type(s.class) ~= "string" or not s.class:match("^%u+$") then s.class = nil end
   local bars = {}
   for _, b in ipairs(g.bars) do
     if type(b) == "table" then bars[#bars + 1] = BS.NormalizeBar(b) end
   end
   g.bars = bars
+  -- a group from before it had an icon size takes its first bar's, and the bars that size follow it
+  if not hadSize then
+    local first = bars[1] and bars[1].size
+    if first then s.size.w, s.size.h = first.w, first.h end
+    for _, b in ipairs(bars) do
+      if b.size and b.size.w == s.size.w and b.size.h == s.size.h then b.size = nil end
+    end
+  end
   return g
 end
 
@@ -324,6 +347,7 @@ function BS.Loaded(b) return loads(BS.Me())[b.id] == true end
 function BS.SetLoaded(b, on) loads(BS.Me())[b.id] = on or nil end
 function BS.LoadedBars(g)
   local out = {}
+  if g.stack.class and g.stack.class ~= select(2, UnitClass("player")) then return out end -- another class's
   for _, b in ipairs(g.bars) do
     if BS.Loaded(b) then out[#out + 1] = b end
   end

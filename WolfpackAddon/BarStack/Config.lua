@@ -11,7 +11,7 @@ local MAX_CONDS = 6
 local W, H = 472, ui.BS_H
 local C1, C2, C3 = 0, 242, 0
 local W12, W3 = 230, 472
-local BOTTOM = -556
+local BOTTOM = -656
 local Y3, H3 = BOTTOM - 16, 300 -- the icons card's top and height
 local FOOT = Y3 - H3 - 16
 
@@ -406,8 +406,8 @@ end
 function BS.ShowBarSettings()
   if not selected then return end
   if not settings then
-    local d = dialog(300, 390, "Bar settings")
-    settings = d
+    local d = dialog(300, 420, "Bar settings")
+    settings, f.barSettings = d, d
     local x, w = 16, 268
     text(d, "Name", x, -48)
     d.name = input(d, x, -64, w, false, function(v) selected.name = v end)
@@ -417,16 +417,23 @@ function BS.ShowBarSettings()
     end)
     text(d, "Icons run this way", x + 118, -106, "GameFontDisableSmall")
     local B = function() return selected end
+    -- the group's icon size until moved here; then the bar's own, till "Use the group's size"
+    local function own()
+      local b = B()
+      if not b.size then local w_, h_ = BS.IconSize(b); b.size = { w = w_, h = h_ } end
+      return b.size
+    end
     slider(barSliders, d, "Icon width", x, -136, w, 8, 200, 1,
-      function() return B() and B().size.w end, function(v) B().size.w = BS.Clamp(v, 1, 2000) end)
+      function() return B() and BS.IconSize(B()) end, function(v) own().w = BS.Clamp(v, 1, 2000) end)
     slider(barSliders, d, "Icon height", x, -182, w, 8, 200, 1,
-      function() return B() and B().size.h end, function(v) B().size.h = BS.Clamp(v, 1, 2000) end)
+      function() return B() and select(2, BS.IconSize(B())) end, function(v) own().h = BS.Clamp(v, 1, 2000) end)
     slider(barSliders, d, "Offset X", x, -228, w, -400, 400, 1,
       function() return B() and B().offset.x end, function(v) B().offset.x = BS.Clamp(v, -2000, 2000) end)
     slider(barSliders, d, "Offset Y", x, -274, w, -400, 400, 1,
       function() return B() and B().offset.y end, function(v) B().offset.y = BS.Clamp(v, -2000, 2000) end)
     slider(barSliders, d, "Icon gap", x, -320, w, 0, 40, 1,
       function() return B() and B().gap end, function(v) B().gap = BS.Clamp(v, 0, 200) end)
+    d.groupSize = button(d, "Use the group's icon size", 200, x, -372, function() selected.size = nil; changed() end)
   end
   if editor then editor:Hide() end
   if f.picker then f.picker:Hide() end
@@ -438,6 +445,7 @@ local function refreshSettings(b)
   if not (settings and settings:IsShown()) then return end
   if not settings.name:HasFocus() then settings.name:SetText(b.name) end
   settings.orient:SetText(b.orientation == "vertical" and "Vertical" or "Horizontal")
+  settings.groupSize:SetEnabled(b.size ~= nil)
   for _, sl in ipairs(barSliders) do sl.sync() end
 end
 
@@ -597,6 +605,20 @@ local function build(parent)
     function() return S().y end, function(v) S().y = BS.Clamp(v, -3000, 3000) end)
   f.inCombat = checkbox(f, "Show in combat", x, -440, function(on) S().showInCombat = on; changed() end)
   f.outCombat = checkbox(f, "Show out of combat", x, -466, function(on) S().showOutOfCombat = on; changed() end)
+  -- every bar of the group whose size was never set on the bar itself
+  slider(groupSliders, f, "Icon width", x, -500, 206, 8, 200, 1,
+    function() return S().size.w end, function(v) S().size.w = BS.Clamp(v, 1, 2000) end)
+  slider(groupSliders, f, "Icon height", x, -546, 206, 8, 200, 1,
+    function() return S().size.h end, function(v) S().size.h = BS.Clamp(v, 1, 2000) end)
+  text(f, "Class", x, -592)
+  f.class = dropdown(f, x, -608, 206, function()
+    local out = { { "Every class", function() return S().class == nil end, function() S().class = nil; changed() end } }
+    for _, c in ipairs(CLASS_SORT_ORDER or {}) do
+      out[#out + 1] = { LOCALIZED_CLASS_NAMES_MALE and LOCALIZED_CLASS_NAMES_MALE[c] or c,
+        function() return S().class == c end, function() S().class = c; changed() end }
+    end
+    return out
+  end)
 
   -- column 2: its bars (top = top layer, the arrows or a drag reorder them)
   x = C2 + 12
@@ -606,11 +628,11 @@ local function build(parent)
   f.loadNote = text(f, "", x, -440, "GameFontDisableSmall")
   f.loadNote:SetWidth(206)
   f.loadNote:SetJustifyH("LEFT")
-  button(f, "New", 64, x, -472, function()
+  button(f, "New", 64, x, -512, function()
     selected = BS.NewBar(G())
     changed()
   end)
-  button(f, "Copy", 64, x + 70, -472, function()
+  button(f, "Copy", 64, x + 70, -512, function()
     if not selected then return end
     local copy = CopyTable(selected)
     copy.id, copy.name = nil, selected.name .. " copy"
@@ -619,11 +641,11 @@ local function build(parent)
     selected = copy
     changed()
   end)
-  button(f, "Delete", 66, x + 140, -472, function()
+  button(f, "Delete", 66, x + 140, -512, function()
     local i = selected and tIndexOf(G().bars, selected)
     if i then table.remove(G().bars, i); selected = nil; changed() end
   end)
-  local hint = text(f, "The top bar draws over the others. Use the arrows or drag one to reorder.", x, -508,
+  local hint = text(f, "The top bar draws over the others. Use the arrows or drag one to reorder.", x, -548,
     "GameFontDisableSmall")
   hint:SetWidth(206)
   hint:SetJustifyH("LEFT")
@@ -692,12 +714,15 @@ function BS.RefreshConfig()
     row:Show()
   end
   for i = #bars + 1, #listRows do listRows[i]:Hide() end
+  local class = G().stack.class
   f.loadNote:SetText(("Ticked bars load on %s. The library is shared by all your characters."):format(
-    UnitName("player")))
+    UnitName("player")) .. (class and ("\n|cfffbbf24Only on %s.|r"):format(
+    LOCALIZED_CLASS_NAMES_MALE and LOCALIZED_CLASS_NAMES_MALE[class] or class) or ""))
 
   local s = G().stack
   for _, sl in ipairs(groupSliders) do sl.sync() end
   f.anchor:GenerateMenu()
+  f.class:GenerateMenu()
   f.inCombat:SetChecked(s.showInCombat)
   f.outCombat:SetChecked(s.showOutOfCombat)
   f.preview:SetChecked(BS.preview == true)

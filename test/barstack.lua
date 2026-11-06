@@ -31,6 +31,7 @@ C_EncodingUtil = {
   DeserializeCBOR = function(s) return reg[tonumber(s)] end,
 }
 UnitName = function() return "Tester" end
+UnitClass = function() return "Warrior", "WARRIOR" end
 UnitExists = function(u) return u == "target" and S_target or false end
 GetRealmName = function() return "Realm" end
 GetSpecialization = function() return 1 end
@@ -83,7 +84,19 @@ assert(BS.NormalizeBar(old).size.w == 120, "and only once")
 local oldV = BS.NormalizeBar({ size = { w = 30, h = 90 }, orientation = "vertical",
   spells = { { baseSpell = 7384 }, { baseSpell = 100 }, { baseSpell = 7887 } } })
 assert(oldV.size.w == 30 and oldV.size.h == 30, "a vertical bar is cut along its height")
-assert(BS.NormalizeBar({}).size.w == 36, "a new bar starts at one 36 px icon")
+assert(BS.NormalizeBar({}).size == nil, "a new bar has no size: it takes its group's")
+-- icon size lives on the group; a bar sets its own only to differ
+local gs = BS.NormalizeGroup({ bars = { { size = { w = 40, h = 40 }, perIcon = true }, { size = { w = 40, h = 40 }, perIcon = true },
+  { size = { w = 20, h = 30 }, perIcon = true } } })
+assert(gs.stack.size.w == 40 and gs.bars[1].size == nil and gs.bars[2].size == nil, "an older group takes its first bar's size")
+assert(gs.bars[3].size.w == 20, "a bar of another size keeps it, over the group's")
+gs.stack.size.w = 50
+BS.profile = { groups = { gs } }
+assert(BS.IconSize(gs.bars[1]) == 50 and BS.IconSize(gs.bars[3]) == 20, "group size reaches the bars without their own")
+assert(BS.NormalizeGroup(gs).stack.size.w == 50 and gs.bars[3].size.w == 20, "and only once")
+BS.profile = nil
+assert(BS.NormalizeGroup({ stack = { class = "WARLOCK" } }).stack.class == "WARLOCK"
+  and BS.NormalizeGroup({ stack = { class = "../x" } }).stack.class == nil, "a group's class: a class name or none")
 
 -- storage round trip through the CVar chunks (SavedVariables missing, like on Forever)
 BarStackDB = nil
@@ -108,6 +121,13 @@ assert(BS.Loaded(proc) and BS.db.loads["Tester-Realm"][proc.id], "made here, loa
 UnitName = function() return "Alt" end
 assert(not BS.Loaded(proc), "another character has it in its list, not loaded")
 assert(#BS.LoadedBars(BS.profile.groups[1]) == 0)
+UnitName = function() return "Tester" end
+BS.profile.groups[1].stack.class = "WARLOCK"
+assert(#BS.LoadedBars(BS.profile.groups[1]) == 0, "a Warlock group loads nothing on a Warrior")
+BS.profile.groups[1].stack.class = "WARRIOR"
+assert(#BS.LoadedBars(BS.profile.groups[1]) == 1, "and does on one")
+BS.profile.groups[1].stack.class = nil
+UnitName = function() return "Alt" end
 BS.SetLoaded(proc, true)
 assert(BS.Loaded(proc), "ticked on the alt")
 BS.SetLoaded(proc, false)
@@ -284,6 +304,17 @@ assert(BS.profile.groups[1].stack.y == -220, "Position Y moves the whole stack")
 assert(saves == 0, "dragging saves nothing yet")
 offX._onOnMouseUp(offX)
 assert(saves == 1, "letting go saves")
+-- the bar's icon size is the group's until moved on the bar; then its own, till handed back
+local avatar, iconW, groupW = BS.profile.groups[1].bars[1], BS.cfg.barSliders[1], BS.cfg.groupSliders[5]
+assert(avatar.size == nil and BS.cfg.groupSliders[6], "group sliders: icon width and height")
+groupW._onOnValueChanged(groupW, 44)
+assert(BS.profile.groups[1].stack.size.w == 44 and BS.IconSize(avatar) == 44, "the group's width reaches the bar")
+iconW._onOnValueChanged(iconW, 30)
+assert(avatar.size.w == 30 and avatar.size.h == 36, "moved on the bar: its own size, height from the group")
+groupW._onOnValueChanged(groupW, 50)
+assert(BS.IconSize(avatar) == 30, "the bar's own size wins")
+BS.cfg.barSettings.groupSize._onOnClick()
+assert(avatar.size == nil and BS.IconSize(avatar) == 50, "handed back: the group's again")
 BS.Save = realSave
 BS.preview = nil -- what follows is about play, with the page closed
 local function radios(fn)
@@ -476,11 +507,11 @@ local function shown(f) return f.w * f.scale, f.h * f.scale end
 local sw_, sh_ = shown(rendFrame)
 assert(rendFrame.w == 36 and rendFrame.h == 36, "the icon keeps its own shape")
 assert(math.abs(sw_ - 36) < 0.01 and math.abs(sh_ - 36) < 0.01, "and is 36 x 36 on screen: " .. sw_)
-debuffBar.size.w, debuffBar.size.h = 40, 40
+debuffBar.size = { w = 40, h = 40 }
 realLayout()
 sw_, sh_ = shown(rendFrame)
 assert(math.abs(sh_ - 40) < 0.01, "a 40 px icon is 40 px on screen: " .. sh_)
-debuffBar.size.w, debuffBar.size.h = 36, 36
+debuffBar.size = nil
 local three = { size = { w = 40, h = 30 }, icons = { 1, 2, 3 } }
 assert(select(1, BS.BarSize(three)) == 120 and select(2, BS.BarSize(three)) == 30, "the bar is three icons wide")
 three.orientation = "vertical"
